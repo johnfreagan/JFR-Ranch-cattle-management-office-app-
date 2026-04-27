@@ -1,0 +1,3114 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JFR Ranch Co. Ltd. — Cattle Office</title>
+    <style>
+        :root {
+            --bg: #f5f5f0;
+            --surface: #ffffff;
+            --border: #d4d2c8;
+            --text: #2c2c2a;
+            --text-muted: #73726c;
+            --accent: #5a3a1a;
+            --accent-hover: #4a2f15;
+            --danger: #993333;
+            --success: #3b6d11;
+            --warn: #b87800;
+            --radius: 8px;
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            color: var(--text);
+            background: var(--bg);
+            min-height: 100vh;
+        }
+        h1, h2, h3, h4 { font-weight: 500; margin: 0; }
+        h1 { font-size: 22px; }
+        h2 { font-size: 18px; }
+        h3 { font-size: 16px; }
+        h4 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header .brand { display: flex; align-items: baseline; gap: 12px; }
+        header .brand .ranch { font-size: 18px; font-weight: 500; }
+        header .brand .app { color: var(--text-muted); font-size: 14px; }
+        header .user-info { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+        header .role-badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            background: var(--accent);
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        header .role-badge.office { background: var(--text-muted); }
+        header .role-badge.crew { background: #888; }
+        header .nav-tabs { display: flex; gap: 4px; }
+        header .nav-tab {
+            padding: 8px 14px;
+            border-radius: var(--radius);
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            font: inherit;
+            font-size: 14px;
+            margin: 0;
+        }
+        header .nav-tab:hover { background: #ebeae3; color: var(--text); }
+        header .nav-tab.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        header .nav-tab.active:hover { background: var(--accent-hover); color: white; }
+
+        main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+        button, .btn {
+            font: inherit;
+            padding: 8px 14px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            transition: background 120ms;
+            margin-left: 6px;
+        }
+        button:first-child { margin-left: 0; }
+        button:hover, .btn:hover { background: #ebeae3; }
+        button.primary, .btn.primary {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        button.primary:hover, .btn.primary:hover { background: var(--accent-hover); }
+        button.danger { background: var(--surface); color: var(--danger); border-color: var(--danger); }
+        button.danger:hover { background: #fbeaea; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 14px;
+        }
+        label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font: inherit;
+            background: var(--surface);
+            color: var(--text);
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        textarea { resize: vertical; min-height: 60px; }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 18px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            text-align: left;
+            padding: 10px 8px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+        th {
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 11px;
+        }
+        tr:last-child td { border-bottom: none; }
+        tr.clickable { cursor: pointer; }
+        tr.clickable:hover { background: #fafaf6; }
+        tr.closed-row { color: var(--text-muted); }
+        tr.test-row { color: #999; font-style: italic; }
+        tr.test-row td strong { font-weight: 400; }
+        td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        td.muted { color: var(--text-muted); }
+
+        .login-container {
+            max-width: 360px;
+            margin: 80px auto 0;
+            padding: 32px 28px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+        .login-container h1 { margin-bottom: 4px; }
+        .login-container .subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+        .login-container .form-row { margin-bottom: 14px; }
+        .login-container button { width: 100%; margin-top: 8px; margin-left: 0; }
+
+        .alert {
+            padding: 10px 14px;
+            border-radius: var(--radius);
+            margin-bottom: 14px;
+            font-size: 14px;
+        }
+        .alert.error { background: #fbeaea; color: var(--danger); border: 1px solid #f0c0c0; }
+        .alert.success { background: #e8f3dc; color: var(--success); border: 1px solid #c0deaa; }
+        .alert.info { background: #f0f0e8; color: var(--text-muted); border: 1px solid var(--border); }
+
+        .empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .modal-backdrop.show { display: flex; }
+        .modal {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 24px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal h2 { margin-bottom: 14px; }
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+        }
+        @media (max-width: 1000px) {
+            .detail-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 700px) {
+            .detail-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        .stat {
+            padding: 12px 14px;
+            background: #fafaf6;
+            border-radius: var(--radius);
+        }
+        .stat .label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat .value { font-size: 20px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+        .stat .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+        .breadcrumb { color: var(--text-muted); margin-bottom: 14px; font-size: 14px; }
+        .breadcrumb a { color: var(--accent); text-decoration: none; cursor: pointer; }
+        .breadcrumb a:hover { text-decoration: underline; }
+
+        .closeout-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        @media (max-width: 800px) { .closeout-layout { grid-template-columns: 1fr; } }
+        .closeout-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .results-panel { background: #fafaf6; border-radius: var(--radius); padding: 14px; }
+        .closed-banner {
+            background: #fff7e0;
+            color: var(--warn);
+            border: 1px solid #f0d890;
+            padding: 8px 14px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            margin-bottom: 14px;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div id="loginScreen">
+    <div class="login-container">
+        <h1>JFR Ranch Co. Ltd.</h1>
+        <p class="subtitle">Cattle office sign-in</p>
+        <div id="loginAlert"></div>
+        <form id="loginForm">
+            <div class="form-row">
+                <label for="loginEmail">Email</label>
+                <input type="email" id="loginEmail" required autocomplete="email">
+            </div>
+            <div class="form-row">
+                <label for="loginPassword">Password</label>
+                <input type="password" id="loginPassword" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="primary" id="loginBtn">Sign in</button>
+        </form>
+    </div>
+</div>
+
+<div id="appShell" class="hidden">
+    <header>
+        <div class="brand">
+            <span class="ranch">JFR Ranch Co. Ltd.</span>
+            <span class="app">Cattle Office</span>
+        </div>
+        <div class="nav-tabs">
+            <button class="nav-tab active" id="navLots">Lots</button>
+            <button class="nav-tab" id="navMeds">Medications</button>
+            <button class="nav-tab" id="navProtocols">Protocols</button>
+            <button class="nav-tab" id="navLocations">Locations</button>
+        </div>
+        <div class="user-info">
+            <span id="userName"></span>
+            <span id="userRole" class="role-badge"></span>
+            <button id="logoutBtn">Sign out</button>
+        </div>
+    </header>
+
+    <main>
+        <div id="globalAlert"></div>
+
+        <div id="lotsView">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Lots</h2>
+                    <button class="primary" id="newLotBtn">+ New lot</button>
+                </div>
+                <div id="lotsContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <div id="detailView" class="hidden">
+            <p class="breadcrumb"><a id="backToLots">← All lots</a></p>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="detailLotNumber">—</h2>
+                    <div>
+                        <button id="duplicateLotBtn" title="Create a new lot pre-filled with this lot's settings">⎘ Duplicate</button>
+                        <button id="closeLotBtn">Close lot</button>
+                        <button id="editLotBtn">Edit lot</button>
+                        <button id="newInvoiceBtn" class="primary">+ Add invoice</button>
+                    </div>
+                </div>
+                <div id="closedBanner" class="closed-banner hidden"></div>
+                <div id="lotMeta" class="muted" style="margin-bottom: 16px;"></div>
+                <div class="detail-grid" id="lotStats"></div>
+            </div>
+
+            <div class="card">
+                <h3 style="margin-bottom: 12px;">Invoices</h3>
+                <div id="invoicesContent"><div class="empty">Loading…</div></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Closeout calculator</h3>
+                    <button id="saveAssumptionsBtn" class="primary hidden">Save to lot</button>
+                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
+                    Adjust any field to see the projection update live. Click "Save to lot" to write changes back.
+                </p>
+                <div id="closeoutContent"><div class="empty">Loading…</div></div>
+            </div>
+
+            <div class="card hidden" id="notesCard">
+                <h3 style="margin-bottom: 8px;">Notes</h3>
+                <p id="notesContent" class="muted"></p>
+            </div>
+        </div>
+
+        <!-- Medications view -->
+        <div id="medsView" class="hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Medications</h2>
+                    <div>
+                        <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
+                            <input type="checkbox" id="showInactiveMeds" style="width:auto; vertical-align: middle;"> Show inactive
+                        </label>
+                        <button class="primary" id="newMedBtn">+ New medication</button>
+                    </div>
+                </div>
+                <div id="medsContent">
+                    <div class="empty">Loading…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Protocols view -->
+        <div id="protocolsView" class="hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Protocols</h2>
+                    <div>
+                        <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
+                            <input type="checkbox" id="showInactiveProtos" style="width:auto; vertical-align: middle;"> Show retired
+                        </label>
+                        <button class="primary" id="newProtocolBtn">+ New protocol</button>
+                    </div>
+                </div>
+                <div id="protocolsContent">
+                    <div class="empty">Loading…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Protocol detail view -->
+        <div id="protocolDetailView" class="hidden">
+            <p class="breadcrumb"><a id="backToProtocols">← All protocols</a></p>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="protoDetailName">—</h2>
+                    <div>
+                        <button id="duplicateProtocolBtn" title="Create a new protocol pre-filled from this one">⎘ Duplicate</button>
+                        <button id="archiveProtocolBtn">Archive</button>
+                        <button id="editProtocolBtn" class="primary">Edit protocol</button>
+                    </div>
+                </div>
+                <div id="protoArchivedBanner" class="closed-banner hidden"></div>
+                <div id="protoMeta" class="muted" style="margin-bottom: 16px;"></div>
+                <div id="protoNotes" class="muted" style="margin-bottom: 8px;"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Medications</h3>
+                    <div>
+                        <label for="protoSampleWt" style="display:inline-block; font-size: 13px; margin-right: 8px;">Preview at:</label>
+                        <input type="number" id="protoSampleWt" style="display:inline-block; width: 80px; padding: 4px 8px;" value="300"> lb
+                    </div>
+                </div>
+                <div id="protoMedsContent">
+                    <div class="empty">No medications.</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 style="margin-bottom: 12px;">Steps</h3>
+                <div id="protoStepsContent">
+                    <div class="empty">No additional steps.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Locations view -->
+        <div id="locationsView" class="hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Locations</h2>
+                    <div>
+                        <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
+                            <input type="checkbox" id="showInactiveLocations" style="width:auto; vertical-align: middle;"> Show retired
+                        </label>
+                        <button id="manageForageBtn">Forage types</button>
+                        <button id="newRanchBtn">+ Ranch</button>
+                        <button class="primary" id="newPastureBtn">+ Pasture</button>
+                    </div>
+                </div>
+                <div id="locationsContent">
+                    <div class="empty">Loading…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pasture detail view -->
+        <div id="pastureDetailView" class="hidden">
+            <p class="breadcrumb"><a id="backToLocations">← All locations</a></p>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="pastureDetailName">—</h2>
+                    <div>
+                        <button id="archivePastureBtn">Archive</button>
+                        <button id="editPastureBtn" class="primary">Edit</button>
+                    </div>
+                </div>
+                <div id="pastureArchivedBanner" class="closed-banner hidden"></div>
+                <div id="pastureMeta" class="muted" style="margin-bottom: 16px;"></div>
+                <div class="detail-grid" id="pastureStats"></div>
+            </div>
+
+            <div class="card">
+                <h3 style="margin-bottom: 12px;">Currently here</h3>
+                <div id="pastureCurrentLots">
+                    <div class="empty">Nothing in this pasture right now.</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 style="margin-bottom: 12px;">Maintenance dates</h3>
+                <div id="pastureMaintenance"></div>
+            </div>
+
+            <div class="card hidden" id="pastureNotesCard">
+                <h3 style="margin-bottom: 8px;">Notes</h3>
+                <p id="pastureNotesContent" class="muted"></p>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Medication modal -->
+<div class="modal-backdrop" id="medModal">
+    <div class="modal">
+        <h2 id="medModalTitle">New medication</h2>
+        <div id="medModalAlert"></div>
+        <form id="medForm">
+            <input type="hidden" id="medId">
+
+            <!-- Identity -->
+            <div class="form-grid" style="margin-bottom: 16px;">
+                <div>
+                    <label for="medName">Name *</label>
+                    <input type="text" id="medName" required placeholder="e.g. Draxxin">
+                </div>
+                <div>
+                    <label for="medCategory">Generic category *</label>
+                    <input type="text" id="medCategory" required placeholder="e.g. Antibiotic" list="medCategoryList">
+                    <datalist id="medCategoryList">
+                        <option value="Antibiotic">
+                        <option value="Modified Live Viral Vaccine">
+                        <option value="Killed Vaccine">
+                        <option value="Clostridial Vaccine">
+                        <option value="Mycoplasma Vaccine">
+                        <option value="Anthelmintic (Dewormer)">
+                        <option value="External Parasiticide">
+                        <option value="Implant">
+                        <option value="Anti-Inflammatory">
+                        <option value="Vitamin/Mineral">
+                        <option value="Other">
+                    </datalist>
+                </div>
+            </div>
+
+            <!-- Dose mode -->
+            <div style="margin-bottom: 14px;">
+                <label for="medDoseMode">Dose mode *</label>
+                <select id="medDoseMode" required>
+                    <option value="flat">Flat — same dose for every animal</option>
+                    <option value="per_weight">Per weight — rate × body weight</option>
+                    <option value="band">Band — different dose by weight range (rare)</option>
+                </select>
+                <div class="muted" style="font-size: 12px; margin-top: 4px;" id="medDoseModeHint"></div>
+            </div>
+
+            <!-- Flat dose fields -->
+            <div id="medDoseFlatBlock" class="form-grid" style="margin-bottom: 16px;">
+                <div>
+                    <label for="medFlatAmount">Dose amount</label>
+                    <input type="number" step="any" id="medFlatAmount" placeholder="e.g. 2">
+                </div>
+                <div>
+                    <label for="medFlatUnit">Unit</label>
+                    <input type="text" id="medFlatUnit" placeholder="e.g. cc" list="medUnitList">
+                </div>
+            </div>
+
+            <!-- Per-weight dose fields -->
+            <div id="medDoseWeightBlock" class="form-grid hidden" style="margin-bottom: 16px;">
+                <div>
+                    <label for="medRate">Rate per basis</label>
+                    <input type="number" step="0.0001" id="medRate" placeholder="e.g. 1.1">
+                </div>
+                <div>
+                    <label for="medBasis">Per (lb)</label>
+                    <input type="number" id="medBasis" value="100" placeholder="100">
+                </div>
+                <div>
+                    <label for="medUnit">Unit (display)</label>
+                    <input type="text" id="medUnit" placeholder="e.g. cc / 100 lb" list="medUnitList">
+                </div>
+                <div style="grid-column: span 1;">
+                    <label>Preview at <span id="medPreviewWt">300</span> lb</label>
+                    <div style="padding: 8px 10px; background: #fafaf6; border-radius: var(--radius); font-variant-numeric: tabular-nums; font-weight: 500;" id="medPreviewDose">—</div>
+                </div>
+            </div>
+
+            <!-- Band placeholder -->
+            <div id="medDoseBandBlock" class="hidden" style="margin-bottom: 16px;">
+                <div class="alert info">
+                    Band-mode entry isn't built out yet. Save with another mode for now and we'll add band UI when you actually need it.
+                </div>
+            </div>
+
+            <datalist id="medUnitList">
+                <option value="cc">
+                <option value="cc / hd">
+                <option value="cc / 100 lb">
+                <option value="oz / 100 lb">
+                <option value="dose / hd">
+                <option value="oz">
+                <option value="tablet">
+                <option value="g">
+            </datalist>
+
+            <!-- Withdrawal + cost + active -->
+            <div class="form-grid" style="margin-bottom: 16px;">
+                <div>
+                    <label for="medWithdrawal">Slaughter withdrawal (days) *</label>
+                    <input type="number" id="medWithdrawal" required min="0" placeholder="e.g. 18">
+                </div>
+                <div>
+                    <label for="medCost">Cost / head ($)</label>
+                    <input type="number" step="0.0001" id="medCost" placeholder="optional">
+                </div>
+                <div>
+                    <label for="medRoundUp">Round up to nearest</label>
+                    <input type="number" step="0.0001" id="medRoundUp" value="1" placeholder="1">
+                </div>
+                <div>
+                    <label for="medActive">Status</label>
+                    <select id="medActive">
+                        <option value="true">Active (visible in pickers)</option>
+                        <option value="false">Inactive (hidden from pickers)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label for="medNotes">Notes</label>
+                <textarea id="medNotes" placeholder="Storage, label notes, etc."></textarea>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="medCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="medSaveBtn">Save medication</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Protocol modal (create/edit) -->
+<div class="modal-backdrop" id="protocolModal">
+    <div class="modal" style="max-width: 760px;">
+        <h2 id="protocolModalTitle">New protocol</h2>
+        <div id="protocolModalAlert"></div>
+        <form id="protocolForm">
+            <input type="hidden" id="protocolId">
+            <input type="hidden" id="protocolMode">
+            <input type="hidden" id="protocolSeedId">
+
+            <div class="form-grid" style="margin-bottom: 16px;">
+                <div>
+                    <label for="protoName">Name *</label>
+                    <input type="text" id="protoName" required placeholder="e.g. Steers/Bulls Receiving">
+                </div>
+                <div>
+                    <label for="protoVersion">Version label</label>
+                    <input type="text" id="protoVersion" placeholder="e.g. v1, v2 (Resflor sub)">
+                </div>
+                <div>
+                    <label for="protoType">Type *</label>
+                    <select id="protoType" required>
+                        <option value="">—</option>
+                        <option value="receiving">Receiving</option>
+                        <option value="first_pull">First Pull</option>
+                        <option value="second_pull">Second Pull</option>
+                        <option value="revaccination">Revaccination</option>
+                        <option value="implant">Implant</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="protoSexClass">Sex / class</label>
+                    <select id="protoSexClass">
+                        <option value="">— All classes —</option>
+                        <option value="steer_bulls">Steer/Bulls</option>
+                        <option value="steers">Steers</option>
+                        <option value="heifers">Heifers</option>
+                        <option value="mixed">Mixed</option>
+                        <option value="bulls">Bulls</option>
+                        <option value="cutting_bulls">Cutting Bulls</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="protoEffectiveFrom">Effective from</label>
+                    <input type="date" id="protoEffectiveFrom">
+                </div>
+                <div>
+                    <label for="protoActive">Status</label>
+                    <select id="protoActive">
+                        <option value="true">Active</option>
+                        <option value="false">Retired</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 16px;">
+                <label for="protoFormNotes">Notes</label>
+                <textarea id="protoFormNotes" placeholder="Anything worth saying about this protocol"></textarea>
+            </div>
+
+            <!-- Medications block -->
+            <div style="border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h3>Medications</h3>
+                    <button type="button" id="addProtoMedBtn">+ Add medication</button>
+                </div>
+                <div id="protoMedsList"></div>
+            </div>
+
+            <!-- Steps block -->
+            <div style="border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h3>Steps (non-medication)</h3>
+                    <button type="button" id="addProtoStepBtn">+ Add step</button>
+                </div>
+                <div id="protoStepsList"></div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="protocolCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="protocolSaveBtn">Save protocol</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Sub-modal: add or edit a protocol medication -->
+<div class="modal-backdrop" id="protoMedModal" style="z-index: 200;">
+    <div class="modal" style="max-width: 540px;">
+        <h2 id="protoMedModalTitle">Add medication</h2>
+        <div id="protoMedModalAlert"></div>
+        <form id="protoMedForm">
+            <input type="hidden" id="protoMedFormIdx">
+
+            <div style="margin-bottom: 14px;">
+                <label for="protoMedSelect">Medication *</label>
+                <select id="protoMedSelect" required>
+                    <option value="">— Pick a medication —</option>
+                </select>
+                <div class="muted" style="font-size: 12px; margin-top: 4px;" id="protoMedSelectHint"></div>
+            </div>
+
+            <div style="margin-bottom: 14px;">
+                <label for="protoMedNotes">Notes (optional, shown to crew)</label>
+                <textarea id="protoMedNotes" placeholder="e.g. give 1 hour before transport"></textarea>
+            </div>
+
+            <details style="margin-bottom: 14px;">
+                <summary style="cursor: pointer; color: var(--text-muted); font-size: 13px;">
+                    Dose override (optional — leave empty to use medication's default)
+                </summary>
+                <div id="protoMedOverrideBlock" style="margin-top: 10px; padding: 10px; background: #fafaf6; border-radius: var(--radius);">
+                    <div class="muted" style="font-size: 12px; margin-bottom: 8px;" id="protoMedOverrideHint">
+                        Pick a medication first to see override options.
+                    </div>
+                    <div id="protoMedOverrideFlat" class="hidden" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label style="font-size: 12px;">Override flat dose</label>
+                            <input type="number" step="any" id="protoMedOverrideFlatDose" placeholder="leave blank for default">
+                        </div>
+                        <div style="display: flex; align-items: end; padding-bottom: 8px;">
+                            <span class="muted" style="font-size: 13px;" id="protoMedOverrideFlatUnit">cc</span>
+                        </div>
+                    </div>
+                    <div id="protoMedOverrideWeight" class="hidden" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label style="font-size: 12px;">Override rate</label>
+                            <input type="number" step="any" id="protoMedOverrideRate" placeholder="leave blank for default">
+                        </div>
+                        <div style="display: flex; align-items: end; padding-bottom: 8px;">
+                            <span class="muted" style="font-size: 13px;" id="protoMedOverrideRateUnit">per 100 lb</span>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <div class="modal-actions">
+                <button type="button" id="protoMedCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="protoMedSaveBtn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Sub-modal: add or edit a protocol step -->
+<div class="modal-backdrop" id="protoStepModal" style="z-index: 200;">
+    <div class="modal" style="max-width: 540px;">
+        <h2 id="protoStepModalTitle">Add step</h2>
+        <div id="protoStepModalAlert"></div>
+        <form id="protoStepForm">
+            <input type="hidden" id="protoStepFormIdx">
+
+            <div class="form-grid" style="margin-bottom: 14px;">
+                <div>
+                    <label for="protoStepType">Step type *</label>
+                    <select id="protoStepType" required>
+                        <option value="">—</option>
+                        <option value="brand">Brand</option>
+                        <option value="castrate">Castrate</option>
+                        <option value="dehorn">Dehorn</option>
+                        <option value="tag_id">Tag / ID</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="protoStepDesc">Description *</label>
+                    <input type="text" id="protoStepDesc" required placeholder="e.g. Left Hip, 7L">
+                </div>
+            </div>
+
+            <div style="margin-bottom: 14px;">
+                <label for="protoStepCondNote">Conditional / seasonal note (optional)</label>
+                <input type="text" id="protoStepCondNote" placeholder="e.g. Spring/Summer only · If bleeding give 10cc Vit K">
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="protoStepCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="protoStepSaveBtn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Ranch modal -->
+<div class="modal-backdrop" id="ranchModal">
+    <div class="modal" style="max-width: 480px;">
+        <h2 id="ranchModalTitle">New ranch</h2>
+        <div id="ranchModalAlert"></div>
+        <form id="ranchForm">
+            <input type="hidden" id="ranchId">
+            <div class="form-grid" style="margin-bottom: 14px;">
+                <div>
+                    <label for="ranchName">Name *</label>
+                    <input type="text" id="ranchName" required placeholder="e.g. Home Place">
+                </div>
+                <div>
+                    <label for="ranchOwner">Owner / type</label>
+                    <input type="text" id="ranchOwner" placeholder="e.g. Reagan, Lease, etc.">
+                </div>
+            </div>
+            <div style="margin-bottom: 14px;">
+                <label for="ranchActive">Status</label>
+                <select id="ranchActive">
+                    <option value="true">Active</option>
+                    <option value="false">Retired</option>
+                </select>
+            </div>
+            <div>
+                <label for="ranchNotes">Notes</label>
+                <textarea id="ranchNotes"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="ranchCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="ranchSaveBtn">Save ranch</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Pasture modal -->
+<div class="modal-backdrop" id="pastureModal">
+    <div class="modal" style="max-width: 640px;">
+        <h2 id="pastureModalTitle">New pasture</h2>
+        <div id="pastureModalAlert"></div>
+        <form id="pastureForm">
+            <input type="hidden" id="pastureId">
+
+            <div class="form-grid" style="margin-bottom: 14px;">
+                <div>
+                    <label for="pastureRanch">Ranch *</label>
+                    <select id="pastureRanch" required>
+                        <option value="">— Pick a ranch —</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="pastureName">Pasture name *</label>
+                    <input type="text" id="pastureName" required placeholder="e.g. North 40">
+                </div>
+                <div>
+                    <label for="pastureAcres">Acres</label>
+                    <input type="number" step="any" id="pastureAcres" placeholder="e.g. 80">
+                </div>
+                <div>
+                    <label for="pastureCapacity">Head capacity</label>
+                    <input type="number" id="pastureCapacity" placeholder="soft cap">
+                </div>
+                <div>
+                    <label for="pastureForage">Forage type</label>
+                    <select id="pastureForage">
+                        <option value="">—</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="pastureCondition">Forage condition (1-5)</label>
+                    <input type="number" id="pastureCondition" min="1" max="5" placeholder="1=poor, 5=excellent">
+                </div>
+            </div>
+
+            <h4 style="margin-top: 8px; margin-bottom: 10px;">Maintenance dates</h4>
+            <div class="form-grid" style="margin-bottom: 14px;">
+                <div>
+                    <label for="pastureLastGrazed">Last grazed</label>
+                    <input type="date" id="pastureLastGrazed">
+                </div>
+                <div>
+                    <label for="pastureLastRested">Last rested</label>
+                    <input type="date" id="pastureLastRested">
+                </div>
+                <div>
+                    <label for="pastureLastFert">Last fertilized</label>
+                    <input type="date" id="pastureLastFert">
+                </div>
+                <div>
+                    <label for="pastureLastSprayed">Last sprayed</label>
+                    <input type="date" id="pastureLastSprayed">
+                </div>
+                <div>
+                    <label for="pastureLastBurned">Last burned</label>
+                    <input type="date" id="pastureLastBurned">
+                </div>
+                <div>
+                    <label for="pastureActive">Status</label>
+                    <select id="pastureActive">
+                        <option value="true">Active</option>
+                        <option value="false">Retired</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label for="pastureNotes">Notes</label>
+                <textarea id="pastureNotes"></textarea>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="pastureCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="pastureSaveBtn">Save pasture</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Forage types manager modal -->
+<div class="modal-backdrop" id="forageModal">
+    <div class="modal" style="max-width: 720px;">
+        <div class="card-header" style="margin-bottom: 14px;">
+            <h2>Forage types</h2>
+            <button type="button" id="forageAddBtn">+ Add type</button>
+        </div>
+        <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
+            Reference list used when setting up pastures. Defaults below are optional and will help with future projections.
+        </p>
+        <div id="forageContent">
+            <div class="empty">Loading…</div>
+        </div>
+        <div class="modal-actions">
+            <button type="button" id="forageCloseBtn" class="primary">Done</button>
+        </div>
+    </div>
+</div>
+
+<!-- Forage type edit modal -->
+<div class="modal-backdrop" id="forageEditModal" style="z-index: 200;">
+    <div class="modal" style="max-width: 480px;">
+        <h2 id="forageEditTitle">Edit forage type</h2>
+        <div id="forageEditAlert"></div>
+        <form id="forageEditForm">
+            <input type="hidden" id="forageEditId">
+            <div class="form-grid" style="margin-bottom: 14px;">
+                <div>
+                    <label for="forageEditName">Name *</label>
+                    <input type="text" id="forageEditName" required>
+                </div>
+                <div>
+                    <label for="forageEditActive">Status</label>
+                    <select id="forageEditActive">
+                        <option value="true">Active</option>
+                        <option value="false">Retired</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="forageEditAdg">Typical ADG (lb/day)</label>
+                    <input type="number" step="any" id="forageEditAdg" placeholder="optional">
+                </div>
+                <div>
+                    <label for="forageEditHpa">Typical head/acre</label>
+                    <input type="number" step="any" id="forageEditHpa" placeholder="optional">
+                </div>
+                <div>
+                    <label for="forageEditLpa">Typical lbs/acre</label>
+                    <input type="number" step="any" id="forageEditLpa" placeholder="optional">
+                </div>
+            </div>
+            <div>
+                <label for="forageEditNotes">Notes</label>
+                <textarea id="forageEditNotes"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="forageEditCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="forageEditSaveBtn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="lotModal">
+    <div class="modal">
+        <h2 id="lotModalTitle">New lot</h2>
+        <div id="lotModalAlert"></div>
+        <form id="lotForm">
+            <input type="hidden" id="lotId">
+            <div class="form-grid" style="margin-bottom: 16px;">
+                <div>
+                    <label for="lotNumber">Lot number *</label>
+                    <input type="text" id="lotNumber" required>
+                </div>
+                <div>
+                    <label for="arrivalDate">Arrival date *</label>
+                    <input type="date" id="arrivalDate" required>
+                </div>
+                <div>
+                    <label for="source">Source</label>
+                    <input type="text" id="source" placeholder="e.g. Joplin Regional">
+                </div>
+                <div>
+                    <label for="sexClass">Sex / class</label>
+                    <select id="sexClass">
+                        <option value="">—</option>
+                        <option value="steer_bulls">Steer/Bulls</option>
+                        <option value="steers">Steers</option>
+                        <option value="heifers">Heifers</option>
+                        <option value="mixed">Mixed</option>
+                        <option value="bulls">Bulls</option>
+                        <option value="cutting_bulls">Cutting Bulls</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="startTag">Start tag</label>
+                    <input type="number" id="startTag">
+                </div>
+                <div>
+                    <label for="endTag">End tag</label>
+                    <input type="number" id="endTag">
+                </div>
+                <div>
+                    <label for="targetAdg">Target ADG (lb/day)</label>
+                    <input type="number" id="targetAdg" step="0.01" placeholder="e.g. 2.50">
+                </div>
+            </div>
+            <div>
+                <label for="lotNotes">Notes</label>
+                <textarea id="lotNotes"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="lotCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="lotSaveBtn">Save lot</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="invoiceModal">
+    <div class="modal">
+        <h2>Add invoice</h2>
+        <p class="muted" id="invoiceModalLot" style="margin-bottom: 14px;"></p>
+        <div id="invoiceModalAlert"></div>
+        <form id="invoiceForm">
+            <div class="form-grid" style="margin-bottom: 16px;">
+                <div>
+                    <label for="invoiceDate">Invoice date *</label>
+                    <input type="date" id="invoiceDate" required>
+                </div>
+                <div>
+                    <label for="invoiceNumber">Invoice #</label>
+                    <input type="text" id="invoiceNumber">
+                </div>
+                <div>
+                    <label for="invHeadCount">Head count *</label>
+                    <input type="number" id="invHeadCount" required min="1">
+                </div>
+                <div>
+                    <label for="invTotalWeight">Total weight (lbs) *</label>
+                    <input type="number" id="invTotalWeight" required step="0.01" min="0.01">
+                </div>
+                <div>
+                    <label for="invTotalCost">Total cost ($) *</label>
+                    <input type="number" id="invTotalCost" required step="0.01" min="0.01">
+                </div>
+            </div>
+            <div>
+                <label for="invoiceNotes">Notes</label>
+                <textarea id="invoiceNotes"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="invoiceCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="invoiceSaveBtn">Save invoice</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+    const SUPABASE_URL = 'https://xpfmebdzcxorvwikfvtj.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhwZm1lYmR6Y3hvcnZ3aWtmdnRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMzgwNDcsImV4cCI6MjA5MjcxNDA0N30.IUFAj1F8YHpkupklqvr6h6_WY0cHxgU0Va5-OXPZ1u4';
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let currentUser = null, currentProfile = null, currentLot = null, currentStatus = null;
+    const $ = id => document.getElementById(id);
+
+    function showAlert(id, msg, type='error'){
+        const el=$(id); if(!el) return;
+        el.innerHTML=`<div class="alert ${type}">${escapeHtml(msg)}</div>`;
+        if(type==='success') setTimeout(()=>{el.innerHTML='';},3000);
+    }
+    function clearAlert(id){const el=$(id); if(el) el.innerHTML='';}
+    function escapeHtml(s){if(s==null) return '';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+    function fmtMoney(n){if(n==null||isNaN(n)) return '—';return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+    function fmtNum(n,d=0){if(n==null||isNaN(n)) return '—';return Number(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
+    function fmtDate(d){if(!d) return '—';return new Date(d).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});}
+    function showModal(id){$(id).classList.add('show');}
+    function hideModal(id){$(id).classList.remove('show');}
+    function formatSexClass(v){if(!v) return '—';const m={steer_bulls:'Steer/Bulls',steers:'Steers',heifers:'Heifers',mixed:'Mixed',bulls:'Bulls',cutting_bulls:'Cutting Bulls'};return m[v]||v;}
+
+    // ---- AUTH ----
+    async function checkSession(){
+        const {data:{session}}=await supabase.auth.getSession();
+        if(session) await onLoggedIn(session.user); else showLoginScreen();
+    }
+    async function onLoggedIn(user){
+        currentUser=user;
+        const {data:profile,error}=await supabase.from('user_profiles').select('*').eq('id',user.id).single();
+        if(error||!profile){showAlert('loginAlert','Could not load your profile.');await supabase.auth.signOut();return;}
+        currentProfile=profile;
+        $('userName').textContent=profile.full_name;
+        $('userRole').textContent=profile.role;
+        $('userRole').className='role-badge '+profile.role;
+        $('loginScreen').classList.add('hidden');
+        $('appShell').classList.remove('hidden');
+        $('navLots').classList.add('active');
+        $('navMeds').classList.remove('active');
+        $('navProtocols').classList.remove('active');
+        $('navLocations').classList.remove('active');
+        $('medsView').classList.add('hidden');
+        $('protocolsView').classList.add('hidden');
+        $('protocolDetailView').classList.add('hidden');
+        $('locationsView').classList.add('hidden');
+        $('pastureDetailView').classList.add('hidden');
+        showLotsList();
+    }
+    function showLoginScreen(){
+        currentUser=null;currentProfile=null;
+        $('appShell').classList.add('hidden');
+        $('loginScreen').classList.remove('hidden');
+        $('loginEmail').value='';$('loginPassword').value='';
+    }
+    $('loginForm').addEventListener('submit',async e=>{
+        e.preventDefault();clearAlert('loginAlert');$('loginBtn').disabled=true;
+        const {data,error}=await supabase.auth.signInWithPassword({email:$('loginEmail').value.trim(),password:$('loginPassword').value});
+        $('loginBtn').disabled=false;
+        if(error){showAlert('loginAlert',error.message);return;}
+        await onLoggedIn(data.user);
+    });
+    $('logoutBtn').addEventListener('click',async()=>{await supabase.auth.signOut();showLoginScreen();});
+
+    // ---- LOTS LIST ----
+    async function showLotsList(){
+        $('detailView').classList.add('hidden');
+        $('lotsView').classList.remove('hidden');
+        await loadLots();
+    }
+    async function loadLots(){
+        $('lotsContent').innerHTML='<div class="empty">Loading…</div>';
+        const {data,error}=await supabase.from('lot_status').select('*').order('arrival_date',{ascending:false});
+        if(error){$('lotsContent').innerHTML=`<div class="alert error">Error: ${escapeHtml(error.message)}</div>`;return;}
+        if(!data||data.length===0){$('lotsContent').innerHTML='<div class="empty">No lots yet. Click "+ New lot" to start.</div>';return;}
+        const rows=data.map(l=>{
+            const isTest = (l.lot_number || '').toUpperCase().startsWith('TEST_') || (l.lot_number || '').toUpperCase().startsWith('TEST-');
+            const classes = ['clickable'];
+            if (l.closed_at) classes.push('closed-row');
+            if (isTest) classes.push('test-row');
+            return `
+            <tr class="${classes.join(' ')}" data-lot-id="${l.lot_id}">
+                <td><strong>${escapeHtml(l.lot_number)}</strong></td>
+                <td>${fmtDate(l.arrival_date)}</td>
+                <td>${escapeHtml(l.source||'—')}</td>
+                <td>${formatSexClass(l.sex_class)}</td>
+                <td class="num">${fmtNum(l.head_in)}</td>
+                <td class="num">${fmtNum(l.head_current)}</td>
+                <td class="num">${l.head_dead>0?fmtNum(l.head_dead):'—'}</td>
+                <td class="num">${fmtNum(l.days_on_feed)}</td>
+                <td class="num">${l.avg_weight_in?fmtNum(l.avg_weight_in,1):'—'}</td>
+                <td class="num">${l.avg_cost_per_lb?'$'+Number(l.avg_cost_per_lb).toFixed(4):'—'}</td>
+                <td class="num">${fmtMoney(l.avg_cost_per_head)}</td>
+                <td>${l.closed_at?'<span class="muted">closed</span>':'<span style="color: var(--success);">open</span>'}</td>
+            </tr>`;
+        }).join('');
+        $('lotsContent').innerHTML=`
+            <table>
+                <thead><tr>
+                    <th>Lot #</th><th>Arrived</th><th>Source</th><th>Class</th>
+                    <th class="num">Head in</th><th class="num">Head now</th>
+                    <th class="num">Dead</th><th class="num">DOF</th>
+                    <th class="num">Avg Wt</th><th class="num">$/Lb</th>
+                    <th class="num">$/Head</th><th>Status</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+        $('lotsContent').querySelectorAll('tr.clickable').forEach(r=>r.addEventListener('click',()=>showLotDetail(r.dataset.lotId)));
+    }
+
+    // ---- LOT DETAIL ----
+    async function showLotDetail(lotId){
+        $('lotsView').classList.add('hidden');
+        $('detailView').classList.remove('hidden');
+        $('lotStats').innerHTML='';
+        $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
+        $('closeoutContent').innerHTML='<div class="empty">Loading…</div>';
+
+        const [lotRes,statusRes,invoicesRes]=await Promise.all([
+            supabase.from('lots').select('*').eq('id',lotId).single(),
+            supabase.from('lot_status').select('*').eq('lot_id',lotId).single(),
+            supabase.from('invoices').select('*').eq('lot_id',lotId).order('invoice_date',{ascending:true})
+        ]);
+
+        if(lotRes.error||statusRes.error){
+            showAlert('globalAlert','Failed to load lot: '+(lotRes.error?.message||statusRes.error?.message));
+            showLotsList();return;
+        }
+
+        currentLot=lotRes.data;
+        currentStatus=statusRes.data;
+        const invoices=invoicesRes.data||[];
+
+        $('detailLotNumber').textContent=currentLot.lot_number;
+        $('lotMeta').textContent=[
+            `Arrived ${fmtDate(currentLot.arrival_date)}`,
+            currentLot.source?`from ${currentLot.source}`:null,
+            formatSexClass(currentLot.sex_class)!=='—'?formatSexClass(currentLot.sex_class):null,
+            `FY ${currentLot.fiscal_year}`
+        ].filter(Boolean).join(' · ');
+
+        if(currentLot.closed_at){
+            $('closedBanner').classList.remove('hidden');
+            $('closedBanner').textContent=`Closed on ${fmtDate(currentLot.closed_at)}`;
+            $('closeLotBtn').textContent='Re-open lot';
+        } else {
+            $('closedBanner').classList.add('hidden');
+            $('closeLotBtn').textContent='Close lot';
+        }
+
+        const status=currentStatus;
+        const projWt = status.projected_current_weight ? Math.round(Number(status.projected_current_weight)) : null;
+        const wtdDays = status.days_since_weighted_arrival != null ? status.days_since_weighted_arrival : null;
+        $('lotStats').innerHTML=`
+            <div class="stat">
+                <div class="label">Head in</div>
+                <div class="value">${fmtNum(status.head_in)}</div>
+                <div class="sub">${invoices.length} invoice${invoices.length===1?'':'s'}</div>
+            </div>
+            <div class="stat">
+                <div class="label">Head now</div>
+                <div class="value">${fmtNum(status.head_current)}</div>
+                <div class="sub">${status.head_dead>0?status.head_dead+' dead':'0 dead'}${status.head_sold>0?', '+status.head_sold+' sold':''}</div>
+            </div>
+            <div class="stat">
+                <div class="label">Days on feed</div>
+                <div class="value">${fmtNum(status.days_on_feed)}</div>
+                <div class="sub">${wtdDays != null && wtdDays !== status.days_on_feed ? wtdDays + ' from weighted avg' : 'since ' + fmtDate(currentLot.arrival_date)}</div>
+            </div>
+            <div class="stat">
+                <div class="label">Projected wt</div>
+                <div class="value">${projWt != null ? fmtNum(projWt) + ' lb' : '—'}</div>
+                <div class="sub">${status.avg_weight_in ? fmtNum(status.avg_weight_in, 1) + ' lb in × ' + (currentLot.target_adg || 0) + ' ADG' : 'needs invoice + ADG'}</div>
+            </div>
+            <div class="stat">
+                <div class="label">Avg cost / head</div>
+                <div class="value">${fmtMoney(status.avg_cost_per_head)}</div>
+                <div class="sub">${status.avg_cost_per_lb?'$'+Number(status.avg_cost_per_lb).toFixed(4)+' / lb':''}</div>
+            </div>`;
+
+        if(invoices.length===0){
+            $('invoicesContent').innerHTML='<div class="empty">No invoices yet. Click "+ Add invoice" to log the first.</div>';
+        } else {
+            const rows=invoices.map(inv=>{
+                const avgWt=inv.head_count?(inv.total_weight_lb/inv.head_count):null;
+                const avgCost=inv.head_count?(inv.total_cost/inv.head_count):null;
+                const costPerLb=inv.total_weight_lb>0?(inv.total_cost/inv.total_weight_lb):null;
+                return `<tr>
+                    <td>${fmtDate(inv.invoice_date)}</td>
+                    <td>${escapeHtml(inv.invoice_number||'—')}</td>
+                    <td class="num">${fmtNum(inv.head_count)}</td>
+                    <td class="num">${fmtNum(inv.total_weight_lb)}</td>
+                    <td class="num">${fmtMoney(inv.total_cost)}</td>
+                    <td class="num">${fmtNum(avgWt,1)}</td>
+                    <td class="num">${costPerLb?'$'+costPerLb.toFixed(4):'—'}</td>
+                    <td class="num">${fmtMoney(avgCost)}</td>
+                </tr>`;
+            }).join('');
+            const totH=invoices.reduce((s,i)=>s+i.head_count,0);
+            const totW=invoices.reduce((s,i)=>s+Number(i.total_weight_lb),0);
+            const totC=invoices.reduce((s,i)=>s+Number(i.total_cost),0);
+            const totRow=`<tr style="font-weight: 500; background: #fafaf6;">
+                <td colspan="2">Total</td>
+                <td class="num">${fmtNum(totH)}</td>
+                <td class="num">${fmtNum(totW)}</td>
+                <td class="num">${fmtMoney(totC)}</td>
+                <td class="num">${totH?fmtNum(totW/totH,1):'—'}</td>
+                <td class="num">${totW>0?'$'+(totC/totW).toFixed(4):'—'}</td>
+                <td class="num">${totH?fmtMoney(totC/totH):'—'}</td>
+            </tr>`;
+            $('invoicesContent').innerHTML=`<table>
+                <thead><tr>
+                    <th>Date</th><th>Invoice #</th>
+                    <th class="num">Head</th><th class="num">Weight (lb)</th>
+                    <th class="num">Cost</th><th class="num">Avg wt</th>
+                    <th class="num">$/Lb</th><th class="num">$/Head</th>
+                </tr></thead>
+                <tbody>${rows}${totRow}</tbody>
+            </table>`;
+        }
+
+        renderCloseoutCalculator();
+
+        if(currentLot.notes){
+            $('notesCard').classList.remove('hidden');
+            $('notesContent').textContent=currentLot.notes;
+        } else {
+            $('notesCard').classList.add('hidden');
+        }
+    }
+    $('backToLots').addEventListener('click',showLotsList);
+
+    // ---- CLOSEOUT CALCULATOR ----
+    function renderCloseoutCalculator(){
+        const lot=currentLot, status=currentStatus;
+        const headIn=status.head_in||0;
+        const totalWeightIn=Number(status.total_weight_in)||0;
+        const avgWtIn=headIn?totalWeightIn/headIn:0;
+        const targetDays=lot.target_days_on_feed||90;
+        const targetAdg=Number(lot.target_adg)||2.5;
+        const defaultFinishWt=avgWtIn?Math.round(avgWtIn+targetDays*targetAdg):'';
+
+        // Compute initial ship date from target_ship_date or arrival_date + days
+        let initialShipDate = lot.target_ship_date || '';
+        if (!initialShipDate && lot.target_days_on_feed && lot.arrival_date) {
+            const d = new Date(lot.arrival_date);
+            d.setDate(d.getDate() + lot.target_days_on_feed);
+            initialShipDate = d.toISOString().slice(0, 10);
+        }
+
+        // Determine current modes (default to per_day for new lots)
+        const cogMode = lot.cog_mode || 'per_day';
+        const laborMode = lot.labor_mode || 'per_day';
+
+        // Initial values for cost fields based on mode
+        const cogInitial = cogMode === 'per_day'
+            ? (lot.assumed_cog_per_day ?? '')
+            : (lot.assumed_cog_per_head ?? '');
+        const laborInitial = laborMode === 'per_day'
+            ? (lot.assumed_labor_per_day ?? '')
+            : (lot.assumed_labor_per_head ?? '');
+
+        $('closeoutContent').innerHTML=`
+            <div class="closeout-layout">
+                <div>
+                    <h4 style="margin-bottom: 10px;">Assumptions</h4>
+                    <div class="closeout-inputs">
+                        <div><label>Target sale $/lb</label><input type="number" step="0.0001" id="calc_cwt" value="${lot.target_sale_cwt??''}" placeholder="e.g. 4.95"></div>
+                        <div><label>Target ADG (lb/day)</label><input type="number" step="0.01" id="calc_adg" value="${lot.target_adg??''}" placeholder="e.g. 2.50"></div>
+                        <div><label>Target ship date</label><input type="date" id="calc_shipdate" value="${initialShipDate}"></div>
+                        <div><label>Projected finish wt</label><input type="number" step="1" id="calc_finishwt" value="${defaultFinishWt}" placeholder="auto"></div>
+                        <div style="grid-column: span 2;">
+                            <label>COG <select id="calc_cog_mode" style="display:inline-block; width:auto; padding:2px 6px; font-size:12px; margin-left:6px;">
+                                <option value="per_day" ${cogMode==='per_day'?'selected':''}>$/head/day</option>
+                                <option value="per_head" ${cogMode==='per_head'?'selected':''}>$/head (flat)</option>
+                            </select></label>
+                            <input type="number" step="0.0001" id="calc_cog" value="${cogInitial}" placeholder="${cogMode==='per_day'?'e.g. 0.75':'e.g. 218.14'}">
+                            <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_cog_hint"></div>
+                        </div>
+                        <div style="grid-column: span 2;">
+                            <label>Labor <select id="calc_labor_mode" style="display:inline-block; width:auto; padding:2px 6px; font-size:12px; margin-left:6px;">
+                                <option value="per_day" ${laborMode==='per_day'?'selected':''}>$/head/day</option>
+                                <option value="per_head" ${laborMode==='per_head'?'selected':''}>$/head (flat)</option>
+                            </select></label>
+                            <input type="number" step="0.0001" id="calc_labor" value="${laborInitial}" placeholder="${laborMode==='per_day'?'e.g. 0.35':'e.g. 31.81'}">
+                            <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_labor_hint"></div>
+                        </div>
+                        <div><label>Med $/head</label><input type="number" step="0.01" id="calc_med" value="${lot.assumed_med_per_head??''}" placeholder="e.g. 25.00"></div>
+                        <div><label>Death loss %</label><input type="number" step="0.01" id="calc_dead" value="${lot.assumed_death_loss_pct!=null?(Number(lot.assumed_death_loss_pct)*100).toFixed(2):''}" placeholder="e.g. 6"></div>
+                        <div style="grid-column: span 2;"><label>Interest %</label><input type="number" step="0.01" id="calc_int" value="${lot.assumed_interest_pct!=null?(Number(lot.assumed_interest_pct)*100).toFixed(2):''}" placeholder="e.g. 5"></div>
+                    </div>
+                    <!-- Hidden field — kept for syncing logic and persistence -->
+                    <input type="hidden" id="calc_days" value="${lot.target_days_on_feed??''}">
+                </div>
+                <div>
+                    <h4 style="margin-bottom: 10px;">Projection</h4>
+                    <div id="calcResults" class="results-panel"><div class="muted">Enter assumptions to see projection.</div></div>
+                </div>
+            </div>`;
+
+        // ---- Sync target_days <-> target_ship_date ----
+        // (target_days is now hidden, but still drives the math via the ship date)
+        const arrivalDateStr = lot.arrival_date;
+        const daysFromDate = (dateStr) => {
+            if (!dateStr || !arrivalDateStr) return null;
+            const ms = new Date(dateStr) - new Date(arrivalDateStr);
+            return Math.round(ms / (1000 * 60 * 60 * 24));
+        };
+        $('calc_shipdate').addEventListener('input', () => {
+            const d = daysFromDate($('calc_shipdate').value);
+            $('calc_days').value = d != null ? d : '';
+            // Trigger finish-weight auto-update if user hasn't touched it
+            if (!userTouchedFinish) {
+                const days = parseFloat($('calc_days').value)||0;
+                const adg = parseFloat($('calc_adg').value)||0;
+                if (days>0 && adg>0 && avgWtIn>0) $('calc_finishwt').value=Math.round(avgWtIn+days*adg);
+            }
+            recalculate();
+        });
+
+        // ---- Auto-update finish weight when ADG or ship date changes ----
+        // userTouchedFinish starts false on every render; only becomes true
+        // when the user actually types in the finish wt field this session.
+        let userTouchedFinish = false;
+        $('calc_finishwt').addEventListener('input', () => { userTouchedFinish = true; });
+        $('calc_adg').addEventListener('input', () => {
+            if (userTouchedFinish) return;
+            const d = parseFloat($('calc_days').value)||0;
+            const a = parseFloat($('calc_adg').value)||0;
+            if (d>0 && a>0 && avgWtIn>0) $('calc_finishwt').value=Math.round(avgWtIn+d*a);
+        });
+
+        // ---- Mode change handlers ----
+        $('calc_cog_mode').addEventListener('change', () => {
+            const mode = $('calc_cog_mode').value;
+            $('calc_cog').placeholder = mode === 'per_day' ? 'e.g. 0.75' : 'e.g. 218.14';
+            const storedVal = mode === 'per_day' ? lot.assumed_cog_per_day : lot.assumed_cog_per_head;
+            $('calc_cog').value = storedVal ?? '';
+            recalculate();
+        });
+        $('calc_labor_mode').addEventListener('change', () => {
+            const mode = $('calc_labor_mode').value;
+            $('calc_labor').placeholder = mode === 'per_day' ? 'e.g. 0.35' : 'e.g. 31.81';
+            const storedVal = mode === 'per_day' ? lot.assumed_labor_per_day : lot.assumed_labor_per_head;
+            $('calc_labor').value = storedVal ?? '';
+            recalculate();
+        });
+
+        const inputs=['calc_cwt','calc_adg','calc_finishwt','calc_cog','calc_labor','calc_med','calc_dead','calc_int'];
+        inputs.forEach(id=>$(id).addEventListener('input',recalculate));
+        recalculate();
+    }
+
+    function recalculate(){
+        const num=id=>{const v=parseFloat($(id).value);return isNaN(v)?null:v;};
+        const v={cwt:num('calc_cwt'),days:num('calc_days'),adg:num('calc_adg'),finishWt:num('calc_finishwt'),cog:num('calc_cog'),labor:num('calc_labor'),med:num('calc_med'),deadPct:num('calc_dead'),intPct:num('calc_int')};
+        const cogMode = $('calc_cog_mode') ? $('calc_cog_mode').value : 'per_head';
+        const laborMode = $('calc_labor_mode') ? $('calc_labor_mode').value : 'per_head';
+        const status=currentStatus, lot=currentLot;
+        const headIn=status.head_in||0;
+        const totalCostIn=Number(status.total_cost_in)||0;
+        const avgCostHead=headIn?totalCostIn/headIn:0;
+        const target=$('calcResults');
+
+        if(!headIn||v.cwt==null||v.finishWt==null){
+            target.innerHTML=`<div class="muted" style="font-size: 14px;">${!headIn?'Add at least one invoice to enable closeout projections.':'Need target sale $/lb and projected finish weight.'}</div>`;
+            $('saveAssumptionsBtn').classList.add('hidden');
+            return;
+        }
+
+        // Resolve COG and Labor to per-head amounts based on mode
+        const intDays = v.days ?? 0;
+        const cogPerHead = cogMode === 'per_day'
+            ? ((v.cog ?? 0) * intDays)
+            : (v.cog ?? 0);
+        const laborPerHead = laborMode === 'per_day'
+            ? ((v.labor ?? 0) * intDays)
+            : (v.labor ?? 0);
+
+        // Update hint text under each cost input
+        if ($('calc_cog_hint')) {
+            $('calc_cog_hint').textContent = (cogMode==='per_day' && v.cog && intDays)
+                ? `× ${intDays} days = ${fmtMoney(cogPerHead)}/head`
+                : '';
+        }
+        if ($('calc_labor_hint')) {
+            $('calc_labor_hint').textContent = (laborMode==='per_day' && v.labor && intDays)
+                ? `× ${intDays} days = ${fmtMoney(laborPerHead)}/head`
+                : '';
+        }
+
+        const grossSale=v.cwt*v.finishWt;
+        const med=v.med??0;
+        const deadDec=(v.deadPct??0)/100, intDec=(v.intPct??0)/100;
+        const surviving=1-deadDec;
+        const deadCostPerSurvivor=surviving>0?(avgCostHead*deadDec/surviving):0;
+        const intCostPerHead=avgCostHead*intDec*(intDays/365);
+        const totalCostPerHead=avgCostHead+cogPerHead+laborPerHead+med+deadCostPerSurvivor+intCostPerHead;
+        const netPerHead=grossSale-totalCostPerHead;
+        const netPct=totalCostPerHead>0?(netPerHead/totalCostPerHead):0;
+        const headFinish=(status.head_current||headIn)*surviving;
+        const totalNet=netPerHead*headFinish;
+        const breakEven=v.finishWt>0?(totalCostPerHead/v.finishWt):0;
+
+        const fmtPct=n=>(n*100).toFixed(2)+'%';
+        const fmtSign=n=>(n>=0?'':'−')+fmtMoney(Math.abs(n));
+        const goodColor=netPerHead>=0?'var(--success)':'var(--danger)';
+
+        const cogLabel = cogMode === 'per_day' && v.cog ? `+ COG (${intDays} d × $${Number(v.cog).toFixed(4)}/d)` : '+ COG';
+        const laborLabel = laborMode === 'per_day' && v.labor ? `+ Labor (${intDays} d × $${Number(v.labor).toFixed(4)}/d)` : '+ Labor';
+
+        target.innerHTML=`
+            <table style="font-size: 14px;">
+                <tr><td>Avg cost in / head</td><td class="num">${fmtMoney(avgCostHead)}</td></tr>
+                <tr><td>${cogLabel}</td><td class="num">${fmtMoney(cogPerHead)}</td></tr>
+                <tr><td>${laborLabel}</td><td class="num">${fmtMoney(laborPerHead)}</td></tr>
+                <tr><td>+ Med</td><td class="num">${fmtMoney(med)}</td></tr>
+                <tr><td>+ Death loss (${fmtPct(deadDec)})</td><td class="num">${fmtMoney(deadCostPerSurvivor)}</td></tr>
+                <tr><td>+ Interest (${fmtPct(intDec)} × ${intDays} d)</td><td class="num">${fmtMoney(intCostPerHead)}</td></tr>
+                <tr style="border-top: 2px solid var(--border);">
+                    <td><strong>Total cost / head</strong></td>
+                    <td class="num"><strong>${fmtMoney(totalCostPerHead)}</strong></td>
+                </tr>
+                <tr><td>Gross sale / head (${v.finishWt} × $${v.cwt.toFixed(4)})</td><td class="num">${fmtMoney(grossSale)}</td></tr>
+                <tr style="font-size: 16px; background: ${netPerHead>=0?'#eaf3dc':'#fbeaea'};">
+                    <td><strong>Net / head</strong></td>
+                    <td class="num" style="color: ${goodColor};"><strong>${fmtSign(netPerHead)}</strong> <span style="font-size: 12px; color: var(--text-muted);">(${fmtPct(netPct)})</span></td>
+                </tr>
+                <tr><td colspan="2" style="padding-top: 12px;"></td></tr>
+                <tr><td>Break-even sale $/lb</td><td class="num">$${breakEven.toFixed(4)}</td></tr>
+                <tr><td>Surviving head at finish</td><td class="num">${fmtNum(headFinish,1)}</td></tr>
+                <tr><td><strong>Projected lot net</strong></td><td class="num" style="color: ${goodColor};"><strong>${fmtSign(totalNet)}</strong></td></tr>
+            </table>`;
+
+        // Dirty check — only show save button if any value differs from stored
+        const storedShipDate = lot.target_ship_date || null;
+        const currentShipDate = $('calc_shipdate') ? ($('calc_shipdate').value || null) : null;
+        const stored={
+            cwt:lot.target_sale_cwt!=null?Number(lot.target_sale_cwt):null,
+            days:lot.target_days_on_feed,
+            adg:lot.target_adg!=null?Number(lot.target_adg):null,
+            cog:cogMode==='per_day'
+                ? (lot.assumed_cog_per_day!=null?Number(lot.assumed_cog_per_day):null)
+                : (lot.assumed_cog_per_head!=null?Number(lot.assumed_cog_per_head):null),
+            labor:laborMode==='per_day'
+                ? (lot.assumed_labor_per_day!=null?Number(lot.assumed_labor_per_day):null)
+                : (lot.assumed_labor_per_head!=null?Number(lot.assumed_labor_per_head):null),
+            med:lot.assumed_med_per_head!=null?Number(lot.assumed_med_per_head):null,
+            deadPct:lot.assumed_death_loss_pct!=null?Number(lot.assumed_death_loss_pct)*100:null,
+            intPct:lot.assumed_interest_pct!=null?Number(lot.assumed_interest_pct)*100:null,
+            cogMode: lot.cog_mode || 'per_day',
+            laborMode: lot.labor_mode || 'per_day',
+            shipDate: storedShipDate
+        };
+        const eq=(a,b)=>(a==null&&b==null)||(a!=null&&b!=null&&Math.abs(a-b)<0.0001);
+        const dirty=!(eq(v.cwt,stored.cwt)&&eq(v.days,stored.days)&&eq(v.adg,stored.adg)&&eq(v.cog,stored.cog)&&eq(v.labor,stored.labor)&&eq(v.med,stored.med)&&eq(v.deadPct,stored.deadPct)&&eq(v.intPct,stored.intPct)&&cogMode===stored.cogMode&&laborMode===stored.laborMode&&currentShipDate===stored.shipDate);
+        $('saveAssumptionsBtn').classList.toggle('hidden',!dirty);
+    }
+
+    $('saveAssumptionsBtn').addEventListener('click',async()=>{
+        const num=id=>{const v=parseFloat($(id).value);return isNaN(v)?null:v;};
+        const cogMode = $('calc_cog_mode').value;
+        const laborMode = $('calc_labor_mode').value;
+        const cogVal = num('calc_cog');
+        const laborVal = num('calc_labor');
+
+        const payload={
+            target_sale_cwt:num('calc_cwt'),
+            target_days_on_feed:num('calc_days'),
+            target_ship_date: $('calc_shipdate').value || null,
+            target_adg:num('calc_adg'),
+            cog_mode: cogMode,
+            labor_mode: laborMode,
+            // Save to the column matching the current mode; clear the other
+            assumed_cog_per_day: cogMode === 'per_day' ? cogVal : null,
+            assumed_cog_per_head: cogMode === 'per_head' ? cogVal : null,
+            assumed_labor_per_day: laborMode === 'per_day' ? laborVal : null,
+            assumed_labor_per_head: laborMode === 'per_head' ? laborVal : null,
+            assumed_med_per_head:num('calc_med'),
+            assumed_death_loss_pct:num('calc_dead')!=null?num('calc_dead')/100:null,
+            assumed_interest_pct:num('calc_int')!=null?num('calc_int')/100:null
+        };
+        $('saveAssumptionsBtn').disabled=true;
+        const {error}=await supabase.from('lots').update(payload).eq('id',currentLot.id);
+        $('saveAssumptionsBtn').disabled=false;
+        if(error){showAlert('globalAlert','Save failed: '+error.message);return;}
+        showAlert('globalAlert','Assumptions saved.','success');
+        showLotDetail(currentLot.id);
+    });
+
+    // ---- LOT CREATE / EDIT / DUPLICATE ----
+    function openLotModal(seed=null,mode='new'){
+        clearAlert('lotModalAlert');
+        $('lotModalTitle').textContent=mode==='edit'?'Edit lot':(mode==='duplicate'?'Duplicate lot':'New lot');
+        $('lotId').value=mode==='edit'?(seed?.id||''):'';
+        $('lotNumber').value=mode==='duplicate'?'':(seed?.lot_number||'');
+        $('arrivalDate').value=mode==='duplicate'?'':(seed?.arrival_date||'');
+        $('source').value=seed?.source||'';
+        $('sexClass').value=seed?.sex_class||'';
+        $('startTag').value=mode==='duplicate'?'':(seed?.start_tag||'');
+        $('endTag').value=mode==='duplicate'?'':(seed?.end_tag||'');
+        $('targetAdg').value=seed?.target_adg||'';
+        $('lotNotes').value=mode==='duplicate'?'':(seed?.notes||'');
+        $('lotForm').dataset.mode=mode;
+        $('lotForm').dataset.seedId=mode==='duplicate'?(seed?.id||''):'';
+        showModal('lotModal');
+    }
+
+    $('newLotBtn').addEventListener('click',()=>openLotModal(null,'new'));
+    $('editLotBtn').addEventListener('click',()=>openLotModal(currentLot,'edit'));
+    $('duplicateLotBtn').addEventListener('click',()=>openLotModal(currentLot,'duplicate'));
+    $('lotCancelBtn').addEventListener('click',()=>hideModal('lotModal'));
+
+    $('lotForm').addEventListener('submit',async e=>{
+        e.preventDefault();clearAlert('lotModalAlert');$('lotSaveBtn').disabled=true;
+        const id=$('lotId').value||null;
+        const mode=$('lotForm').dataset.mode||'new';
+        const seedId=$('lotForm').dataset.seedId||null;
+
+        const payload={
+            lot_number:$('lotNumber').value.trim(),
+            arrival_date:$('arrivalDate').value,
+            source:$('source').value.trim()||null,
+            sex_class:$('sexClass').value||null,
+            start_tag:$('startTag').value?parseInt($('startTag').value):null,
+            end_tag:$('endTag').value?parseInt($('endTag').value):null,
+            target_adg:$('targetAdg').value?parseFloat($('targetAdg').value):null,
+            notes:$('lotNotes').value.trim()||null,
+            created_by:currentUser.id
+        };
+
+        if(mode==='duplicate'&&seedId){
+            const {data:seed}=await supabase.from('lots').select('*').eq('id',seedId).single();
+            if(seed){
+                payload.target_sale_cwt=seed.target_sale_cwt;
+                payload.target_days_on_feed=seed.target_days_on_feed;
+                payload.cog_mode=seed.cog_mode;
+                payload.labor_mode=seed.labor_mode;
+                payload.assumed_cog_per_day=seed.assumed_cog_per_day;
+                payload.assumed_cog_per_head=seed.assumed_cog_per_head;
+                payload.assumed_labor_per_day=seed.assumed_labor_per_day;
+                payload.assumed_labor_per_head=seed.assumed_labor_per_head;
+                payload.assumed_med_per_head=seed.assumed_med_per_head;
+                payload.assumed_death_loss_pct=seed.assumed_death_loss_pct;
+                payload.assumed_interest_pct=seed.assumed_interest_pct;
+            }
+        }
+
+        let result;
+        if(id){
+            result=await supabase.from('lots').update(payload).eq('id',id).select().single();
+        } else {
+            result=await supabase.from('lots').insert(payload).select().single();
+        }
+        $('lotSaveBtn').disabled=false;
+        if(result.error){showAlert('lotModalAlert',result.error.message);return;}
+        hideModal('lotModal');
+        if(id) showLotDetail(id); else showLotDetail(result.data.id);
+    });
+
+    // ---- CLOSE / RE-OPEN ----
+    $('closeLotBtn').addEventListener('click',async()=>{
+        if(!currentLot) return;
+        const closing=!currentLot.closed_at;
+        const verb=closing?'close':'re-open';
+        if(!confirm(`Are you sure you want to ${verb} lot ${currentLot.lot_number}?`)) return;
+        $('closeLotBtn').disabled=true;
+        const {error}=await supabase.from('lots').update({closed_at:closing?new Date().toISOString():null}).eq('id',currentLot.id);
+        $('closeLotBtn').disabled=false;
+        if(error){showAlert('globalAlert','Failed: '+error.message);return;}
+        showAlert('globalAlert',`Lot ${closing?'closed':'re-opened'}.`,'success');
+        showLotDetail(currentLot.id);
+    });
+
+    // ---- INVOICE ----
+    $('newInvoiceBtn').addEventListener('click',()=>{
+        if(!currentLot) return;
+        clearAlert('invoiceModalAlert');
+        $('invoiceModalLot').textContent=`For lot ${currentLot.lot_number}`;
+        $('invoiceForm').reset();
+        showModal('invoiceModal');
+    });
+    $('invoiceCancelBtn').addEventListener('click',()=>hideModal('invoiceModal'));
+    $('invoiceForm').addEventListener('submit',async e=>{
+        e.preventDefault();clearAlert('invoiceModalAlert');$('invoiceSaveBtn').disabled=true;
+        const payload={
+            lot_id:currentLot.id,
+            invoice_date:$('invoiceDate').value,
+            invoice_number:$('invoiceNumber').value.trim()||null,
+            head_count:parseInt($('invHeadCount').value),
+            total_weight_lb:parseFloat($('invTotalWeight').value),
+            total_cost:parseFloat($('invTotalCost').value),
+            notes:$('invoiceNotes').value.trim()||null,
+            created_by:currentUser.id
+        };
+        const {error}=await supabase.from('invoices').insert(payload);
+        $('invoiceSaveBtn').disabled=false;
+        if(error){showAlert('invoiceModalAlert',error.message);return;}
+        hideModal('invoiceModal');
+        showLotDetail(currentLot.id);
+    });
+
+    // ==========================================================
+    // NAV TABS
+    // ==========================================================
+    function showLotsTab() {
+        $('navLots').classList.add('active');
+        $('navMeds').classList.remove('active');
+        $('navProtocols').classList.remove('active');
+        $('navLocations').classList.remove('active');
+        $('medsView').classList.add('hidden');
+        $('protocolsView').classList.add('hidden');
+        $('protocolDetailView').classList.add('hidden');
+        $('locationsView').classList.add('hidden');
+        $('pastureDetailView').classList.add('hidden');
+        showLotsList();
+    }
+    function showMedsTab() {
+        $('navMeds').classList.add('active');
+        $('navLots').classList.remove('active');
+        $('navProtocols').classList.remove('active');
+        $('navLocations').classList.remove('active');
+        $('lotsView').classList.add('hidden');
+        $('detailView').classList.add('hidden');
+        $('protocolsView').classList.add('hidden');
+        $('protocolDetailView').classList.add('hidden');
+        $('locationsView').classList.add('hidden');
+        $('pastureDetailView').classList.add('hidden');
+        $('medsView').classList.remove('hidden');
+        loadMeds();
+    }
+    function showProtocolsTab() {
+        $('navProtocols').classList.add('active');
+        $('navLots').classList.remove('active');
+        $('navMeds').classList.remove('active');
+        $('navLocations').classList.remove('active');
+        $('lotsView').classList.add('hidden');
+        $('detailView').classList.add('hidden');
+        $('medsView').classList.add('hidden');
+        $('protocolDetailView').classList.add('hidden');
+        $('locationsView').classList.add('hidden');
+        $('pastureDetailView').classList.add('hidden');
+        $('protocolsView').classList.remove('hidden');
+        loadProtocols();
+    }
+    function showLocationsTab() {
+        $('navLocations').classList.add('active');
+        $('navLots').classList.remove('active');
+        $('navMeds').classList.remove('active');
+        $('navProtocols').classList.remove('active');
+        $('lotsView').classList.add('hidden');
+        $('detailView').classList.add('hidden');
+        $('medsView').classList.add('hidden');
+        $('protocolsView').classList.add('hidden');
+        $('protocolDetailView').classList.add('hidden');
+        $('pastureDetailView').classList.add('hidden');
+        $('locationsView').classList.remove('hidden');
+        loadLocations();
+    }
+    $('navLots').addEventListener('click', showLotsTab);
+    $('navMeds').addEventListener('click', showMedsTab);
+    $('navProtocols').addEventListener('click', showProtocolsTab);
+    $('navLocations').addEventListener('click', showLocationsTab);
+
+    // ==========================================================
+    // MEDICATIONS
+    // ==========================================================
+    async function loadMeds() {
+        $('medsContent').innerHTML = '<div class="empty">Loading…</div>';
+        const showInactive = $('showInactiveMeds').checked;
+
+        let query = supabase.from('medications').select('*').order('generic_category', { ascending: true }).order('name', { ascending: true });
+        if (!showInactive) query = query.eq('is_active', true);
+
+        const { data, error } = await query;
+        if (error) {
+            $('medsContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+        if (!data || data.length === 0) {
+            $('medsContent').innerHTML = '<div class="empty">No medications yet. Click "+ New medication" to add the first one.</div>';
+            return;
+        }
+
+        // Group by category
+        const groups = {};
+        data.forEach(m => {
+            const cat = m.generic_category || 'Uncategorized';
+            if (!groups[cat]) groups[cat] = [];
+            groups[cat].push(m);
+        });
+
+        const categoryOrder = Object.keys(groups).sort();
+
+        const sections = categoryOrder.map(cat => {
+            const meds = groups[cat];
+            const rows = meds.map(m => {
+                let doseDisplay = '—';
+                if (m.dose_mode === 'flat' && m.flat_dose_amount != null) {
+                    doseDisplay = `${m.flat_dose_amount} ${m.default_dose_unit || 'cc'}`;
+                } else if (m.dose_mode === 'per_weight' && m.per_weight_rate != null) {
+                    doseDisplay = `${m.per_weight_rate} ${m.per_weight_unit || ('cc / ' + (m.per_weight_basis || 100) + ' lb')}`;
+                } else if (m.dose_mode === 'band') {
+                    doseDisplay = '<span class="muted">band (TBD)</span>';
+                } else if (m.default_dose_amount != null) {
+                    // Legacy med entered before dose_mode existed
+                    doseDisplay = `${m.default_dose_amount} ${m.default_dose_unit || ''}`;
+                }
+                return `<tr class="clickable ${!m.is_active ? 'closed-row' : ''}" data-med-id="${m.id}">
+                    <td><strong>${escapeHtml(m.name)}</strong></td>
+                    <td class="muted" style="font-size: 12px;">${m.dose_mode === 'flat' ? 'flat' : m.dose_mode === 'per_weight' ? 'by weight' : m.dose_mode === 'band' ? 'band' : '—'}</td>
+                    <td class="num">${doseDisplay}</td>
+                    <td class="num">${m.withdrawal_days != null ? m.withdrawal_days + ' d' : '—'}</td>
+                    <td class="num">${m.cost_per_head != null ? '$' + Number(m.cost_per_head).toFixed(4) : '—'}</td>
+                    <td>${m.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
+                </tr>`;
+            }).join('');
+            return `
+                <div style="margin-bottom: 24px;">
+                    <h4 style="margin-bottom: 8px;">${escapeHtml(cat)} <span class="muted" style="font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px;">(${meds.length})</span></h4>
+                    <table>
+                        <thead><tr>
+                            <th>Name</th>
+                            <th>Mode</th>
+                            <th class="num">Dose</th>
+                            <th class="num">Withdrawal</th>
+                            <th class="num">$/Head</th>
+                            <th>Status</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>`;
+        }).join('');
+
+        $('medsContent').innerHTML = sections;
+
+        $('medsContent').querySelectorAll('tr.clickable').forEach(r => {
+            r.addEventListener('click', () => openMedModal(data.find(m => m.id === r.dataset.medId)));
+        });
+    }
+
+    $('showInactiveMeds').addEventListener('change', loadMeds);
+
+    function openMedModal(med = null) {
+        clearAlert('medModalAlert');
+        $('medModalTitle').textContent = med ? 'Edit medication' : 'New medication';
+        $('medId').value = med?.id || '';
+        $('medName').value = med?.name || '';
+        $('medCategory').value = med?.generic_category || '';
+
+        // Dose mode and per-mode fields
+        const mode = med?.dose_mode || 'flat';
+        $('medDoseMode').value = mode;
+        $('medFlatAmount').value = med?.flat_dose_amount ?? med?.default_dose_amount ?? '';
+        $('medFlatUnit').value = med?.default_dose_unit || 'cc';
+        $('medRate').value = med?.per_weight_rate ?? '';
+        $('medBasis').value = med?.per_weight_basis ?? 100;
+        $('medUnit').value = med?.per_weight_unit || med?.default_dose_unit || '';
+
+        $('medWithdrawal').value = med?.withdrawal_days ?? '';
+        $('medCost').value = med?.cost_per_head ?? '';
+        $('medRoundUp').value = med?.round_up_to ?? 1;
+        $('medActive').value = med?.is_active === false ? 'false' : 'true';
+        $('medNotes').value = med?.notes || '';
+
+        updateMedDoseUI();
+        showModal('medModal');
+    }
+
+    function updateMedDoseUI() {
+        const mode = $('medDoseMode').value;
+        const flatBlock = $('medDoseFlatBlock');
+        const weightBlock = $('medDoseWeightBlock');
+        const bandBlock = $('medDoseBandBlock');
+
+        flatBlock.classList.toggle('hidden', mode !== 'flat');
+        weightBlock.classList.toggle('hidden', mode !== 'per_weight');
+        bandBlock.classList.toggle('hidden', mode !== 'band');
+
+        // Disable inputs in hidden blocks so HTML5 validation skips them.
+        // Without this, an invalid number type in a hidden field silently
+        // aborts form submission with no visible error.
+        flatBlock.querySelectorAll('input, select, textarea').forEach(el => {
+            el.disabled = (mode !== 'flat');
+        });
+        weightBlock.querySelectorAll('input, select, textarea').forEach(el => {
+            el.disabled = (mode !== 'per_weight');
+        });
+        bandBlock.querySelectorAll('input, select, textarea').forEach(el => {
+            el.disabled = (mode !== 'band');
+        });
+
+        const hints = {
+            flat: 'Same dose given regardless of weight. Example: Pyramid 5 = 2 cc.',
+            per_weight: 'Dose computed from animal weight. Example: Draxxin = 1.1 cc per 100 lb body weight.',
+            band: 'Different dose for different weight ranges. Example: fly spray = 5 cc for 200-400 lb, 7 cc for 400-600 lb.'
+        };
+        $('medDoseModeHint').textContent = hints[mode] || '';
+
+        if (mode === 'per_weight') updateMedPreview();
+    }
+
+    function ceilTo(value, increment) {
+        if (!increment || increment <= 0) return value;
+        return Math.ceil(value / increment) * increment;
+    }
+
+    function updateMedPreview() {
+        const rate = parseFloat($('medRate').value);
+        const basis = parseFloat($('medBasis').value) || 100;
+        const roundUp = parseFloat($('medRoundUp').value) || 1;
+        const previewWt = 300; // fixed preview weight; could be made configurable
+        const unit = $('medUnit').value || 'cc';
+        if (!rate) {
+            $('medPreviewDose').textContent = '—';
+            return;
+        }
+        const exact = (previewWt * rate) / basis;
+        const rounded = ceilTo(exact, roundUp);
+        // Strip "/ X lb" off the unit for display since we're showing absolute dose
+        const displayUnit = unit.split('/')[0].trim() || 'cc';
+        $('medPreviewDose').textContent = `${rounded} ${displayUnit}  (exact: ${exact.toFixed(3)})`;
+    }
+
+    $('newMedBtn').addEventListener('click', () => openMedModal());
+    $('medCancelBtn').addEventListener('click', () => hideModal('medModal'));
+    $('medDoseMode').addEventListener('change', updateMedDoseUI);
+    ['medRate', 'medBasis', 'medRoundUp'].forEach(id => {
+        $(id).addEventListener('input', updateMedPreview);
+    });
+
+    $('medForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearAlert('medModalAlert');
+        $('medSaveBtn').disabled = true;
+
+        const id = $('medId').value || null;
+        const mode = $('medDoseMode').value;
+
+        // Build mode-specific payload
+        const payload = {
+            name: $('medName').value.trim(),
+            generic_category: $('medCategory').value.trim(),
+            dose_mode: mode,
+            flat_dose_amount: mode === 'flat' && $('medFlatAmount').value ? parseFloat($('medFlatAmount').value) : null,
+            per_weight_rate: mode === 'per_weight' && $('medRate').value ? parseFloat($('medRate').value) : null,
+            per_weight_basis: mode === 'per_weight' && $('medBasis').value ? parseFloat($('medBasis').value) : null,
+            per_weight_unit: mode === 'per_weight' ? ($('medUnit').value.trim() || null) : null,
+            // Keep legacy default_dose_amount/unit populated for back-compat with display
+            default_dose_amount: mode === 'flat'
+                ? ($('medFlatAmount').value ? parseFloat($('medFlatAmount').value) : null)
+                : ($('medRate').value ? parseFloat($('medRate').value) : null),
+            default_dose_unit: mode === 'flat'
+                ? ($('medFlatUnit').value.trim() || null)
+                : ($('medUnit').value.trim() || null),
+            withdrawal_days: parseInt($('medWithdrawal').value) || 0,
+            cost_per_head: $('medCost').value ? parseFloat($('medCost').value) : null,
+            round_up_to: $('medRoundUp').value ? parseFloat($('medRoundUp').value) : 1,
+            is_active: $('medActive').value === 'true',
+            notes: $('medNotes').value.trim() || null,
+            created_by: currentUser.id
+        };
+
+        let result;
+        if (id) {
+            result = await supabase.from('medications').update(payload).eq('id', id).select().single();
+        } else {
+            result = await supabase.from('medications').insert(payload).select().single();
+        }
+
+        $('medSaveBtn').disabled = false;
+        if (result.error) { showAlert('medModalAlert', result.error.message); return; }
+        hideModal('medModal');
+        loadMeds();
+    });
+
+    // ==========================================================
+    // PROTOCOLS
+    // ==========================================================
+    let allMedsCache = [];        // cached medications list for picker
+    let currentProtocol = null;   // protocol being viewed/edited
+    let protoFormMeds = [];       // working copy of meds in the modal form
+    let protoFormSteps = [];      // working copy of steps in the modal form
+
+    const PROTOCOL_TYPES = {
+        receiving: 'Receiving',
+        first_pull: 'First Pull',
+        second_pull: 'Second Pull',
+        revaccination: 'Revaccination',
+        implant: 'Implant',
+        other: 'Other'
+    };
+    const STEP_TYPES = {
+        brand: 'Brand',
+        castrate: 'Castrate',
+        dehorn: 'Dehorn',
+        tag_id: 'Tag / ID',
+        other: 'Other'
+    };
+
+    async function refreshMedsCache() {
+        const { data, error } = await supabase
+            .from('medications')
+            .select('*')
+            .eq('is_active', true)
+            .order('generic_category', { ascending: true })
+            .order('name', { ascending: true });
+        if (error) {
+            console.error('refreshMedsCache failed', error);
+            return [];
+        }
+        allMedsCache = data || [];
+        return allMedsCache;
+    }
+
+    // ---- Dose computation helpers ----
+    function ceilTo(v, inc) {
+        if (!inc || inc <= 0) return v;
+        return Math.ceil(v / inc) * inc;
+    }
+
+    function computeDose(med, protoMed, weightLb) {
+        // Resolve effective mode and parameters (override beats medication default)
+        const mode = (protoMed && protoMed.override_dose_mode) || med.dose_mode || 'flat';
+        const roundUp = med.round_up_to ?? 1;
+
+        if (mode === 'flat') {
+            const flat = (protoMed && protoMed.override_flat_dose != null)
+                ? Number(protoMed.override_flat_dose)
+                : (med.flat_dose_amount != null ? Number(med.flat_dose_amount) : null);
+            if (flat == null) return { exact: null, rounded: null, unit: med.default_dose_unit || 'cc' };
+            return { exact: flat, rounded: ceilTo(flat, roundUp), unit: med.default_dose_unit || 'cc' };
+        }
+        if (mode === 'per_weight') {
+            const rate = (protoMed && protoMed.override_per_weight_rate != null)
+                ? Number(protoMed.override_per_weight_rate)
+                : (med.per_weight_rate != null ? Number(med.per_weight_rate) : null);
+            const basis = (protoMed && protoMed.override_per_weight_basis != null)
+                ? Number(protoMed.override_per_weight_basis)
+                : (med.per_weight_basis != null ? Number(med.per_weight_basis) : 100);
+            if (rate == null || !weightLb) return { exact: null, rounded: null, unit: 'cc' };
+            const exact = (Number(weightLb) * rate) / basis;
+            // Display unit for computed dose: just the base (e.g. "cc" not "cc / 100 lb")
+            const baseUnit = (med.per_weight_unit || med.default_dose_unit || 'cc').split('/')[0].trim() || 'cc';
+            return { exact, rounded: ceilTo(exact, roundUp), unit: baseUnit };
+        }
+        return { exact: null, rounded: null, unit: 'cc' };
+    }
+
+    // ---- Protocol list ----
+    async function loadProtocols() {
+        $('protocolsContent').innerHTML = '<div class="empty">Loading…</div>';
+        const showInactive = $('showInactiveProtos').checked;
+        let q = supabase.from('protocols').select('*').order('protocol_type', { ascending: true }).order('sex_class', { ascending: true }).order('name', { ascending: true });
+        if (!showInactive) q = q.eq('is_active', true);
+        const { data, error } = await q;
+        if (error) {
+            $('protocolsContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+        if (!data || data.length === 0) {
+            $('protocolsContent').innerHTML = '<div class="empty">No protocols yet. Click "+ New protocol" to add one.</div>';
+            return;
+        }
+        // Group by protocol type
+        const groups = {};
+        data.forEach(p => {
+            const t = PROTOCOL_TYPES[p.protocol_type] || p.protocol_type;
+            if (!groups[t]) groups[t] = [];
+            groups[t].push(p);
+        });
+        const sections = Object.keys(groups).map(typeName => {
+            const protos = groups[typeName];
+            const rows = protos.map(p => `
+                <tr class="clickable ${!p.is_active ? 'closed-row' : ''}" data-proto-id="${p.id}">
+                    <td><strong>${escapeHtml(p.name)}</strong>${p.version_label ? ' <span class="muted">' + escapeHtml(p.version_label) + '</span>' : ''}</td>
+                    <td>${escapeHtml(formatSexClass(p.sex_class))}</td>
+                    <td>${fmtDate(p.effective_from)}</td>
+                    <td>${p.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">retired</span>'}</td>
+                </tr>
+            `).join('');
+            return `
+                <div style="margin-bottom: 24px;">
+                    <h4 style="margin-bottom: 8px;">${escapeHtml(typeName)} <span class="muted" style="font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px;">(${protos.length})</span></h4>
+                    <table>
+                        <thead><tr><th>Name</th><th>Class</th><th>Effective</th><th>Status</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }).join('');
+        $('protocolsContent').innerHTML = sections;
+        $('protocolsContent').querySelectorAll('tr.clickable').forEach(r => {
+            r.addEventListener('click', () => showProtocolDetail(r.dataset.protoId));
+        });
+    }
+
+    $('showInactiveProtos').addEventListener('change', loadProtocols);
+
+    // ---- Protocol detail ----
+    async function showProtocolDetail(protoId) {
+        $('protocolsView').classList.add('hidden');
+        $('protocolDetailView').classList.remove('hidden');
+        $('protoMedsContent').innerHTML = '<div class="empty">Loading…</div>';
+        $('protoStepsContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        const [protoRes, medsRes, stepsRes] = await Promise.all([
+            supabase.from('protocols').select('*').eq('id', protoId).single(),
+            supabase.from('protocol_meds').select('*, medications(*)').eq('protocol_id', protoId).order('sort_order'),
+            supabase.from('protocol_steps').select('*').eq('protocol_id', protoId).order('sort_order')
+        ]);
+
+        if (protoRes.error) {
+            showAlert('globalAlert', 'Failed to load protocol: ' + protoRes.error.message);
+            showProtocolsTab();
+            return;
+        }
+
+        currentProtocol = protoRes.data;
+        const meds = medsRes.data || [];
+        const steps = stepsRes.data || [];
+
+        // Header
+        const versionStr = currentProtocol.version_label ? ' ' + currentProtocol.version_label : '';
+        $('protoDetailName').textContent = currentProtocol.name + versionStr;
+        $('protoMeta').textContent = [
+            PROTOCOL_TYPES[currentProtocol.protocol_type] || currentProtocol.protocol_type,
+            formatSexClass(currentProtocol.sex_class) !== '—' ? formatSexClass(currentProtocol.sex_class) : 'All classes',
+            'Effective from ' + fmtDate(currentProtocol.effective_from)
+        ].join(' · ');
+        $('protoNotes').textContent = currentProtocol.notes || '';
+        $('protoNotes').style.display = currentProtocol.notes ? 'block' : 'none';
+
+        if (currentProtocol.is_active) {
+            $('protoArchivedBanner').classList.add('hidden');
+            $('archiveProtocolBtn').textContent = 'Archive';
+        } else {
+            $('protoArchivedBanner').classList.remove('hidden');
+            $('protoArchivedBanner').textContent = 'Retired protocol — visible for historical reference';
+            $('archiveProtocolBtn').textContent = 'Reactivate';
+        }
+
+        // Decide default sample weight: use protocol type to choose
+        // For receiving, can default to 300 (will adjust if needed). For pulls, also 300 for now.
+        // (Future: when accessed from a lot, default to lot's arrival or projected weight.)
+        renderProtocolMedsAndSteps(meds, steps);
+
+        $('protoSampleWt').onchange = () => renderProtocolMedsAndSteps(meds, steps);
+        $('protoSampleWt').oninput = () => renderProtocolMedsAndSteps(meds, steps);
+    }
+
+    function renderProtocolMedsAndSteps(meds, steps) {
+        const sampleWt = parseFloat($('protoSampleWt').value) || 300;
+
+        if (!meds || meds.length === 0) {
+            $('protoMedsContent').innerHTML = '<div class="empty">No medications.</div>';
+        } else {
+            const rows = meds.map(pm => {
+                const med = pm.medications;
+                if (!med) return ''; // safety
+                const dose = computeDose(med, pm, sampleWt);
+                const doseStr = dose.rounded != null
+                    ? `${dose.rounded} ${dose.unit}` + (dose.exact != null && Math.abs(dose.exact - dose.rounded) > 0.001 ? ` <span class="muted" style="font-size: 12px;">(exact ${dose.exact.toFixed(2)})</span>` : '')
+                    : '—';
+                const modeLabel = (pm.override_dose_mode || med.dose_mode) === 'per_weight' ? 'by weight' : ((pm.override_dose_mode || med.dose_mode) === 'flat' ? 'flat' : '—');
+                const noteHtml = pm.notes ? `<div class="muted" style="font-size: 12px; margin-top: 2px;">${escapeHtml(pm.notes)}</div>` : '';
+                return `<tr>
+                    <td><strong>${escapeHtml(med.name)}</strong>${noteHtml}</td>
+                    <td class="muted" style="font-size: 12px;">${escapeHtml(med.generic_category || '')}</td>
+                    <td class="muted" style="font-size: 12px;">${modeLabel}</td>
+                    <td class="num">${doseStr}</td>
+                </tr>`;
+            }).join('');
+            $('protoMedsContent').innerHTML = `
+                <table>
+                    <thead><tr><th>Medication</th><th>Category</th><th>Mode</th><th class="num">Dose at ${sampleWt} lb</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        }
+
+        if (!steps || steps.length === 0) {
+            $('protoStepsContent').innerHTML = '<div class="empty">No additional steps.</div>';
+        } else {
+            const rows = steps.map(s => `
+                <tr>
+                    <td><strong>${escapeHtml(STEP_TYPES[s.step_type] || s.step_type)}</strong></td>
+                    <td>${escapeHtml(s.description)}</td>
+                    <td class="muted" style="font-size: 13px;">${escapeHtml(s.conditional_note || '')}</td>
+                </tr>
+            `).join('');
+            $('protoStepsContent').innerHTML = `
+                <table>
+                    <thead><tr><th style="width: 140px;">Step</th><th>Description</th><th>Conditional / seasonal note</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        }
+    }
+
+    $('backToProtocols').addEventListener('click', () => showProtocolsTab());
+
+    // ---- Archive / Reactivate ----
+    $('archiveProtocolBtn').addEventListener('click', async () => {
+        if (!currentProtocol) return;
+        const reactivating = !currentProtocol.is_active;
+        const verb = reactivating ? 'reactivate' : 'archive';
+        if (!confirm(`Are you sure you want to ${verb} protocol "${currentProtocol.name}"?`)) return;
+        $('archiveProtocolBtn').disabled = true;
+        const { error } = await supabase.from('protocols')
+            .update({ is_active: reactivating })
+            .eq('id', currentProtocol.id);
+        $('archiveProtocolBtn').disabled = false;
+        if (error) { showAlert('globalAlert', 'Failed: ' + error.message); return; }
+        showAlert('globalAlert', `Protocol ${reactivating ? 'reactivated' : 'archived'}.`, 'success');
+        showProtocolDetail(currentProtocol.id);
+    });
+
+    // ---- Protocol create / edit / duplicate modal ----
+    async function openProtocolModal(mode = 'new', sourceProto = null) {
+        clearAlert('protocolModalAlert');
+        await refreshMedsCache();
+
+        $('protocolMode').value = mode;
+        $('protocolSeedId').value = (mode === 'duplicate' && sourceProto) ? sourceProto.id : '';
+        $('protocolId').value = (mode === 'edit' && sourceProto) ? sourceProto.id : '';
+        $('protocolModalTitle').textContent = mode === 'edit' ? 'Edit protocol' : (mode === 'duplicate' ? 'Duplicate protocol' : 'New protocol');
+
+        // Pre-fill fields
+        $('protoName').value = sourceProto ? sourceProto.name : '';
+        $('protoVersion').value = sourceProto ? (sourceProto.version_label || '') : '';
+        $('protoType').value = sourceProto ? (sourceProto.protocol_type || '') : '';
+        $('protoSexClass').value = sourceProto ? (sourceProto.sex_class || '') : '';
+        $('protoEffectiveFrom').value = (mode === 'edit' && sourceProto)
+            ? (sourceProto.effective_from || '')
+            : new Date().toISOString().slice(0, 10);
+        $('protoActive').value = (sourceProto && sourceProto.is_active === false) ? 'false' : 'true';
+        $('protoFormNotes').value = sourceProto ? (sourceProto.notes || '') : '';
+
+        // Load existing meds and steps if editing/duplicating
+        protoFormMeds = [];
+        protoFormSteps = [];
+        if (sourceProto) {
+            const [pmRes, psRes] = await Promise.all([
+                supabase.from('protocol_meds').select('*, medications(*)').eq('protocol_id', sourceProto.id).order('sort_order'),
+                supabase.from('protocol_steps').select('*').eq('protocol_id', sourceProto.id).order('sort_order')
+            ]);
+            (pmRes.data || []).forEach(pm => {
+                protoFormMeds.push({
+                    medication_id: pm.medication_id,
+                    sort_order: pm.sort_order,
+                    injection_site: pm.injection_site,
+                    override_dose_mode: pm.override_dose_mode,
+                    override_flat_dose: pm.override_flat_dose,
+                    override_per_weight_rate: pm.override_per_weight_rate,
+                    override_per_weight_basis: pm.override_per_weight_basis,
+                    notes: pm.notes
+                });
+            });
+            (psRes.data || []).forEach(ps => {
+                protoFormSteps.push({
+                    sort_order: ps.sort_order,
+                    step_type: ps.step_type,
+                    description: ps.description,
+                    conditional_note: ps.conditional_note
+                });
+            });
+        }
+
+        renderProtoFormMeds();
+        renderProtoFormSteps();
+        showModal('protocolModal');
+    }
+
+    function renderProtoFormMeds() {
+        const container = $('protoMedsList');
+        if (protoFormMeds.length === 0) {
+            container.innerHTML = '<div class="muted" style="padding: 8px 0;">No medications yet. Click "+ Add medication" to add one.</div>';
+            return;
+        }
+        const rows = protoFormMeds.map((pm, idx) => {
+            const med = allMedsCache.find(m => m.id === pm.medication_id);
+            const medName = med ? med.name : '(deleted medication)';
+            const medCat = med ? med.generic_category : '';
+            const noteShort = pm.notes ? ` · ${escapeHtml(pm.notes)}` : '';
+            const overrideTag = (pm.override_dose_mode || pm.override_flat_dose != null || pm.override_per_weight_rate != null) ? ' · <em style="color: var(--warn);">override</em>' : '';
+            return `
+                <div style="display: flex; gap: 8px; align-items: center; padding: 8px 10px; background: #fafaf6; border-radius: var(--radius); margin-bottom: 6px;">
+                    <div style="flex: 1; min-width: 0;">
+                        <strong>${escapeHtml(medName)}</strong>
+                        <span class="muted" style="font-size: 12px;"> · ${escapeHtml(medCat)}${overrideTag}</span>
+                        <span style="font-size: 12px;">${noteShort}</span>
+                    </div>
+                    <button type="button" class="proto-med-edit" data-idx="${idx}">Edit</button>
+                    <button type="button" class="proto-med-remove" data-idx="${idx}">×</button>
+                </div>
+            `;
+        }).join('');
+        container.innerHTML = rows;
+        container.querySelectorAll('.proto-med-edit').forEach(b => {
+            b.addEventListener('click', () => editProtoMed(parseInt(b.dataset.idx)));
+        });
+        container.querySelectorAll('.proto-med-remove').forEach(b => {
+            b.addEventListener('click', () => {
+                if (!confirm('Remove this medication from the protocol?')) return;
+                protoFormMeds.splice(parseInt(b.dataset.idx), 1);
+                // Renumber sort_order
+                protoFormMeds.forEach((m, i) => m.sort_order = i + 1);
+                renderProtoFormMeds();
+            });
+        });
+    }
+
+    function editProtoMed(idx) {
+        openProtoMedSubModal(idx);
+    }
+
+    function openProtoMedSubModal(idx) {
+        clearAlert('protoMedModalAlert');
+        const isEdit = idx !== null && idx !== undefined;
+        $('protoMedFormIdx').value = isEdit ? idx : '';
+        $('protoMedModalTitle').textContent = isEdit ? 'Edit medication in protocol' : 'Add medication';
+
+        // Populate the medication picker, grouped by category
+        const sel = $('protoMedSelect');
+        sel.innerHTML = '<option value="">— Pick a medication —</option>';
+        const groups = {};
+        allMedsCache.forEach(m => {
+            const c = m.generic_category || 'Other';
+            if (!groups[c]) groups[c] = [];
+            groups[c].push(m);
+        });
+        Object.keys(groups).sort().forEach(cat => {
+            const og = document.createElement('optgroup');
+            og.label = cat;
+            groups[cat].forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.name;
+                og.appendChild(opt);
+            });
+            sel.appendChild(og);
+        });
+
+        // Pre-fill if editing
+        if (isEdit) {
+            const pm = protoFormMeds[idx];
+            sel.value = pm.medication_id;
+            $('protoMedNotes').value = pm.notes || '';
+            $('protoMedOverrideFlatDose').value = pm.override_flat_dose ?? '';
+            $('protoMedOverrideRate').value = pm.override_per_weight_rate ?? '';
+        } else {
+            sel.value = '';
+            $('protoMedNotes').value = '';
+            $('protoMedOverrideFlatDose').value = '';
+            $('protoMedOverrideRate').value = '';
+        }
+        updateProtoMedOverrideBlock();
+
+        showModal('protoMedModal');
+    }
+
+    function updateProtoMedOverrideBlock() {
+        const medId = $('protoMedSelect').value;
+        const med = allMedsCache.find(m => m.id === medId);
+        const flatBlock = $('protoMedOverrideFlat');
+        const wtBlock = $('protoMedOverrideWeight');
+
+        if (!med) {
+            $('protoMedOverrideHint').textContent = 'Pick a medication first to see override options.';
+            $('protoMedSelectHint').textContent = '';
+            flatBlock.classList.add('hidden');
+            wtBlock.classList.add('hidden');
+            // Disable both blocks' inputs so HTML5 validation skips them
+            flatBlock.querySelectorAll('input').forEach(i => i.disabled = true);
+            wtBlock.querySelectorAll('input').forEach(i => i.disabled = true);
+            return;
+        }
+
+        // Show medication's default dose info as a hint
+        let defaultText = `Default dose: `;
+        if (med.dose_mode === 'flat' && med.flat_dose_amount != null) {
+            defaultText += `${med.flat_dose_amount} ${med.default_dose_unit || 'cc'} flat`;
+        } else if (med.dose_mode === 'per_weight' && med.per_weight_rate != null) {
+            defaultText += `${med.per_weight_rate} ${med.per_weight_unit || ('cc / ' + (med.per_weight_basis || 100) + ' lb')}`;
+        } else {
+            defaultText += '(none set on medication)';
+        }
+        defaultText += ` · Withdrawal: ${med.withdrawal_days ?? '?'} d`;
+        $('protoMedSelectHint').textContent = defaultText;
+        $('protoMedOverrideHint').textContent = `Override only if this protocol uses a different dose than the medication's default.`;
+
+        if (med.dose_mode === 'flat') {
+            flatBlock.classList.remove('hidden');
+            wtBlock.classList.add('hidden');
+            $('protoMedOverrideFlatUnit').textContent = med.default_dose_unit || 'cc';
+            flatBlock.querySelectorAll('input').forEach(i => i.disabled = false);
+            wtBlock.querySelectorAll('input').forEach(i => i.disabled = true);
+        } else if (med.dose_mode === 'per_weight') {
+            flatBlock.classList.add('hidden');
+            wtBlock.classList.remove('hidden');
+            $('protoMedOverrideRateUnit').textContent = med.per_weight_unit || `cc / ${med.per_weight_basis || 100} lb`;
+            flatBlock.querySelectorAll('input').forEach(i => i.disabled = true);
+            wtBlock.querySelectorAll('input').forEach(i => i.disabled = false);
+        } else {
+            flatBlock.classList.add('hidden');
+            wtBlock.classList.add('hidden');
+            flatBlock.querySelectorAll('input').forEach(i => i.disabled = true);
+            wtBlock.querySelectorAll('input').forEach(i => i.disabled = true);
+        }
+    }
+
+    $('protoMedSelect').addEventListener('change', updateProtoMedOverrideBlock);
+    $('protoMedCancelBtn').addEventListener('click', () => hideModal('protoMedModal'));
+
+    $('protoMedForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        clearAlert('protoMedModalAlert');
+
+        const medId = $('protoMedSelect').value;
+        if (!medId) {
+            showAlert('protoMedModalAlert', 'Please pick a medication.');
+            return;
+        }
+        const med = allMedsCache.find(m => m.id === medId);
+        if (!med) {
+            showAlert('protoMedModalAlert', 'Selected medication not found.');
+            return;
+        }
+
+        const idxStr = $('protoMedFormIdx').value;
+        const isEdit = idxStr !== '';
+        const idx = isEdit ? parseInt(idxStr) : null;
+
+        // Resolve override values
+        let override_dose_mode = null;
+        let override_flat_dose = null;
+        let override_per_weight_rate = null;
+        let override_per_weight_basis = null;
+
+        if (med.dose_mode === 'flat') {
+            const v = $('protoMedOverrideFlatDose').value.trim();
+            if (v !== '') {
+                const n = parseFloat(v);
+                if (!isNaN(n)) {
+                    override_dose_mode = 'flat';
+                    override_flat_dose = n;
+                }
+            }
+        } else if (med.dose_mode === 'per_weight') {
+            const v = $('protoMedOverrideRate').value.trim();
+            if (v !== '') {
+                const n = parseFloat(v);
+                if (!isNaN(n)) {
+                    override_dose_mode = 'per_weight';
+                    override_per_weight_rate = n;
+                    override_per_weight_basis = med.per_weight_basis || 100;
+                }
+            }
+        }
+
+        const record = {
+            medication_id: medId,
+            sort_order: isEdit ? protoFormMeds[idx].sort_order : (protoFormMeds.length + 1),
+            injection_site: isEdit ? protoFormMeds[idx].injection_site : null,
+            override_dose_mode,
+            override_flat_dose,
+            override_per_weight_rate,
+            override_per_weight_basis,
+            notes: $('protoMedNotes').value.trim() || null
+        };
+
+        if (isEdit) {
+            protoFormMeds[idx] = record;
+        } else {
+            // If already present, warn
+            if (protoFormMeds.find(pm => pm.medication_id === medId)) {
+                if (!confirm(`${med.name} is already in this protocol. Add again anyway?`)) return;
+            }
+            protoFormMeds.push(record);
+        }
+        hideModal('protoMedModal');
+        renderProtoFormMeds();
+    });
+
+    function editProtoStep(idx) {
+        openProtoStepSubModal(idx);
+    }
+
+    function openProtoStepSubModal(idx) {
+        clearAlert('protoStepModalAlert');
+        const isEdit = idx !== null && idx !== undefined;
+        $('protoStepFormIdx').value = isEdit ? idx : '';
+        $('protoStepModalTitle').textContent = isEdit ? 'Edit step' : 'Add step';
+
+        if (isEdit) {
+            const s = protoFormSteps[idx];
+            $('protoStepType').value = s.step_type || '';
+            $('protoStepDesc').value = s.description || '';
+            $('protoStepCondNote').value = s.conditional_note || '';
+        } else {
+            $('protoStepType').value = '';
+            $('protoStepDesc').value = '';
+            $('protoStepCondNote').value = '';
+        }
+        showModal('protoStepModal');
+    }
+
+    $('protoStepCancelBtn').addEventListener('click', () => hideModal('protoStepModal'));
+
+    $('protoStepForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        clearAlert('protoStepModalAlert');
+
+        const idxStr = $('protoStepFormIdx').value;
+        const isEdit = idxStr !== '';
+        const idx = isEdit ? parseInt(idxStr) : null;
+
+        const record = {
+            sort_order: isEdit ? protoFormSteps[idx].sort_order : (protoFormSteps.length + 1),
+            step_type: $('protoStepType').value,
+            description: $('protoStepDesc').value.trim(),
+            conditional_note: $('protoStepCondNote').value.trim() || null
+        };
+
+        if (isEdit) {
+            protoFormSteps[idx] = record;
+        } else {
+            protoFormSteps.push(record);
+        }
+        hideModal('protoStepModal');
+        renderProtoFormSteps();
+    });
+
+    // Add medication to protocol form
+    $('addProtoMedBtn').addEventListener('click', () => {
+        if (allMedsCache.length === 0) {
+            alert('No active medications found. Add some on the Medications tab first.');
+            return;
+        }
+        openProtoMedSubModal(null);
+    });
+
+    // Add non-medication step
+    $('addProtoStepBtn').addEventListener('click', () => {
+        openProtoStepSubModal(null);
+    });
+
+    function renderProtoFormSteps() {
+        const container = $('protoStepsList');
+        if (protoFormSteps.length === 0) {
+            container.innerHTML = '<div class="muted" style="padding: 8px 0;">No steps yet.</div>';
+            return;
+        }
+        const rows = protoFormSteps.map((s, idx) => {
+            const condNote = s.conditional_note ? ` · <em>${escapeHtml(s.conditional_note)}</em>` : '';
+            return `
+                <div style="display: flex; gap: 8px; align-items: center; padding: 8px 10px; background: #fafaf6; border-radius: var(--radius); margin-bottom: 6px;">
+                    <div style="flex: 1; min-width: 0;">
+                        <strong>${escapeHtml(STEP_TYPES[s.step_type] || s.step_type)}:</strong>
+                        ${escapeHtml(s.description)}<span class="muted" style="font-size: 12px;">${condNote}</span>
+                    </div>
+                    <button type="button" class="proto-step-edit" data-idx="${idx}">Edit</button>
+                    <button type="button" class="proto-step-remove" data-idx="${idx}">×</button>
+                </div>
+            `;
+        }).join('');
+        container.innerHTML = rows;
+        container.querySelectorAll('.proto-step-edit').forEach(b => {
+            b.addEventListener('click', () => editProtoStep(parseInt(b.dataset.idx)));
+        });
+        container.querySelectorAll('.proto-step-remove').forEach(b => {
+            b.addEventListener('click', () => {
+                if (!confirm('Remove this step?')) return;
+                protoFormSteps.splice(parseInt(b.dataset.idx), 1);
+                protoFormSteps.forEach((s, i) => s.sort_order = i + 1);
+                renderProtoFormSteps();
+            });
+        });
+    }
+
+    $('newProtocolBtn').addEventListener('click', () => openProtocolModal('new'));
+    $('editProtocolBtn').addEventListener('click', () => {
+        if (currentProtocol) openProtocolModal('edit', currentProtocol);
+    });
+    $('duplicateProtocolBtn').addEventListener('click', () => {
+        if (currentProtocol) openProtocolModal('duplicate', currentProtocol);
+    });
+    $('protocolCancelBtn').addEventListener('click', () => hideModal('protocolModal'));
+
+    $('protocolForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearAlert('protocolModalAlert');
+        $('protocolSaveBtn').disabled = true;
+
+        const id = $('protocolId').value || null;
+        const mode = $('protocolMode').value;
+
+        const payload = {
+            name: $('protoName').value.trim(),
+            version_label: $('protoVersion').value.trim() || null,
+            protocol_type: $('protoType').value,
+            sex_class: $('protoSexClass').value || null,
+            effective_from: $('protoEffectiveFrom').value || new Date().toISOString().slice(0, 10),
+            is_active: $('protoActive').value === 'true',
+            notes: $('protoFormNotes').value.trim() || null
+        };
+
+        let result;
+        try {
+            if (id) {
+                result = await supabase.from('protocols').update(payload).eq('id', id).select().single();
+            } else {
+                if (mode === 'duplicate' && $('protocolSeedId').value) {
+                    payload.parent_protocol_id = $('protocolSeedId').value;
+                }
+                payload.created_by = currentUser.id;
+                result = await supabase.from('protocols').insert(payload).select().single();
+            }
+
+            if (result.error) throw result.error;
+            const protocolId = result.data.id;
+
+            // Replace meds and steps (delete existing, insert new)
+            // For edits: clear existing rows, then insert new.
+            if (id) {
+                const delMeds = await supabase.from('protocol_meds').delete().eq('protocol_id', protocolId);
+                if (delMeds.error) throw delMeds.error;
+                const delSteps = await supabase.from('protocol_steps').delete().eq('protocol_id', protocolId);
+                if (delSteps.error) throw delSteps.error;
+            }
+
+            if (protoFormMeds.length > 0) {
+                const medsPayload = protoFormMeds.map((pm, i) => ({
+                    protocol_id: protocolId,
+                    medication_id: pm.medication_id,
+                    sort_order: i + 1,
+                    injection_site: pm.injection_site,
+                    override_dose_mode: pm.override_dose_mode,
+                    override_flat_dose: pm.override_flat_dose,
+                    override_per_weight_rate: pm.override_per_weight_rate,
+                    override_per_weight_basis: pm.override_per_weight_basis,
+                    notes: pm.notes
+                }));
+                const insMeds = await supabase.from('protocol_meds').insert(medsPayload);
+                if (insMeds.error) throw insMeds.error;
+            }
+            if (protoFormSteps.length > 0) {
+                const stepsPayload = protoFormSteps.map((s, i) => ({
+                    protocol_id: protocolId,
+                    sort_order: i + 1,
+                    step_type: s.step_type,
+                    description: s.description,
+                    conditional_note: s.conditional_note
+                }));
+                const insSteps = await supabase.from('protocol_steps').insert(stepsPayload);
+                if (insSteps.error) throw insSteps.error;
+            }
+
+            $('protocolSaveBtn').disabled = false;
+            hideModal('protocolModal');
+            showProtocolDetail(protocolId);
+        } catch (err) {
+            $('protocolSaveBtn').disabled = false;
+            showAlert('protocolModalAlert', err.message || String(err));
+        }
+    });
+
+    // ==========================================================
+    // LOCATIONS (ranches, forage types, pastures, assignments)
+    // ==========================================================
+    let allRanchesCache = [];
+    let allForageTypesCache = [];
+    let currentPasture = null;
+
+    async function refreshRanchesCache() {
+        const { data, error } = await supabase
+            .from('ranches')
+            .select('*')
+            .order('name', { ascending: true });
+        if (error) { console.error('refreshRanchesCache failed', error); return []; }
+        allRanchesCache = data || [];
+        return allRanchesCache;
+    }
+
+    async function refreshForageTypesCache() {
+        const { data, error } = await supabase
+            .from('forage_types')
+            .select('*')
+            .order('name', { ascending: true });
+        if (error) { console.error('refreshForageTypesCache failed', error); return []; }
+        allForageTypesCache = data || [];
+        return allForageTypesCache;
+    }
+
+    // ---- Locations list (ranches with pastures grouped under each) ----
+    async function loadLocations() {
+        $('locationsContent').innerHTML = '<div class="empty">Loading…</div>';
+        const showInactive = $('showInactiveLocations').checked;
+
+        await refreshRanchesCache();
+        await refreshForageTypesCache();
+
+        // Fetch pastures with status info
+        let q = supabase.from('pasture_status').select('*').order('ranch_name', { ascending: true }).order('pasture_name', { ascending: true });
+        if (!showInactive) q = q.eq('is_active', true);
+        const { data: pastures, error } = await q;
+        if (error) {
+            $('locationsContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+
+        // Filter ranches based on showInactive
+        const ranchesToShow = showInactive
+            ? allRanchesCache
+            : allRanchesCache.filter(r => r.is_active);
+
+        if (ranchesToShow.length === 0) {
+            $('locationsContent').innerHTML = '<div class="empty">No ranches yet. Click "+ Ranch" to add the first one.</div>';
+            return;
+        }
+
+        // Group pastures by ranch_id
+        const byRanch = {};
+        (pastures || []).forEach(p => {
+            if (!byRanch[p.ranch_id]) byRanch[p.ranch_id] = [];
+            byRanch[p.ranch_id].push(p);
+        });
+
+        const sections = ranchesToShow.map(r => {
+            const ps = byRanch[r.id] || [];
+            const ranchClass = !r.is_active ? 'closed-row' : '';
+            let pastureRows = '';
+            if (ps.length === 0) {
+                pastureRows = `<tr><td colspan="6" class="muted" style="font-style: italic;">No pastures yet. Click "+ Pasture" to add one.</td></tr>`;
+            } else {
+                pastureRows = ps.map(p => `
+                    <tr class="clickable ${!p.is_active ? 'closed-row' : ''}" data-pasture-id="${p.pasture_id}">
+                        <td><strong>${escapeHtml(p.pasture_name)}</strong></td>
+                        <td>${p.acres != null ? fmtNum(p.acres, 1) + ' ac' : '—'}</td>
+                        <td>${escapeHtml(p.forage_type_name || '—')}</td>
+                        <td class="num">${fmtNum(p.current_head_total)}${p.head_capacity ? ' / ' + p.head_capacity : ''}</td>
+                        <td class="num">${p.current_head_per_acre != null ? Number(p.current_head_per_acre).toFixed(2) : '—'}</td>
+                        <td>${p.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">retired</span>'}</td>
+                    </tr>
+                `).join('');
+            }
+            return `
+                <div style="margin-bottom: 24px;">
+                    <h4 style="margin-bottom: 8px; ${!r.is_active ? 'color: var(--text-muted); font-style: italic;' : ''}">
+                        <span class="ranch-name" data-ranch-id="${r.id}" style="cursor: pointer;">${escapeHtml(r.name)}</span>
+                        ${r.owner ? '<span class="muted" style="font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px;"> · ' + escapeHtml(r.owner) + '</span>' : ''}
+                        <span class="muted" style="font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px;"> (${ps.length} pasture${ps.length === 1 ? '' : 's'})</span>
+                        ${!r.is_active ? '<span class="muted" style="font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px;"> · retired</span>' : ''}
+                    </h4>
+                    <table>
+                        <thead><tr><th>Pasture</th><th>Acres</th><th>Forage</th><th class="num">Head</th><th class="num">Head/ac</th><th>Status</th></tr></thead>
+                        <tbody>${pastureRows}</tbody>
+                    </table>
+                </div>
+            `;
+        }).join('');
+
+        $('locationsContent').innerHTML = sections;
+
+        // Click handlers
+        $('locationsContent').querySelectorAll('tr.clickable').forEach(r => {
+            r.addEventListener('click', () => showPastureDetail(r.dataset.pastureId));
+        });
+        $('locationsContent').querySelectorAll('.ranch-name').forEach(el => {
+            el.addEventListener('click', () => {
+                const ranch = allRanchesCache.find(r => r.id === el.dataset.ranchId);
+                if (ranch) openRanchModal(ranch);
+            });
+        });
+    }
+
+    $('showInactiveLocations').addEventListener('change', loadLocations);
+
+    // ---- Ranch modal ----
+    function openRanchModal(ranch = null) {
+        clearAlert('ranchModalAlert');
+        $('ranchModalTitle').textContent = ranch ? 'Edit ranch' : 'New ranch';
+        $('ranchId').value = ranch?.id || '';
+        $('ranchName').value = ranch?.name || '';
+        $('ranchOwner').value = ranch?.owner || '';
+        $('ranchActive').value = ranch?.is_active === false ? 'false' : 'true';
+        $('ranchNotes').value = ranch?.notes || '';
+        showModal('ranchModal');
+    }
+
+    $('newRanchBtn').addEventListener('click', () => openRanchModal());
+    $('ranchCancelBtn').addEventListener('click', () => hideModal('ranchModal'));
+
+    $('ranchForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearAlert('ranchModalAlert');
+        $('ranchSaveBtn').disabled = true;
+
+        const id = $('ranchId').value || null;
+        const payload = {
+            name: $('ranchName').value.trim(),
+            owner: $('ranchOwner').value.trim() || null,
+            is_active: $('ranchActive').value === 'true',
+            notes: $('ranchNotes').value.trim() || null
+        };
+        if (!id) payload.created_by = currentUser.id;
+
+        const result = id
+            ? await supabase.from('ranches').update(payload).eq('id', id).select().single()
+            : await supabase.from('ranches').insert(payload).select().single();
+
+        $('ranchSaveBtn').disabled = false;
+        if (result.error) { showAlert('ranchModalAlert', result.error.message); return; }
+        hideModal('ranchModal');
+        loadLocations();
+    });
+
+    // ---- Pasture modal ----
+    async function openPastureModal(pasture = null) {
+        clearAlert('pastureModalAlert');
+        await refreshRanchesCache();
+        await refreshForageTypesCache();
+
+        // Populate ranch dropdown
+        const ranchSel = $('pastureRanch');
+        ranchSel.innerHTML = '<option value="">— Pick a ranch —</option>';
+        allRanchesCache.filter(r => r.is_active).forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = r.id;
+            opt.textContent = r.name;
+            ranchSel.appendChild(opt);
+        });
+
+        // Populate forage dropdown
+        const forageSel = $('pastureForage');
+        forageSel.innerHTML = '<option value="">—</option>';
+        allForageTypesCache.filter(f => f.is_active).forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.id;
+            opt.textContent = f.name;
+            forageSel.appendChild(opt);
+        });
+
+        $('pastureModalTitle').textContent = pasture ? 'Edit pasture' : 'New pasture';
+        $('pastureId').value = pasture?.id || '';
+        $('pastureRanch').value = pasture?.ranch_id || '';
+        $('pastureName').value = pasture?.name || '';
+        $('pastureAcres').value = pasture?.acres ?? '';
+        $('pastureCapacity').value = pasture?.head_capacity ?? '';
+        $('pastureForage').value = pasture?.forage_type_id || '';
+        $('pastureCondition').value = pasture?.forage_condition ?? '';
+        $('pastureLastGrazed').value = pasture?.last_grazed || '';
+        $('pastureLastRested').value = pasture?.last_rested || '';
+        $('pastureLastFert').value = pasture?.last_fertilized || '';
+        $('pastureLastSprayed').value = pasture?.last_sprayed || '';
+        $('pastureLastBurned').value = pasture?.last_burned || '';
+        $('pastureActive').value = pasture?.is_active === false ? 'false' : 'true';
+        $('pastureNotes').value = pasture?.notes || '';
+
+        showModal('pastureModal');
+    }
+
+    $('newPastureBtn').addEventListener('click', async () => {
+        await refreshRanchesCache();
+        if (allRanchesCache.filter(r => r.is_active).length === 0) {
+            alert('Add a ranch first before creating pastures.');
+            return;
+        }
+        openPastureModal();
+    });
+    $('pastureCancelBtn').addEventListener('click', () => hideModal('pastureModal'));
+
+    $('pastureForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearAlert('pastureModalAlert');
+        $('pastureSaveBtn').disabled = true;
+
+        const id = $('pastureId').value || null;
+        const payload = {
+            ranch_id: $('pastureRanch').value,
+            name: $('pastureName').value.trim(),
+            acres: $('pastureAcres').value ? parseFloat($('pastureAcres').value) : null,
+            head_capacity: $('pastureCapacity').value ? parseInt($('pastureCapacity').value) : null,
+            forage_type_id: $('pastureForage').value || null,
+            forage_condition: $('pastureCondition').value ? parseInt($('pastureCondition').value) : null,
+            last_grazed: $('pastureLastGrazed').value || null,
+            last_rested: $('pastureLastRested').value || null,
+            last_fertilized: $('pastureLastFert').value || null,
+            last_sprayed: $('pastureLastSprayed').value || null,
+            last_burned: $('pastureLastBurned').value || null,
+            is_active: $('pastureActive').value === 'true',
+            notes: $('pastureNotes').value.trim() || null
+        };
+        if (!id) payload.created_by = currentUser.id;
+
+        const result = id
+            ? await supabase.from('pastures').update(payload).eq('id', id).select().single()
+            : await supabase.from('pastures').insert(payload).select().single();
+
+        $('pastureSaveBtn').disabled = false;
+        if (result.error) { showAlert('pastureModalAlert', result.error.message); return; }
+        hideModal('pastureModal');
+        if (id && currentPasture) {
+            showPastureDetail(id);
+        } else {
+            loadLocations();
+        }
+    });
+
+    // ---- Pasture detail ----
+    async function showPastureDetail(pastureId) {
+        $('locationsView').classList.add('hidden');
+        $('pastureDetailView').classList.remove('hidden');
+        $('pastureCurrentLots').innerHTML = '<div class="empty">Loading…</div>';
+
+        const [pastRes, statusRes, currentRes] = await Promise.all([
+            supabase.from('pastures').select('*').eq('id', pastureId).single(),
+            supabase.from('pasture_status').select('*').eq('pasture_id', pastureId).single(),
+            supabase.from('lot_current_pastures').select('*, lots(lot_number, sex_class)').eq('pasture_id', pastureId)
+        ]);
+
+        if (pastRes.error || statusRes.error) {
+            showAlert('globalAlert', 'Failed to load pasture: ' + (pastRes.error?.message || statusRes.error?.message));
+            showLocationsTab();
+            return;
+        }
+
+        currentPasture = pastRes.data;
+        const status = statusRes.data;
+        const occupants = currentRes.data || [];
+
+        // Header
+        $('pastureDetailName').textContent = currentPasture.name;
+        $('pastureMeta').textContent = [
+            status.ranch_name,
+            currentPasture.acres ? fmtNum(currentPasture.acres, 1) + ' ac' : null,
+            status.forage_type_name || null,
+            currentPasture.head_capacity ? 'capacity ' + currentPasture.head_capacity : null
+        ].filter(Boolean).join(' · ');
+
+        if (currentPasture.is_active) {
+            $('pastureArchivedBanner').classList.add('hidden');
+            $('archivePastureBtn').textContent = 'Archive';
+        } else {
+            $('pastureArchivedBanner').classList.remove('hidden');
+            $('pastureArchivedBanner').textContent = 'Retired pasture';
+            $('archivePastureBtn').textContent = 'Reactivate';
+        }
+
+        // Stats
+        const headPerAcre = status.current_head_per_acre != null ? Number(status.current_head_per_acre).toFixed(2) : '—';
+        const lbsPerAcre = (currentPasture.acres > 0 && status.current_head_total > 0)
+            ? '—' // we'd need lot weight info to compute lbs/acre; skip for now
+            : '—';
+
+        $('pastureStats').innerHTML = `
+            <div class="stat">
+                <div class="label">Head now</div>
+                <div class="value">${fmtNum(status.current_head_total)}</div>
+                <div class="sub">${status.current_lot_count} lot${status.current_lot_count === 1 ? '' : 's'}</div>
+            </div>
+            <div class="stat">
+                <div class="label">Head / acre</div>
+                <div class="value">${headPerAcre}</div>
+                <div class="sub">${currentPasture.acres ? fmtNum(currentPasture.acres, 1) + ' ac total' : 'no acreage set'}</div>
+            </div>
+            <div class="stat">
+                <div class="label">Capacity</div>
+                <div class="value">${currentPasture.head_capacity != null ? fmtNum(currentPasture.head_capacity) : '—'}</div>
+                <div class="sub">${currentPasture.head_capacity && status.current_head_total ? Math.round(status.current_head_total / currentPasture.head_capacity * 100) + '% used' : ''}</div>
+            </div>
+            <div class="stat">
+                <div class="label">Condition</div>
+                <div class="value">${currentPasture.forage_condition != null ? currentPasture.forage_condition + ' / 5' : '—'}</div>
+                <div class="sub">${status.forage_type_name || ''}</div>
+            </div>
+            <div class="stat">
+                <div class="label">Last grazed</div>
+                <div class="value" style="font-size: 14px;">${fmtDate(currentPasture.last_grazed)}</div>
+                <div class="sub">last rested: ${fmtDate(currentPasture.last_rested)}</div>
+            </div>
+        `;
+
+        // Occupants
+        if (occupants.length === 0) {
+            $('pastureCurrentLots').innerHTML = '<div class="empty">Nothing in this pasture right now.</div>';
+        } else {
+            const rows = occupants.map(a => `
+                <tr>
+                    <td><strong>${escapeHtml(a.lots?.lot_number || '?')}</strong></td>
+                    <td>${formatSexClass(a.lots?.sex_class)}</td>
+                    <td class="num">${fmtNum(a.head_count)}</td>
+                    <td>${fmtDate(a.moved_in)}</td>
+                </tr>
+            `).join('');
+            $('pastureCurrentLots').innerHTML = `
+                <table>
+                    <thead><tr><th>Lot</th><th>Class</th><th class="num">Head</th><th>Moved in</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        }
+
+        // Maintenance
+        const maint = currentPasture;
+        $('pastureMaintenance').innerHTML = `
+            <table>
+                <tr><td>Last grazed</td><td>${fmtDate(maint.last_grazed)}</td></tr>
+                <tr><td>Last rested</td><td>${fmtDate(maint.last_rested)}</td></tr>
+                <tr><td>Last fertilized</td><td>${fmtDate(maint.last_fertilized)}</td></tr>
+                <tr><td>Last sprayed</td><td>${fmtDate(maint.last_sprayed)}</td></tr>
+                <tr><td>Last burned</td><td>${fmtDate(maint.last_burned)}</td></tr>
+            </table>
+        `;
+
+        // Notes
+        if (currentPasture.notes) {
+            $('pastureNotesCard').classList.remove('hidden');
+            $('pastureNotesContent').textContent = currentPasture.notes;
+        } else {
+            $('pastureNotesCard').classList.add('hidden');
+        }
+    }
+
+    $('backToLocations').addEventListener('click', () => showLocationsTab());
+    $('editPastureBtn').addEventListener('click', () => {
+        if (currentPasture) openPastureModal(currentPasture);
+    });
+    $('archivePastureBtn').addEventListener('click', async () => {
+        if (!currentPasture) return;
+        const reactivating = !currentPasture.is_active;
+        const verb = reactivating ? 'reactivate' : 'archive';
+        if (!confirm(`Are you sure you want to ${verb} pasture "${currentPasture.name}"?`)) return;
+        $('archivePastureBtn').disabled = true;
+        const { error } = await supabase.from('pastures')
+            .update({ is_active: reactivating })
+            .eq('id', currentPasture.id);
+        $('archivePastureBtn').disabled = false;
+        if (error) { showAlert('globalAlert', 'Failed: ' + error.message); return; }
+        showAlert('globalAlert', `Pasture ${reactivating ? 'reactivated' : 'archived'}.`, 'success');
+        showPastureDetail(currentPasture.id);
+    });
+
+    // ---- Forage types manager ----
+    $('manageForageBtn').addEventListener('click', async () => {
+        await loadForageTypes();
+        showModal('forageModal');
+    });
+    $('forageCloseBtn').addEventListener('click', () => {
+        hideModal('forageModal');
+        loadLocations();
+    });
+
+    async function loadForageTypes() {
+        $('forageContent').innerHTML = '<div class="empty">Loading…</div>';
+        await refreshForageTypesCache();
+        if (allForageTypesCache.length === 0) {
+            $('forageContent').innerHTML = '<div class="empty">No forage types yet. Click "+ Add type".</div>';
+            return;
+        }
+        const rows = allForageTypesCache.map(f => `
+            <tr class="clickable ${!f.is_active ? 'closed-row' : ''}" data-forage-id="${f.id}">
+                <td><strong>${escapeHtml(f.name)}</strong></td>
+                <td class="num">${f.typical_adg_lb_per_day != null ? Number(f.typical_adg_lb_per_day).toFixed(2) : '—'}</td>
+                <td class="num">${f.typical_head_per_acre != null ? Number(f.typical_head_per_acre).toFixed(2) : '—'}</td>
+                <td class="num">${f.typical_lbs_per_acre != null ? fmtNum(f.typical_lbs_per_acre) : '—'}</td>
+                <td>${f.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">retired</span>'}</td>
+            </tr>
+        `).join('');
+        $('forageContent').innerHTML = `
+            <table>
+                <thead><tr><th>Name</th><th class="num">ADG</th><th class="num">Head/ac</th><th class="num">Lbs/ac</th><th>Status</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        `;
+        $('forageContent').querySelectorAll('tr.clickable').forEach(r => {
+            r.addEventListener('click', () => {
+                const f = allForageTypesCache.find(x => x.id === r.dataset.forageId);
+                if (f) openForageEditModal(f);
+            });
+        });
+    }
+
+    function openForageEditModal(forage = null) {
+        clearAlert('forageEditAlert');
+        $('forageEditTitle').textContent = forage ? 'Edit forage type' : 'Add forage type';
+        $('forageEditId').value = forage?.id || '';
+        $('forageEditName').value = forage?.name || '';
+        $('forageEditActive').value = forage?.is_active === false ? 'false' : 'true';
+        $('forageEditAdg').value = forage?.typical_adg_lb_per_day ?? '';
+        $('forageEditHpa').value = forage?.typical_head_per_acre ?? '';
+        $('forageEditLpa').value = forage?.typical_lbs_per_acre ?? '';
+        $('forageEditNotes').value = forage?.notes || '';
+        showModal('forageEditModal');
+    }
+
+    $('forageAddBtn').addEventListener('click', () => openForageEditModal());
+    $('forageEditCancelBtn').addEventListener('click', () => hideModal('forageEditModal'));
+
+    $('forageEditForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearAlert('forageEditAlert');
+        $('forageEditSaveBtn').disabled = true;
+
+        const id = $('forageEditId').value || null;
+        const payload = {
+            name: $('forageEditName').value.trim(),
+            is_active: $('forageEditActive').value === 'true',
+            typical_adg_lb_per_day: $('forageEditAdg').value ? parseFloat($('forageEditAdg').value) : null,
+            typical_head_per_acre: $('forageEditHpa').value ? parseFloat($('forageEditHpa').value) : null,
+            typical_lbs_per_acre: $('forageEditLpa').value ? parseFloat($('forageEditLpa').value) : null,
+            notes: $('forageEditNotes').value.trim() || null
+        };
+
+        const result = id
+            ? await supabase.from('forage_types').update(payload).eq('id', id).select().single()
+            : await supabase.from('forage_types').insert(payload).select().single();
+
+        $('forageEditSaveBtn').disabled = false;
+        if (result.error) { showAlert('forageEditAlert', result.error.message); return; }
+        hideModal('forageEditModal');
+        loadForageTypes();
+    });
+
+    checkSession();
+</script>
+
+</body>
+</html>
