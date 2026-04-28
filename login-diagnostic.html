@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JFR Login Diagnostic</title>
+<style>
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 16px;
+        background: #f5f3ec;
+    }
+    h1 { font-size: 18px; margin-bottom: 8px; }
+    h2 { font-size: 14px; margin: 16px 0 6px; color: #5a3a1a; }
+    input, button {
+        width: 100%;
+        padding: 10px;
+        font-size: 16px;
+        margin-bottom: 8px;
+        border: 1px solid #d4d0c0;
+        border-radius: 6px;
+        box-sizing: border-box;
+    }
+    button {
+        background: #5a3a1a;
+        color: white;
+        border: none;
+        font-weight: 500;
+    }
+    button:disabled { opacity: 0.5; }
+    #log {
+        background: #1a1a1a;
+        color: #d4ebd0;
+        padding: 12px;
+        border-radius: 6px;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        min-height: 200px;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    .err { color: #f7a8a8; }
+    .ok { color: #a8f7a8; }
+    .info { color: #a8d4f7; }
+    .step { color: #f7e5a8; font-weight: bold; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>JFR Login Diagnostic</h1>
+<p style="font-size:13px; color: #555;">This page tests whether login works on this device. Whatever happens, it will be logged below in plain text.</p>
+
+<h2>1. Try login</h2>
+<input type="email" id="email" placeholder="email" autocomplete="username">
+<input type="password" id="password" placeholder="password" autocomplete="current-password">
+<button id="loginBtn">Sign in (diagnostic)</button>
+
+<h2>2. Live log</h2>
+<div id="log">Waiting for events…</div>
+
+<button id="copyBtn" style="margin-top: 8px; background: #888;">Copy log to clipboard</button>
+
+<script>
+// Plain non-module script to maximize compatibility.
+// We'll use the global supabase client loaded from a script tag below.
+const logEl = document.getElementById('log');
+let logBuffer = '';
+
+function log(msg, cls) {
+    const ts = new Date().toISOString().split('T')[1].split('.')[0];
+    const line = `[${ts}] ${msg}`;
+    logBuffer += line + '\n';
+    const span = document.createElement('div');
+    if (cls) span.className = cls;
+    span.textContent = line;
+    if (logEl.firstChild && logEl.firstChild.nodeType === 3) {
+        logEl.innerHTML = '';
+    }
+    logEl.appendChild(span);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Catch any uncaught errors (the smoking gun in many cases)
+window.addEventListener('error', (e) => {
+    log('UNCAUGHT ERROR: ' + e.message + ' at ' + (e.filename || 'unknown') + ':' + (e.lineno || '?'), 'err');
+});
+window.addEventListener('unhandledrejection', (e) => {
+    log('UNHANDLED PROMISE REJECTION: ' + (e.reason?.message || JSON.stringify(e.reason)), 'err');
+});
+
+log('Page loaded. User-agent: ' + navigator.userAgent.substring(0, 100), 'info');
+log('localStorage available: ' + (typeof localStorage !== 'undefined'), 'info');
+try {
+    localStorage.setItem('__test', '1');
+    localStorage.removeItem('__test');
+    log('localStorage write+read works ✓', 'ok');
+} catch (e) {
+    log('localStorage WRITE FAILED: ' + e.message, 'err');
+}
+log('cookies enabled: ' + navigator.cookieEnabled, 'info');
+log('online: ' + navigator.onLine, 'info');
+
+// Load Supabase via a regular non-module script tag
+log('Loading Supabase client library…', 'step');
+const supabaseScript = document.createElement('script');
+supabaseScript.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+supabaseScript.onload = () => {
+    log('Supabase library loaded ✓', 'ok');
+    initClient();
+};
+supabaseScript.onerror = (e) => {
+    log('FAILED TO LOAD Supabase library. Check network.', 'err');
+};
+document.head.appendChild(supabaseScript);
+
+let sb = null;
+function initClient() {
+    try {
+        const SUPABASE_URL = 'https://xpfmebdzcxorvwikfvtj.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhwZm1lYmR6Y3hvcnZ3aWtmdnRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjE5MzMsImV4cCI6MjA3NzAwNTkzM30.iRXgtWGZbxTEaoHk23iC23xXLIN7l45TdpbFi81b1AY';
+        // window.supabase is populated by the UMD build
+        sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        log('Supabase client created ✓', 'ok');
+        // Check existing session
+        sb.auth.getSession().then(({data, error}) => {
+            if (error) {
+                log('getSession() returned error: ' + error.message, 'err');
+            } else if (data.session) {
+                log('Already have a session for: ' + data.session.user.email, 'ok');
+            } else {
+                log('No existing session (expected if not yet logged in)', 'info');
+            }
+        });
+    } catch (e) {
+        log('FAILED to create Supabase client: ' + e.message, 'err');
+    }
+}
+
+document.getElementById('loginBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    log('=== LOGIN ATTEMPT STARTED ===', 'step');
+    if (!sb) {
+        log('Supabase client not ready yet. Wait a moment and try again.', 'err');
+        btn.disabled = false;
+        return;
+    }
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    if (!email || !password) {
+        log('Email or password empty.', 'err');
+        btn.disabled = false;
+        return;
+    }
+    log('Calling signInWithPassword for: ' + email, 'info');
+    try {
+        const start = Date.now();
+        const { data, error } = await sb.auth.signInWithPassword({ email, password });
+        const ms = Date.now() - start;
+        log(`API responded in ${ms}ms`, 'info');
+        if (error) {
+            log('LOGIN ERROR: ' + error.message + ' (status ' + (error.status || '?') + ')', 'err');
+        } else if (data && data.session) {
+            log('LOGIN OK ✓ User: ' + data.session.user.email, 'ok');
+            log('Session token expires: ' + new Date(data.session.expires_at * 1000).toISOString(), 'info');
+            // Try to read user_profiles like the real app does
+            log('Trying to fetch user_profile…', 'step');
+            try {
+                const { data: profile, error: profErr } = await sb
+                    .from('user_profiles')
+                    .select('*')
+                    .eq('id', data.session.user.id)
+                    .single();
+                if (profErr) {
+                    log('user_profiles fetch FAILED: ' + profErr.message + ' (this is the most likely cause of the main app blank screen)', 'err');
+                } else {
+                    log('user_profile loaded ✓ role: ' + profile.role, 'ok');
+                }
+            } catch (e) {
+                log('user_profiles fetch threw: ' + e.message, 'err');
+            }
+        } else {
+            log('Login returned no session AND no error. Unusual.', 'err');
+            log('Raw response: ' + JSON.stringify(data).substring(0, 200), 'info');
+        }
+    } catch (e) {
+        log('LOGIN THREW EXCEPTION: ' + (e.message || e), 'err');
+    }
+    btn.disabled = false;
+});
+
+document.getElementById('copyBtn').addEventListener('click', async () => {
+    try {
+        await navigator.clipboard.writeText(logBuffer);
+        document.getElementById('copyBtn').textContent = 'Copied ✓';
+    } catch (e) {
+        // Fallback: select the log
+        const range = document.createRange();
+        range.selectNodeContents(logEl);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.getElementById('copyBtn').textContent = 'Selected — copy manually';
+    }
+});
+</script>
+
+</body>
+</html>
