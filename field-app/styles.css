@@ -1,0 +1,789 @@
+/* --- MAIN APP BACKGROUND & LAYOUT --- */
+body { 
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+    background-color: #f2f2f7; 
+    margin: 0; 
+    padding: 12px; 
+    padding-bottom: 40px; 
+    color: #1c1c1e; 
+}
+
+.container { 
+    max-width: 1000px; 
+    margin: 0 auto; 
+}
+
+h1 { 
+    font-size: 22px; 
+    text-align: center; 
+    margin-top: 5px; 
+    margin-bottom: 15px; 
+}
+
+h2 { 
+    font-size: 18px; 
+    margin-top: 20px; 
+    border-bottom: 2px solid #ccc; 
+    padding-bottom: 5px; 
+}
+
+h3 { 
+    font-size: 14px; 
+    color: #007aff; 
+    margin-top: 15px; 
+    margin-bottom: 8px; 
+    text-transform: uppercase; 
+    letter-spacing: 0.5px; 
+}
+
+/* --- FORMS & INPUTS --- */
+.form-group { 
+    margin-bottom: 12px; 
+}
+
+.form-row { 
+    display: flex; 
+    gap: 10px; 
+    margin-bottom: 12px; 
+    align-items: flex-start; 
+}
+
+.form-row .form-group { 
+    margin-bottom: 0; 
+}
+
+@media (max-width: 600px) { 
+    .form-row:not(.med-row) { flex-direction: column; gap: 0; } 
+    .form-row:not(.med-row) .form-group { margin-bottom: 12px; } 
+}
+
+label { 
+    display: block; 
+    font-weight: 600; 
+    margin-bottom: 4px; 
+    font-size: 13px; 
+    color: #3a3a3c; 
+    white-space: nowrap; 
+}
+
+input, textarea, select { 
+    width: 100%; 
+    padding: 10px 12px; 
+    border: 1px solid #d1d1d6; 
+    border-radius: 8px; 
+    box-sizing: border-box; 
+    font-size: 16px; 
+    background-color: #ffffff; 
+    -webkit-appearance: none; 
+}
+
+select:disabled { 
+    background-color: #e5e5ea; 
+    color: #8e8e93; 
+}
+
+/* --- MAIN BUTTONS --- */
+button { 
+    width: 100%; 
+    padding: 12px; 
+    background-color: #34c759; 
+    color: white; 
+    border: none; 
+    border-radius: 8px; 
+    font-size: 16px; 
+    font-weight: bold; 
+    cursor: pointer; 
+    margin-top: 5px; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+}
+
+button:active { 
+    opacity: 0.8; 
+}
+
+.sync-btn { 
+    background-color: #007aff; 
+    margin-bottom: 10px; 
+}
+
+.report-btn { 
+    background-color: #8e8e93; 
+}
+
+/* --- TABLES --- */
+.table-responsive { 
+    overflow-x: auto; 
+    -webkit-overflow-scrolling: touch; 
+    background-color: #ffffff; 
+    border-radius: 12px; 
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); 
+    border: 1px solid #e5e5ea; 
+    margin-top: 10px; 
+}
+
+table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    white-space: nowrap; 
+    font-size: 14px; 
+}
+
+th, td { 
+    padding: 10px 12px; 
+    text-align: left; 
+    border-bottom: 1px solid #e5e5ea; 
+    vertical-align: middle; 
+}
+
+th { 
+    background-color: #f8f8f8; 
+    font-weight: 600; 
+    color: #8e8e93; 
+    text-transform: uppercase; 
+    font-size: 11px; 
+    letter-spacing: 0.5px; 
+}
+
+tr:last-child td { 
+    border-bottom: none; 
+}
+
+/* --- ACTION BUTTONS FOR TABLES (EDIT/DEL) --- */
+.action-buttons { 
+    display: flex; 
+    gap: 8px; 
+}
+
+.action-buttons button { 
+    margin-top: 0; 
+    padding: 10px 14px; 
+    min-height: 40px;
+    font-size: 14px; 
+    border-radius: 6px; 
+    box-shadow: none; 
+    width: auto; 
+    font-weight: bold; 
+}
+
+.edit-btn { 
+    background-color: #ffcc00; 
+    color: #1c1c1e; 
+    border: none; 
+}
+
+.delete-btn { 
+    background-color: #ff3b30; 
+    color: white; 
+    border: none; 
+}
+
+/* --- SEARCH BAR & ALERTS --- */
+.search-bar { 
+    margin-bottom: 15px; 
+    border: 2px solid #007aff; 
+}
+
+.tag-alert { 
+    margin-top: 4px; 
+    padding: 10px; 
+    border-radius: 6px; 
+    display: none; 
+    font-size: 14px; 
+}
+
+/* --- MODALS --- */
+.modal { 
+    display: none; 
+    position: fixed; 
+    z-index: 1000; 
+    left: 0; 
+    top: 0; 
+    width: 100%; 
+    height: 100%; 
+    background-color: rgba(0,0,0,0.6); 
+}
+
+.modal-content { 
+    background-color: #ffffff; 
+    margin: 10% auto; 
+    padding: 20px; 
+    border-radius: 16px; 
+    width: 85%; 
+    max-width: 400px; 
+    box-shadow: 0 10px 20px rgba(0,0,0,0.2); 
+}
+
+.close-modal { 
+    color: #8e8e93; 
+    float: right; 
+    font-size: 28px; 
+    font-weight: bold; 
+    line-height: 20px; 
+    cursor: pointer; 
+}
+
+/* --- ENHANCED UTILITY BUTTONS (NT, Recall, Lock) --- */
+.utility-btn {
+    width: auto !important;
+    padding: 10px 16px !important; 
+    min-height: 40px !important;
+    min-width: 40px !important;
+    margin: 0 !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15) !important; 
+    border: none !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.1s ease-in-out;
+}
+
+.utility-btn:active { 
+    transform: scale(0.95); 
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important; 
+}
+
+.btn-nt { background-color: #ffcc00 !important; color: #1c1c1e !important; font-size: 16px !important; }
+.btn-clear { background-color: #ffffff !important; color: #ff3b30 !important; border: 1px solid #ff3b30 !important; }
+.btn-recall { background-color: #e5f0ff !important; color: #007aff !important; border: 1px solid #007aff !important; }
+
+/* Lock toggle — visually distinct when engaged */
+.btn-lock { 
+    background-color: #ffffff !important; 
+    color: #8e8e93 !important; 
+    border: 1px solid #c7c7cc !important; 
+    font-size: 16px !important;
+}
+.btn-lock.locked { 
+    background-color: #34c759 !important; 
+    color: #ffffff !important; 
+    border: 1px solid #248a3d !important; 
+    box-shadow: 0 0 0 2px rgba(52,199,89,0.25), 0 2px 5px rgba(0,0,0,0.15) !important;
+}
+
+/* Inline lock — sits inside a label, compact size */
+.btn-lock-inline {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: auto !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+    padding: 4px 8px !important;
+    margin: 0 0 0 4px !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    background-color: #ffffff !important;
+    color: #8e8e93 !important;
+    border: 1px solid #c7c7cc !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    vertical-align: middle;
+    transition: all 0.1s ease-in-out;
+}
+
+.btn-lock-inline.locked {
+    background-color: #34c759 !important;
+    color: #ffffff !important;
+    border: 1px solid #248a3d !important;
+    box-shadow: 0 0 0 2px rgba(52,199,89,0.25) !important;
+}
+
+.btn-lock-inline:active {
+    transform: scale(0.92);
+}
+
+/* Field header — keeps label-button rows the same height across columns,
+   so the input/select beneath each one lines up cleanly across the row. */
+.field-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    min-height: 44px;
+}
+
+/* --- INLINE CLEAR BUTTON (The 'X') --- */
+.input-wrapper { 
+    position: relative; 
+    display: flex; 
+    align-items: center; 
+    width: 100%; 
+}
+
+.input-wrapper input { 
+    padding-right: 35px !important; 
+}
+
+.inline-clear { 
+    position: absolute; 
+    right: 8px; 
+    color: #ffffff; 
+    background-color: #c7c7cc; 
+    font-size: 14px; 
+    width: 28px; 
+    height: 28px; 
+    border-radius: 50%; 
+    display: none; 
+    align-items: center; 
+    justify-content: center; 
+    cursor: pointer; 
+    z-index: 10; 
+    font-family: sans-serif; 
+}
+
+.inline-clear:active { 
+    background-color: #8e8e93; 
+}
+
+/* =========================================================
+   TAB NAVIGATION STYLES (Beta Moves Feature)
+   ========================================================= */
+.tab-container { 
+    display: flex; 
+    gap: 0; 
+    margin-bottom: 20px; 
+    border-radius: 10px; 
+    overflow: hidden; 
+    border: 1px solid #d1d1d6; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05); 
+}
+
+.tab-btn { 
+    flex: 1; 
+    border-radius: 0 !important; 
+    background-color: #ffffff; 
+    color: #1c1c1e; 
+    margin-top: 0 !important; 
+    padding: 12px; 
+    font-size: 15px; 
+    font-weight: 600; 
+    cursor: pointer; 
+    transition: all 0.2s ease; 
+    border: none; 
+}
+
+.tab-btn:not(.active) { 
+    background-color: #f2f2f7; 
+    color: #8e8e93; 
+}
+
+.tab-btn.active { 
+    background-color: #007aff !important; 
+    color: #ffffff !important; 
+}
+
+#movesForm, #doctoringForm { 
+    animation: fadeIn 0.3s ease-in-out; 
+}
+
+@keyframes fadeIn { 
+    from { opacity: 0; transform: translateY(5px); } 
+    to { opacity: 1; transform: translateY(0); } 
+}
+
+#saveMoveBtn { 
+    background-color: #5856d6; 
+    margin-top: 20px; 
+}
+
+/* =========================================================
+   TOAST NOTIFICATIONS (replaces alert() for hot path)
+   ========================================================= */
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%) translateY(20px);
+    background-color: #1c1c1e;
+    color: #ffffff;
+    padding: 14px 22px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    z-index: 2000;
+    opacity: 0;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    max-width: 90%;
+    text-align: center;
+    pointer-events: none;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.toast-success { background-color: #248a3d; }
+.toast-error   { background-color: #d70015; }
+
+/* =========================================================
+   SYNC STATUS BADGE (next to cloud pull button)
+   ========================================================= */
+.sync-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.sync-row .sync-btn {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+.sync-badge {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.sync-badge.pending  { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+.sync-badge.syncing  { background-color: #cce5ff; color: #004085; border: 1px solid #b8daff; }
+.sync-badge.offline  { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+/* Disabled submit state */
+button:disabled {
+    cursor: not-allowed;
+}
+
+/* =========================================================
+   SAFER DELETE — separate Confirm + Cancel buttons
+   ========================================================= */
+.delete-confirm-btn {
+    background-color: #ff3b30 !important;
+    color: #ffffff !important;
+    font-weight: 800 !important;
+    animation: pulseConfirm 0.9s ease-in-out infinite;
+}
+
+.delete-cancel-btn {
+    background-color: #8e8e93 !important;
+    color: #ffffff !important;
+    font-size: 16px !important;
+}
+
+@keyframes pulseConfirm {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,59,48,0.5); }
+    50%      { transform: scale(1.04); box-shadow: 0 0 0 6px rgba(255,59,48,0); }
+}
+
+/* =========================================================
+   DITTO BUTTON (repeat last tag)
+   ========================================================= */
+.btn-ditto {
+    background-color: #fff8e1 !important;
+    color: #b07000 !important;
+    border: 1px solid #ffcc00 !important;
+    font-size: 18px !important;
+    line-height: 1 !important;
+}
+
+/* =========================================================
+   TAG HISTORY — tappable line in alert box + modal cards
+   ========================================================= */
+.tag-history-link {
+    display: block;
+    cursor: pointer;
+    padding: 4px 0;
+    -webkit-tap-highlight-color: rgba(0,122,255,0.2);
+}
+
+.tag-history-link:active {
+    opacity: 0.6;
+}
+
+.tag-history-cta {
+    color: #007aff;
+    font-weight: 700;
+    font-size: 13px;
+    margin-left: 4px;
+}
+
+.tag-history-modal-content {
+    max-width: 480px !important;
+    width: 92% !important;
+    max-height: 80vh;
+    overflow-y: auto;
+    margin: 5% auto !important;
+}
+
+.tag-history-card {
+    background: #f8f8fa;
+    border-left: 4px solid #007aff;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.tag-history-card-dead { border-left-color: #d70015; background: #fff5f5; }
+
+.thc-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.thc-action { font-weight: 700; color: #1c1c1e; }
+.thc-date { color: #8e8e93; font-size: 12px; white-space: nowrap; }
+.thc-meds { margin-top: 4px; color: #1c1c1e; }
+.thc-meta { margin-top: 4px; color: #555; font-size: 13px; }
+.thc-drugoff { margin-top: 4px; color: #d70015; font-weight: 700; font-size: 13px; }
+.thc-notes { margin-top: 6px; padding: 6px 8px; background: #ffffff; border-radius: 6px; font-size: 13px; }
+
+/* =========================================================
+   CUSTOM NUMERIC KEYPAD — bottom sheet, no iOS keyboard pop
+   ========================================================= */
+.keypad-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0,0,0,0.4);
+    z-index: 1500;
+}
+
+.keypad-modal.show { display: block; }
+
+.keypad-sheet {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: #f2f2f7;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+    animation: keypadSlideUp 0.18s ease-out;
+}
+
+@keyframes keypadSlideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+}
+
+.keypad-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+.keypad-display {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1c1c1e;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+}
+
+.keypad-done {
+    width: auto !important;
+    margin: 0 !important;
+    padding: 8px 18px !important;
+    background-color: #007aff !important;
+    color: #ffffff !important;
+    font-size: 15px !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+.keypad-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.keypad-key {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 18px 0 !important;
+    font-size: 26px !important;
+    font-weight: 600 !important;
+    background-color: #ffffff !important;
+    color: #1c1c1e !important;
+    border-radius: 10px !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08) !important;
+    border: none !important;
+    min-height: 56px;
+}
+
+.keypad-key:active {
+    background-color: #d1d1d6 !important;
+}
+
+.keypad-clear {
+    background-color: #fff3cd !important;
+    color: #856404 !important;
+    font-size: 16px !important;
+}
+
+.keypad-back {
+    background-color: #ffe5e5 !important;
+    color: #d70015 !important;
+    font-size: 22px !important;
+}
+
+/* =========================================================
+   DAILY SUMMARY BAR — running tally above the form
+   ========================================================= */
+.daily-summary {
+    background: linear-gradient(180deg, #ffffff 0%, #f7f9fc 100%);
+    border: 1px solid #d8e2ec;
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.ds-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ds-top { margin-bottom: 2px; }
+.ds-count { font-size: 26px; font-weight: 800; color: #007aff; line-height: 1; font-variant-numeric: tabular-nums; }
+.ds-label { font-size: 13px; color: #3a3a3c; font-weight: 600; }
+.ds-mid { font-size: 13px; color: #1c1c1e; font-weight: 600; margin-top: 2px; }
+.ds-last { font-size: 12px; color: #8e8e93; margin-top: 4px; }
+
+/* =========================================================
+   LONG-PRESS TOOLTIP (touch fallback for hover tooltips)
+   ========================================================= */
+.longpress-tooltip {
+    position: fixed;
+    background-color: rgba(28, 28, 30, 0.95);
+    color: #ffffff;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.35;
+    max-width: 260px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+    z-index: 3000;
+    pointer-events: none;
+    animation: tipFadeIn 0.15s ease-out;
+}
+
+@keyframes tipFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* =========================================================
+   HELP & TROUBLESHOOT BUTTONS (bottom of app)
+   ========================================================= */
+.help-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e5ea;
+}
+
+.help-btn {
+    flex: 1;
+    margin-top: 0 !important;
+    padding: 14px !important;
+    background-color: #5856d6 !important;
+    color: #ffffff !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    border-radius: 10px !important;
+}
+
+.help-btn-alt {
+    background-color: #ff9500 !important;
+}
+
+.help-btn:active {
+    opacity: 0.85;
+}
+
+/* Wider modal content with scrollable body for long help text */
+.help-modal-content {
+    max-width: 560px !important;
+    width: 92% !important;
+    max-height: 85vh !important;
+    overflow-y: auto;
+    margin: 5% auto !important;
+    -webkit-overflow-scrolling: touch;
+    padding: 22px 22px calc(22px + env(safe-area-inset-bottom)) !important;
+}
+
+.help-section {
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #f0f0f3;
+}
+
+.help-section:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0;
+}
+
+.help-section h3 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    color: #1c1c1e;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.help-section p {
+    margin: 6px 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #1c1c1e;
+}
+
+.help-list {
+    margin: 6px 0 6px 0;
+    padding-left: 22px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #1c1c1e;
+}
+
+.help-list li {
+    margin-bottom: 4px;
+}
+
+.help-list b {
+    color: #1c1c1e;
+}
+
+/* =========================================================
+   CHUTE MODE BANNER — visible when any field is locked
+   ========================================================= */
+.chute-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: #e8f7eb;
+    color: #1d4a25;
+    border: 1px solid #34c759;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.chute-banner b {
+    color: #0e3b15;
+    font-weight: 700;
+}
+
+.chute-banner-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
