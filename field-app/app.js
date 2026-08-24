@@ -2053,15 +2053,19 @@ function refreshResetState() {
     }
 }
 
-async function resetAppData() {
+async function resetAppData(opts) {
+    opts = opts || {};
     // Re-check at the moment of the tap, not just when the modal opened.
-    if (syncQueue.length > 0) {
+    // `force` is the locked-out path: someone stuck at the login screen has
+    // no way to drain the queue, so losing it beats a phone that cannot work
+    // at all — but only after they have been told, in the caller.
+    if (syncQueue.length > 0 && !opts.force) {
         showToast(`\u26d4 ${syncQueue.length} record(s) still unsent. Reset blocked.`, 'error', 4000);
         refreshResetState();
         return;
     }
 
-    if (!confirm(
+    if (!opts.skipConfirm && !confirm(
         'Reset app data?\n\n' +
         'Clears this phone\'s saved records, lists and settings, then reloads a ' +
         'fresh copy.\n\nNothing is removed from the ranch database — Pull Cloud ' +
@@ -2069,8 +2073,7 @@ async function resetAppData() {
     )) return;
 
     const btn = document.getElementById('resetAppBtn');
-    btn.disabled = true;
-    btn.textContent = 'Resetting…';
+    if (btn) { btn.disabled = true; btn.textContent = 'Resetting…'; }
 
     try {
         RESET_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
@@ -2101,6 +2104,22 @@ async function resetAppData() {
 }
 
 document.getElementById('resetAppBtn').addEventListener('click', resetAppData);
+
+// The in-app Reset lives inside Troubleshooting, which sits BEHIND the login
+// overlay — useless to anyone locked out by a bad cached build, which is
+// exactly who needs it. This one is on the login screen itself.
+const loginResetBtn = document.getElementById('loginResetBtn');
+if (loginResetBtn) {
+    loginResetBtn.addEventListener('click', async () => {
+        const queued = syncQueue.length;
+        if (queued > 0 && !confirm(
+            `${queued} record(s) on this phone have not been sent yet and WILL BE LOST.\n\n` +
+            `Reset anyway?`)) return;
+        if (queued === 0 && !confirm(
+            'Reload a fresh copy of the app?\n\nNothing is removed from the ranch database.')) return;
+        await resetAppData({ skipConfirm: true, force: true });
+    });
+}
 
 document.getElementById('troubleshootBtn').addEventListener('click', () => {
     refreshResetState();
@@ -2143,13 +2162,42 @@ async function onSignedIn(user) {
     // A user can authenticate but have no profile row, in which case
     // current_user_role() returns null and every insert would be refused
     // by RLS. Catch that here rather than letting saves fail in a pasture.
+    //
+    // Three outcomes, deliberately kept apart. The first version of this
+    // treated all three as "no profile", signed the user out and told them
+    // their account was broken - so one weak-signal request locked someone
+    // out of an offline-first app, with no session left to retry with.
     const { data: profile, error } = await sb
-        .from('user_profiles').select('full_name, role, is_active').eq('id', user.id).single();
+        .from('user_profiles')
+        .select('full_name, role, is_active')
+        .eq('id', user.id)
+        .maybeSingle();
 
-    if (error || !profile || !profile.is_active) {
+    // 1. Could not ASK. That is not the same as being told no. Keep the
+    //    session; it is the only way back in without signal.
+    if (error) {
+        currentUserId = null;
+        showLoginError(`Couldn't reach the ranch database (${error.code || error.message || 'network'}). ` +
+                       `Check signal and try again — your account is fine.`);
+        loginBtn.disabled = false;
+        return;
+    }
+
+    // 2. Asked, and there is genuinely no profile for this account.
+    if (!profile) {
         currentUserId = null;
         await sb.auth.signOut();
-        showLoginError('No active ranch profile for this account. Ask the office to set one up.');
+        showLoginError(`Signed in as ${user.email || 'this account'}, but it has no ranch profile. ` +
+                       `Ask the office to add one.`);
+        loginBtn.disabled = false;
+        return;
+    }
+
+    // 3. Profile exists but has been switched off.
+    if (!profile.is_active) {
+        currentUserId = null;
+        await sb.auth.signOut();
+        showLoginError(`The account ${user.email || ''} has been deactivated. Ask the office to turn it back on.`);
         loginBtn.disabled = false;
         return;
     }
@@ -2185,7 +2233,12 @@ loginForm.addEventListener('submit', async (e) => {
             email: document.getElementById('loginEmail').value.trim(),
             password: document.getElementById('loginPassword').value
         });
-        if (error) { showLoginError(error.message); loginBtn.disabled = false; }
+        if (error) {
+            // Include the status/code — "Invalid login credentials" and a
+            // server fault look identical to a user otherwise.
+            showLoginError(`${error.message}${error.status ? ` (${error.status})` : ''}`);
+            loginBtn.disabled = false;
+        }
         else await onSignedIn(data.user);
     } catch (err) {
         showLoginError(err.message || 'Sign-in failed. Check signal and try again.');
