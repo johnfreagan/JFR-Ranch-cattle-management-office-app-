@@ -1,6 +1,6 @@
 # Handoff — field app merge & retirement
 
-**Last updated:** 2026-08-24
+**Last updated:** 2026-08-24 (retirement merged)
 
 Working note for picking up in-flight work, not app code. Read alongside
 `CLAUDE.md`, which holds the standing business rules and schema landmines and
@@ -40,20 +40,19 @@ connection for later.
 Office `index.html` is byte-identical to v83 across both commits — verified by
 diff, not assumed.
 
-**Live URL:**
+**Live URL — confirmed working on John's phone (2026-08-24):**
 `https://johnfreagan.github.io/JFR-Ranch-cattle-management-office-app-/field-app/`
 
-> Not yet confirmed by loading it. The files are confirmed present on `main` via
-> the GitHub API, and there is no CNAME or Actions workflow, so that is the
-> standard Pages URL — but nobody has opened it on a phone yet. **That check is
-> the next step and it gates everything else.**
+### Live on field app repo `main`
 
-### Written but NOT live
-
-- **`1dc84cb`** on branch `claude/merge-field-app-repo-2hd0dr` in the **field app
-  repo** — the retirement stub. Staged deliberately: the old repo's `main` is
-  still `23831a6` and still serves the working app, so nothing is broken while
-  the new URL is unverified.
+- **`1dc84cb`** — the retirement. Merged and pushed after the new URL was
+  confirmed. The old repo now self-destructs installed copies and redirects:
+  `sw.js` is a self-destructing worker with **no fetch handler** (so the stale
+  shell can never be served again), and `index.html` is a redirect stub that also
+  unregisters workers and clears caches. `localStorage` is deliberately left
+  alone — same origin, already shared with the new URL.
+- Old repo `main` went `23831a6` → `1dc84cb`. Both URLs now lead to the same
+  place; the old one is a one-way door.
 
 ---
 
@@ -161,20 +160,22 @@ delete data unprompted.
 
 ## Next immediate steps
 
-1. **John verifies the new URL on a phone** — it loads, the longhorn icon appears
-   on Add to Home Screen, and ⏳ Download pulls rows. **This gates step 2.**
-2. **Merge `1dc84cb` to the field app repo's `main`.** Clean fast-forward. This
-   is what makes the retirement live.
-3. **Wait a few weeks**, then disable Pages on the old repo and archive it
-   (Settings → Archive). Archiving early strands anyone who hasn't opened the app
-   online since the switch — their installed copy needs one online load to
-   self-destruct.
+1. ~~John verifies the new URL on a phone~~ — ✅ done, works.
+2. ~~Merge the retirement to the field app repo's `main`~~ — ✅ done, `1dc84cb`.
+3. **Wait a few weeks, then disable Pages on the old repo and archive it**
+   (Settings → Archive). *Outstanding — this is the only open item.* Archiving
+   early strands anyone who hasn't opened the app online since the switch: an
+   installed copy needs **one online load** to run the self-destructing worker.
+   Until then it keeps working from its own cache.
 4. **Part B stays blocked** on roadmap item 2 (multi-user auth + RLS).
    `user_profiles` already exists with `role` and has a `crew` row, so that item
    is partly underway.
 
-**Do not** start Part B, import Sheet data, or push the field app repo to `main`
-before step 1 is confirmed.
+Worth a look before archiving: anyone still on the old copy has, by definition,
+not loaded it online since the switch. If cowboys are already using it, give them
+a nudge to open it once on signal.
+
+**Do not** start Part B or import Sheet data.
 
 ---
 
