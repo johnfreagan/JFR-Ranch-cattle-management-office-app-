@@ -143,6 +143,7 @@ footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
+<title>Ranch Access Control</title>
 
 <div class="wrap">
 
@@ -160,14 +161,18 @@ footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
 
 <section class="sec" style="border-top:none;padding-top:0;margin-top:0">
   <div class="sechead"><span class="secnum">00</span><h2>Before you add anyone</h2></div>
-  <p>Three of five items are done. The two open ones are quick, and both are worth
-     doing first &mdash; they change what a new user actually experiences on their
-     first sign-in.</p>
+  <p>Four of seven done. The three open ones are quick, and all are worth doing before
+     you onboard anybody &mdash; they change what a new user actually experiences on
+     their first sign-in.</p>
   <ul class="check">
     <li class="done"><span class="mark">&check;</span><div>
       <strong>Crew are read-only in the books</strong>
       <small>Migration run and verified. All 27 write policies across the nine affected
       tables now read <code>owner, office</code>.</small></div></li>
+    <li class="done"><span class="mark">&check;</span><div>
+      <strong>A Users screen, owner-only</strong>
+      <small>Settings &rarr; Users. Rename, re-role, activate and deactivate without
+      touching SQL. Written and tested. Waiting on deploy and on its migration.</small></div></li>
     <li class="done"><span class="mark">&check;</span><div>
       <strong>The login screen refuses inactive accounts</strong>
       <small>Written and tested. Waiting on deploy.</small></div></li>
@@ -181,14 +186,19 @@ footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
       who is not yet activated gets an empty, erroring screen instead of being told why,
       and crew see buttons that silently do nothing.</small></div></li>
     <li class="todo"><span class="mark">&rarr;</span><div>
+      <strong>Run <code>2026-08-24_users_admin.sql</code></strong>
+      <small>Adds the owner-only roster function and the last-owner guard. Until it runs,
+      the Users screen loads but reports that no users came back. Section 3 explains why
+      the browser cannot read email without it.</small></div></li>
+    <li class="todo"><span class="mark">&rarr;</span><div>
       <strong>Two Supabase dashboard settings</strong>
       <small>Turn on leaked-password protection, and check whether public signup is open.
       Section 8 has both. Do it before handing out passwords, not after.</small></div></li>
   </ul>
-  <div class="note"><p><strong>So: nearly.</strong> Deploy first, flip the two settings,
-     then work through section 3. Adding a user before the deploy is not dangerous &mdash;
-     the database refuses them regardless &mdash; it just makes a bad first impression on
-     someone you are trying to onboard.</p></div>
+  <div class="note"><p><strong>So: nearly.</strong> Deploy, run the second migration, flip
+     the two settings &mdash; then section 3 takes about a minute per person. Adding
+     someone before the deploy is not dangerous, since the database refuses them
+     regardless. It just makes a poor first impression on someone you are onboarding.</p></div>
 </section>
 
 <section class="sec">
@@ -256,10 +266,31 @@ WHERE id = auth.uid() AND is_active = TRUE;</code></pre>
 
 <section class="sec">
   <div class="sechead"><span class="secnum">03</span><h2>Adding a user</h2></div>
-  <p>There is no user-management screen in the app. Two steps in the Supabase dashboard:
-     create the login, then grant the role.</p>
+  <p>Two steps: create the login in the Supabase dashboard, then finish them off in
+     <strong>Settings &rarr; Users</strong> in the app. Only the first needs the dashboard.</p>
   <p><a href="https://supabase.com/dashboard/project/xpfmebdzcxorvwikfvtj">Open the project
      dashboard &rarr;</a></p>
+
+  <h3>The Users screen</h3>
+  <p>Settings &rarr; Users, visible to <span class="chip owner">owner</span> only. The
+     sub-tab is hidden from everyone else by the role gate, and the roster function
+     returns zero rows to anyone who is not an active owner &mdash; so it fails closed
+     even if someone reaches the tab.</p>
+  <p>It lists everyone with name, email, role, status, and last sign-in:</p>
+  <ul>
+    <li><strong>Rename</strong> &mdash; type over the name and tab away. New accounts
+        arrive with their email address as a placeholder name, so this is usually the
+        first fix.</li>
+    <li><strong>Change role</strong> &mdash; the dropdown, with a confirm.</li>
+    <li><strong>Activate or deactivate</strong> &mdash; the button on the right.</li>
+  </ul>
+  <p>Two rows are deliberately locked: <strong>your own</strong>, so you cannot demote or
+     deactivate yourself by accident, and <strong>the last active owner</strong>. The
+     database refuses both anyway through a trigger; the screen simply does not offer
+     them.</p>
+  <div class="warn"><p><strong>Creating the login itself stays in the dashboard.</strong>
+     A browser cannot create an <code>auth.users</code> row, and the key that could must
+     never ship inside a client-side app. That is once per person, and rare.</p></div>
 
   <ol class="steps">
     <li><div>
@@ -276,7 +307,10 @@ WHERE id = auth.uid() AND is_active = TRUE;</code></pre>
     </div></li>
     <li><div>
       <h3 style="margin-top:0">Set the name, role, and activate</h3>
-      <p>SQL Editor. Edit the three values at the top and run.</p>
+      <p><strong>In the app:</strong> Settings &rarr; Users. Type over the placeholder
+         name, set the role, click Activate. Done.</p>
+      <p><strong>Or by SQL</strong>, if you prefer or the screen is unavailable &mdash;
+         edit the three values at the top and run:</p>
       <figure class="sql">
         <figcaption>Grant a role<button class="copy" type="button">Copy</button></figcaption>
         <pre><code>-- Grant a role to an existing auth user. Idempotent: safe to re-run.
@@ -382,6 +416,7 @@ ORDER BY p.role, p.full_name;</code></pre>
 
 <section class="sec">
   <div class="sechead"><span class="secnum">05</span><h2>Changing a role</h2></div>
+  <p>Settings &rarr; Users, change the dropdown. Or by SQL:</p>
   <figure class="sql">
     <figcaption>Change a role<button class="copy" type="button">Copy</button></figcaption>
     <pre><code>-- Idempotent. Fails loudly if the person does not exist.
@@ -420,6 +455,7 @@ $do$;</code></pre>
 <section class="sec">
   <div class="sechead"><span class="secnum">06</span><h2>Removing someone</h2></div>
   <h3>Deactivate &mdash; the right answer</h3>
+  <p>Settings &rarr; Users, click Deactivate. Or by SQL:</p>
   <figure class="sql">
     <figcaption>Deactivate a user<button class="copy" type="button">Copy</button></figcaption>
     <pre><code>UPDATE public.user_profiles
@@ -471,9 +507,17 @@ WHERE id = (SELECT id FROM auth.users
 </section>
 
 <section class="sec">
-  <div class="sechead"><span class="secnum">08</span><h2>Two dashboard settings</h2></div>
-  <p>Neither the app nor a migration can reach these. Both are yours, in the Supabase
-     dashboard.</p>
+  <div class="sechead"><span class="secnum">08</span><h2>What only you can do</h2></div>
+  <p>The migration, and two settings nothing but the dashboard can reach.</p>
+  <h3>Run the Users screen migration</h3>
+  <p><code>docs/sql/2026-08-24_users_admin.sql</code> adds two things the screen needs:
+     <code>admin_list_users()</code>, the owner-guarded roster &mdash; necessary because
+     <code>authenticated</code> has no <code>SELECT</code> on <code>auth.users</code> and
+     PostgREST only exposes the public schema &mdash; and <code>guard_last_owner()</code>,
+     a trigger that refuses to let the final active owner be demoted or deactivated.</p>
+  <p>SQL Editor, paste, Run. It verifies its own grants and raises if <code>anon</code>
+     can still execute the function.</p>
+
   <h3>Leaked-password protection</h3>
   <p>Authentication &rarr; Policies (password settings) &rarr; enable it. Supabase then
      checks new passwords against HaveIBeenPwned and rejects known-breached ones. Do this

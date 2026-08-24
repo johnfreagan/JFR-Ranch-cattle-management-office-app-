@@ -634,6 +634,7 @@
             <button class="sub-tab" data-subtab="field-actions">Field Actions</button>
             <button class="sub-tab" data-subtab="field-protocols">Field Protocols</button>
             <button class="sub-tab" data-subtab="data-tools">Data Tools</button>
+            <button class="sub-tab" data-subtab="users" data-perm="owner">Users</button>
         </div>
         <div class="sub-tabs hidden" id="reportsSubtabs">
             <button class="sub-tab active" data-subtab="active-lots">Active Lots</button>
@@ -988,6 +989,26 @@
             <div class="card hidden" id="pastureNotesCard">
                 <h3 style="margin-bottom: 8px;">Notes</h3>
                 <p id="pastureNotesContent" class="muted"></p>
+            </div>
+        </div>
+
+        <!-- Users view (Settings → Users). Owner-only: the sub-tab carries
+             data-perm="owner" so the role gate hides it, and admin_list_users()
+             returns zero rows to anyone who is not an active owner. -->
+        <div id="usersView" class="hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Users</h2>
+                    <button id="usersRefreshBtn">Refresh</button>
+                </div>
+                <p class="muted" style="font-size: 13px; margin: 0 0 12px 0;">
+                    Roles and access. New logins are created in the
+                    <a href="https://supabase.com/dashboard/project/xpfmebdzcxorvwikfvtj/auth/users" target="_blank" rel="noopener">Supabase dashboard</a>;
+                    they arrive here as inactive crew with their email as a placeholder name.
+                    Type over the name, set the role, then Activate.
+                </p>
+                <div id="usersAlert"></div>
+                <div id="usersContent"><div class="empty">Loading…</div></div>
             </div>
         </div>
 
@@ -2767,6 +2788,163 @@ window.addEventListener('unhandledrejection', function(e) {
         }
     });
     $('logoutBtn').addEventListener('click',async()=>{await supabase.auth.signOut();showLoginScreen();});
+
+    // ---- USERS (Settings → Users, owner only) ----
+    // Reads go through admin_list_users(), which is SECURITY DEFINER because
+    // `authenticated` has no SELECT on auth.users and PostgREST only exposes
+    // the public schema. Writes go straight at user_profiles so the existing
+    // RLS UPDATE policy stays the single source of truth.
+    let usersCache = [];
+
+    function userSignInLabel(ts) {
+        if (!ts) return '<span class="muted">never</span>';
+        const d = new Date(ts);
+        const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+        const when = d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        if (days === 0) return 'today';
+        if (days === 1) return 'yesterday';
+        if (days < 30) return days + ' days ago';
+        return when;
+    }
+
+    async function loadUsers() {
+        clearAlert('usersAlert');
+        $('usersContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        const { data, error } = await supabase.rpc('admin_list_users');
+        if (error) {
+            $('usersContent').innerHTML =
+                '<div class="alert error">Could not load users: ' + escapeHtml(error.message) + '</div>';
+            return;
+        }
+        usersCache = data || [];
+
+        if (usersCache.length === 0) {
+            // Owners always see at least themselves, so an empty set means the
+            // migration has not been run or this account is not an owner.
+            $('usersContent').innerHTML =
+                '<div class="empty">No users returned. Either you are not signed in as an owner, ' +
+                'or docs/sql/2026-08-24_users_admin.sql has not been run yet.</div>';
+            return;
+        }
+
+        const myId = currentUser ? currentUser.id : null;
+        const activeOwners = usersCache.filter(u => u.role === 'owner' && u.is_active).length;
+
+        const rows = usersCache.map(u => {
+            const isMe = u.id === myId;
+            const lastOwner = u.role === 'owner' && u.is_active && activeOwners === 1;
+            // Locked when it is your own row, or the last active owner: the
+            // database refuses both, so do not offer them.
+            const locked = isMe || lastOwner;
+            const lockNote = isMe ? 'This is you.' : (lastOwner ? 'The only active owner.' : '');
+
+            const opts = ['owner', 'office', 'crew'].map(r =>
+                '<option value="' + r + '"' + (u.role === r ? ' selected' : '') + '>' + r + '</option>'
+            ).join('');
+
+            const status = u.is_active
+                ? '<span style="color: var(--success);">active</span>'
+                : '<span style="color: var(--danger); font-weight: 600;">not active</span>';
+            const unconfirmed = u.email_confirmed ? '' :
+                ' <span class="muted" style="font-size: 11px;">(email unconfirmed)</span>';
+
+            return '<tr class="' + (u.is_active ? '' : 'closed-row') + '">' +
+                '<td><input class="user-name" data-user-id="' + u.id + '" ' +
+                    'value="' + escapeHtml(u.full_name || '') + '" style="width: 100%; min-width: 150px;">' +
+                    (lockNote ? '<div class="muted" style="font-size: 11px; margin-top: 3px;">' + lockNote + '</div>' : '') +
+                    '</td>' +
+                '<td>' + escapeHtml(u.email || '—') + unconfirmed + '</td>' +
+                '<td><select class="user-role" data-user-id="' + u.id + '"' +
+                    (locked ? ' disabled' : '') + '>' + opts + '</select></td>' +
+                '<td>' + status + '</td>' +
+                '<td>' + userSignInLabel(u.last_sign_in_at) + '</td>' +
+                '<td><button class="user-toggle" data-user-id="' + u.id + '"' +
+                    (locked ? ' disabled' : '') + '>' +
+                    (u.is_active ? 'Deactivate' : 'Activate') + '</button></td>' +
+                '</tr>';
+        }).join('');
+
+        $('usersContent').innerHTML =
+            '<div style="overflow-x:auto;"><table><thead><tr>' +
+            '<th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th>' +
+            '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+            '<p class="muted" style="font-size: 12px; margin-top: 12px;">' +
+            'Role changes take effect on the person’s next action — no need to make them sign out. ' +
+            'Deactivating blocks them everywhere immediately and keeps their history intact. ' +
+            'Never delete a user: most of the books point at them and the delete will fail.</p>';
+    }
+
+    // A refused UPDATE returns zero rows rather than an error, so every write
+    // here asks for the row back and treats an empty result as a failure.
+    async function applyUserChange(userId, patch, describe) {
+        clearAlert('usersAlert');
+        const { data, error } = await supabase
+            .from('user_profiles')
+            .update(Object.assign({}, patch, { updated_at: new Date().toISOString() }))
+            .eq('id', userId)
+            .select('id, full_name, role, is_active');
+
+        // loadUsers() clears this alert box on entry, so always redraw FIRST
+        // and report afterwards, or the message is wiped before it is seen.
+        if (error) { await loadUsers(); showAlert('usersAlert', error.message); return false; }
+        if (!data || data.length === 0) {
+            await loadUsers();
+            showAlert('usersAlert', 'That change was refused. You must be signed in as an owner.');
+            return false;
+        }
+        const saved = data[0];
+        await loadUsers();
+        showAlert('usersAlert', describe(saved), 'success');
+        return true;
+    }
+
+    $('usersContent').addEventListener('change', async (e) => {
+        const nameInput = e.target.closest('input.user-name');
+        if (nameInput) {
+            const id = nameInput.dataset.userId;
+            const who = usersCache.find(u => u.id === id);
+            if (!who) return;
+            const full_name = nameInput.value.trim();
+            if (!full_name) {
+                nameInput.value = who.full_name || '';
+                showAlert('usersAlert', 'A name cannot be blank.');
+                return;
+            }
+            if (full_name === who.full_name) return;
+            await applyUserChange(id, { full_name }, r => 'Renamed to ' + r.full_name + '.');
+            return;
+        }
+
+        const sel = e.target.closest('select.user-role');
+        if (!sel) return;
+        const id = sel.dataset.userId;
+        const who = usersCache.find(u => u.id === id);
+        const role = sel.value;
+        if (!who || role === who.role) return;
+        if (!confirm('Change ' + (who.full_name || 'this user') + ' from ' + who.role + ' to ' + role + '?')) {
+            sel.value = who.role;
+            return;
+        }
+        await applyUserChange(id, { role }, r => (r.full_name || 'User') + ' is now ' + r.role + '.');
+    });
+
+    $('usersContent').addEventListener('click', async (e) => {
+        const btn = e.target.closest('button.user-toggle');
+        if (!btn) return;
+        const id = btn.dataset.userId;
+        const who = usersCache.find(u => u.id === id);
+        if (!who) return;
+        const turningOn = !who.is_active;
+        const msg = turningOn
+            ? 'Activate ' + (who.full_name || 'this user') + ' as ' + who.role + '?'
+            : 'Deactivate ' + (who.full_name || 'this user') + '? They will be signed out and blocked everywhere.';
+        if (!confirm(msg)) return;
+        await applyUserChange(id, { is_active: turningOn },
+            r => (r.full_name || 'User') + (r.is_active ? ' is active.' : ' is deactivated.'));
+    });
+
+    $('usersRefreshBtn').addEventListener('click', loadUsers);
 
     // ---- LOTS LIST ----
     async function showLotsList(){
@@ -4551,7 +4729,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'protocolsView', 'protocolDetailView',
          'locationsView', 'pastureDetailView', 'ranchDetailView',
          'fieldActionsView', 'fieldProtocolsView',
-         'dataToolsView',
+         'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
          'reportActiveLotsView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView'].forEach(id => {
             const el = $(id);
@@ -4622,6 +4800,9 @@ window.addEventListener('unhandledrejection', function(e) {
         } else if (subtab === 'data-tools') {
             $('dataToolsView').classList.remove('hidden');
             loadDataTools();
+        } else if (subtab === 'users') {
+            $('usersView').classList.remove('hidden');
+            loadUsers();
         }
     }
 

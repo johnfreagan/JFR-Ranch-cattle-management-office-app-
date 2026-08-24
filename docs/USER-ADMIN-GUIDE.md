@@ -80,8 +80,34 @@ profile row gets created, and only an `owner` can `UPDATE` one.
 
 ## 3. Adding a user
 
-There is no user-management screen in the app. This is done in the Supabase
-dashboard, in two steps: create the login, then grant the role.
+Two steps: create the login in the Supabase dashboard, then finish them off in
+**Settings → Users** in the app. Only the first step needs the dashboard.
+
+### The Users screen
+
+Settings → Users, visible to `owner` only. The sub-tab is hidden from everyone
+else by the role gate, and `admin_list_users()` returns zero rows to anyone who
+is not an active owner — so it fails closed even if someone reaches the tab.
+
+It lists everyone with name, email, role, status, and last sign-in. You can:
+
+- **Rename** — type over the name and tab away. New accounts arrive with their
+  email address as a placeholder name, so this is usually the first fix.
+- **Change role** — the dropdown, with a confirm.
+- **Activate / deactivate** — the button on the right.
+
+Two rows are deliberately locked: **your own** (so you cannot demote or
+deactivate yourself by accident) and **the last active owner**. The database
+refuses both anyway via `guard_last_owner()`; the screen just does not offer
+them.
+
+Requires `docs/sql/2026-08-24_users_admin.sql`. If the screen says no users were
+returned, that migration has not been run.
+
+### Creating the login itself
+
+Still the dashboard — the browser cannot create an `auth.users` row, and the
+key that could must never ship in a client-side app.
 
 **Project:** `xpfmebdzcxorvwikfvtj` →
 <https://supabase.com/dashboard/project/xpfmebdzcxorvwikfvtj>
@@ -104,7 +130,11 @@ anything yet. That is correct.
 
 ### Step 2 — set the name, role, and activate
 
-Dashboard → **SQL Editor**. Edit the three values at the top and run:
+**In the app:** Settings → Users. Type over the placeholder name, set the role,
+click Activate. Done.
+
+**Or by SQL**, if you prefer or the screen is unavailable — edit the three
+values at the top and run:
 
 ```sql
 -- Grant a role to an existing auth user. Idempotent: safe to re-run.
@@ -219,6 +249,8 @@ wall in the schema, and the only place a role is denied `SELECT`.
 
 ## 5. Changing a role
 
+Settings → Users, change the dropdown. Or by SQL:
+
 ```sql
 -- Idempotent. Fails loudly if the person does not exist.
 DO $do$
@@ -259,6 +291,8 @@ that happens, the SQL Editor still works (it bypasses RLS) and can put it back.
 ## 6. Removing someone
 
 ### Deactivate — the right answer
+
+Settings → Users, click Deactivate. Or by SQL:
 
 ```sql
 UPDATE public.user_profiles
@@ -368,25 +402,27 @@ bigger change than this pass.
 
 ---
 
-## 9. Two things only you can do
+## 9. What only you can do
 
-Both are outside what the app or a migration can reach.
+The migrations, and two dashboard settings nothing else can reach.
 
-### Run the crew read-only migration
+### ~~Run the crew read-only migration~~ — done
 
-`docs/sql/2026-08-24_crew_read_only.sql` closes gaps 3 and 4. It has not been
-run — the database connection used to write this guide is read-only by design.
+`docs/sql/2026-08-24_crew_read_only.sql` was run on 2026-08-24 and verified
+statement by statement: all 27 non-SELECT policies across the nine affected
+tables now read `owner, office`, and no policy anywhere in `public` grants crew
+a write. Kept here because it is idempotent and safe to re-run if you ever need
+to confirm the state.
 
-Dashboard → **SQL Editor** → paste the file → Run.
+### Run the Users screen migration
 
-It is idempotent and wrapped in a transaction. It refuses to run if
-`current_user_role()` is missing, if any expected table is absent, or if
-`pending_field_entries` already exists. It ends by re-scanning `pg_policies`
-and raising an exception if any non-SELECT policy still mentions `crew`, so a
-successful run is its own proof.
+`docs/sql/2026-08-24_users_admin.sql` adds `admin_list_users()` (the owner-only
+roster, needed because `authenticated` has no `SELECT` on `auth.users`) and
+`guard_last_owner()` (a trigger that refuses to let the final active owner be
+demoted or deactivated). Same drill: SQL Editor, paste, Run. It verifies its own
+grants and raises if `anon` can still execute the function.
 
-Nothing breaks when you run it: your account is `owner`, and Lauren — the only
-`crew` account — has never signed in.
+Until it runs, the Users screen loads but reports that no users were returned.
 
 ### Two dashboard settings
 
