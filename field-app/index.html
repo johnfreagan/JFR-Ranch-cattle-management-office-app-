@@ -58,6 +58,7 @@
             width: auto; padding: 6px 10px; font-size: 12px; font-weight: 600;
             background: none; color: #007aff; border: 1px solid #d1d1d6; border-radius: 6px;
         }
+        .build-stamp { margin-top: 8px; font-size: 11px; color: #a1a1a6; text-align: right; }
         /* --- Signed-in chip --- */
         .user-chip {
             display: flex; align-items: center; justify-content: space-between;
@@ -100,6 +101,7 @@
             <span>App stuck or not loading right?</span>
             <button type="button" id="loginResetBtn">Reset app</button>
         </div>
+        <div class="build-stamp">build v8</div>
     </form>
 </div>
 
@@ -581,6 +583,6 @@
      same-origin assets, so a CDN copy would leave the app dead offline on a
      cold start - which is exactly when a phone in a pasture needs it. -->
 <script src="supabase.min.js?v=2.46.1"></script>
-<script src="app.js?v=beta4"></script>
+<script src="app.js?v=v8"></script>
 </body>
 </html>
