@@ -606,6 +606,19 @@
             font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px;
             background: #eef0f2; color: #3a3a3c;
         }
+        .approvals-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .appr-day-all {
+            margin-left: auto; font-size: 11px; font-weight: 600; padding: 3px 9px;
+            border: 1px solid var(--border, #d1d1d6); border-radius: 6px; background: none;
+        }
+        .appr-note {
+            width: 150px; padding: 3px 7px; font-size: 12px;
+            border: 1px solid var(--border, #d1d1d6); border-radius: 5px;
+        }
+        .appr-reject {
+            border: 0; background: none; color: var(--danger, #d70015);
+            font-size: 13px; font-weight: 700; padding: 2px 6px; cursor: pointer;
+        }
         .appr-section { margin-bottom: 20px; }
         .appr-section h3 {
             font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
@@ -1344,6 +1357,10 @@
                     Nothing here is in the books until it is approved.
                 </p>
                 <div id="approvalsSummary" class="approvals-summary"></div>
+                <div class="approvals-actions">
+                    <button id="approvalsApproveBtn" class="primary" data-perm="office" disabled>Approve selected</button>
+                    <span id="approvalsSelCount" class="muted" style="font-size:12px;"></span>
+                </div>
                 <div id="approvalsContent"><div class="empty">Loading…</div></div>
             </div>
         </div>
@@ -5052,6 +5069,13 @@ window.addEventListener('unhandledrejection', function(e) {
                     issues.push(`${head} head exceeds the ${a.head_count} in that pasture`);
                 }
             }
+            // Posting a move means writing lot_movements AND re-balancing the
+            // pasture assignments. There is no atomic RPC for that yet, and a
+            // part-written move leaves drift that lot_movements DELETE
+            // (owner-only) cannot reliably undo. Blocked with a stated reason
+            // rather than offered and then refused at the last moment.
+            issues.push('move approval not built yet — needs an atomic RPC so a part-written move cannot leave drift');
+
             return {
                 entry, raw, kind: 'move',
                 lot, ranch: from.ranch, pasture: from.pasture,
@@ -5135,7 +5159,7 @@ window.addEventListener('unhandledrejection', function(e) {
         try {
             const [entriesRes, lookups] = await Promise.all([
                 supabase.from('pending_field_entries')
-                    .select('id, entry_type, client_id, raw, status, review_notes, submitted_at, submitted_by')
+                    .select('id, entry_type, client_id, raw, status, review_notes, submitted_at, submitted_by, event_datetime')
                     .eq('status', 'pending')
                     .order('event_datetime', { ascending: true }),
                 loadApprovalLookups()
@@ -5201,7 +5225,9 @@ window.addEventListener('unhandledrejection', function(e) {
             const dayRows = readyRows.filter(r => entryDayKey(r) === dayKey);
             html += `<div class="appr-day">
                 <div class="appr-day-head">${escapeHtml(formatDayHeading(dayKey))}
-                    <span class="appr-day-count">${dayRows.length}</span></div>`;
+                    <span class="appr-day-count">${dayRows.length}</span>
+                    <button type="button" class="appr-day-all" data-day="${escapeHtml(dayKey)}">Select all</button>
+                </div>`;
 
             ['doctoring', 'move', 'dead'].forEach(kind => {
                 const rows = dayRows.filter(r => r.kind === kind);
@@ -5234,6 +5260,7 @@ window.addEventListener('unhandledrejection', function(e) {
         });
 
         content.innerHTML = html;
+        refreshApprovalSelection();
     }
 
     function approvalRowHtml(r, showWhy) {
@@ -5267,9 +5294,196 @@ window.addEventListener('unhandledrejection', function(e) {
                 <span class="appr-when">${escapeHtml(when)}</span>
                 <span class="appr-who">${escapeHtml(raw.recordedBy || '')}</span>
                 ${r.notHauled ? '<span class="appr-flag danger">not hauled off</span>' : ''}
+                <input type="text" class="appr-note" data-id="${r.entry.id}"
+                       placeholder="note…" value="${escapeHtml(r.entry.review_notes || '')}"
+                       title="Saved on its own — use it to explain why an entry is being left for later.">
+                <button type="button" class="appr-reject" data-id="${r.entry.id}" title="Reject and send back to the cowboy">✖</button>
                 ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
                 ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
             </div>`;
+    }
+
+    // ==========================================================
+    // APPROVAL (writes to the books)
+    //
+    // PostgREST gives no client-side transaction, so "all or nothing" is
+    // implemented as post-then-roll-back-on-failure. Ordering matters:
+    // doctoring goes first because owner AND office can delete it, deaths
+    // last because reversing one needs delete_death_event and lot_events
+    // DELETE is owner-only. If a rollback itself fails we say exactly what
+    // is in the books and needs a human - never silently leave drift.
+    // ==========================================================
+
+    function approvalNoteFor(id) {
+        const el = document.querySelector(`.appr-note[data-id="${id}"]`);
+        return el && el.value.trim() ? el.value.trim() : null;
+    }
+
+    async function postDoctoringEntry(r) {
+        const raw = r.raw;
+        const payload = {
+            lot_id: r.lot.id,
+            tag_number: raw.tagNumber || '',
+            no_tag: !!r.entry.no_tag || /^NT\d*$/i.test(String(raw.tagNumber || '')),
+            event_datetime: r.entry.event_datetime,
+            field_action_id: r.action.id,
+            pasture_id: r.pasture ? r.pasture.id : null,
+            notes: raw.notes || null,
+            recorded_by_user_id: currentUser.id,
+            // Idempotency key: ties the posted row back to the field record
+            // it came from, so a re-approval can be spotted.
+            legacy_source: 'field_app',
+            legacy_id: r.entry.client_id
+        };
+        const { data: evt, error } = await supabase
+            .from('doctoring_events').insert(payload).select('id').single();
+        if (error) throw new Error(`tag ${raw.tagNumber}: ${error.message}`);
+
+        const medRows = r.meds
+            .filter(m => m.med && m.dose != null && m.dose > 0)
+            .map(m => ({
+                doctoring_event_id: evt.id,
+                position: m.position,
+                medication_id: m.med.id,
+                medication_name_freetext: null,
+                dose_cc: m.dose,
+                // Same function the office batch entry uses, so field-approved
+                // and office-entered treatments freeze cost identically.
+                cost: computeMedCost(m.med, m.dose)
+            }));
+        if (medRows.length) {
+            const { error: medErr } = await supabase.from('doctoring_event_meds').insert(medRows);
+            if (medErr) {
+                // Undo the parent so a half-written event never survives.
+                await supabase.from('doctoring_events').delete().eq('id', evt.id);
+                throw new Error(`tag ${raw.tagNumber} meds: ${medErr.message}`);
+            }
+        }
+        return { kind: 'doctoring_event', id: evt.id };
+    }
+
+    async function postDeathEntry(r) {
+        const raw = r.raw;
+        const hauled = String(raw.drugOff || '').trim();
+        const noteBits = [];
+        if (raw.notes) noteBits.push(raw.notes);
+        noteBits.push('Carcass hauled off: ' + (hauled || 'not answered'));
+        noteBits.push('(from field app)');
+
+        const { data, error } = await supabase.rpc('record_death_with_pasture', {
+            p_lot_id: r.lot.id,
+            p_pasture_id: r.pasture.id,
+            p_head_count: 1,                    // a tagged death is one animal
+            p_tag_number: raw.tagNumber || null,
+            p_cause: null,                      // office fills cause in later
+            p_event_date: String(r.entry.event_datetime || '').slice(0, 10),
+            p_notes: noteBits.join(' · '),
+            p_created_by: currentUser.id
+        });
+        if (error) throw new Error(`tag ${raw.tagNumber} (death): ${error.message}`);
+        return { kind: 'lot_event', id: data };
+    }
+
+    async function rollbackPosted(posted) {
+        const failures = [];
+        // Reverse order: undo the most recent first.
+        for (const p of posted.slice().reverse()) {
+            try {
+                if (p.kind === 'doctoring_event') {
+                    await supabase.from('doctoring_event_meds').delete().eq('doctoring_event_id', p.id);
+                    const { error } = await supabase.from('doctoring_events').delete().eq('id', p.id);
+                    if (error) throw error;
+                } else if (p.kind === 'lot_event') {
+                    // Atomic reversal that also restores the pasture count.
+                    const { error } = await supabase.rpc('delete_death_event', { p_event_id: p.id });
+                    if (error) throw error;
+                }
+            } catch (err) {
+                failures.push(`${p.kind} ${p.id}: ${err.message || err}`);
+            }
+        }
+        return failures;
+    }
+
+    async function approveSelected() {
+        const checked = [...document.querySelectorAll('.appr-check:checked')].map(c => c.dataset.id);
+        if (!checked.length) { showAlert('globalAlert', 'Nothing selected.', 'error'); return; }
+
+        const rows = approvalsCache.entries.filter(r => checked.includes(String(r.entry.id)));
+        const moves = rows.filter(r => r.kind === 'move');
+        if (moves.length) {
+            showAlert('globalAlert',
+                'Moves cannot be approved yet — they need an atomic RPC so a part-written move ' +
+                'cannot leave drift. Un-tick the moves and approve the rest.', 'error');
+            return;
+        }
+
+        const nDoc = rows.filter(r => r.kind === 'doctoring').length;
+        const nDead = rows.filter(r => r.kind === 'dead').length;
+        const priceWarn = rows.filter(r => r.warnings.some(w => w.includes('no price'))).length;
+        let msg = `Post ${rows.length} entr${rows.length === 1 ? 'y' : 'ies'} to the books?\n\n` +
+                  `  ${nDoc} doctoring\n  ${nDead} death${nDead === 1 ? '' : 's'}\n\n` +
+                  `If any one fails, the whole batch is rolled back.`;
+        if (priceWarn) msg += `\n\n⚠ ${priceWarn} carry an unpriced medication and will post with $0 cost. ` +
+                              `Cost is frozen at approval and cannot be corrected later by pricing the med.`;
+        if (!confirm(msg)) return;
+
+        const btn = $('approvalsApproveBtn');
+        btn.disabled = true; btn.textContent = 'Posting…';
+
+        // Doctoring first (office can reverse it), deaths last.
+        const ordered = [...rows.filter(r => r.kind === 'doctoring'), ...rows.filter(r => r.kind === 'dead')];
+        const posted = [];
+        try {
+            for (const r of ordered) {
+                const ref = r.kind === 'dead' ? await postDeathEntry(r) : await postDoctoringEntry(r);
+                posted.push(ref);
+                r.__ref = ref;
+            }
+
+            // Only once every row is in the books do we mark the queue.
+            for (const r of ordered) {
+                const { error } = await supabase.from('pending_field_entries')
+                    .update({ status: 'approved', approved_ref: r.__ref, review_notes: approvalNoteFor(r.entry.id) })
+                    .eq('id', r.entry.id);
+                if (error) throw new Error(`marking ${r.raw.tagNumber} approved: ${error.message}`);
+            }
+
+            showAlert('globalAlert', `${ordered.length} entr${ordered.length === 1 ? 'y' : 'ies'} posted to the books.`, 'success');
+            loadApprovals();
+        } catch (err) {
+            const failures = await rollbackPosted(posted);
+            btn.disabled = false; btn.textContent = 'Approve selected';
+            if (failures.length) {
+                // The dangerous case: something is in the books that should
+                // not be. Say precisely what, and do not pretend otherwise.
+                showAlert('globalAlert',
+                    `Batch failed: ${err.message}. ROLLBACK INCOMPLETE — these are still in the books ` +
+                    `and need attention: ${failures.join('; ')}`, 'error');
+            } else {
+                showAlert('globalAlert', `Batch failed and was rolled back — nothing was posted. ${err.message}`, 'error');
+            }
+            loadApprovals();
+        }
+    }
+
+    async function rejectApprovalEntry(id) {
+        const reason = prompt('Why is this being rejected?\n\nThe cowboy sees this in the field app.');
+        if (reason === null) return;
+        if (!reason.trim()) { showAlert('globalAlert', 'A reason is required to reject.', 'error'); return; }
+        const { error } = await supabase.from('pending_field_entries')
+            .update({ status: 'rejected', review_notes: reason.trim() }).eq('id', id);
+        if (error) { showAlert('globalAlert', 'Could not reject: ' + error.message, 'error'); return; }
+        showAlert('globalAlert', 'Entry rejected and sent back.', 'success');
+        loadApprovals();
+    }
+
+    // Notes save on their own so a "leave it for tomorrow" note survives
+    // without approving or rejecting anything.
+    async function saveApprovalNote(id, value) {
+        const { error } = await supabase.from('pending_field_entries')
+            .update({ review_notes: value.trim() || null }).eq('id', id);
+        if (error) showAlert('globalAlert', 'Note not saved: ' + error.message, 'error');
     }
 
     function showApprovalsTab() {
@@ -5324,6 +5538,45 @@ window.addEventListener('unhandledrejection', function(e) {
     $('navReports').addEventListener('click', () => showReportsTab('active-lots'));
     $('navApprovals').addEventListener('click', showApprovalsTab);
     $('approvalsRefreshBtn').addEventListener('click', loadApprovals);
+    $('approvalsApproveBtn').addEventListener('click', approveSelected);
+
+    function refreshApprovalSelection() {
+        const n = document.querySelectorAll('.appr-check:checked').length;
+        const btn = $('approvalsApproveBtn');
+        btn.disabled = n === 0;
+        btn.textContent = n ? `Approve selected (${n})` : 'Approve selected';
+        $('approvalsSelCount').textContent = n ? `${n} selected` : '';
+    }
+
+    $('approvalsContent').addEventListener('change', (e) => {
+        if (e.target.classList.contains('appr-check')) refreshApprovalSelection();
+    });
+    $('approvalsContent').addEventListener('click', (e) => {
+        const rej = e.target.closest('.appr-reject');
+        if (rej) { rejectApprovalEntry(rej.dataset.id); return; }
+        const all = e.target.closest('.appr-day-all');
+        if (all) {
+            // Only rows that are actually postable; blocked ones stay disabled.
+            const day = all.closest('.appr-day');
+            const boxes = [...day.querySelectorAll('.appr-check:not([disabled])')];
+            const turnOn = boxes.some(b => !b.checked);
+            boxes.forEach(b => { b.checked = turnOn; });
+            all.textContent = turnOn ? 'Clear all' : 'Select all';
+            refreshApprovalSelection();
+        }
+    });
+    // Notes save on blur rather than on every keystroke.
+    $('approvalsContent').addEventListener('focusout', (e) => {
+        if (e.target.classList.contains('appr-note')) {
+            const id = e.target.dataset.id;
+            const row = approvalsCache.entries.find(r => String(r.entry.id) === String(id));
+            const before = (row && row.entry.review_notes) || '';
+            if (e.target.value.trim() !== before.trim()) {
+                if (row) row.entry.review_notes = e.target.value.trim() || null;
+                saveApprovalNote(id, e.target.value);
+            }
+        }
+    });
 
     // Sub-tab click handlers (delegated)
     $('animalHealthSubtabs').addEventListener('click', (e) => {
