@@ -74,6 +74,10 @@ let protocolsDatabase = JSON.parse(localStorage.getItem('betaCattleProtocols')) 
 // consult both; everything that writes only ever touches `records`.
 let booksHistory = JSON.parse(localStorage.getItem('betaCattleBooksHistory')) || [];
 
+// tag number -> "Ranch - Pasture", only for tags whose location is actually
+// knowable from the books. See the resolution rules in pullCloudData().
+let tagLocationMap = JSON.parse(localStorage.getItem('betaCattleTagLocations')) || {};
+
 // Every read-only lookup by tag must see the books as well as this phone's
 // own submissions, otherwise an animal treated last month looks brand new.
 function historyPool() {
@@ -1121,6 +1125,30 @@ window.processCloudData = function(data) {
     setTimeout(() => { syncCloudBtn.innerText = "🔄 Pull Cloud History"; }, 3000);
 };
 
+// lot_tags runs to thousands of rows and PostgREST caps a response at 1000,
+// so this pages until a short page comes back. Without paging, tags beyond
+// the first 1000 would silently have no location - the worst kind of wrong,
+// because it looks like "no data" rather than "truncated".
+async function fetchOpenLotTags() {
+    const PAGE = 1000;
+    let from = 0, all = [];
+    for (;;) {
+        const { data, error } = await sb
+            .from('lot_tags')
+            .select('tag_number, lot_id, delivery_receipt_id, retired_at, lots!inner(closed_at, is_test)')
+            .is('retired_at', null)
+            .is('lots.closed_at', null)
+            .order('tag_number')
+            .range(from, from + PAGE - 1);
+        if (error) throw error;
+        all = all.concat(data || []);
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+        if (from > 50000) break;   // runaway guard
+    }
+    return all.filter(t => t.lots && !t.lots.is_test);
+}
+
 // Reads now come from Supabase instead of a JSONP <script> injection
 // against the Apps Script endpoint. The payload is shaped to exactly what
 // processCloudData already expects, so the merge/tombstone logic below it
@@ -1129,7 +1157,7 @@ async function pullCloudData() {
     if (!currentUserId) { showToast('Sign in first', 'error', 2000); return; }
     syncCloudBtn.innerText = "⏳ Downloading...";
     try {
-        const [entriesRes, medsRes, pasturesRes, statusRes, lotsRes, bookRes, assignRes, actionsRes, protosRes] = await Promise.all([
+        const [entriesRes, medsRes, pasturesRes, statusRes, lotsRes, bookRes, assignRes, destRes, actionsRes, protosRes] = await Promise.all([
             // Own submissions (RLS widens this to everything for owner/office).
             // Withdrawn entries are excluded so a deleted record cannot
             // reappear in the history list.
@@ -1142,7 +1170,7 @@ async function pullCloudData() {
               .select('name, dose_mode, flat_dose_amount, per_weight_rate, per_weight_basis, default_dose_amount')
               .eq('is_active', true).order('name'),
             sb.from('pastures')
-              .select('name, is_active, ranches!inner(name, is_active)')
+              .select('id, name, is_active, ranches!inner(name, is_active)')
               .eq('is_active', true).order('name'),
             // Tags recycle across fiscal years, so the field app only ever
             // offers OPEN lots. lot_status carries the weight/ADG figures the
@@ -1158,15 +1186,19 @@ async function pullCloudData() {
             // the 1st/2nd-pull safety checks only ever see what this phone
             // submitted, so an animal treated last month looks untouched.
             sb.from('doctoring_events')
-              .select('tag_number, event_datetime, lot_id, field_actions(name), lots!inner(lot_number, closed_at, is_test)')
+              .select('tag_number, event_datetime, lot_id, pasture_id, field_actions(name), lots!inner(lot_number, closed_at, is_test)')
               .is('lots.closed_at', null)
               .order('event_datetime', { ascending: false })
               .limit(1000),
             // A lot usually spans several pastures, so location can only be
             // inferred when it sits in exactly one.
             sb.from('lot_pasture_assignments')
-              .select('lot_id, moved_out, pastures!inner(name, ranches!inner(name))')
+              .select('lot_id, pasture_id, moved_out, pastures!inner(name, ranches!inner(name))')
               .is('moved_out', null),
+            // Where each delivery receipt's cattle were turned out. Combined
+            // with lot_tags.delivery_receipt_id this is the only per-ANIMAL
+            // location the books hold.
+            sb.from('load_out_destinations').select('receipt_id, pasture_id').limit(1000),
             sb.from('field_actions').select('name, is_dead, sort_order').order('sort_order'),
             sb.from('field_protocols')
               .select('is_active, field_actions(name), m1:default_med_1_id(name), m2:default_med_2_id(name), m3:default_med_3_id(name)')
@@ -1174,7 +1206,7 @@ async function pullCloudData() {
         ]);
 
         const firstError = [entriesRes, medsRes, pasturesRes, statusRes, lotsRes,
-                            bookRes, assignRes, actionsRes, protosRes].find(r => r.error);
+                            bookRes, assignRes, destRes, actionsRes, protosRes].find(r => r.error);
         if (firstError) throw firstError.error;
 
         const entries = entriesRes.data || [];
@@ -1231,6 +1263,56 @@ async function pullCloudData() {
             }
         });
 
+        // --- Per-tag location -------------------------------------------
+        // The books track pasture per LOT, not per animal: when 120 head of a
+        // 400-head lot move, nothing records WHICH 120. So a tag's location is
+        // only knowable in two cases, and this deliberately resolves nothing
+        // else rather than guessing:
+        //
+        //   1. Its receipt turned out into exactly one pasture, AND the lot
+        //      still has an open assignment there (so it has not moved off).
+        //   2. Its lot currently sits in exactly one pasture.
+        //
+        // Roughly half of open tags land in case 1 or 2 today; the rest are
+        // genuinely unknown and the cowboy is asked.
+        const pastureLabelById = {};
+        (pasturesRes.data || []).forEach(p => {
+            if (p.ranches) pastureLabelById[p.id] = `${p.ranches.name} - ${p.name}`;
+        });
+
+        // receipt -> its single destination pasture (skipped if it split)
+        const destsByReceipt = {};
+        (destRes.data || []).forEach(d => {
+            (destsByReceipt[d.receipt_id] = destsByReceipt[d.receipt_id] || []).push(d.pasture_id);
+        });
+
+        // lot -> set of pastures it is currently open in
+        const openPastureIdsByLot = {};
+        (assignRes.data || []).forEach(a => {
+            (openPastureIdsByLot[a.lot_id] = openPastureIdsByLot[a.lot_id] || []).push(a.pasture_id);
+        });
+
+        const tagLocations = {};
+        try {
+            const openTags = await fetchOpenLotTags();
+            openTags.forEach(t => {
+                const dests = destsByReceipt[t.delivery_receipt_id] || [];
+                const openHere = openPastureIdsByLot[t.lot_id] || [];
+                let pid = null;
+                // Case 1: single arrival pasture the lot has not left.
+                if (dests.length === 1 && openHere.indexOf(dests[0]) !== -1) pid = dests[0];
+                // Case 2: the lot is only in one place, so the animal is too.
+                else if (openHere.length === 1) pid = openHere[0];
+                if (pid && pastureLabelById[pid]) tagLocations[String(t.tag_number)] = pastureLabelById[pid];
+            });
+        } catch (tagErr) {
+            // Location is an autofill convenience; losing it must not fail the
+            // whole pull and leave the cowboy without lots or meds.
+            console.warn('tag location build failed:', tagErr);
+        }
+        tagLocationMap = tagLocations;
+        safeSetItem('betaCattleTagLocations', JSON.stringify(tagLocationMap));
+
         // Book treatments, shaped like the app's own records so the same
         // lookups work on both. No id: these must never be edited or deleted
         // from the field app, and every write path keys off id.
@@ -1244,11 +1326,14 @@ async function pullCloudData() {
                 dateTime: d.event_datetime,
                 lotNumber: (d.lots && d.lots.lot_number) || lotNumberById[d.lot_id] || '',
                 treatmentType: (d.field_actions && d.field_actions.name) || '',
-                // doctoring_events carries no pasture, so fall back to where
-                // the lot is now - and only when that is unambiguous.
-                location: pastureCountByLot[d.lot_id] === 1 ? (soleLocationByLot[d.lot_id] || '') : ''
+                // Prefer the pasture recorded ON the event; only 16 of 1080
+                // rows have one today because the office doctoring form does
+                // not yet ask, but it is the most accurate source when set.
+                location: (d.pasture_id && pastureLabelById[d.pasture_id])
+                    || tagLocations[String(d.tag_number)]
+                    || (pastureCountByLot[d.lot_id] === 1 ? (soleLocationByLot[d.lot_id] || '') : '')
             }));
-        safeSetItem('betaCattleBooksHistory', JSON.stringify(booksHistory));
+        safeSetItem('betaCattleBooksHistory', 'betaCattleTagLocations', JSON.stringify(booksHistory));
 
         // The action dropdown is built from protocols, and it appends Dead
         // and Other itself — so those two are excluded here to avoid
@@ -1338,8 +1423,16 @@ tagNumberInput.oninput = function(e) {
         lotInput.style.backgroundColor = '#ffffff';
     }
 
-    if (hist && hist.location && hist.location.includes(" - ") && !locks.ranch && !locks.pasture) {
-        const parts = hist.location.split(" - ");
+    // Where this animal is. A previous entry for this exact tag wins - it is
+    // the most recent first-hand sighting. Otherwise fall back to what the
+    // books can prove about this tag. If neither knows, leave it blank and
+    // let the cowboy say, rather than filling in a guess.
+    const recalledLocation = (hist && hist.location && hist.location.includes(" - "))
+        ? hist.location
+        : (tagLocationMap[val] || '');
+
+    if (recalledLocation && recalledLocation.includes(" - ") && !locks.ranch && !locks.pasture) {
+        const parts = recalledLocation.split(" - ");
         const prop = String(parts[0]).trim();
         const past = String(parts[1]).trim();
 
