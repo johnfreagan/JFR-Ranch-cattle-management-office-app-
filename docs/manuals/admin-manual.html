@@ -1,0 +1,579 @@
+<title>Ranch Access Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+:root{
+  --paper:#F6F6F2; --card:#FFFFFF; --ink:#161A17; --ink-2:#3A403B; --muted:#676C66;
+  --rule:#DEDFD8; --rule-2:#EAEBE5;
+  --accent:#2F5D50; --accent-soft:#E6EFEB;
+  --tag:#B07E05; --tag-soft:#FAF0D6;
+  --brick:#9A2E22; --brick-soft:#F8E7E4;
+  --code-bg:#1D211E; --code-ink:#E4E7E2;
+  --shadow:0 1px 2px rgba(22,26,23,.05),0 8px 24px -12px rgba(22,26,23,.16);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#121513; --card:#191D1A; --ink:#E9EBE6; --ink-2:#C2C7C0; --muted:#8D948C;
+    --rule:#2A2F2B; --rule-2:#222623;
+    --accent:#79B8A2; --accent-soft:#1B2A25;
+    --tag:#E8BE55; --tag-soft:#2B2416;
+    --brick:#E08A7C; --brick-soft:#2E1D1A;
+    --code-bg:#0C0E0D; --code-ink:#DCE0DA;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#121513; --card:#191D1A; --ink:#E9EBE6; --ink-2:#C2C7C0; --muted:#8D948C;
+  --rule:#2A2F2B; --rule-2:#222623;
+  --accent:#79B8A2; --accent-soft:#1B2A25;
+  --tag:#E8BE55; --tag-soft:#2B2416;
+  --brick:#E08A7C; --brick-soft:#2E1D1A;
+  --code-bg:#0C0E0D; --code-ink:#DCE0DA;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Source Sans 3",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:17px; line-height:1.62; margin:0;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:74ch;margin:0 auto;padding:0 22px 96px}
+h1,h2,h3{font-family:Bitter,Georgia,"Times New Roman",serif;text-wrap:balance;line-height:1.2}
+h1{font-size:2.4rem;font-weight:700;letter-spacing:-.015em;margin:0 0 .3em}
+h2{font-size:1.42rem;font-weight:600;margin:0 0 .5em}
+h3{font-size:1.06rem;font-weight:600;margin:2em 0 .4em}
+p,li{color:var(--ink-2)}
+a{color:var(--accent);text-underline-offset:3px}
+strong{color:var(--ink);font-weight:600}
+code{font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;font-size:.85em;
+  background:var(--rule-2);padding:.12em .38em;border-radius:4px;color:var(--ink)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+
+/* masthead */
+header.top{border-bottom:2px solid var(--ink);margin-bottom:34px;padding:44px 0 18px}
+.brandline{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
+  font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;margin-bottom:20px}
+.brandline .dot{color:var(--tag)}
+.standfirst{font-size:1.12rem;color:var(--muted);margin:0;max-width:60ch}
+.stamp{display:inline-block;margin-top:18px;font-size:.72rem;letter-spacing:.1em;
+  text-transform:uppercase;font-weight:700;color:var(--tag);
+  border:1.5px solid var(--tag);border-radius:3px;padding:4px 9px}
+
+/* numbered sections */
+section.sec{border-top:1px solid var(--rule);padding-top:30px;margin-top:40px}
+.sechead{display:flex;gap:14px;align-items:baseline;margin-bottom:14px}
+.secnum{font-family:"JetBrains Mono",monospace;font-size:.82rem;font-weight:700;
+  color:var(--tag);padding-top:.28em;flex:none;font-variant-numeric:tabular-nums}
+.sechead h2{margin:0}
+
+/* callouts */
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);
+  padding:14px 18px;border-radius:0 6px 6px 0;margin:22px 0}
+.warn{border-left:3px solid var(--brick);background:var(--brick-soft);
+  padding:14px 18px;border-radius:0 6px 6px 0;margin:22px 0}
+.note>:first-child,.warn>:first-child{margin-top:0}
+.note>:last-child,.warn>:last-child{margin-bottom:0}
+.warn strong{color:var(--brick)}
+
+/* role chips */
+.chip{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;padding:2.5px 8px;border-radius:20px;
+  font-family:"Source Sans 3",sans-serif;white-space:nowrap}
+.chip.owner{background:var(--brick-soft);color:var(--brick);box-shadow:inset 0 0 0 1px currentColor}
+.chip.office{background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1px currentColor}
+.chip.crew{background:var(--tag-soft);color:var(--tag);box-shadow:inset 0 0 0 1px currentColor}
+
+/* tables */
+.tablewrap{overflow-x:auto;margin:22px 0;border:1px solid var(--rule);border-radius:8px;background:var(--card)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:400px}
+th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+thead th{font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  font-weight:700;background:var(--rule-2);border-bottom:1px solid var(--rule)}
+tbody tr:last-child td{border-bottom:none}
+td code{background:transparent;padding:0;font-size:.86em}
+.yes{color:var(--accent);font-weight:700}
+.no{color:var(--muted)}
+
+/* SQL blocks with copy */
+figure.sql{margin:24px 0;border-radius:9px;overflow:hidden;box-shadow:var(--shadow);
+  border:1px solid var(--rule)}
+figure.sql figcaption{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  background:var(--card);padding:9px 10px 9px 15px;border-bottom:1px solid var(--rule);
+  font-size:.74rem;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--muted)}
+figure.sql pre{margin:0;background:var(--code-bg);color:var(--code-ink);
+  padding:16px 18px;overflow-x:auto;font-size:.79rem;line-height:1.65}
+figure.sql pre code{background:none;padding:0;color:inherit;font-size:inherit}
+button.copy{font-family:inherit;font-size:.72rem;letter-spacing:.07em;text-transform:uppercase;
+  font-weight:700;cursor:pointer;border:1px solid var(--rule);background:var(--paper);
+  color:var(--ink-2);padding:5px 13px;border-radius:5px;flex:none;transition:background .12s,color .12s}
+button.copy:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+button.copy[data-state="ok"]{background:var(--accent);color:var(--card);border-color:var(--accent)}
+button.copy[data-state="err"]{background:var(--brick-soft);color:var(--brick);border-color:var(--brick)}
+
+/* checklist */
+ul.check{list-style:none;padding:0;margin:20px 0;display:flex;flex-direction:column;gap:9px}
+ul.check li{display:flex;gap:12px;align-items:flex-start;background:var(--card);
+  border:1px solid var(--rule);border-radius:7px;padding:12px 15px}
+ul.check .mark{font-family:"JetBrains Mono",monospace;font-weight:700;flex:none;font-size:.95rem;line-height:1.5}
+ul.check li.done .mark{color:var(--accent)}
+ul.check li.todo .mark{color:var(--brick)}
+ul.check li.done{opacity:.72}
+ul.check div>strong{display:block;color:var(--ink)}
+ul.check small{color:var(--muted);font-size:.86rem;line-height:1.5;display:block;margin-top:1px}
+
+/* steps */
+ol.steps{list-style:none;counter-reset:s;padding:0;margin:22px 0;display:flex;flex-direction:column;gap:18px}
+ol.steps>li{counter-increment:s;display:flex;gap:15px;align-items:flex-start}
+ol.steps>li::before{content:counter(s);flex:none;width:27px;height:27px;border-radius:50%;
+  background:var(--ink);color:var(--paper);font-family:"JetBrains Mono",monospace;
+  font-size:.78rem;font-weight:700;display:grid;place-items:center;margin-top:1px}
+ol.steps>li>div>:first-child{margin-top:0}
+ol.steps>li>div>:last-child{margin-bottom:0}
+
+footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
+  font-size:.8rem;color:var(--muted);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+@media(max-width:560px){
+  body{font-size:16px}
+  h1{font-size:1.95rem}
+  .wrap{padding:0 17px 70px}
+  .sechead{gap:10px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+
+<header class="top">
+  <div class="brandline">
+    <span>JFR Ranch Co. Ltd.</span><span class="dot">&bull;</span>
+    <span>Cattle Office</span><span class="dot">&bull;</span>
+    <span>Administrator Manual</span>
+  </div>
+  <h1>Ranch Access Control</h1>
+  <p class="standfirst">Adding people to the cattle office, what each role can touch,
+     and how the database enforces it. Written for the owner.</p>
+  <span class="stamp">Verified against the live database &middot; 24 Aug 2026</span>
+</header>
+
+<section class="sec" style="border-top:none;padding-top:0;margin-top:0">
+  <div class="sechead"><span class="secnum">00</span><h2>Before you add anyone</h2></div>
+  <p>Three of five items are done. The two open ones are quick, and both are worth
+     doing first &mdash; they change what a new user actually experiences on their
+     first sign-in.</p>
+  <ul class="check">
+    <li class="done"><span class="mark">&check;</span><div>
+      <strong>Crew are read-only in the books</strong>
+      <small>Migration run and verified. All 27 write policies across the nine affected
+      tables now read <code>owner, office</code>.</small></div></li>
+    <li class="done"><span class="mark">&check;</span><div>
+      <strong>The login screen refuses inactive accounts</strong>
+      <small>Written and tested. Waiting on deploy.</small></div></li>
+    <li class="done"><span class="mark">&check;</span><div>
+      <strong>The app hides controls a role cannot use</strong>
+      <small>Written and tested across all three roles. Waiting on deploy.</small></div></li>
+    <li class="todo"><span class="mark">&rarr;</span><div>
+      <strong>Deploy the branch to <code>main</code></strong>
+      <small>The two items above are on <code>claude/user-manual-auth-rls-3b0ytr</code>, not
+      <code>main</code>. Until that merges, GitHub Pages is serving the old app: a new user
+      who is not yet activated gets an empty, erroring screen instead of being told why,
+      and crew see buttons that silently do nothing.</small></div></li>
+    <li class="todo"><span class="mark">&rarr;</span><div>
+      <strong>Two Supabase dashboard settings</strong>
+      <small>Turn on leaked-password protection, and check whether public signup is open.
+      Section 8 has both. Do it before handing out passwords, not after.</small></div></li>
+  </ul>
+  <div class="note"><p><strong>So: nearly.</strong> Deploy first, flip the two settings,
+     then work through section 3. Adding a user before the deploy is not dangerous &mdash;
+     the database refuses them regardless &mdash; it just makes a bad first impression on
+     someone you are trying to onboard.</p></div>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">01</span><h2>The three roles</h2></div>
+  <p>The database allows exactly three role values. A <code>CHECK</code> constraint on
+     <code>user_profiles.role</code> rejects anything else.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Role</th><th>Who</th><th>In one line</th></tr></thead>
+    <tbody>
+      <tr><td><span class="chip owner">owner</span></td><td>John</td>
+          <td>Everything, including hard deletes and the money screens.</td></tr>
+      <tr><td><span class="chip office">office</span></td><td>Bookkeeper, office help</td>
+          <td>Runs the books day to day. No hard deletes on core records.</td></tr>
+      <tr><td><span class="chip crew">crew</span></td><td>Cowboys</td>
+          <td><strong>Read-only.</strong> Can look at the books but change nothing,
+              and cannot see invoices at all.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><p><strong>On naming.</strong> The roadmap called these
+     admin / manager / cowboy / guest. What shipped is <strong>owner / office / crew</strong>,
+     and there is no guest role. Use the shipped names &mdash; the constraint and every
+     policy are written against them.</p></div>
+  <p>Roles are flat, not inherited. Each policy names the roles it allows. But because
+     every write policy is either <em>owner + office</em> or <em>owner alone</em>, write
+     access happens to form a clean ladder, and the app's role gate depends on that.</p>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">02</span><h2>How it actually works</h2></div>
+  <p>Three moving parts. Understand these and the rest is mechanical.</p>
+
+  <h3>The profile table</h3>
+  <p>One row per person, keyed to their <code>auth.users</code> id. The columns that
+     matter are <code>role</code>, and <code>is_active</code> &mdash; the on/off switch.</p>
+
+  <h3>The function every policy calls</h3>
+  <figure class="sql">
+    <figcaption>current_user_role()<button class="copy" type="button">Copy</button></figcaption>
+    <pre><code>SELECT role FROM public.user_profiles
+WHERE id = auth.uid() AND is_active = TRUE;</code></pre>
+  </figure>
+  <p>Two consequences worth holding on to:</p>
+  <ul>
+    <li><strong><code>is_active = false</code> returns NULL</strong>, and
+        <code>NULL = ANY (...)</code> is never true. An inactive user is denied by every
+        policy on every table. Deactivating is a complete, instant kill switch.</li>
+    <li>A signed-out visitor has no <code>auth.uid()</code>, so they get NULL too. Some
+        policies target the <code>public</code> Postgres role rather than
+        <code>authenticated</code> &mdash; cosmetically inconsistent, but not a hole,
+        because the NULL check closes it either way.</li>
+  </ul>
+
+  <h3>The signup trigger</h3>
+  <p><code>on_auth_user_created</code> fires on every insert into <code>auth.users</code>
+     and creates the profile with:</p>
+  <ul>
+    <li><code>role = 'crew'</code> &mdash; <strong>hardcoded.</strong> The role is never read
+        from signup metadata, so nobody can promote themselves by crafting a signup.</li>
+    <li><code>is_active = false</code> &mdash; <strong>this is the gate.</strong> A new account
+        can sign in but can read and write nothing until you activate it.</li>
+  </ul>
+  <p>There is no <code>INSERT</code> policy on <code>user_profiles</code>. The trigger is the
+     only way a profile row appears, and only an owner can update one.</p>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">03</span><h2>Adding a user</h2></div>
+  <p>There is no user-management screen in the app. Two steps in the Supabase dashboard:
+     create the login, then grant the role.</p>
+  <p><a href="https://supabase.com/dashboard/project/xpfmebdzcxorvwikfvtj">Open the project
+     dashboard &rarr;</a></p>
+
+  <ol class="steps">
+    <li><div>
+      <h3 style="margin-top:0">Create the login</h3>
+      <p>Authentication &rarr; Users &rarr; <strong>Add user</strong>. Two ways:</p>
+      <p><strong>Send invitation</strong> &mdash; they get an email and set their own
+         password. Best for office staff.</p>
+      <p><strong>Create new user</strong> &mdash; you set the password and hand it over.
+         Best for cowboys, who may not have easy email access on a horse. Tick
+         <strong>Auto Confirm User</strong>, or they cannot sign in until they click a link.</p>
+      <p>The trigger now creates their profile: <span class="chip crew">crew</span>,
+         inactive, name defaulted to their email address because the dashboard form has no
+         name field. They can do nothing yet. That is correct.</p>
+    </div></li>
+    <li><div>
+      <h3 style="margin-top:0">Set the name, role, and activate</h3>
+      <p>SQL Editor. Edit the three values at the top and run.</p>
+      <figure class="sql">
+        <figcaption>Grant a role<button class="copy" type="button">Copy</button></figcaption>
+        <pre><code>-- Grant a role to an existing auth user. Idempotent: safe to re-run.
+DO $do$
+DECLARE
+    v_email TEXT := 'person@example.com';   -- EDIT
+    v_name  TEXT := 'First Last';           -- EDIT
+    v_role  TEXT := 'crew';                 -- EDIT: owner | office | crew
+    v_id    UUID;
+BEGIN
+    SELECT id INTO v_id FROM auth.users WHERE lower(email) = lower(v_email);
+    IF v_id IS NULL THEN
+        RAISE EXCEPTION 'No auth user with email %. Create the login first.', v_email;
+    END IF;
+
+    IF v_role NOT IN ('owner', 'office', 'crew') THEN
+        RAISE EXCEPTION 'Invalid role: %', v_role;
+    END IF;
+
+    -- The signup trigger should have made this row; be defensive anyway.
+    INSERT INTO public.user_profiles (id, full_name, role, is_active)
+    VALUES (v_id, v_name, v_role, TRUE)
+    ON CONFLICT (id) DO UPDATE
+        SET full_name  = EXCLUDED.full_name,
+            role       = EXCLUDED.role,
+            is_active  = TRUE,
+            updated_at = now();
+
+    RAISE NOTICE 'Active: % as % (%)', v_name, v_role, v_id;
+END
+$do$;</code></pre>
+      </figure>
+    </div></li>
+    <li><div>
+      <h3 style="margin-top:0">Verify before handing over the password</h3>
+      <figure class="sql">
+        <figcaption>Check the roster<button class="copy" type="button">Copy</button></figcaption>
+        <pre><code>SELECT p.full_name, p.role, p.is_active, u.email,
+       u.email_confirmed_at IS NOT NULL AS confirmed,
+       u.last_sign_in_at
+FROM public.user_profiles p
+JOIN auth.users u ON u.id = p.id
+ORDER BY p.role, p.full_name;</code></pre>
+      </figure>
+      <p>You want <code>is_active</code> and <code>confirmed</code> both true. If
+         <code>confirmed</code> is false they will hit "Email not confirmed" at sign-in
+         &mdash; go back to Authentication &rarr; Users, open them, and confirm.</p>
+    </div></li>
+  </ol>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">04</span><h2>What each role can do</h2></div>
+  <div class="warn"><p><strong>The database is the enforcement.</strong> The app hides
+     controls a role cannot use, but that is presentation only. Anyone who gets past the
+     interface still hits the policies, and the policies are what actually refuse them.</p></div>
+
+  <h3>Reads</h3>
+  <p>All three roles read everything <strong>except</strong> <code>invoices</code> and
+     <code>invoice_attachments</code>, which are owner and office only. That is the one
+     hard wall in the schema, and the only place a role is denied <code>SELECT</code>.</p>
+
+  <h3>Writes</h3>
+  <p>Crew appear nowhere below &mdash; they cannot write anywhere.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Table</th><th>Insert</th><th>Update</th><th>Delete</th></tr></thead>
+    <tbody>
+      <tr><td><code>lots</code></td><td>owner, office</td><td>owner, office</td><td><span class="chip owner">owner</span></td></tr>
+      <tr><td><code>lot_tags</code></td><td>owner, office</td><td>owner, office</td><td>owner, office</td></tr>
+      <tr><td><code>lot_events</code></td><td>owner, office</td><td>owner, office</td><td><span class="chip owner">owner</span></td></tr>
+      <tr><td><code>lot_pasture_assignments</code></td><td>owner, office</td><td>owner, office</td><td><span class="chip owner">owner</span></td></tr>
+      <tr><td><code>lot_movements</code></td><td>owner, office</td><td>owner, office</td><td><span class="chip owner">owner</span></td></tr>
+      <tr><td><code>weights</code></td><td>owner, office</td><td>owner, office</td><td><span class="chip owner">owner</span></td></tr>
+      <tr><td><code>delivery_receipts</code></td><td>owner, office</td><td>owner, office</td><td>owner, office</td></tr>
+      <tr><td><code>delivery_receipt_attachments</code></td><td>owner, office</td><td>owner, office</td><td>owner, office</td></tr>
+      <tr><td><code>load_out_destinations</code></td><td>owner, office</td><td>owner, office</td><td>owner, office</td></tr>
+      <tr><td><code>sales</code></td><td>owner, office</td><td>owner, office</td><td>owner, office</td></tr>
+      <tr><td><code>sale_sources</code></td><td>owner, office</td><td>owner, office</td><td>owner, office</td></tr>
+      <tr><td><code>doctoring_events</code></td><td>owner, office</td><td>owner, office</td><td>owner, office</td></tr>
+      <tr><td><code>doctoring_event_meds</code></td><td>owner, office</td><td>owner, office</td><td>owner, office</td></tr>
+      <tr><td><code>invoices</code></td><td>owner, office</td><td>owner, office</td><td><span class="chip owner">owner</span></td></tr>
+      <tr><td><code>invoice_attachments</code></td><td>owner, office</td><td>owner, office</td><td><span class="chip owner">owner</span></td></tr>
+      <tr><td><code>medications</code></td><td>owner, office</td><td>owner, office</td><td><span class="chip owner">owner</span></td></tr>
+      <tr><td><code>protocols</code></td><td>owner, office</td><td>owner, office</td><td><span class="chip owner">owner</span></td></tr>
+      <tr><td>Reference data <span style="color:var(--muted)">*</span></td><td>owner, office</td><td>owner, office</td><td>owner, office</td></tr>
+    </tbody>
+  </table></div>
+  <p style="font-size:.88rem;color:var(--muted)">* <code>ranches</code>, <code>pastures</code>,
+     <code>forage_types</code>, <code>field_actions</code>, <code>field_protocols</code>,
+     <code>protocol_steps</code>, <code>protocol_meds</code>, <code>lot_adg_phases</code>.</p>
+
+  <h3>The profile table itself</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Action</th><th>Who</th></tr></thead>
+    <tbody>
+      <tr><td>Read</td><td>your own row, or <span class="chip owner">owner</span> reads all</td></tr>
+      <tr><td>Insert</td><td>nobody through the API &mdash; only the signup trigger</td></tr>
+      <tr><td>Update</td><td><span class="chip owner">owner</span> only</td></tr>
+      <tr><td>Delete</td><td>no policy; removed only by the cascade from <code>auth.users</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">05</span><h2>Changing a role</h2></div>
+  <figure class="sql">
+    <figcaption>Change a role<button class="copy" type="button">Copy</button></figcaption>
+    <pre><code>-- Idempotent. Fails loudly if the person does not exist.
+DO $do$
+DECLARE
+    v_email TEXT := 'person@example.com';   -- EDIT
+    v_role  TEXT := 'office';               -- EDIT
+    v_id    UUID;
+BEGIN
+    SELECT p.id INTO v_id
+    FROM public.user_profiles p
+    JOIN auth.users u ON u.id = p.id
+    WHERE lower(u.email) = lower(v_email);
+
+    IF v_id IS NULL THEN
+        RAISE EXCEPTION 'No profile for %', v_email;
+    END IF;
+
+    UPDATE public.user_profiles
+    SET role = v_role, updated_at = now()
+    WHERE id = v_id;
+
+    RAISE NOTICE 'Role for % is now %', v_email, v_role;
+END
+$do$;</code></pre>
+  </figure>
+  <p>It takes effect on their <strong>next request</strong> &mdash;
+     <code>current_user_role()</code> is read fresh on every policy check, so there is no
+     need to make them sign out. Their header badge stays stale until they reload; their
+     actual permissions are already current.</p>
+  <div class="warn"><p><strong>Keep at least one active owner.</strong> Nothing stops you
+     demoting yourself and locking everyone out of user administration. If it happens, the
+     SQL Editor still works &mdash; it bypasses RLS &mdash; and can put it back.</p></div>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">06</span><h2>Removing someone</h2></div>
+  <h3>Deactivate &mdash; the right answer</h3>
+  <figure class="sql">
+    <figcaption>Deactivate a user<button class="copy" type="button">Copy</button></figcaption>
+    <pre><code>UPDATE public.user_profiles
+SET is_active = FALSE, updated_at = now()
+WHERE id = (SELECT id FROM auth.users
+            WHERE lower(email) = lower('person@example.com'));</code></pre>
+  </figure>
+  <p>Immediate and total on two levels: <code>current_user_role()</code> goes NULL so every
+     policy denies them, and the login screen refuses them by name rather than letting them
+     into an empty app. Anyone already signed in is kicked out the next time it loads.
+     Their history stays intact and attributed.</p>
+  <p>Reactivating is the same statement with <code>TRUE</code>.</p>
+
+  <h3>Do not delete auth users</h3>
+  <div class="warn">
+    <p><strong>Most of the books point at <code>auth.users</code> with
+       <code>ON DELETE NO ACTION</code>.</strong> Anyone who has ever created a lot, sale,
+       receipt, invoice, weight, movement, pasture assignment, ranch, pasture, medication,
+       or protocol <strong>cannot be deleted</strong> &mdash; the delete fails on a foreign
+       key violation.</p>
+    <p>A few columns are <code>ON DELETE SET NULL</code>
+       (<code>doctoring_events.recorded_by_user_id</code>, <code>lot_tags.registered_by</code>,
+       the attachment <code>uploaded_by</code> columns). Those would quietly lose their
+       attribution &mdash; you would erase who doctored what.</p>
+    <p>Both outcomes are bad. <strong>Deactivate, never delete.</strong></p>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">07</span><h2>Verifying a role works</h2></div>
+  <p>Do not trust the table in section 4 &mdash; test it. Sign in as the user in a private
+     browser window and confirm both halves.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Sign in as</th><th>What you should see</th></tr></thead>
+    <tbody>
+      <tr><td><span class="chip crew">crew</span></td>
+          <td>Lots and tags visible. <strong>No add, edit, or delete buttons anywhere</strong>,
+              and no Invoices card on a lot. Reading works; nothing else does.</td></tr>
+      <tr><td><span class="chip office">office</span></td>
+          <td>Can record a sale and edit a lot. The owner-only controls are absent &mdash;
+              "Delete all test lots" in Settings, and Delete invoice on an open invoice.</td></tr>
+      <tr><td><span class="chip owner">owner</span></td>
+          <td>Everything, including both of the above.</td></tr>
+      <tr><td>An inactive account</td>
+          <td>Bounced at the login screen with "Your account is not active yet." Never
+              reaches the app.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">08</span><h2>Two dashboard settings</h2></div>
+  <p>Neither the app nor a migration can reach these. Both are yours, in the Supabase
+     dashboard.</p>
+  <h3>Leaked-password protection</h3>
+  <p>Authentication &rarr; Policies (password settings) &rarr; enable it. Supabase then
+     checks new passwords against HaveIBeenPwned and rejects known-breached ones. Do this
+     before handing out passwords.</p>
+  <h3>Public signup</h3>
+  <p>Authentication &rarr; Sign In / Providers &rarr; check whether "Allow new users to
+     sign up" is on. If it is, anyone with the app's URL can create an account. They land
+     as inactive <span class="chip crew">crew</span> and can do nothing, so this is not a
+     breach &mdash; but it lets strangers put rows in your auth table. Turn it off and add
+     people by invitation, per section 3.</p>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">09</span><h2>Quick reference</h2></div>
+  <figure class="sql">
+    <figcaption>Everyone, with sign-in status<button class="copy" type="button">Copy</button></figcaption>
+    <pre><code>SELECT p.full_name, p.role, p.is_active, u.email, u.last_sign_in_at
+FROM public.user_profiles p
+JOIN auth.users u ON u.id = p.id
+ORDER BY p.role, p.full_name;</code></pre>
+  </figure>
+  <figure class="sql">
+    <figcaption>Logins created but never activated<button class="copy" type="button">Copy</button></figcaption>
+    <pre><code>SELECT u.email, u.created_at
+FROM auth.users u
+JOIN public.user_profiles p ON p.id = u.id
+WHERE p.is_active = FALSE;</code></pre>
+  </figure>
+  <figure class="sql">
+    <figcaption>Confirm crew still have no write access<button class="copy" type="button">Copy</button></figcaption>
+    <pre><code>SELECT tablename, policyname, cmd
+FROM pg_policies
+WHERE schemaname = 'public'
+  AND cmd &lt;&gt; 'SELECT'
+  AND (coalesce(qual, '') || ' ' || coalesce(with_check, '')) LIKE '%crew%';
+-- Zero rows is the correct answer.</code></pre>
+  </figure>
+  <figure class="sql">
+    <figcaption>What a role can do to one table<button class="copy" type="button">Copy</button></figcaption>
+    <pre><code>SELECT policyname, cmd, qual, with_check
+FROM pg_policies
+WHERE schemaname = 'public' AND tablename = 'lots';</code></pre>
+  </figure>
+</section>
+
+<footer class="end">
+  <span>JFR Ranch Co. Ltd. &mdash; Kosse, TX</span>
+  <span>Verified against the live database, 24 Aug 2026</span>
+</footer>
+
+</div>
+<script>
+(function () {
+  // Copy-to-clipboard with two fallbacks: the async Clipboard API, then
+  // execCommand, then selecting the text so it can be copied by hand.
+  function flash(btn, state, label) {
+    var original = btn.getAttribute('data-label') || 'Copy';
+    btn.setAttribute('data-state', state);
+    btn.textContent = label;
+    setTimeout(function () { btn.removeAttribute('data-state'); btn.textContent = original; }, 2000);
+  }
+  function selectNode(node) {
+    try {
+      var r = document.createRange(); r.selectNodeContents(node);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      return true;
+    } catch (e) { return false; }
+  }
+  function legacyCopy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:absolute;left:-9999px;top:0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
+  }
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest ? ev.target.closest('button.copy') : null;
+    if (!btn) return;
+    var code = btn.closest('figure').querySelector('pre code');
+    if (!code) return;
+    var text = code.innerText;
+    var done = function () { flash(btn, 'ok', 'Copied'); };
+    var failed = function () {
+      if (legacyCopy(text)) { done(); return; }
+      selectNode(code);
+      flash(btn, 'err', 'Select + copy');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(failed);
+    } else { failed(); }
+  });
+  // Label memory so the button restores its own text.
+  document.querySelectorAll('button.copy').forEach(function (b) {
+    b.setAttribute('data-label', b.textContent.trim());
+  });
+})();
+</script>

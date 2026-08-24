@@ -1,0 +1,369 @@
+<title>Tracker Field Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+:root{
+  --paper:#F6F6F2; --card:#FFFFFF; --ink:#161A17; --ink-2:#3A403B; --muted:#676C66;
+  --rule:#DEDFD8; --rule-2:#EAEBE5;
+  --accent:#2F5D50; --accent-soft:#E6EFEB;
+  --tag:#B07E05; --tag-soft:#FAF0D6;
+  --brick:#9A2E22; --brick-soft:#F8E7E4;
+  --code-bg:#1D211E; --code-ink:#E4E7E2;
+  --shadow:0 1px 2px rgba(22,26,23,.05),0 8px 24px -12px rgba(22,26,23,.16);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#121513; --card:#191D1A; --ink:#E9EBE6; --ink-2:#C2C7C0; --muted:#8D948C;
+    --rule:#2A2F2B; --rule-2:#222623;
+    --accent:#79B8A2; --accent-soft:#1B2A25;
+    --tag:#E8BE55; --tag-soft:#2B2416;
+    --brick:#E08A7C; --brick-soft:#2E1D1A;
+    --code-bg:#0C0E0D; --code-ink:#DCE0DA;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#121513; --card:#191D1A; --ink:#E9EBE6; --ink-2:#C2C7C0; --muted:#8D948C;
+  --rule:#2A2F2B; --rule-2:#222623;
+  --accent:#79B8A2; --accent-soft:#1B2A25;
+  --tag:#E8BE55; --tag-soft:#2B2416;
+  --brick:#E08A7C; --brick-soft:#2E1D1A;
+  --code-bg:#0C0E0D; --code-ink:#DCE0DA;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Source Sans 3",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:17px; line-height:1.62; margin:0;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:74ch;margin:0 auto;padding:0 22px 96px}
+h1,h2,h3{font-family:Bitter,Georgia,"Times New Roman",serif;text-wrap:balance;line-height:1.2}
+h1{font-size:2.4rem;font-weight:700;letter-spacing:-.015em;margin:0 0 .3em}
+h2{font-size:1.42rem;font-weight:600;margin:0 0 .5em}
+h3{font-size:1.06rem;font-weight:600;margin:2em 0 .4em}
+p,li{color:var(--ink-2)}
+a{color:var(--accent);text-underline-offset:3px}
+strong{color:var(--ink);font-weight:600}
+code{font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;font-size:.85em;
+  background:var(--rule-2);padding:.12em .38em;border-radius:4px;color:var(--ink)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+
+/* masthead */
+header.top{border-bottom:2px solid var(--ink);margin-bottom:34px;padding:44px 0 18px}
+.brandline{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
+  font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;margin-bottom:20px}
+.brandline .dot{color:var(--tag)}
+.standfirst{font-size:1.12rem;color:var(--muted);margin:0;max-width:60ch}
+.stamp{display:inline-block;margin-top:18px;font-size:.72rem;letter-spacing:.1em;
+  text-transform:uppercase;font-weight:700;color:var(--tag);
+  border:1.5px solid var(--tag);border-radius:3px;padding:4px 9px}
+
+/* numbered sections */
+section.sec{border-top:1px solid var(--rule);padding-top:30px;margin-top:40px}
+.sechead{display:flex;gap:14px;align-items:baseline;margin-bottom:14px}
+.secnum{font-family:"JetBrains Mono",monospace;font-size:.82rem;font-weight:700;
+  color:var(--tag);padding-top:.28em;flex:none;font-variant-numeric:tabular-nums}
+.sechead h2{margin:0}
+
+/* callouts */
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);
+  padding:14px 18px;border-radius:0 6px 6px 0;margin:22px 0}
+.warn{border-left:3px solid var(--brick);background:var(--brick-soft);
+  padding:14px 18px;border-radius:0 6px 6px 0;margin:22px 0}
+.note>:first-child,.warn>:first-child{margin-top:0}
+.note>:last-child,.warn>:last-child{margin-bottom:0}
+.warn strong{color:var(--brick)}
+
+/* role chips */
+.chip{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;padding:2.5px 8px;border-radius:20px;
+  font-family:"Source Sans 3",sans-serif;white-space:nowrap}
+.chip.owner{background:var(--brick-soft);color:var(--brick);box-shadow:inset 0 0 0 1px currentColor}
+.chip.office{background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1px currentColor}
+.chip.crew{background:var(--tag-soft);color:var(--tag);box-shadow:inset 0 0 0 1px currentColor}
+
+/* tables */
+.tablewrap{overflow-x:auto;margin:22px 0;border:1px solid var(--rule);border-radius:8px;background:var(--card)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:400px}
+th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+thead th{font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  font-weight:700;background:var(--rule-2);border-bottom:1px solid var(--rule)}
+tbody tr:last-child td{border-bottom:none}
+td code{background:transparent;padding:0;font-size:.86em}
+.yes{color:var(--accent);font-weight:700}
+.no{color:var(--muted)}
+
+/* SQL blocks with copy */
+figure.sql{margin:24px 0;border-radius:9px;overflow:hidden;box-shadow:var(--shadow);
+  border:1px solid var(--rule)}
+figure.sql figcaption{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  background:var(--card);padding:9px 10px 9px 15px;border-bottom:1px solid var(--rule);
+  font-size:.74rem;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--muted)}
+figure.sql pre{margin:0;background:var(--code-bg);color:var(--code-ink);
+  padding:16px 18px;overflow-x:auto;font-size:.79rem;line-height:1.65}
+figure.sql pre code{background:none;padding:0;color:inherit;font-size:inherit}
+button.copy{font-family:inherit;font-size:.72rem;letter-spacing:.07em;text-transform:uppercase;
+  font-weight:700;cursor:pointer;border:1px solid var(--rule);background:var(--paper);
+  color:var(--ink-2);padding:5px 13px;border-radius:5px;flex:none;transition:background .12s,color .12s}
+button.copy:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+button.copy[data-state="ok"]{background:var(--accent);color:var(--card);border-color:var(--accent)}
+button.copy[data-state="err"]{background:var(--brick-soft);color:var(--brick);border-color:var(--brick)}
+
+/* checklist */
+ul.check{list-style:none;padding:0;margin:20px 0;display:flex;flex-direction:column;gap:9px}
+ul.check li{display:flex;gap:12px;align-items:flex-start;background:var(--card);
+  border:1px solid var(--rule);border-radius:7px;padding:12px 15px}
+ul.check .mark{font-family:"JetBrains Mono",monospace;font-weight:700;flex:none;font-size:.95rem;line-height:1.5}
+ul.check li.done .mark{color:var(--accent)}
+ul.check li.todo .mark{color:var(--brick)}
+ul.check li.done{opacity:.72}
+ul.check div>strong{display:block;color:var(--ink)}
+ul.check small{color:var(--muted);font-size:.86rem;line-height:1.5;display:block;margin-top:1px}
+
+/* steps */
+ol.steps{list-style:none;counter-reset:s;padding:0;margin:22px 0;display:flex;flex-direction:column;gap:18px}
+ol.steps>li{counter-increment:s;display:flex;gap:15px;align-items:flex-start}
+ol.steps>li::before{content:counter(s);flex:none;width:27px;height:27px;border-radius:50%;
+  background:var(--ink);color:var(--paper);font-family:"JetBrains Mono",monospace;
+  font-size:.78rem;font-weight:700;display:grid;place-items:center;margin-top:1px}
+ol.steps>li>div>:first-child{margin-top:0}
+ol.steps>li>div>:last-child{margin-bottom:0}
+
+footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
+  font-size:.8rem;color:var(--muted);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+@media(max-width:560px){
+  body{font-size:16px}
+  h1{font-size:1.95rem}
+  .wrap{padding:0 17px 70px}
+  .sechead{gap:10px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+<div class="wrap">
+
+<header class="top">
+  <div class="brandline">
+    <span>JFR Ranch Co. Ltd.</span><span class="dot">&bull;</span>
+    <span>Beta Tracker</span><span class="dot">&bull;</span>
+    <span>Crew Guide</span>
+  </div>
+  <h1>Tracker Field Guide</h1>
+  <p class="standfirst">Recording doctoring and pasture moves on your phone &mdash;
+     including out where there is no signal.</p>
+  <span class="stamp">Living document &middot; grows as the app does</span>
+</header>
+
+<div class="note" style="margin-top:0">
+  <p><strong>About section 2.</strong> Personal logins are being built now. Anything
+     marked <em>not live yet</em> does not work until John says so. Everything else
+     describes the app as it works today.</p>
+</div>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">01</span><h2>Put it on your phone</h2></div>
+  <p>Do this once. It puts the app on your home screen and lets it run without signal.</p>
+
+  <p><a href="https://johnfreagan.github.io/JFR-Ranch-cattle-management-office-app-/field-app/">Open
+     the app &rarr;</a></p>
+
+  <h3>iPhone</h3>
+  <p><strong>Must be Safari</strong>, not Chrome.</p>
+  <ol class="steps">
+    <li><div><p>Open the link above in Safari.</p></div></li>
+    <li><div><p>Tap <strong>Share</strong> &mdash; the square with an arrow coming out of it.</p></div></li>
+    <li><div><p>Scroll down, tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</p></div></li>
+  </ol>
+
+  <h3>Android</h3>
+  <ol class="steps">
+    <li><div><p>Open the link above in Chrome.</p></div></li>
+    <li><div><p>Tap the <strong>&#8942;</strong> menu.</p></div></li>
+    <li><div><p>Tap <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p></div></li>
+  </ol>
+
+  <p>You get a blue longhorn icon labelled <strong>Beta Tracker</strong>. Open the app from
+     that icon from now on, not from the browser.</p>
+
+  <div class="warn"><p><strong>If you already had the old app.</strong> Open the old one
+     once while you have signal. It will clear itself out and send you here. Nothing you
+     recorded is lost &mdash; both versions share the same storage on your phone.</p></div>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">02</span><h2>Signing in</h2></div>
+
+  <h3>Today</h3>
+  <p>There is no sign-in. Open the app and start recording. Type your name in
+     <strong>Crew Member (Your Name)</strong> at the top of the form &mdash; that is how the
+     office knows who did the work, so spell it the same way every time.</p>
+
+  <h3>Coming: your own account <span class="chip crew" style="vertical-align:middle">not live yet</span></h3>
+  <p>Each person gets their own login. When it switches on, this is how it works.</p>
+
+  <p><strong>Getting your account.</strong> John creates it. You get either an email invite
+     with a link to set your own password, or a password from him directly. You do not sign
+     yourself up.</p>
+
+  <p><strong>Your first sign-in.</strong> Enter your email and password, tap
+     <strong>Sign in</strong>. You stay signed in &mdash; the app will not ask again unless
+     you sign out or go a long stretch without opening it.</p>
+
+  <div class="note"><p><strong>Sign in once while you have signal.</strong> That first
+     sign-in needs a connection. Do it at the house, not at the back gate.</p></div>
+
+  <p><strong>If it says your account is not active yet</strong> &mdash; John has created
+     your login but has not switched it on. Text him. Nothing you do in the app will fix it.</p>
+
+  <p><strong>If you forget your password</strong> &mdash; text John. He resets it. There is
+     no "forgot password" link.</p>
+
+  <div class="warn"><p><strong>Signing out wipes anything not yet uploaded.</strong> Only
+     sign out if you are handing the phone to somebody else, and check the sync badge is
+     clear first (section 4).</p></div>
+
+  <p><strong>One person per phone.</strong> Do not share a login. Every record is stamped
+     with who saved it &mdash; that is how a treatment gets traced back to the person who
+     gave it, and how the office knows who to ask when something looks off.</p>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">03</span><h2>Recording work</h2></div>
+  <p>Three tabs across the top: <strong>&#129657; Doctoring</strong>,
+     <strong>&#128666; Moves</strong>, and <strong>&#128214; History</strong>.</p>
+
+  <h3>A doctoring record</h3>
+  <ol class="steps">
+    <li><div><p><strong>Crew Member</strong> &mdash; your name.</p></div></li>
+    <li><div><p><strong>Tag #</strong> &mdash; type the number, or use the two buttons
+      beside it. <strong>&#8634;</strong> repeats the last tag you saved. <strong>NT</strong>
+      is a no-tag entry &mdash; it auto-numbers the animal NT1, NT2, NT3, so untagged cattle
+      still get tracked.</p></div></li>
+    <li><div><p><strong>Date &amp; Time</strong> &mdash; defaults to now. Change it if you
+      are catching up.</p></div></li>
+    <li><div><p><strong>Ranch, Pasture, Lot</strong> &mdash; dropdowns. Pasture only unlocks
+      once you pick a ranch.</p></div></li>
+    <li><div><p><strong>Action</strong> &mdash; Receiving, First Pull EX, Second Pull RES,
+      Pinkeye, Footrot Dart, Dead, or Other.</p></div></li>
+    <li><div><p><strong>Medications and dose</strong> &mdash; up to three, with the cc given
+      for each. Picking an action auto-fills the meds from its protocol; change them if what
+      you actually gave was different.</p></div></li>
+    <li><div><p><strong>Notes</strong>, then <strong>Save Record</strong>.</p></div></li>
+  </ol>
+
+  <h3>The lock buttons</h3>
+  <p>The <strong>&#128275;</strong> next to Ranch, Pasture, Lot, and Action. Tap it to lock
+     that field so it stays filled in across saves instead of resetting.</p>
+  <p>Working one pasture all morning? Lock ranch, pasture, and lot, and each animal costs you
+     a tag and an action. Tap again to unlock.</p>
+  <p>Locking <strong>Action</strong> still re-fills the medications from the protocol every
+     time, so a locked action never means stale meds.</p>
+
+  <h3>Tag History</h3>
+  <p>Tap a tag number to see everything recorded against that animal &mdash; what it has
+     already been given, and when. Worth a look before you treat.</p>
+
+  <h3>A move</h3>
+  <p>Switch to <strong>&#128666; Moves</strong>: who, from ranch and pasture, to ranch and
+     pasture, head count, date, notes. Tap <strong>Save Move</strong>.</p>
+  <div class="note"><p>The office has to attach a move to a lot before it counts, so
+     <strong>put the lot in the notes</strong> if you know it. Saves them a phone call.</p></div>
+
+  <h3>Fixing a mistake</h3>
+  <p><strong>&#128214; History</strong> &rarr; find the row &rarr; <strong>Edit</strong> or
+     <strong>Del</strong>. History shows today and yesterday. Fix it the same day if you can;
+     once the office has taken a record into the books it is out of your hands, so text them
+     instead.</p>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">04</span><h2>Working without signal</h2></div>
+  <p>The app is built for the pasture. <strong>Everything saves to your phone first.</strong>
+     No bars, no problem &mdash; keep recording.</p>
+
+  <p><strong>Uploads happen by themselves.</strong> The app retries whenever you come back on
+     signal, whenever you open it, and about once a minute while it is open. You do not have
+     to push anything.</p>
+
+  <h3>Read the badge</h3>
+  <p>Next to the sync button at the top.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Badge</th><th>What it means</th></tr></thead>
+    <tbody>
+      <tr><td><em>nothing</em></td><td>Online and everything is uploaded. Good.</td></tr>
+      <tr><td><code>&#9888; Offline</code></td><td>No signal. Keep recording &mdash; it is all being kept.</td></tr>
+      <tr><td><code>&#9888; Offline &middot; 3 pending</code></td><td>No signal, 3 records waiting on your phone.</td></tr>
+      <tr><td>A number, online</td><td>Uploading or retrying. Should clear on its own.</td></tr>
+    </tbody>
+  </table></div>
+  <p>You get an <strong>&#9729;&#65039; All records synced</strong> message when the last one
+     goes up.</p>
+
+  <div class="warn">
+    <p><strong>Two rules.</strong></p>
+    <p>Get back on signal the same day and check the badge has cleared. Records sitting on
+       your phone are not in the books and nobody else can see them.</p>
+    <p>Do not delete the app or clear your browser data while the badge shows a number.
+       Those records live only on your phone until they upload.</p>
+  </div>
+
+  <h3>The other button</h3>
+  <p><strong>&#128260; Pull Cloud History</strong> goes the other direction &mdash; it
+     <em>downloads</em> the latest records, ranches, pastures, lots, medications, and
+     protocols. Tap it when a pasture or lot is missing from your dropdowns, or when you want
+     to see what somebody else recorded. It merges with anything you saved offline; it does
+     not overwrite your work.</p>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">05</span><h2>Trouble</h2></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>What you see</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr><td>App will not open, blank screen</td>
+          <td>Close it fully and reopen. Still blank &mdash; open the link in your browser
+              while on signal, which pulls a fresh copy.</td></tr>
+      <tr><td>Badge stuck on a number while you have bars</td>
+          <td>You are not really online. Try mobile data instead of weak Wi-Fi. If it still
+              sticks, text John &mdash; <strong>do not</strong> delete the app.</td></tr>
+      <tr><td>A ranch, pasture, or lot is missing</td>
+          <td>Tap <strong>&#128260; Pull Cloud History</strong> first. If it is still missing,
+              pick the closest match, say so in the notes, and text the office. Do not
+              improvise a name.</td></tr>
+      <tr><td>Wrong tag or wrong med saved</td>
+          <td><strong>&#128214; History</strong> &rarr; <strong>Edit</strong>.</td></tr>
+      <tr><td>"Not active yet" at sign-in <span class="chip crew">not live yet</span></td>
+          <td>John needs to switch your account on. Text him.</td></tr>
+      <tr><td>Forgot password <span class="chip crew">not live yet</span></td>
+          <td>Text John for a reset.</td></tr>
+    </tbody>
+  </table></div>
+  <p>The app also has a <strong>&#128216; Help</strong> button at the bottom with a
+     30-second quickstart, and a troubleshoot button beside it.</p>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">06</span><h2>What comes next</h2></div>
+  <p>Being built, in this order:</p>
+  <ol class="steps">
+    <li><div><p><strong>Your own login.</strong> Section 2 goes live.</p></div></li>
+    <li><div><p><strong>The office sees your records directly.</strong> Right now what you
+      save is re-keyed by hand into the office books. That step goes away: your records land
+      in an office review queue, and the office approves them into the books.</p></div></li>
+    <li><div><p><strong>You will see rejections.</strong> If the office sends a record back
+      &mdash; wrong lot, a medication they cannot read &mdash; it shows up in your app with
+      their note, for you to fix rather than redo.</p></div></li>
+  </ol>
+  <p>Nothing about how you record changes. The lock buttons, the offline queue, and the
+     history tab all stay exactly as they are.</p>
+</section>
+
+<footer class="end">
+  <span>JFR Ranch Co. Ltd. &mdash; Kosse, TX</span>
+  <span>Questions: text John</span>
+</footer>
+
+</div>
