@@ -162,11 +162,15 @@ delete data unprompted.
 
 1. ~~John verifies the new URL on a phone~~ — ✅ done, works.
 2. ~~Merge the retirement to the field app repo's `main`~~ — ✅ done, `1dc84cb`.
-3. **Wait a few weeks, then disable Pages on the old repo and archive it**
-   (Settings → Archive). *Outstanding — this is the only open item.* Archiving
-   early strands anyone who hasn't opened the app online since the switch: an
-   installed copy needs **one online load** to run the self-destructing worker.
-   Until then it keeps working from its own cache.
+3. **Disable Pages on the old repo and archive it — on or after 2026-09-14.**
+   *Outstanding; this is the only open item.* Archiving early strands anyone who
+   hasn't opened the app online since the switch: an installed copy needs **one
+   online load** to run the self-destructing worker. Until then it keeps working
+   from its own cache. Three weeks from the 2026-08-24 switch was the agreed
+   wait, hence the date.
+
+   Steps are John's, in the GitHub UI: old repo → Settings → Pages (disable),
+   then Settings → Archive.
 4. **Part B stays blocked** on roadmap item 2 (multi-user auth + RLS).
    `user_profiles` already exists with `role` and has a `crew` row, so that item
    is partly underway.
