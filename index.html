@@ -596,6 +596,16 @@
             padding: 2px 0 2px 24px; line-height: 1.5;
         }
         .appr-issues { color: #b3121f; }
+        .appr-day { margin-bottom: 22px; }
+        .appr-day-head {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 15px; font-weight: 700; padding: 6px 0 8px;
+            border-bottom: 2px solid var(--border, #e5e5ea); margin-bottom: 10px;
+        }
+        .appr-day-count {
+            font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px;
+            background: #eef0f2; color: #3a3a3c;
+        }
         .appr-section { margin-bottom: 20px; }
         .appr-section h3 {
             font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
@@ -4926,16 +4936,45 @@ window.addEventListener('unhandledrejection', function(e) {
         return ka.s.localeCompare(kb.s);
     }
 
+    // The day the work happened, not the day it synced: entries worked in the
+    // evening often sync the next morning, and the office thinks of them as
+    // that day's pulls. Doctoring carries a local "YYYY-MM-DDTHH:MM:SS";
+    // moves carry a bare "YYYY-MM-DD". Both are already local, so slicing the
+    // date off avoids a timezone shift that could move an entry a day.
+    function entryDayKey(r) {
+        const stamp = r.kind === 'move' ? r.raw.date : r.raw.dateTime;
+        const d = String(stamp || '').slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
+    }
+
+    function formatDayHeading(key) {
+        if (!key) return 'Undated';
+        const d = new Date(key + 'T00:00:00');
+        if (isNaN(d.getTime())) return key;
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const diff = Math.round((today - d) / 86400000);
+        const label = d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+        if (diff === 0) return `${label} · today`;
+        if (diff === 1) return `${label} · yesterday`;
+        if (diff > 1) return `${label} · ${diff} days ago`;
+        return label;
+    }
+
     async function loadApprovalLookups() {
-        const [lotsRes, ranchRes, pastRes, actRes, medRes] = await Promise.all([
+        const [lotsRes, ranchRes, pastRes, actRes, medRes, assignRes] = await Promise.all([
             supabase.from('lots').select('id, lot_number, closed_at, is_test').is('closed_at', null),
             supabase.from('ranches').select('id, name, is_active'),
             supabase.from('pastures').select('id, name, ranch_id, is_active'),
             supabase.from('field_actions').select('id, name, is_dead, once_per_animal, is_active'),
             supabase.from('medications')
-                .select('id, name, is_active, cost_per_unit, cost_per_head, round_up_to, bottle_size_unit')
+                .select('id, name, is_active, cost_per_unit, cost_per_head, round_up_to, bottle_size_unit'),
+            // Which lots currently sit in which pasture - used to infer a
+            // move's lot when the from-pasture holds exactly one.
+            supabase.from('lot_pasture_assignments')
+                .select('lot_id, pasture_id, head_count, moved_out')
+                .is('moved_out', null)
         ]);
-        const firstErr = [lotsRes, ranchRes, pastRes, actRes, medRes].find(r => r.error);
+        const firstErr = [lotsRes, ranchRes, pastRes, actRes, medRes, assignRes].find(r => r.error);
         if (firstErr) throw firstErr.error;
 
         const byName = (rows, key) => {
@@ -4949,7 +4988,9 @@ window.addEventListener('unhandledrejection', function(e) {
             pastures: pastRes.data || [],
             actions: byName(actRes.data, 'name'),
             meds: byName(medRes.data, 'name'),
-            medsById: (medRes.data || []).reduce((m, x) => (m[x.id] = x, m), {})
+            medsById: (medRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            lotsById: (lotsRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            assignments: assignRes.data || []
         };
     }
 
@@ -4987,10 +5028,33 @@ window.addEventListener('unhandledrejection', function(e) {
             if (!to.pasture)   issues.push(`to-pasture "${raw.toRanch || ''} ${raw.toPasture || ''}" not found`);
             const head = parseInt(raw.headCount, 10);
             if (isNaN(head) || head <= 0) warnings.push('head count not given — uncounted move');
-            issues.push('lot must be chosen — field moves do not carry one');
+
+            // The field app never asks which lot is moving, and
+            // lot_movements.lot_id is NOT NULL. When the from-pasture holds
+            // exactly one open lot there is nothing to choose, so infer it and
+            // say so. Anything else has to be picked by the reviewer - moving
+            // the wrong lot's head is not a guess worth making.
+            let lot = null;
+            if (from.pasture) {
+                const here = lk.assignments.filter(a => a.pasture_id === from.pasture.id);
+                if (here.length === 1) {
+                    lot = lk.lotsById[here[0].lot_id] || null;
+                    if (lot) warnings.push(`lot ${lot.lot_number} inferred — only lot in ${from.pasture.name}`);
+                } else if (here.length === 0) {
+                    issues.push(`no open lot in ${from.ranch.name} – ${from.pasture.name}`);
+                } else {
+                    issues.push(`${here.length} lots in ${from.pasture.name} — pick which one moved`);
+                }
+            }
+            if (lot && head && head > 0) {
+                const a = lk.assignments.find(x => x.pasture_id === from.pasture.id && x.lot_id === lot.id);
+                if (a && head > a.head_count) {
+                    issues.push(`${head} head exceeds the ${a.head_count} in that pasture`);
+                }
+            }
             return {
                 entry, raw, kind: 'move',
-                lot: null, ranch: from.ranch, pasture: from.pasture,
+                lot, ranch: from.ranch, pasture: from.pasture,
                 toRanch: to.ranch, toPasture: to.pasture,
                 head: isNaN(head) ? null : head,
                 action: null, meds: [], isDead: false, notHauled: false,
@@ -5116,37 +5180,53 @@ window.addEventListener('unhandledrejection', function(e) {
 
         let html = '';
 
-        // Needs-info first: these cannot be filed under a lot with confidence
-        // and are what the office actually has to act on.
+        // Needs-info first, across all days: these cannot be filed under a lot
+        // with confidence and are what the office actually has to act on.
         const blocked = resolved.filter(r => !r.ready);
         if (blocked.length) {
             html += `<div class="appr-section"><h3>⚠ Needs info (${blocked.length})</h3>`;
-            blocked.sort((a, b) => compareTags(a.raw.tagNumber, b.raw.tagNumber))
-                   .forEach(r => { html += approvalRowHtml(r, true); });
+            blocked.slice().sort((a, b) =>
+                (entryDayKey(a) || '').localeCompare(entryDayKey(b) || '') ||
+                compareTags(a.raw.tagNumber, b.raw.tagNumber)
+            ).forEach(r => { html += approvalRowHtml(r, true); });
             html += `</div>`;
         }
 
-        ['doctoring', 'move', 'dead'].forEach(kind => {
-            const rows = resolved.filter(r => r.ready && r.kind === kind);
-            if (!rows.length) return;
-            const label = kind === 'doctoring' ? 'Doctoring' : (kind === 'move' ? 'Moves' : 'Dead');
-            html += `<div class="appr-section"><h3>${label} (${rows.length})</h3>`;
+        // Then day -> section -> lot -> pasture -> tag. Day is outermost so a
+        // backlog can be worked one day at a time rather than as one pile.
+        const readyRows = resolved.filter(r => r.ready);
+        const days = [...new Set(readyRows.map(entryDayKey))].sort().reverse();
 
-            // lot -> pasture -> tag
-            const byLot = {};
-            rows.forEach(r => {
-                const lotKey = r.lot ? r.lot.lot_number : '(no lot)';
-                const pastKey = r.pasture ? `${r.ranch.name} – ${r.pasture.name}` : '(no pasture)';
-                ((byLot[lotKey] = byLot[lotKey] || {})[pastKey] =
-                    byLot[lotKey][pastKey] || []).push(r);
-            });
-            Object.keys(byLot).sort().forEach(lotKey => {
-                html += `<div class="appr-lot"><div class="appr-lot-head">Lot ${escapeHtml(lotKey)}</div>`;
-                Object.keys(byLot[lotKey]).sort().forEach(pastKey => {
-                    html += `<div class="appr-pasture">${escapeHtml(pastKey)}</div>`;
-                    byLot[lotKey][pastKey]
-                        .sort((a, b) => compareTags(a.raw.tagNumber, b.raw.tagNumber))
-                        .forEach(r => { html += approvalRowHtml(r, false); });
+        days.forEach(dayKey => {
+            const dayRows = readyRows.filter(r => entryDayKey(r) === dayKey);
+            html += `<div class="appr-day">
+                <div class="appr-day-head">${escapeHtml(formatDayHeading(dayKey))}
+                    <span class="appr-day-count">${dayRows.length}</span></div>`;
+
+            ['doctoring', 'move', 'dead'].forEach(kind => {
+                const rows = dayRows.filter(r => r.kind === kind);
+                if (!rows.length) return;
+                const label = kind === 'doctoring' ? 'Doctoring' : (kind === 'move' ? 'Moves' : 'Dead');
+                html += `<div class="appr-section"><h3>${label} (${rows.length})</h3>`;
+
+                const byLot = {};
+                rows.forEach(r => {
+                    const lotKey = r.lot ? r.lot.lot_number : '(lot not set)';
+                    const pastKey = r.pasture
+                        ? `${r.ranch.name} – ${r.pasture.name}`
+                        : '(pasture not set)';
+                    ((byLot[lotKey] = byLot[lotKey] || {})[pastKey] =
+                        byLot[lotKey][pastKey] || []).push(r);
+                });
+                Object.keys(byLot).sort().forEach(lotKey => {
+                    html += `<div class="appr-lot"><div class="appr-lot-head">Lot ${escapeHtml(lotKey)}</div>`;
+                    Object.keys(byLot[lotKey]).sort().forEach(pastKey => {
+                        html += `<div class="appr-pasture">${escapeHtml(pastKey)}</div>`;
+                        byLot[lotKey][pastKey]
+                            .sort((a, b) => compareTags(a.raw.tagNumber, b.raw.tagNumber))
+                            .forEach(r => { html += approvalRowHtml(r, false); });
+                    });
+                    html += `</div>`;
                 });
                 html += `</div>`;
             });
