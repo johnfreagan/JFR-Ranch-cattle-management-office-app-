@@ -72,33 +72,50 @@ const noTagBtn = document.getElementById('noTagBtn');
 const clearTagBtn = document.getElementById('clearTagBtn'); 
 
 // --- APP DATABASES ---
-let records = JSON.parse(localStorage.getItem('betaCattleRecords')) || [];
-let movesRecords = JSON.parse(localStorage.getItem('betaCattleMoves')) || [];
-let medsDatabase = JSON.parse(localStorage.getItem('betaCattleMeds')) || [];
-let locsDatabase = JSON.parse(localStorage.getItem('betaCattleLocs')) || [];
-let lotsDatabase = JSON.parse(localStorage.getItem('betaCattleLots')) || []; 
-let protocolsDatabase = JSON.parse(localStorage.getItem('betaCattleProtocols')) || []; 
+// Reading saved state must never be able to stop the app booting. A value
+// that will not parse is discarded and the default used instead: losing a
+// cached lookup is recoverable with one Pull, losing the whole app is not.
+function loadJSON(key, fallback) {
+    let raw;
+    try { raw = localStorage.getItem(key); } catch (e) { return fallback; }
+    if (raw === null || raw === undefined || raw === '') return fallback;
+    try {
+        const parsed = JSON.parse(raw);
+        return (parsed === null || parsed === undefined) ? fallback : parsed;
+    } catch (e) {
+        console.warn(`Discarding corrupt localStorage value for ${key}:`, raw && raw.slice(0, 80));
+        try { localStorage.removeItem(key); } catch (e2) {}
+        return fallback;
+    }
+}
+
+let records = loadJSON('betaCattleRecords', []);
+let movesRecords = loadJSON('betaCattleMoves', []);
+let medsDatabase = loadJSON('betaCattleMeds', []);
+let locsDatabase = loadJSON('betaCattleLocs', []);
+let lotsDatabase = loadJSON('betaCattleLots', []);
+let protocolsDatabase = loadJSON('betaCattleProtocols', []);
 
 // Treatments already in the ranch books (doctoring_events), as opposed to
 // `records`, which is what THIS app has submitted. Kept separate on purpose:
 // these are read-only reference rows and must never be editable, deletable
 // or re-submittable from the field app. Tag recall and the safety checks
 // consult both; everything that writes only ever touches `records`.
-let booksHistory = JSON.parse(localStorage.getItem('betaCattleBooksHistory')) || [];
+let booksHistory = loadJSON('betaCattleBooksHistory', []);
 
 // tag number -> "Ranch - Pasture", only for tags whose location is actually
 // knowable from the books. See the resolution rules in pullCloudData().
-let tagLocationMap = JSON.parse(localStorage.getItem('betaCattleTagLocations')) || {};
+let tagLocationMap = loadJSON('betaCattleTagLocations', {});
 
 // tag number -> lot number, straight from lot_tags. This is the ONLY
 // reliable tag->lot mapping: lots.start_tag/end_tag covers 100 of 1,782
 // open tags (most lots have no range at all, and hundreds of tags sit
 // outside their lot's range), so the range is a last-ditch fallback only.
-let tagLotMap = JSON.parse(localStorage.getItem('betaCattleTagLots')) || {};
+let tagLotMap = loadJSON('betaCattleTagLots', {});
 
 // Per-receipt tag ranges, for a tag that is physically in the pasture but not
 // registered in lot_tags yet.
-let tagRanges = JSON.parse(localStorage.getItem('betaCattleTagRanges')) || [];
+let tagRanges = loadJSON('betaCattleTagRanges', []);
 
 // One place that answers "which lot is this tag on", best source first.
 function resolveLotForTag(tag) {
@@ -132,8 +149,8 @@ let deleteTimers = {};
 const SYNC_QUEUE_KEY = 'betaCattleSyncQueue';
 const TOMBSTONES_KEY = 'betaCattleTombstones';
 const REJECTED_KEY = 'betaCattleRejected';
-let syncQueue = JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY)) || [];
-let tombstones = JSON.parse(localStorage.getItem(TOMBSTONES_KEY)) || {};
+let syncQueue = loadJSON(SYNC_QUEUE_KEY, []);
+let tombstones = loadJSON(TOMBSTONES_KEY, {});
 let isSyncingQueue = false;
 const MAX_SYNC_ATTEMPTS = 25;   // ~25 min of retries before we call it dead
 let isSubmittingDoctoring = false;
@@ -141,7 +158,7 @@ let isSubmittingMove = false;
 
 // --- FIELD LOCKS (sticky fields for chute work) ---
 const LOCKS_KEY = 'betaCattleLocks';
-let locks = JSON.parse(localStorage.getItem(LOCKS_KEY)) || { ranch: false, pasture: false, lot: false, action: false };
+let locks = loadJSON(LOCKS_KEY, { ranch: false, pasture: false, lot: false, action: false });
 // Pasture locked without ranch is invalid — repair stale state from older versions
 if (locks.pasture && !locks.ranch) locks.ranch = true;
 
@@ -369,7 +386,7 @@ async function sendOne(payload) {
 // know the save did not stick.
 function recordRejection(record, error) {
     console.error('Record rejected by server:', record, error);
-    const rejects = JSON.parse(localStorage.getItem(REJECTED_KEY) || '[]');
+    const rejects = loadJSON(REJECTED_KEY, []);
     rejects.unshift({
         id: String(record.id),
         type: record.type || 'doctoring',
@@ -1405,7 +1422,7 @@ async function pullCloudData() {
                     || tagLocations[String(d.tag_number)]
                     || (pastureCountByLot[d.lot_id] === 1 ? (soleLocationByLot[d.lot_id] || '') : '')
             }));
-        safeSetItem('betaCattleBooksHistory', 'betaCattleTagLocations', 'betaCattleTagLots', 'betaCattleTagRanges', JSON.stringify(booksHistory));
+        safeSetItem('betaCattleBooksHistory', JSON.stringify(booksHistory));
 
         // The action dropdown is built from protocols, and it appends Dead
         // and Other itself — so those two are excluded here to avoid
@@ -2040,7 +2057,8 @@ document.getElementById('helpBtn').addEventListener('click', () => {
 const RESET_KEYS = [
     'betaCattleRecords', 'betaCattleMoves', 'betaCattleMeds', 'betaCattleLocs',
     'betaCattleLots', 'betaCattleProtocols', 'betaCattleLocks',
-    'betaCattleBooksHistory',
+    'betaCattleBooksHistory', 'betaCattleTagLocations', 'betaCattleTagLots',
+    'betaCattleTagRanges',
     'betaCattleSyncQueue', 'betaCattleTombstones', 'betaCattleRejected',
     'betaLastSyncDate'
     // 'crewMemberName' is deliberately kept - it is a convenience, not state,
