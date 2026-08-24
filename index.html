@@ -576,7 +576,59 @@
         body[data-role="crew"]   [data-perm="office"],
         body[data-role="crew"]   [data-perm="owner"],
         body[data-role="office"] [data-perm="owner"] { display: none !important; }
-    </style>
+    
+        /* ---- Field approvals ---- */
+        .approvals-badge {
+            display: inline-block; min-width: 18px; padding: 1px 6px; margin-left: 4px;
+            border-radius: 9px; background: var(--danger, #d70015); color: #fff;
+            font-size: 11px; font-weight: 700; line-height: 16px; text-align: center;
+        }
+        .approvals-summary { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+        .appr-chip {
+            font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 11px;
+            background: #eef0f2; color: #3a3a3c;
+        }
+        .appr-chip.ok   { background: #e5fceb; color: #1c7c31; }
+        .appr-chip.warn    { background: #fff4e5; color: #8a4b00; }
+        .appr-chip.blocked { background: #ffe5e7; color: #b3121f; }
+        .appr-warnings {
+            flex-basis: 100%; font-size: 12px; color: #8a4b00;
+            padding: 2px 0 2px 24px; line-height: 1.5;
+        }
+        .appr-issues { color: #b3121f; }
+        .appr-section { margin-bottom: 20px; }
+        .appr-section h3 {
+            font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+            color: var(--text-muted, #6b6b70); margin: 0 0 8px; font-weight: 700;
+        }
+        .appr-lot { margin-bottom: 12px; }
+        .appr-lot-head { font-weight: 700; font-size: 14px; padding: 4px 0; }
+        .appr-pasture {
+            font-size: 12px; color: var(--text-muted, #6b6b70);
+            padding: 2px 0 2px 12px; font-weight: 600;
+        }
+        /* One line per entry: the office scans these, it does not read them. */
+        .appr-row {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+            padding: 6px 8px 6px 24px; border-bottom: 1px solid var(--border, #e5e5ea);
+            font-size: 13px;
+        }
+        .appr-row.blocked { background: #fffaf3; padding-left: 8px; }
+        .appr-check { width: auto; margin: 0; }
+        .appr-tag { font-family: ui-monospace, Menlo, monospace; font-weight: 700; min-width: 54px; }
+        .appr-action { min-width: 120px; }
+        .appr-detail { flex: 1 1 220px; color: var(--text-muted, #6b6b70); }
+        .appr-when, .appr-who { font-size: 12px; color: var(--text-muted, #6b6b70); }
+        .appr-flag {
+            font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+            background: #fff4e5; color: #8a4b00;
+        }
+        .appr-flag.danger { background: #ffe5e7; color: #b3121f; }
+        .appr-issues {
+            flex-basis: 100%; font-size: 12px; color: #8a4b00;
+            padding: 4px 0 2px 24px; line-height: 1.5;
+        }
+</style>
 </head>
 <body>
 
@@ -610,6 +662,7 @@
             <button class="nav-tab" id="navAnimalHealth">Animal Health</button>
             <button class="nav-tab" id="navSettings">Settings</button>
             <button class="nav-tab" id="navReports">Reports</button>
+            <button class="nav-tab" id="navApprovals" data-perm="office">Approvals <span id="navApprovalsCount" class="approvals-badge hidden">0</span></button>
         </div>
         <div class="user-info">
             <span id="userName"></span>
@@ -1268,6 +1321,23 @@
         </div>
 
         <!-- Anomalies report -->
+        <!-- Field app approvals: staged entries awaiting review. Read-only for
+             now - nothing here writes to the books yet. -->
+        <div id="approvalsView" class="hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Field approvals</h2>
+                    <button id="approvalsRefreshBtn">Refresh</button>
+                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
+                    Entries submitted from the field app, grouped by lot, pasture and tag.
+                    Nothing here is in the books until it is approved.
+                </p>
+                <div id="approvalsSummary" class="approvals-summary"></div>
+                <div id="approvalsContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
         <div id="reportAnomaliesView" class="hidden">
             <div class="card">
                 <div class="card-header">
@@ -4754,14 +4824,15 @@ window.addEventListener('unhandledrejection', function(e) {
          'fieldActionsView', 'fieldProtocolsView',
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
-         'reportActiveLotsView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView'].forEach(id => {
+         'reportActiveLotsView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
+         'approvalsView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
         });
     }
     // Helper: clear active state on top nav and sub-tabs
     function clearAllNavActive() {
-        ['navLots', 'navAnimalHealth', 'navSettings', 'navReports'].forEach(id => {
+        ['navLots', 'navAnimalHealth', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
             const el = $(id); if (el) el.classList.remove('active');
         });
         ['animalHealthSubtabs', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
@@ -4829,6 +4900,306 @@ window.addEventListener('unhandledrejection', function(e) {
         }
     }
 
+    // ==========================================================
+    // FIELD APPROVALS (read-only pass)
+    //
+    // Staged entries arrive as free text - lot "36-27", location
+    // "Corner - 2", action "First Pull EX" - so they must be resolved
+    // against live tables BEFORE they can be grouped by lot/pasture/tag.
+    // Anything that will not resolve cannot be filed under a lot, so it
+    // goes in a "needs info" bucket rather than being guessed at.
+    // ==========================================================
+    let approvalsCache = { entries: [], lookups: null };
+
+    // Tags are text and may be "NT3", so a plain string sort puts 8402
+    // before 8310. Numeric tags sort numerically, NT tags after them.
+    function tagSortKey(tag) {
+        const n = parseInt(tag, 10);
+        return (!isNaN(n) && /^\d+$/.test(String(tag).trim()))
+            ? { bucket: 0, n, s: '' }
+            : { bucket: 1, n: 0, s: String(tag || '') };
+    }
+    function compareTags(a, b) {
+        const ka = tagSortKey(a), kb = tagSortKey(b);
+        if (ka.bucket !== kb.bucket) return ka.bucket - kb.bucket;
+        if (ka.bucket === 0) return ka.n - kb.n;
+        return ka.s.localeCompare(kb.s);
+    }
+
+    async function loadApprovalLookups() {
+        const [lotsRes, ranchRes, pastRes, actRes, medRes] = await Promise.all([
+            supabase.from('lots').select('id, lot_number, closed_at, is_test').is('closed_at', null),
+            supabase.from('ranches').select('id, name, is_active'),
+            supabase.from('pastures').select('id, name, ranch_id, is_active'),
+            supabase.from('field_actions').select('id, name, is_dead, once_per_animal, is_active'),
+            supabase.from('medications')
+                .select('id, name, is_active, cost_per_unit, cost_per_head, round_up_to, bottle_size_unit')
+        ]);
+        const firstErr = [lotsRes, ranchRes, pastRes, actRes, medRes].find(r => r.error);
+        if (firstErr) throw firstErr.error;
+
+        const byName = (rows, key) => {
+            const m = {};
+            (rows || []).forEach(r => { m[String(r[key]).trim().toLowerCase()] = r; });
+            return m;
+        };
+        return {
+            lots: byName((lotsRes.data || []).filter(l => !l.is_test), 'lot_number'),
+            ranches: byName(ranchRes.data, 'name'),
+            pastures: pastRes.data || [],
+            actions: byName(actRes.data, 'name'),
+            meds: byName(medRes.data, 'name'),
+            medsById: (medRes.data || []).reduce((m, x) => (m[x.id] = x, m), {})
+        };
+    }
+
+    // Turn one staged row into everything the screen needs to show it.
+    // Never invents a value: an unmatched name becomes an issue, not a guess.
+    function resolveApprovalEntry(entry, lk) {
+        const raw = entry.raw || {};
+        // Two distinct lists. A BLOCKER means the entry cannot be posted
+        // correctly and must not be selectable. A WARNING means it will post,
+        // but something about it should be seen first - an unpriced med posts
+        // a real row with a null cost, which is worth knowing but is not a
+        // reason to stop the office approving the day's pulls.
+        const issues = [], warnings = [];
+        const norm = v => String(v == null ? '' : v).trim().toLowerCase();
+        const isMove = entry.entry_type === 'move';
+
+        const findPasture = (ranchTxt, pastTxt) => {
+            const ranch = lk.ranches[norm(ranchTxt)] || null;
+            if (!ranch) return { ranch: null, pasture: null };
+            return {
+                ranch,
+                pasture: lk.pastures.find(p =>
+                    norm(p.name) === norm(pastTxt) && p.ranch_id === ranch.id) || null
+            };
+        };
+
+        // ---- Moves resolve on their own terms ----------------------------
+        // They carry from/to pastures and a head count, and NO lot: the field
+        // app never asks for one and lot_movements.lot_id is NOT NULL, so a
+        // reviewer has to pick it. That is expected, not a data fault.
+        if (isMove) {
+            const from = findPasture(raw.fromRanch, raw.fromPasture);
+            const to   = findPasture(raw.toRanch, raw.toPasture);
+            if (!from.pasture) issues.push(`from-pasture "${raw.fromRanch || ''} ${raw.fromPasture || ''}" not found`);
+            if (!to.pasture)   issues.push(`to-pasture "${raw.toRanch || ''} ${raw.toPasture || ''}" not found`);
+            const head = parseInt(raw.headCount, 10);
+            if (isNaN(head) || head <= 0) warnings.push('head count not given — uncounted move');
+            issues.push('lot must be chosen — field moves do not carry one');
+            return {
+                entry, raw, kind: 'move',
+                lot: null, ranch: from.ranch, pasture: from.pasture,
+                toRanch: to.ranch, toPasture: to.pasture,
+                head: isNaN(head) ? null : head,
+                action: null, meds: [], isDead: false, notHauled: false,
+                issues, warnings, ready: issues.length === 0
+            };
+        }
+
+        // ---- Doctoring and deaths ---------------------------------------
+        const lot = lk.lots[norm(raw.lotNumber)] || null;
+        if (!lot) issues.push(raw.lotNumber ? `lot "${raw.lotNumber}" not found on an open lot` : 'no lot given');
+
+        // location is "Ranch - Pasture". Verified that no ranch or pasture
+        // name contains a dash, so this split is safe.
+        const locParts = String(raw.location || '').split(' - ');
+        const loc = locParts.length >= 2 ? findPasture(locParts[0], locParts[1]) : { ranch: null, pasture: null };
+        if (!loc.ranch) issues.push(`ranch "${locParts[0] || ''}" not found`);
+        else if (!loc.pasture) issues.push(`pasture "${locParts[1] || ''}" not found on ${loc.ranch.name}`);
+
+        const action = lk.actions[norm(raw.treatmentType)] || null;
+        if (!action) issues.push(`action "${raw.treatmentType || ''}" not found`);
+
+        const meds = [];
+        for (let i = 1; i <= 3; i++) {
+            const name = raw['medication' + i];
+            const doseTxt = raw['dosage' + i];
+            if (!name && !doseTxt) continue;
+            const med = lk.meds[norm(name)] || null;
+            const dose = doseTxt === '' || doseTxt == null ? null : Number(doseTxt);
+            const unpriced = !!(med && med.cost_per_unit == null && med.cost_per_head == null);
+            if (!med && name) issues.push(`medication "${name}" not matched`);
+            if (name && (dose == null || isNaN(dose))) issues.push(`dose for "${name}" is not a number`);
+            // Cost is FROZEN at approval, so a null now stays null forever.
+            // Flagged, not blocking - see the note above.
+            if (unpriced) warnings.push(`${med.name} has no price — cost will post as $0`);
+            meds.push({ position: i, name: name || '', med,
+                        dose: (dose != null && !isNaN(dose)) ? dose : null, unpriced });
+        }
+
+        const isDead = !!(action && action.is_dead);
+        // "Drug off" is whether the carcass was hauled to the disposal spot.
+        // A No is an open job, so it is flagged rather than buried in notes.
+        const notHauled = isDead && String(raw.drugOff || '').toLowerCase() !== 'yes';
+        if (isDead && !raw.drugOff) warnings.push('carcass disposal not answered');
+
+        return {
+            entry, raw, lot, ranch: loc.ranch, pasture: loc.pasture, action, meds,
+            isDead, notHauled, issues, warnings,
+            kind: isDead ? 'dead' : 'doctoring',
+            ready: issues.length === 0
+        };
+    }
+
+    // First Pull EX and friends are once-per-animal. Approval is
+    // all-or-nothing, so a duplicate must be caught HERE - letting the
+    // trigger reject it would take the whole batch down with it.
+    async function flagDuplicateApprovals(resolved) {
+        const candidates = resolved.filter(r =>
+            r.kind === 'doctoring' && r.lot && r.action && r.action.once_per_animal && r.raw.tagNumber);
+        if (candidates.length === 0) return;
+        const { data, error } = await supabase
+            .from('doctoring_events')
+            .select('tag_number, lot_id, field_action_id')
+            .in('lot_id', [...new Set(candidates.map(r => r.lot.id))]);
+        if (error) { console.warn('duplicate pre-check failed:', error); return; }
+        const seen = new Set((data || []).map(d => `${d.tag_number}|${d.lot_id}|${d.field_action_id}`));
+        candidates.forEach(r => {
+            if (seen.has(`${r.raw.tagNumber}|${r.lot.id}|${r.action.id}`)) {
+                r.issues.push(`tag ${r.raw.tagNumber} already has "${r.action.name}" on this lot`);
+                r.duplicate = true;
+                r.ready = false;
+            }
+        });
+    }
+
+    async function loadApprovals() {
+        const content = $('approvalsContent');
+        content.innerHTML = '<div class="empty">Loading…</div>';
+        try {
+            const [entriesRes, lookups] = await Promise.all([
+                supabase.from('pending_field_entries')
+                    .select('id, entry_type, client_id, raw, status, review_notes, submitted_at, submitted_by')
+                    .eq('status', 'pending')
+                    .order('event_datetime', { ascending: true }),
+                loadApprovalLookups()
+            ]);
+            if (entriesRes.error) throw entriesRes.error;
+
+            const resolved = (entriesRes.data || []).map(e => resolveApprovalEntry(e, lookups));
+            await flagDuplicateApprovals(resolved);
+            approvalsCache = { entries: resolved, lookups };
+            renderApprovals(resolved);
+            updateApprovalsBadge(resolved.length);
+        } catch (err) {
+            content.innerHTML = `<div class="alert error">Could not load approvals: ${escapeHtml(err.message || String(err))}</div>`;
+        }
+    }
+
+    function updateApprovalsBadge(n) {
+        const badge = $('navApprovalsCount');
+        if (!badge) return;
+        badge.textContent = n;
+        badge.classList.toggle('hidden', !n);
+    }
+
+    function renderApprovals(resolved) {
+        const content = $('approvalsContent');
+        const summary = $('approvalsSummary');
+
+        if (resolved.length === 0) {
+            summary.innerHTML = '';
+            content.innerHTML = '<div class="empty">Nothing waiting. Field entries appear here once cowboys sync.</div>';
+            return;
+        }
+
+        const ready = resolved.filter(r => r.ready).length;
+        const needs = resolved.length - ready;
+        const flagged = resolved.filter(r => r.ready && r.warnings.length).length;
+        summary.innerHTML =
+            `<span class="appr-chip ok">${ready} ready</span>` +
+            (flagged ? `<span class="appr-chip warn">${flagged} with warnings</span>` : '') +
+            (needs ? `<span class="appr-chip blocked">${needs} need info</span>` : '') +
+            `<span class="appr-chip muted">${resolved.length} total</span>`;
+
+        let html = '';
+
+        // Needs-info first: these cannot be filed under a lot with confidence
+        // and are what the office actually has to act on.
+        const blocked = resolved.filter(r => !r.ready);
+        if (blocked.length) {
+            html += `<div class="appr-section"><h3>⚠ Needs info (${blocked.length})</h3>`;
+            blocked.sort((a, b) => compareTags(a.raw.tagNumber, b.raw.tagNumber))
+                   .forEach(r => { html += approvalRowHtml(r, true); });
+            html += `</div>`;
+        }
+
+        ['doctoring', 'move', 'dead'].forEach(kind => {
+            const rows = resolved.filter(r => r.ready && r.kind === kind);
+            if (!rows.length) return;
+            const label = kind === 'doctoring' ? 'Doctoring' : (kind === 'move' ? 'Moves' : 'Dead');
+            html += `<div class="appr-section"><h3>${label} (${rows.length})</h3>`;
+
+            // lot -> pasture -> tag
+            const byLot = {};
+            rows.forEach(r => {
+                const lotKey = r.lot ? r.lot.lot_number : '(no lot)';
+                const pastKey = r.pasture ? `${r.ranch.name} – ${r.pasture.name}` : '(no pasture)';
+                ((byLot[lotKey] = byLot[lotKey] || {})[pastKey] =
+                    byLot[lotKey][pastKey] || []).push(r);
+            });
+            Object.keys(byLot).sort().forEach(lotKey => {
+                html += `<div class="appr-lot"><div class="appr-lot-head">Lot ${escapeHtml(lotKey)}</div>`;
+                Object.keys(byLot[lotKey]).sort().forEach(pastKey => {
+                    html += `<div class="appr-pasture">${escapeHtml(pastKey)}</div>`;
+                    byLot[lotKey][pastKey]
+                        .sort((a, b) => compareTags(a.raw.tagNumber, b.raw.tagNumber))
+                        .forEach(r => { html += approvalRowHtml(r, false); });
+                });
+                html += `</div>`;
+            });
+            html += `</div>`;
+        });
+
+        content.innerHTML = html;
+    }
+
+    function approvalRowHtml(r, showWhy) {
+        const raw = r.raw;
+        const isMove = r.kind === 'move';
+        const tag = isMove ? '—' : (raw.tagNumber || 'NT');
+        // Moves carry `date`; doctoring carries `dateTime`.
+        const stamp = isMove ? raw.date : raw.dateTime;
+        const when = stamp
+            ? new Date(isMove ? stamp + 'T00:00:00' : stamp)
+                .toLocaleString([], isMove
+                    ? { month: 'short', day: 'numeric' }
+                    : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+            : '';
+
+        const detail = isMove
+            ? `${escapeHtml(raw.fromRanch || '')} ${escapeHtml(raw.fromPasture || '')} → ` +
+              `${escapeHtml(raw.toRanch || '')} ${escapeHtml(raw.toPasture || '')} · ` +
+              `${r.head != null ? r.head + ' hd' : '<span class="appr-flag">uncounted</span>'}`
+            : (r.meds.length
+                ? r.meds.map(m => `${escapeHtml(m.name)}${m.dose != null ? ' ' + m.dose + 'cc' : ''}` +
+                                  (m.unpriced ? ' <span class="appr-flag">no price</span>' : '')).join(', ')
+                : '<span class="muted">—</span>');
+
+        return `
+            <div class="appr-row ${r.ready ? '' : 'blocked'}">
+                <input type="checkbox" class="appr-check" ${r.ready ? '' : 'disabled'} data-id="${r.entry.id}" title="${r.ready ? 'Select to approve' : 'Resolve the issues first'}">
+                <span class="appr-tag">${escapeHtml(String(tag))}</span>
+                <span class="appr-action">${escapeHtml(raw.treatmentType || (isMove ? 'Move' : ''))}</span>
+                <span class="appr-detail">${detail}</span>
+                <span class="appr-when">${escapeHtml(when)}</span>
+                <span class="appr-who">${escapeHtml(raw.recordedBy || '')}</span>
+                ${r.notHauled ? '<span class="appr-flag danger">not hauled off</span>' : ''}
+                ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
+                ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
+            </div>`;
+    }
+
+    function showApprovalsTab() {
+        hideAllViews();
+        clearAllNavActive();
+        $('navApprovals').classList.add('active');
+        $('approvalsView').classList.remove('hidden');
+        loadApprovals();
+    }
+
     function showReportsTab(subtab = 'active-lots') {
         hideAllViews();
         clearAllNavActive();
@@ -4871,6 +5242,8 @@ window.addEventListener('unhandledrejection', function(e) {
     $('navAnimalHealth').addEventListener('click', () => showAnimalHealthTab('meds'));
     $('navSettings').addEventListener('click', () => showSettingsTab('protocols'));
     $('navReports').addEventListener('click', () => showReportsTab('active-lots'));
+    $('navApprovals').addEventListener('click', showApprovalsTab);
+    $('approvalsRefreshBtn').addEventListener('click', loadApprovals);
 
     // Sub-tab click handlers (delegated)
     $('animalHealthSubtabs').addEventListener('click', (e) => {
