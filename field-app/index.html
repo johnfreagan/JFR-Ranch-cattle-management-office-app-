@@ -44,6 +44,12 @@
             color: #fff; background: #007aff; border: 0; border-radius: 8px;
         }
         #loginScreen button:disabled { opacity: .6; }
+        #bootError {
+            margin-bottom: 12px; padding: 10px; border-radius: 8px;
+            font-size: 12px; font-family: ui-monospace, Menlo, monospace;
+            background: #fff4e5; color: #8a4b00; border: 1px solid #f0c48a;
+            word-break: break-word;
+        }
         #loginAlert {
             display: none; margin-bottom: 12px; padding: 10px;
             border-radius: 8px; font-size: 14px;
@@ -85,12 +91,96 @@
 </head>
 <body>
 
+<script>
+// ---------------------------------------------------------------------
+// Boot diagnostics + escape hatch. Deliberately inline and first: if
+// app.js throws on line 16 (it builds the Supabase client there), every
+// handler it would have attached is lost and the page still LOOKS fine -
+// buttons simply do nothing. That failure has to be visible, and Reset
+// has to keep working without app.js.
+// ---------------------------------------------------------------------
+(function () {
+    var BUILD = 'v9';
+    window.__FIELD_BUILD = BUILD;
+
+    var reported = false;
+    function report(msg, specific) {
+        var box = document.getElementById('bootError');
+        if (!box) return;
+        // A specific, actionable message must not be clobbered by the raw
+        // exception that follows it a moment later.
+        if (reported && !specific) return;
+        if (specific) reported = true;
+        box.style.display = 'block';
+        box.textContent = 'Startup error (' + BUILD + '): ' + msg;
+    }
+    window.__reportBootError = function (m) { report(m, true); };
+
+    window.addEventListener('error', function (e) {
+        report((e && e.message ? e.message : 'script error') +
+               (e && e.filename ? ' @ ' + String(e.filename).split('/').pop() + ':' + e.lineno : ''));
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+        var r = e && e.reason;
+        report('unhandled: ' + (r && r.message ? r.message : String(r)));
+    });
+
+    // Self-contained reset. Same work as the in-app one, but owned by this
+    // inline block so a dead app.js cannot disarm it.
+    function hardReset() {
+        var keys = ['betaCattleRecords','betaCattleMoves','betaCattleMeds','betaCattleLocs',
+                    'betaCattleLots','betaCattleProtocols','betaCattleLocks','betaCattleSyncQueue',
+                    'betaCattleTombstones','betaCattleRejected','betaLastSyncDate',
+                    'betaCattleBooksHistory','betaCattleTagLocations','betaCattleTagLots',
+                    'betaCattleTagRanges'];
+        try { keys.forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {}
+
+        var done = function () {
+            location.replace(location.pathname + '?reset=' + Date.now());
+        };
+        var jobs = [];
+        try {
+            if (window.caches && caches.keys) {
+                jobs.push(caches.keys().then(function (names) {
+                    return Promise.all(names.map(function (n) { return caches.delete(n); }));
+                }));
+            }
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+                    return Promise.all(rs.map(function (r) { return r.unregister(); }));
+                }));
+            }
+        } catch (e) {}
+        // Never leave the button dead if a cache API misbehaves.
+        Promise.all(jobs).then(done, done);
+        setTimeout(done, 4000);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var btn = document.getElementById('loginResetBtn');
+        if (btn) {
+            btn.addEventListener('click', function () {
+                var n = 0;
+                try { n = (JSON.parse(localStorage.getItem('betaCattleSyncQueue')) || []).length; } catch (e) {}
+                var msg = n > 0
+                    ? n + ' record(s) on this phone have not been sent yet and WILL BE LOST.\n\nReset anyway?'
+                    : 'Reload a fresh copy of the app?\n\nNothing is removed from the ranch database.';
+                if (confirm(msg)) hardReset();
+            });
+        }
+        var stamp = document.querySelector('.build-stamp');
+        if (stamp) stamp.textContent = 'build ' + BUILD;
+    });
+})();
+</script>
+
 <!-- Login gate. Shown until a Supabase session is confirmed; app.js hides it.
      Kept outside .container so nothing behind it is reachable while it's up. -->
 <div id="loginScreen">
     <form class="login-card" id="loginForm">
         <h2>JFR Ranch — Field</h2>
         <p class="login-sub">Sign in with your ranch account.</p>
+        <div id="bootError" style="display:none;"></div>
         <div id="loginAlert"></div>
         <label for="loginEmail">Email</label>
         <input type="email" id="loginEmail" autocomplete="username" inputmode="email" required>
@@ -101,7 +191,7 @@
             <span>App stuck or not loading right?</span>
             <button type="button" id="loginResetBtn">Reset app</button>
         </div>
-        <div class="build-stamp">build v8</div>
+        <div class="build-stamp">build v9</div>
     </form>
 </div>
 
@@ -583,6 +673,6 @@
      same-origin assets, so a CDN copy would leave the app dead offline on a
      cold start - which is exactly when a phone in a pasture needs it. -->
 <script src="supabase.min.js?v=2.46.1"></script>
-<script src="app.js?v=v8"></script>
+<script src="app.js?v=v9"></script>
 </body>
 </html>

@@ -13,6 +13,18 @@ const SUPABASE_URL = 'https://xpfmebdzcxorvwikfvtj.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_LhyJ7-bxebSa7HuRTxjmBQ__73Oc-66';
 const STAGING_TABLE = 'pending_field_entries';
 
+// If the library did not load, say so plainly. Before this guard, this line
+// threw and took the remaining ~2,200 lines of this file with it - including
+// every event handler - so the page rendered normally and every button was
+// simply inert, with nothing on screen to explain why.
+if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+    if (window.__reportBootError) {
+        window.__reportBootError('the Supabase library did not load. Tap "Reset app" below, ' +
+                                 'or check your connection and reload.');
+    }
+    throw new Error('Supabase library not available');
+}
+
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true }
 });
@@ -2105,21 +2117,9 @@ async function resetAppData(opts) {
 
 document.getElementById('resetAppBtn').addEventListener('click', resetAppData);
 
-// The in-app Reset lives inside Troubleshooting, which sits BEHIND the login
-// overlay — useless to anyone locked out by a bad cached build, which is
-// exactly who needs it. This one is on the login screen itself.
-const loginResetBtn = document.getElementById('loginResetBtn');
-if (loginResetBtn) {
-    loginResetBtn.addEventListener('click', async () => {
-        const queued = syncQueue.length;
-        if (queued > 0 && !confirm(
-            `${queued} record(s) on this phone have not been sent yet and WILL BE LOST.\n\n` +
-            `Reset anyway?`)) return;
-        if (queued === 0 && !confirm(
-            'Reload a fresh copy of the app?\n\nNothing is removed from the ranch database.')) return;
-        await resetAppData({ skipConfirm: true, force: true });
-    });
-}
+// NOTE: the Reset button on the LOGIN screen is wired by the inline script in
+// index.html, not here. It has to work when this file has failed to run, which
+// is exactly when someone is locked out and needs it.
 
 document.getElementById('troubleshootBtn').addEventListener('click', () => {
     refreshResetState();
