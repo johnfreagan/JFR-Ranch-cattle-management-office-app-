@@ -5,18 +5,19 @@
 // Strategy:
 //   - Pre-cache the app shell on install
 //   - Stale-while-revalidate for app assets (fast load, updates silently)
-//   - Network-only for the Google Apps Script cloud URL (never cache writes)
+//   - Cross-origin (Supabase API) is never touched - always live network
 //
 // Bump CACHE_VERSION whenever you deploy changes to index.html / app.js / styles.css.
 // =========================================================
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v3';   // v3: in-app reset button
 const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 
 const APP_SHELL = [
     './',
     './index.html',
     './app.js',
+    './supabase.min.js',
     './styles.css',
     './manifest.json'
 ];
@@ -48,11 +49,6 @@ self.addEventListener('fetch', (event) => {
 
     // Only handle GETs
     if (req.method !== 'GET') return;
-
-    // Never cache calls to Google Apps Script (our cloud writes/reads)
-    if (url.hostname.includes('script.google.com')) {
-        return; // let the browser handle it normally
-    }
 
     // Only cache same-origin assets
     if (url.origin !== self.location.origin) return;

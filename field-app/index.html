@@ -17,12 +17,83 @@
             .mobile-row .form-group { margin-bottom: 8px !important; }
             .container { padding: 8px; padding-bottom: 20px; }
         }
+
+        /* --- Login gate --- */
+        #loginScreen {
+            position: fixed; inset: 0; z-index: 9999;
+            background: #007aff; color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px;
+        }
+        #loginScreen .login-card {
+            width: 100%; max-width: 360px;
+            background: #fff; color: #1c1c1e;
+            border-radius: 14px; padding: 22px;
+            box-shadow: 0 10px 30px rgba(0,0,0,.25);
+        }
+        #loginScreen h2 { margin: 0 0 4px; font-size: 20px; }
+        #loginScreen .login-sub { margin: 0 0 16px; font-size: 13px; color: #6b6b70; }
+        #loginScreen label { display:block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+        #loginScreen input {
+            width: 100%; box-sizing: border-box; padding: 12px;
+            font-size: 16px; /* 16px stops iOS zooming the field on focus */
+            border: 1px solid #d1d1d6; border-radius: 8px; margin-bottom: 12px;
+        }
+        #loginScreen button {
+            width: 100%; padding: 13px; font-size: 16px; font-weight: 600;
+            color: #fff; background: #007aff; border: 0; border-radius: 8px;
+        }
+        #loginScreen button:disabled { opacity: .6; }
+        #loginAlert {
+            display: none; margin-bottom: 12px; padding: 10px;
+            border-radius: 8px; font-size: 14px;
+            background: #ffe5e7; color: #b3121f;
+        }
+        /* --- Signed-in chip --- */
+        .user-chip {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 8px; font-size: 12px; color: #6b6b70; margin: -6px 0 10px;
+        }
+        .reset-section { border-top: 1px solid #e5e5ea; padding-top: 14px; }
+        .reset-btn {
+            width: 100%; padding: 13px; font-size: 16px; font-weight: 600;
+            color: #fff; background: #d70015; border: 0; border-radius: 8px;
+        }
+        .reset-btn:disabled { background: #b0b0b5; }
+        .reset-note { font-weight: 600; margin: 8px 0; }
+        .reset-note.blocked { color: #d70015; }
+        .reset-note.ready { color: #1c7c31; }
+        .reset-fineprint { font-size: 12px; color: #6b6b70; margin-top: 8px; }
+        .user-chip button {
+            background: none; border: 0; color: #007aff;
+            font-size: 12px; font-weight: 600; padding: 4px 6px;
+        }
     </style>
 </head>
 <body>
 
+<!-- Login gate. Shown until a Supabase session is confirmed; app.js hides it.
+     Kept outside .container so nothing behind it is reachable while it's up. -->
+<div id="loginScreen">
+    <form class="login-card" id="loginForm">
+        <h2>JFR Ranch — Field</h2>
+        <p class="login-sub">Sign in with your ranch account.</p>
+        <div id="loginAlert"></div>
+        <label for="loginEmail">Email</label>
+        <input type="email" id="loginEmail" autocomplete="username" inputmode="email" required>
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" required>
+        <button type="submit" id="loginBtn">Sign in</button>
+    </form>
+</div>
+
 <div class="container">
     <h1>🚧 Beta Cattle Tracker 🚧</h1>
+
+    <div class="user-chip" id="userChip" style="display:none;">
+        <span id="userChipName"></span>
+        <button type="button" id="logoutBtn">Sign out</button>
+    </div>
 
     <!-- Chute mode banner — shows what's locked, only when any lock is active -->
     <div id="chuteBanner" class="chute-banner" style="display:none;"></div>
@@ -31,7 +102,7 @@
     <div id="dailySummary" class="daily-summary" style="display:none;"></div>
 
     <div class="sync-row">
-        <button type="button" id="syncCloudBtn" class="sync-btn" title="Download the latest records, locations, lots, meds, and protocols from the cloud spreadsheet. Merges with anything you've saved offline.">🔄 Pull Cloud History</button>
+        <button type="button" id="syncCloudBtn" class="sync-btn" title="Download the latest entries, locations, lots, meds, and protocols from the ranch database. Merges with anything you've saved offline.">🔄 Pull Cloud History</button>
         <span id="syncBadge" class="sync-badge" style="display:none;"></span>
     </div>
 
@@ -159,7 +230,7 @@
             </div>
         </div>
         
-        <button type="submit" id="submitBtn" title="Save this record locally and queue it for upload to the cloud spreadsheet.">Save Record</button>
+        <button type="submit" id="submitBtn" title="Save this record locally and queue it for upload to the ranch database, where the office reviews it.">Save Record</button>
     </form>
 
     <form id="movesForm" style="display: none;">
@@ -347,7 +418,7 @@
 
         <div class="help-section">
             <h3>🧹 Storage Self-Healing</h3>
-            <p>When local storage fills up after months of use, the app auto-prunes records older than 60 days — your spreadsheet keeps the archive. You'll get a toast warning when it happens.</p>
+            <p>When local storage fills up after months of use, the app auto-prunes records older than 60 days — the ranch database keeps the archive. You'll get a toast warning when it happens.</p>
         </div>
 
         <div class="help-section">
@@ -369,12 +440,12 @@
         <h2 style="margin-top: 0;">🛠 Troubleshooting</h2>
 
         <div class="help-section">
-            <h3>"My record isn't in the spreadsheet"</h3>
+            <h3>"My record isn't showing up in the office"</h3>
             <p>Most likely no signal at the time. Check the badge next to <b>Pull Cloud History</b>:</p>
             <ul class="help-list">
                 <li><b>⚠ Offline</b> → Get back to signal. Records auto-sync.</li>
                 <li><b>⏳ N pending</b> → Queued. Retries every minute.</li>
-                <li><b>No badge</b> → Synced. If still missing in the sheet, see below.</li>
+                <li><b>No badge</b> → Sent. It is now waiting for the office to approve it.</li>
             </ul>
             <p><b>Don't</b> tap Pull Cloud History to fix this — that downloads, not uploads. (Pulling is safe though.)</p>
         </div>
@@ -384,13 +455,13 @@
             <ul class="help-list">
                 <li>Toggle airplane mode on, then off.</li>
                 <li>Force-quit the app and reopen.</li>
-                <li>If still stuck, the cloud script may need attention from whoever set it up.</li>
+                <li>If a record was refused, you will get a ⛔ message saying why — tell the office.</li>
             </ul>
         </div>
 
         <div class="help-section">
             <h3>"Deleted records came back after Pull Cloud History"</h3>
-            <p>Shouldn't happen any more — the app uses tombstones to remember deletes. If you see this, you're on a cached old version. Clear Safari website data and re-add the app to your home screen.</p>
+            <p>Shouldn't happen any more — the app uses tombstones to remember deletes. If you see this, you're on a cached old version. Use <b>Reset the app</b> at the bottom of this page.</p>
         </div>
 
         <div class="help-section">
@@ -403,7 +474,7 @@
             <ul class="help-list">
                 <li>Save at least one record with that action first.</li>
                 <li>Pull Cloud History to refresh the protocols list.</li>
-                <li>Make sure the action name in your spreadsheet exactly matches the dropdown option.</li>
+                <li>The office sets default meds per action; ask them to check the protocol for that action.</li>
             </ul>
         </div>
 
@@ -434,7 +505,7 @@
 
         <div class="help-section">
             <h3>"Pasture dropdown is empty"</h3>
-            <p>That ranch has no pastures in the cloud sheet. Add them in the spreadsheet, then Pull Cloud History.</p>
+            <p>That ranch has no active pastures in the ranch database. The office adds them, then Pull Cloud History.</p>
         </div>
 
         <div class="help-section">
@@ -447,23 +518,23 @@
 
         <div class="help-section">
             <h3>"App looks blank or broken"</h3>
-            <p>Bad cache from a partial update. Settings → Safari → Clear History and Website Data, then re-open and re-add to home screen. <b>Pull Cloud History</b> will restore your records from the sheet.</p>
+            <p>Bad cache from a partial update. Use <b>Reset the app</b> at the bottom of this page — that is what it is for.</p>
         </div>
 
         <div class="help-section">
             <h3>"Pull Cloud History says ❌ Data Error"</h3>
-            <p>The cloud script returned something unexpected. Wait a few minutes and try again. If it keeps failing, the spreadsheet's Apps Script needs attention.</p>
+            <p>The ranch database could not be reached, or refused the request. Check signal, wait a few minutes and try again. If it keeps failing, tell the office what the message said.</p>
         </div>
 
         <div class="help-section">
             <h3>"Medication I need is missing"</h3>
-            <p>Add it to the medications tab in the spreadsheet, then Pull Cloud History. For one-off use, just type the med name directly into the field — it doesn't have to match the dropdown.</p>
+            <p>The office adds it to the medications list, then Pull Cloud History. For one-off use, just type the med name directly into the field — it doesn't have to match the dropdown.</p>
         </div>
 
         <div class="help-section">
             <h3>"Storage full — pruned N old records" warning</h3>
-            <p>Records older than 60 days were auto-removed from local storage to make room. The cloud spreadsheet still has them. No action needed.</p>
-            <p>If you see "🛑 Storage full. Pull Cloud, then clear app data." — Pull Cloud History to confirm everything's synced, then clear Safari website data and re-add the app to your home screen.</p>
+            <p>Records older than 60 days were auto-removed from local storage to make room. The ranch database still has them. No action needed.</p>
+            <p>If you see "🛑 Storage full. Pull Cloud, then clear app data." — Pull Cloud History to confirm everything's synced, then use <b>Reset the app</b> at the bottom of this page.</p>
         </div>
 
         <div class="help-section">
@@ -475,9 +546,25 @@
             <h3>📞 When reporting a problem</h3>
             <p>Include: what you tapped right before, what the sync badge said, whether you had signal, how many records that day, screenshot if possible.</p>
         </div>
+
+        <div class="help-section reset-section">
+            <h3>♻️ Reset the app</h3>
+            <p>Clears this app's saved data and forces a fresh copy from the ranch
+               database. Use it when the app looks stuck on an old version, or
+               after being told to.</p>
+            <p class="reset-note" id="resetStatus"></p>
+            <button type="button" id="resetAppBtn" class="reset-btn">♻️ Reset app data</button>
+            <p class="reset-fineprint">
+               Blocked while records are still waiting to sync, so nothing unsent
+               is lost. Leaves the office app alone. You stay signed in.</p>
+        </div>
     </div>
 </div>
 
-<script src="app.js?v=beta3"></script>
+<!-- supabase-js is vendored, not CDN-loaded: the service worker only caches
+     same-origin assets, so a CDN copy would leave the app dead offline on a
+     cold start - which is exactly when a phone in a pasture needs it. -->
+<script src="supabase.min.js?v=2.46.1"></script>
+<script src="app.js?v=beta4"></script>
 </body>
 </html>
