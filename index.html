@@ -564,6 +564,18 @@
             font-size: 13px;
             font-style: italic;
         }
+
+        /* ---- ROLE GATE ----
+           RLS in the database is the actual enforcement. This only stops us
+           showing a control the signed-in role cannot use, so the app does
+           not look broken. Write access ranks owner > office > crew, which
+           matches every policy: writes are either {owner,office} or {owner}.
+           !important so it beats both the .hidden class JS toggles and any
+           inline display style. If data-role is never set nothing is hidden,
+           which is the safe fallback — RLS still refuses the write. */
+        body[data-role="crew"]   [data-perm="office"],
+        body[data-role="crew"]   [data-perm="owner"],
+        body[data-role="office"] [data-perm="owner"] { display: none !important; }
     </style>
 </head>
 <body>
@@ -644,7 +656,7 @@
                         <label style="font-size: 13px; display: flex; align-items: center; gap: 6px;">
                             <input type="checkbox" id="lotsShowTest" style="width: auto;"> Show test
                         </label>
-                        <button class="primary" id="newLotBtn">+ New lot</button>
+                        <button class="primary" id="newLotBtn" data-perm="office">+ New lot</button>
                     </div>
                 </div>
                 <div id="lotsContent"><div class="empty">Loading…</div></div>
@@ -672,10 +684,10 @@
                         <div class="kebab-wrap">
                             <button id="lotMenuBtn" class="kebab-btn" title="Lot actions">⋯</button>
                             <div id="lotMenu" class="kebab-menu hidden">
-                                <button class="kebab-item" id="editLotBtn">Edit lot info</button>
-                                <button class="kebab-item" id="duplicateLotBtn">Duplicate lot</button>
-                                <button class="kebab-item" id="closeLotBtn">Close lot</button>
-                                <button class="kebab-item kebab-item-danger hidden" id="deleteTestLotBtn">Delete this test lot</button>
+                                <button class="kebab-item" id="editLotBtn" data-perm="office">Edit lot info</button>
+                                <button class="kebab-item" id="duplicateLotBtn" data-perm="office">Duplicate lot</button>
+                                <button class="kebab-item" id="closeLotBtn" data-perm="office">Close lot</button>
+                                <button class="kebab-item kebab-item-danger hidden" id="deleteTestLotBtn" data-perm="owner">Delete this test lot</button>
                             </div>
                         </div>
                     </div>
@@ -706,10 +718,10 @@
                 </div>
 
                 <!-- Invoices card -->
-                <div class="card" id="invoicesCard">
+                <div class="card" id="invoicesCard" data-perm="office">
                     <div class="card-header">
                         <h3>Invoices <span class="card-count" id="invoicesCount">(0)</span></h3>
-                        <button id="newInvoiceCardBtn" class="primary card-add-btn">📄 + Invoice</button>
+                        <button id="newInvoiceCardBtn" data-perm="office" class="primary card-add-btn">📄 + Invoice</button>
                     </div>
                     <div id="invoicesContent"><div class="empty">Loading…</div></div>
                 </div>
@@ -718,7 +730,7 @@
                 <div class="card" id="receiptsCard">
                     <div class="card-header">
                         <h3>Unlinked Load Outs <span class="card-count" id="receiptsCount">(0)</span></h3>
-                        <button id="newReceiptBtn" class="primary card-add-btn">🚛 + Load Out</button>
+                        <button id="newReceiptBtn" data-perm="office" class="primary card-add-btn">🚛 + Load Out</button>
                     </div>
                     <p class="muted card-note" style="font-size: 12px; margin: 0 0 10px 0;">Load outs not yet linked to an invoice. Once you link a load out to its invoice (open the load out → set "Linked invoice"), it moves under that invoice above.</p>
                     <div id="receiptsContent"><div class="empty">No load outs yet.</div></div>
@@ -749,7 +761,7 @@
                             <label style="font-size: 13px; display: flex; align-items: center; gap: 4px;">
                                 <input type="checkbox" id="doctoringPlaceholdersOnly" style="width: auto;"> Placeholders only
                             </label>
-                            <button class="primary card-add-btn" id="newDoctoringBtn">💊 + New</button>
+                            <button class="primary card-add-btn" id="newDoctoringBtn" data-perm="office">💊 + New</button>
                         </div>
                     </div>
                     <div id="doctoringSummary" class="muted card-note" style="font-size: 12px; margin-bottom: 10px;"></div>
@@ -760,7 +772,7 @@
                 <div class="card" id="moveHistoryCard">
                     <div class="card-header">
                         <h3>Move history <span class="card-count" id="moveHistoryCount">(0)</span></h3>
-                        <button class="primary card-add-btn" id="newMoveBtn">↔ + Move</button>
+                        <button class="primary card-add-btn" id="newMoveBtn" data-perm="office">↔ + Move</button>
                     </div>
                     <div id="moveHistoryContent"></div>
                 </div>
@@ -769,7 +781,7 @@
                 <div class="card" id="deathLogCard">
                     <div class="card-header">
                         <h3>Death log <span class="card-count" id="deathLogCount">(0)</span></h3>
-                        <button class="primary card-add-btn" id="newDeathBtn">⚠ + Record deaths</button>
+                        <button class="primary card-add-btn" id="newDeathBtn" data-perm="office">⚠ + Record deaths</button>
                     </div>
                     <div id="deathLogContent"></div>
                 </div>
@@ -804,7 +816,7 @@
                 <div class="card">
                     <div class="card-header">
                         <h3>Closeout calculator</h3>
-                        <button id="saveAssumptionsBtn" class="primary hidden">Save to lot</button>
+                        <button id="saveAssumptionsBtn" data-perm="office" class="primary hidden">Save to lot</button>
                     </div>
                     <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
                         Adjust any field to see the projection update live. Click "Save to lot" to write changes back.
@@ -829,7 +841,7 @@
                         <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
                             <input type="checkbox" id="showInactiveMeds" style="width:auto; vertical-align: middle;"> Show inactive
                         </label>
-                        <button class="primary" id="newMedBtn">+ New medication</button>
+                        <button class="primary" id="newMedBtn" data-perm="office">+ New medication</button>
                     </div>
                 </div>
                 <div id="medsContent">
@@ -847,7 +859,7 @@
                         <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
                             <input type="checkbox" id="showInactiveProtos" style="width:auto; vertical-align: middle;"> Show retired
                         </label>
-                        <button class="primary" id="newProtocolBtn">+ New protocol</button>
+                        <button class="primary" id="newProtocolBtn" data-perm="office">+ New protocol</button>
                     </div>
                 </div>
                 <div id="protocolsContent">
@@ -865,9 +877,9 @@
                     <h2 id="protoDetailName">—</h2>
                     <div>
                         <button id="printReceivingSheetBtn" title="Printable receiving sheet with doses at a given weight">🖨 Receiving Sheet</button>
-                        <button id="duplicateProtocolBtn" title="Create a new protocol pre-filled from this one">⎘ Duplicate</button>
-                        <button id="archiveProtocolBtn">Archive</button>
-                        <button id="editProtocolBtn" class="primary">Edit protocol</button>
+                        <button id="duplicateProtocolBtn" data-perm="office" title="Create a new protocol pre-filled from this one">⎘ Duplicate</button>
+                        <button id="archiveProtocolBtn" data-perm="office">Archive</button>
+                        <button id="editProtocolBtn" data-perm="office" class="primary">Edit protocol</button>
                     </div>
                 </div>
                 <div id="protoArchivedBanner" class="closed-banner hidden"></div>
@@ -907,9 +919,9 @@
                         </label>
                         <button id="printLocationsBtn">🖨 Print directory</button>
                         <button id="exportLocationsCsvBtn">⬇ CSV</button>
-                        <button id="manageForageBtn">Forage types</button>
-                        <button id="newRanchBtn">+ Ranch</button>
-                        <button class="primary" id="newPastureBtn">+ Pasture</button>
+                        <button id="manageForageBtn" data-perm="office">Forage types</button>
+                        <button id="newRanchBtn" data-perm="office">+ Ranch</button>
+                        <button class="primary" id="newPastureBtn" data-perm="office">+ Pasture</button>
                     </div>
                 </div>
                 <div id="locationsContent">
@@ -926,9 +938,9 @@
                 <div class="card-header">
                     <h2 id="ranchDetailName">—</h2>
                     <div>
-                        <button id="archiveRanchBtn">Archive</button>
-                        <button id="editRanchFromDetailBtn">Edit ranch</button>
-                        <button class="primary" id="newPastureFromRanchBtn">+ Pasture</button>
+                        <button id="archiveRanchBtn" data-perm="office">Archive</button>
+                        <button id="editRanchFromDetailBtn" data-perm="office">Edit ranch</button>
+                        <button class="primary" id="newPastureFromRanchBtn" data-perm="office">+ Pasture</button>
                     </div>
                 </div>
                 <div id="ranchArchivedBanner" class="closed-banner hidden"></div>
@@ -957,8 +969,8 @@
                 <div class="card-header">
                     <h2 id="pastureDetailName">—</h2>
                     <div>
-                        <button id="archivePastureBtn">Archive</button>
-                        <button id="editPastureBtn" class="primary">Edit</button>
+                        <button id="archivePastureBtn" data-perm="office">Archive</button>
+                        <button id="editPastureBtn" data-perm="office" class="primary">Edit</button>
                     </div>
                 </div>
                 <div id="pastureArchivedBanner" class="closed-banner hidden"></div>
@@ -988,7 +1000,7 @@
                         <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
                             <input type="checkbox" id="fieldActionsShowInactive" style="width:auto; vertical-align: middle;"> Include retired
                         </label>
-                        <button class="primary" id="newFieldActionBtn">+ New action</button>
+                        <button class="primary" id="newFieldActionBtn" data-perm="office">+ New action</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
@@ -1007,7 +1019,7 @@
                         <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
                             <input type="checkbox" id="fieldProtocolsShowInactive" style="width:auto; vertical-align: middle;"> Include retired
                         </label>
-                        <button class="primary" id="newFieldProtocolBtn">+ New protocol</button>
+                        <button class="primary" id="newFieldProtocolBtn" data-perm="office">+ New protocol</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
@@ -1027,7 +1039,7 @@
                     <h3 style="margin: 0 0 6px 0;">Test lots cleanup</h3>
                     <p class="muted" style="font-size: 12px; margin-bottom: 12px;">Removes all lots with names starting with <code>TEST_</code> or <code>TEST-</code>, including their invoices, load-outs, doctoring events, deaths, sales, and pasture assignments. Field protocols seeded for testing also get removed.</p>
                     <div id="testLotsPreview" class="muted" style="font-size: 13px; margin-bottom: 12px;">Loading preview…</div>
-                    <button class="primary" id="cleanTestLotsBtn" style="background: var(--danger);">Delete all test lots</button>
+                    <button class="primary" id="cleanTestLotsBtn" data-perm="owner" style="background: var(--danger);">Delete all test lots</button>
                 </div>
 
                 <div style="margin-bottom: 22px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius);">
@@ -1049,7 +1061,7 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Doctoring Entry</h2>
-                    <button id="doctoringEntryClearBtn">Clear batch</button>
+                    <button id="doctoringEntryClearBtn" data-perm="office">Clear batch</button>
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">One protocol per batch. Type a tag, press Enter → row appends with lot, weight, and computed doses. Click any cell to edit. Save commits the whole batch. After save, action/date stay so you can immediately start the next protocol.</p>
 
@@ -1085,7 +1097,7 @@
 
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
                     <div id="docEntrySummary" class="muted" style="font-size: 13px;"></div>
-                    <button id="docEntrySaveBtn" class="primary" disabled>Save batch</button>
+                    <button id="docEntrySaveBtn" data-perm="office" class="primary" disabled>Save batch</button>
                 </div>
             </div>
         </div>
@@ -1114,7 +1126,7 @@
                         <div id="docSingleNTLotPickerWrap" style="display: none;">
                             <label for="docSingleNTLot">Lot *</label>
                             <select id="docSingleNTLot"></select>
-                            <button id="docSingleNTOpenBtn" class="primary" style="margin-top: 8px; width: 100%;" disabled>Open entry</button>
+                            <button id="docSingleNTOpenBtn" data-perm="office" class="primary" style="margin-top: 8px; width: 100%;" disabled>Open entry</button>
                         </div>
                     </div>
                 </div>
@@ -1422,10 +1434,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="fieldActionDeleteBtn" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="fieldActionDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete</button>
                 <div>
                     <button type="button" id="fieldActionCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="fieldActionSaveBtn">Save</button>
+                    <button type="submit" class="primary" id="fieldActionSaveBtn" data-perm="office">Save</button>
                 </div>
             </div>
         </form>
@@ -1492,10 +1504,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="fieldProtocolDeleteBtn" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="fieldProtocolDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete</button>
                 <div>
                     <button type="button" id="fieldProtocolCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="fieldProtocolSaveBtn">Save</button>
+                    <button type="submit" class="primary" id="fieldProtocolSaveBtn" data-perm="office">Save</button>
                 </div>
             </div>
         </form>
@@ -1643,7 +1655,7 @@
 
             <div class="modal-actions">
                 <button type="button" id="medCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="medSaveBtn">Save medication</button>
+                <button type="submit" class="primary" id="medSaveBtn" data-perm="office">Save medication</button>
             </div>
         </form>
     </div>
@@ -1715,8 +1727,8 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                     <h3>Medications</h3>
                     <div>
-                        <button type="button" id="pickProtoMedsBtn">☑ Pick meds</button>
-                        <button type="button" id="addProtoMedBtn">+ Add medication</button>
+                        <button type="button" id="pickProtoMedsBtn" data-perm="office">☑ Pick meds</button>
+                        <button type="button" id="addProtoMedBtn" data-perm="office">+ Add medication</button>
                     </div>
                 </div>
                 <div id="protoMedsList"></div>
@@ -1726,14 +1738,14 @@
             <div style="border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 16px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                     <h3>Steps (non-medication)</h3>
-                    <button type="button" id="addProtoStepBtn">+ Add step</button>
+                    <button type="button" id="addProtoStepBtn" data-perm="office">+ Add step</button>
                 </div>
                 <div id="protoStepsList"></div>
             </div>
 
             <div class="modal-actions">
                 <button type="button" id="protocolCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="protocolSaveBtn">Save protocol</button>
+                <button type="submit" class="primary" id="protocolSaveBtn" data-perm="office">Save protocol</button>
             </div>
         </form>
     </div>
@@ -1766,7 +1778,7 @@
         <div id="protoMedPickList" style="max-height: 46vh; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px;"></div>
         <div class="modal-actions">
             <button type="button" id="protoMedPickCancelBtn">Cancel</button>
-            <button type="button" class="primary" id="protoMedPickApplyBtn">Apply</button>
+            <button type="button" class="primary" id="protoMedPickApplyBtn" data-perm="office">Apply</button>
         </div>
     </div>
 </div>
@@ -1823,7 +1835,7 @@
 
             <div class="modal-actions">
                 <button type="button" id="protoMedCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="protoMedSaveBtn">Save</button>
+                <button type="submit" class="primary" id="protoMedSaveBtn" data-perm="office">Save</button>
             </div>
         </form>
     </div>
@@ -1862,7 +1874,7 @@
 
             <div class="modal-actions">
                 <button type="button" id="protoStepCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="protoStepSaveBtn">Save</button>
+                <button type="submit" class="primary" id="protoStepSaveBtn" data-perm="office">Save</button>
             </div>
         </form>
     </div>
@@ -1898,7 +1910,7 @@
             </div>
             <div class="modal-actions">
                 <button type="button" id="ranchCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="ranchSaveBtn">Save ranch</button>
+                <button type="submit" class="primary" id="ranchSaveBtn" data-perm="office">Save ranch</button>
             </div>
         </form>
     </div>
@@ -2020,7 +2032,7 @@
 
             <div class="modal-actions">
                 <button type="button" id="pastureCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="pastureSaveBtn">Save pasture</button>
+                <button type="submit" class="primary" id="pastureSaveBtn" data-perm="office">Save pasture</button>
             </div>
         </form>
     </div>
@@ -2031,7 +2043,7 @@
     <div class="modal" style="max-width: 720px;">
         <div class="card-header" style="margin-bottom: 14px;">
             <h2>Forage types</h2>
-            <button type="button" id="forageAddBtn">+ Add type</button>
+            <button type="button" id="forageAddBtn" data-perm="office">+ Add type</button>
         </div>
         <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
             Reference list used when setting up pastures. Defaults below are optional and will help with future projections.
@@ -2083,7 +2095,7 @@
             </div>
             <div class="modal-actions">
                 <button type="button" id="forageEditCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="forageEditSaveBtn">Save</button>
+                <button type="submit" class="primary" id="forageEditSaveBtn" data-perm="office">Save</button>
             </div>
         </form>
     </div>
@@ -2139,7 +2151,7 @@
             </div>
             <div class="modal-actions">
                 <button type="button" id="lotCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="lotSaveBtn">Save lot</button>
+                <button type="submit" class="primary" id="lotSaveBtn" data-perm="office">Save lot</button>
             </div>
         </form>
     </div>
@@ -2163,7 +2175,7 @@
         <div style="margin-bottom: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <h4>Move to</h4>
-                <button type="button" id="addMoveDestBtn">+ Add destination</button>
+                <button type="button" id="addMoveDestBtn" data-perm="office">+ Add destination</button>
             </div>
             <div id="moveLotDestList"></div>
         </div>
@@ -2185,7 +2197,7 @@
 
         <div class="modal-actions">
             <button type="button" id="moveLotCancelBtn">Cancel</button>
-            <button type="button" class="primary" id="moveLotSaveBtn">Save move</button>
+            <button type="button" class="primary" id="moveLotSaveBtn" data-perm="office">Save move</button>
         </div>
     </div>
 </div>
@@ -2234,7 +2246,7 @@
             </div>
             <div id="deathsRunningTotal" class="muted" style="font-size: 12px; margin-bottom: 6px;"></div>
             <div id="deathsRowsContainer"></div>
-            <button type="button" id="deathsAddRowBtn" class="add-link" style="margin-bottom: 14px;">+ Add row</button>
+            <button type="button" id="deathsAddRowBtn" data-perm="office" class="add-link" style="margin-bottom: 14px;">+ Add row</button>
 
             <div style="margin-bottom: 14px;">
                 <label for="deathsNotes">Notes (shared across all rows, optional)</label>
@@ -2242,9 +2254,9 @@
             </div>
 
             <div class="modal-actions">
-                <button type="button" id="deathsDeleteBtn" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="deathsDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete</button>
                 <button type="button" id="deathsCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="deathsSaveBtn">Save</button>
+                <button type="submit" class="primary" id="deathsSaveBtn" data-perm="office">Save</button>
             </div>
         </form>
     </div>
@@ -2302,10 +2314,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-                <button type="button" id="doctoringDeleteBtn" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="doctoringDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete</button>
                 <div style="display: flex; gap: 8px;">
                     <button type="button" id="doctoringCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="doctoringSaveBtn">Save</button>
+                    <button type="submit" class="primary" id="doctoringSaveBtn" data-perm="office">Save</button>
                 </div>
             </div>
         </form>
@@ -2391,7 +2403,7 @@
             <div style="border-top: 1px solid var(--border); padding-top: 14px; margin-bottom: 14px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                     <h4>Source pastures</h4>
-                    <button type="button" id="addSaleSourceBtn">+ Add pasture</button>
+                    <button type="button" id="addSaleSourceBtn" data-perm="office">+ Add pasture</button>
                 </div>
                 <p class="muted" style="font-size: 12px; margin-bottom: 8px;">Where the cattle came from. Sources sum must equal head count.</p>
                 <div id="saleSourceList"></div>
@@ -2404,10 +2416,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="saleDeleteBtn" class="hidden" style="color: var(--danger);">Delete sale</button>
+                <button type="button" id="saleDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete sale</button>
                 <div>
                     <button type="button" id="saleCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="saleSaveBtn">Save sale</button>
+                    <button type="submit" class="primary" id="saleSaveBtn" data-perm="office">Save sale</button>
                 </div>
             </div>
         </form>
@@ -2468,15 +2480,15 @@
                 <p class="muted" style="font-size: 11px; margin: 0 0 10px 0;">Scanned invoices, weight tickets, related paperwork. PDF, JPG, PNG, HEIC up to 10 MB.</p>
                 <div id="invoiceAttachmentsList" style="margin-bottom: 10px;"></div>
                 <input type="file" id="invoiceAttachUpload" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif,image/webp" multiple style="display:none;">
-                <button type="button" id="invoiceAttachUploadBtn" class="card-add-btn">+ Upload file</button>
+                <button type="button" id="invoiceAttachUploadBtn" data-perm="office" class="card-add-btn">+ Upload file</button>
                 <div id="invoiceAttachStatus" class="muted" style="font-size: 12px; margin-top: 6px;"></div>
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="invoiceDeleteBtn" class="hidden" style="color: var(--danger);">Delete invoice</button>
+                <button type="button" id="invoiceDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete invoice</button>
                 <div>
                     <button type="button" id="invoiceCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="invoiceSaveBtn">Save invoice</button>
+                    <button type="submit" class="primary" id="invoiceSaveBtn" data-perm="office">Save invoice</button>
                 </div>
             </div>
         </form>
@@ -2524,7 +2536,7 @@
             <div style="border-top: 1px solid var(--border); padding-top: 14px; margin-bottom: 14px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                     <h4>Pasture destinations</h4>
-                    <button type="button" id="addReceiptDestBtn">+ Add pasture</button>
+                    <button type="button" id="addReceiptDestBtn" data-perm="office">+ Add pasture</button>
                 </div>
                 <p class="muted" style="font-size: 12px; margin-bottom: 8px;" id="receiptDestHint">
                     On save, these become pasture assignments for the lot.
@@ -2558,15 +2570,15 @@
                 <p class="muted" style="font-size: 11px; margin: 0 0 10px 0;">Bills of lading, weight tickets, health certs. PDF, JPG, PNG, HEIC up to 10 MB.</p>
                 <div id="receiptAttachmentsList" style="margin-bottom: 10px;"></div>
                 <input type="file" id="receiptAttachUpload" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif,image/webp" multiple style="display:none;">
-                <button type="button" id="receiptAttachUploadBtn" class="card-add-btn">+ Upload file</button>
+                <button type="button" id="receiptAttachUploadBtn" data-perm="office" class="card-add-btn">+ Upload file</button>
                 <div id="receiptAttachStatus" class="muted" style="font-size: 12px; margin-top: 6px;"></div>
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="receiptDeleteBtn" class="hidden" style="color: var(--danger);">Delete load out</button>
+                <button type="button" id="receiptDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete load out</button>
                 <div>
                     <button type="button" id="receiptCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="receiptSaveBtn">Save load out</button>
+                    <button type="submit" class="primary" id="receiptSaveBtn" data-perm="office">Save load out</button>
                 </div>
             </div>
         </form>
@@ -2651,8 +2663,19 @@ window.addEventListener('unhandledrejection', function(e) {
     let currentActualMedCost = null;
     const $ = id => document.getElementById(id);
 
+    // A refused write comes back as a Postgres 42501 / row-level security
+    // error. Nobody outside this repo knows what that means.
+    function friendlyDbError(msg){
+        const s=String(msg==null?'':msg);
+        if(/row-level security|permission denied|42501/i.test(s)){
+            const role=(currentProfile&&currentProfile.role)||'your role';
+            return 'Not allowed: '+role+' cannot make that change. Ask John if you need it.';
+        }
+        return s;
+    }
     function showAlert(id, msg, type='error'){
         const el=$(id); if(!el) return;
+        if(type==='error') msg=friendlyDbError(msg);
         el.innerHTML=`<div class="alert ${type}">${escapeHtml(msg)}</div>`;
         if(type==='success') setTimeout(()=>{el.innerHTML='';},3000);
     }
@@ -2706,6 +2729,8 @@ window.addEventListener('unhandledrejection', function(e) {
             return;
         }
         currentProfile=profile;
+        // Drives the CSS role gate. See the ROLE GATE block in <style>.
+        document.body.dataset.role=profile.role;
         $('userName').textContent=profile.full_name;
         $('userRole').textContent=profile.role;
         $('userRole').className='role-badge '+profile.role;
@@ -2715,6 +2740,7 @@ window.addEventListener('unhandledrejection', function(e) {
     }
     function showLoginScreen(){
         currentUser=null;currentProfile=null;
+        delete document.body.dataset.role;
         $('appShell').classList.add('hidden');
         $('loginScreen').classList.remove('hidden');
         $('loginEmail').value='';$('loginPassword').value='';

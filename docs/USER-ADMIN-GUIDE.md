@@ -16,7 +16,7 @@ The database allows exactly three role values. A `CHECK` constraint on
 |---|---|---|
 | `owner` | John | Everything, including deletes and the money screens. |
 | `office` | Bookkeeper / office help | Runs the books day to day. No hard deletes on core records. |
-| `crew` | Cowboys | Records what happens in the pasture. **Cannot see invoices.** |
+| `crew` | Cowboys | **Read-only.** Can look at the books but change nothing, and cannot see invoices at all. |
 
 > **Note on naming.** The roadmap in `CLAUDE.md` called these
 > admin/manager/cowboy/guest. What actually shipped is **owner / office /
@@ -157,52 +157,54 @@ Authentication → Users, open the user, and confirm them.
 
 ## 4. What each role can do
 
-Read this as: **the database is the only enforcement.** The office app shows
-every button to everybody — it reads the role only to print the badge in the
-header, and never hides a control. A `crew` user who taps Delete on a lot sees
-a Postgres permission error, not a missing button. That is safe, but it is ugly,
-and it is worth knowing before somebody reports it as a bug.
+Read this as: **the database is the enforcement.** The app hides controls a
+role cannot use (see §8 gap 2), but that is presentation only. Anyone who gets
+past the UI still hits RLS, and RLS is what actually refuses them.
 
-`✓` = allowed, `—` = denied.
+### The short version
 
-### The books
+- **`crew` can read but not write.** Anywhere. The only thing they cannot even
+  read is invoices.
+- **`office` can do everything except hard deletes** on the records where
+  deletion is owner-only.
+- **`owner` can do everything.**
 
-| Table | Read | Insert | Update | Delete |
-|---|---|---|---|---|
-| `lots` | all 3 | owner, office | owner, office | owner |
-| `lot_tags` | all 3 | **all 3** | owner, office | owner, office |
-| `lot_events` | all 3 | owner, office | owner, office | owner |
-| `lot_pasture_assignments` | all 3 | **all 3** | owner, office | owner |
-| `lot_movements` | all 3 | **all 3** | owner, office | owner |
-| `weights` | all 3 | **all 3** | owner, office | owner |
-| `delivery_receipts` | all 3 | **all 3** | owner, office | owner, office |
-| `delivery_receipt_attachments` | all 3 | **all 3** | owner, office | owner, office |
-| `load_out_destinations` | all 3 | **all 3** | owner, office | owner, office |
-| `sales` | all 3 | owner, office | owner, office | owner, office |
-| `doctoring_events` | all 3 | **all 3** | owner, office, **or crew on their own rows** | same |
-| `doctoring_event_meds` | all 3 | all 3 | all 3 | all 3 |
+Because every write policy is either `{owner, office}` or `{owner}`, write
+access is a clean ladder: owner > office > crew. The app's role gate relies on
+that; if you ever add a policy that breaks the ladder, the UI gate stops
+matching the database.
 
-Crew self-service on `doctoring_events` is scoped by
-`recorded_by_user_id = auth.uid()` — a cowboy can fix or remove a treatment he
-recorded, and nobody else's.
+### Reads
 
-### Money — the one hard wall
+All three roles read everything **except** `invoices` and
+`invoice_attachments`, which are owner and office only. That is the one hard
+wall in the schema, and the only place a role is denied `SELECT`.
 
-| Table | Read | Insert | Update | Delete |
-|---|---|---|---|---|
-| `invoices` | owner, office | owner, office | owner, office | owner |
-| `invoice_attachments` | owner, office | owner, office | owner, office | owner |
+### Writes
 
-**Crew cannot read invoices at all.** This is the only place a role is denied
-`SELECT`. Everything else in the books is readable by everyone who can sign in.
+| Table | Insert | Update | Delete |
+|---|---|---|---|
+| `lots` | owner, office | owner, office | **owner** |
+| `lot_tags` | owner, office | owner, office | owner, office |
+| `lot_events` | owner, office | owner, office | **owner** |
+| `lot_pasture_assignments` | owner, office | owner, office | **owner** |
+| `lot_movements` | owner, office | owner, office | **owner** |
+| `weights` | owner, office | owner, office | **owner** |
+| `delivery_receipts` | owner, office | owner, office | owner, office |
+| `delivery_receipt_attachments` | owner, office | owner, office | owner, office |
+| `load_out_destinations` | owner, office | owner, office | owner, office |
+| `sales` | owner, office | owner, office | owner, office |
+| `sale_sources` | owner, office | owner, office | owner, office |
+| `doctoring_events` | owner, office | owner, office | owner, office |
+| `doctoring_event_meds` | owner, office | owner, office | owner, office |
+| `invoices` | owner, office | owner, office | **owner** |
+| `invoice_attachments` | owner, office | owner, office | **owner** |
+| `medications` | owner, office | owner, office | **owner** |
+| `protocols` | owner, office | owner, office | **owner** |
+| Reference data * | owner, office | owner, office | owner, office |
 
-### Reference data
-
-Read by all three roles; written by owner and office only:
-`ranches`, `pastures`, `forage_types`, `field_actions`, `field_protocols`,
-`protocol_steps`, `protocol_meds`, `lot_adg_phases`, `sale_sources`.
-
-`medications` and `protocols` are the same, except **delete is owner-only**.
+\* `ranches`, `pastures`, `forage_types`, `field_actions`, `field_protocols`,
+`protocol_steps`, `protocol_meds`, `lot_adg_phases`.
 
 ### `user_profiles` itself
 
@@ -293,57 +295,115 @@ Both outcomes are bad. **Deactivate, never delete.**
 Do not trust the matrix — test it. Sign in as the user in a private browser
 window and confirm both halves:
 
-- **Crew:** can they open a lot and record a doctoring event? Then confirm the
-  invoice screens come back empty or error. Both must be true.
-- **Office:** can they record a sale and edit a lot? Then confirm a hard delete
-  of a lot is refused (that is owner-only).
-- **Inactive:** an inactive account should be bounced at the login screen with
-  "Your account is not active yet", never reaching the app shell.
+- **Crew:** they should see lots and tags but **no add, edit, or delete
+  buttons anywhere**, and no Invoices card on a lot. Reading works; nothing
+  else does.
+- **Office:** can they record a sale and edit a lot? Then confirm the
+  owner-only controls are absent — "Delete all test lots" in Settings, and
+  Delete invoice on an open invoice.
+- **Owner:** everything visible, including the two above.
+- **Inactive:** bounced at the login screen with "Your account is not active
+  yet", never reaching the app shell.
 
 ---
 
 ## 8. Known gaps
 
-Documented deliberately — none of these are bugs you have hit yet, but each
-will produce a confusing support call one day.
+All six gaps found in the 2026-08-24 audit are closed or scheduled. Two of
+them need an action from you — see §9.
 
-1. ~~**The login screen does not check `is_active`.**~~ **Fixed
-   2026-08-24.** `onLoggedIn()` now refuses an inactive profile before
-   revealing the app shell: it signs the session back out, returns to the
-   login screen, and shows *"Your account is not active yet. Ask John to
-   activate it."* This covers both a fresh sign-in and a restored session,
-   so somebody you deactivate is kicked out the next time they open the app.
+1. ~~**The login screen does not check `is_active`.**~~ **Fixed 2026-08-24.**
+   `onLoggedIn()` refuses an inactive profile before revealing the app shell:
+   it signs the session back out, returns to the login screen, and shows
+   *"Your account is not active yet. Ask John to activate it."* This covers
+   both a fresh sign-in and a restored session, so somebody you deactivate is
+   kicked out the next time they open the app.
 
-2. **The UI is not role-aware.** `currentProfile` is assigned and then used
-   only for the header badge. Every button is visible to every role; the
-   database refuses the write. Correct, but it looks broken to the user.
+2. ~~**The UI is not role-aware.**~~ **Fixed 2026-08-24.** Every control that
+   writes now carries a `data-perm` attribute naming the minimum role, and
+   `<body>` carries `data-role` for the signed-in user. A short CSS block
+   hides what the role cannot use. Crew see no add/edit/delete buttons and no
+   Invoices card; office see everything but the owner-only deletes.
 
-3. **`doctoring_event_meds` has no ownership check.** Crew can update or
-   delete any medication line, including on another person's treatment
-   event — even though the parent `doctoring_events` row is protected by
-   `recorded_by_user_id = auth.uid()`. Worth tightening when the review
-   screen is built.
+   The gate is presentation only — it is not a second layer of security, and
+   it is not meant to be. If it and the policies ever disagree, **the
+   policies win and the gate is the thing that is wrong.** Any new write
+   control needs a `data-perm`, and any new policy that breaks the
+   owner > office > crew ladder breaks the gate's assumption.
 
-4. **Crew currently write directly to the books.** The Part B design in
-   `HANDOFF.md` calls for cowboys to write only to `pending_field_entries`
-   for office review. That table does not exist yet, so today's crew
-   permissions on `doctoring_events`, `weights`, and receipts are broader
-   than the intended end state. Tighten these *at the same time* as the
-   staging table lands, not before — nothing else would be able to write.
+   Refused writes that do slip through now read *"Not allowed: crew cannot
+   make that change. Ask John if you need it."* instead of a raw Postgres
+   row-level-security error.
 
-5. **Leaked-password protection is off.** Supabase can reject passwords found
-   in HaveIBeenPwned breaches. Dashboard → Authentication → Policies. Worth
-   turning on before adding people.
+3. ~~**`doctoring_event_meds` has no ownership check.**~~ **Closed by gap 4.**
+   Crew could update or delete a medication line on anybody's treatment
+   event. Crew now cannot write to that table at all, which is strictly
+   stronger than the per-row ownership check originally proposed.
 
-6. **Check whether public signup is open.** Dashboard → Authentication →
-   Sign In / Providers. If anyone can sign up with an email, they get an
-   inactive `crew` profile and can do nothing — so this is not a breach — but
-   it lets strangers create rows in your auth table. Recommend disabling it
-   and adding people by invitation only.
+4. ~~**Crew write directly to the books.**~~ **Fixed** by
+   `docs/sql/2026-08-24_crew_read_only.sql` — **run it (see §9).** Crew lose
+   INSERT on `doctoring_events`, `doctoring_event_meds`, `weights`,
+   `delivery_receipts`, `delivery_receipt_attachments`,
+   `load_out_destinations`, `lot_tags`, `lot_pasture_assignments` and
+   `lot_movements`, plus the own-row UPDATE/DELETE they had on
+   `doctoring_events`. Reads are untouched.
+
+   **When `pending_field_entries` lands, grant crew INSERT on that table and
+   nothing else.** Do not restore any grant this migration revoked — the
+   staging table is meant to be the field app's only write surface.
+
+5. **Leaked-password protection is off.** Your action — see §9.
+
+6. **Public signup may be open.** Your action — see §9.
+
+### Still true, and deliberately not fixed
+
+**A refused UPDATE or DELETE is silent, not an error.** PostgREST returns an
+empty result rather than a failure when RLS filters every row, so a save can
+report success while changing nothing. The role gate hides the controls where
+this could bite, which is why it is not urgent — but if you ever add a write
+path without a `data-perm`, this is the failure mode you will see. Making
+every save assert on the returned row count is the real fix, and it is a
+bigger change than this pass.
 
 ---
 
-## 9. Quick reference
+## 9. Two things only you can do
+
+Both are outside what the app or a migration can reach.
+
+### Run the crew read-only migration
+
+`docs/sql/2026-08-24_crew_read_only.sql` closes gaps 3 and 4. It has not been
+run — the database connection used to write this guide is read-only by design.
+
+Dashboard → **SQL Editor** → paste the file → Run.
+
+It is idempotent and wrapped in a transaction. It refuses to run if
+`current_user_role()` is missing, if any expected table is absent, or if
+`pending_field_entries` already exists. It ends by re-scanning `pg_policies`
+and raising an exception if any non-SELECT policy still mentions `crew`, so a
+successful run is its own proof.
+
+Nothing breaks when you run it: your account is `owner`, and Lauren — the only
+`crew` account — has never signed in.
+
+### Two dashboard settings
+
+**Leaked-password protection.** Authentication → **Policies** (password
+settings) → enable it. Supabase then checks new passwords against
+HaveIBeenPwned and rejects known-breached ones. Do this before handing out
+passwords.
+
+**Public signup.** Authentication → **Sign In / Providers** → check whether
+"Allow new users to sign up" is on. If it is, anyone with the app's URL can
+create an account. They land as inactive `crew` and can do nothing, so this is
+not a breach — but it lets strangers put rows in your auth table. Turn it off
+and add people by invitation, per §3.
+
+---
+
+## 10. Quick reference
 
 ```sql
 -- Everyone, with sign-in status

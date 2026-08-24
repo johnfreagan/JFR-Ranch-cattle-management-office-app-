@@ -1,6 +1,6 @@
 # Handoff — field app merge & retirement
 
-**Last updated:** 2026-08-24 (retirement merged)
+**Last updated:** 2026-08-24 (retirement merged; auth + RLS hardening)
 
 Working note for picking up in-flight work, not app code. Read alongside
 `CLAUDE.md`, which holds the standing business rules and schema landmines and
@@ -171,9 +171,21 @@ delete data unprompted.
 
    Steps are John's, in the GitHub UI: old repo → Settings → Pages (disable),
    then Settings → Archive.
-4. **Part B stays blocked** on roadmap item 2 (multi-user auth + RLS).
-   `user_profiles` already exists with `role` and has a `crew` row, so that item
-   is partly underway.
+4. **Part B stays blocked** on roadmap item 2 (multi-user auth + RLS), but that
+   item moved substantially on 2026-08-24. Roles are `owner` / `office` / `crew`
+   (not the roadmap's admin/manager/cowboy/guest); RLS is on and policied across
+   all 26 tables; the login screen now refuses inactive accounts; and the office
+   UI hides controls a role cannot use. See `docs/USER-ADMIN-GUIDE.md`.
+
+   **Two things are outstanding and are John's:** run
+   `docs/sql/2026-08-24_crew_read_only.sql` in the SQL Editor, and flip two
+   Supabase dashboard settings. Both are written up in that guide's §9.
+
+   Once the migration is run, **crew have no write access to any table.** That is
+   deliberate and is the precondition for Part B: when `pending_field_entries`
+   lands, grant crew INSERT on that table and nothing else. Do not restore any
+   grant the migration revoked — the staging table is meant to be the field
+   app's only write surface.
 
 Worth a look before archiving: anyone still on the old copy has, by definition,
 not loaded it online since the switch. If cowboys are already using it, give them
@@ -249,6 +261,11 @@ unresolved name is a review item, not a new row.
 Cowboy login, plus RLS so a cowboy can INSERT into `pending_field_entries` and
 read lookup tables only — never write to `doctoring_events`, `lots`, `sales`, or
 receipts. The staging table is the field app's only write surface.
+
+**Status 2026-08-24:** the revoking half is done — `crew` is read-only across
+the books once `docs/sql/2026-08-24_crew_read_only.sql` is run. What remains for
+Part B is the granting half: create `pending_field_entries` and give crew INSERT
+on it alone.
 
 ### Office review screen
 
