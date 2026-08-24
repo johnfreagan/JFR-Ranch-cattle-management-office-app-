@@ -10,7 +10,7 @@
 // Bump CACHE_VERSION whenever you deploy changes to index.html / app.js / styles.css.
 // =========================================================
 
-const CACHE_VERSION = 'v2';   // v2: Supabase transport + login gate
+const CACHE_VERSION = 'v3';   // v3: in-app reset button
 const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 
 const APP_SHELL = [

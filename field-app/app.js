@@ -364,6 +364,14 @@ async function processSyncQueue() {
 }
 
 function updateSyncBadge() {
+    // The queue drains on a timer; if the troubleshooting modal is open the
+    // reset gate should unblock itself rather than needing a reopen.
+    // Looked up directly rather than via the `troubleModal` const: that const
+    // is declared far below this function, so touching it here would be a
+    // temporal-dead-zone throw if the call order ever changes.
+    const tm = document.getElementById('troubleModal');
+    if (tm && tm.style.display === 'block') refreshResetState();
+
     const badge = document.getElementById('syncBadge');
     if (!badge) return;
     const n = syncQueue.length;
@@ -1775,7 +1783,94 @@ document.getElementById('helpBtn').addEventListener('click', () => {
     if (content) content.scrollTop = 0;
 });
 
+// =========================================================
+// RESET APP DATA
+// =========================================================
+// Walking a cowboy through Settings -> Safari -> Advanced -> Website Data
+// is not realistic in a pasture, so the app resets itself.
+//
+// Scoped on purpose: it clears only this app's own betaCattle* keys. The
+// office app lives on the SAME ORIGIN (github.io serves both from one
+// host), and localStorage is per-origin, not per-path - so a blanket
+// localStorage.clear() would also blow away the office app's session.
+const RESET_KEYS = [
+    'betaCattleRecords', 'betaCattleMoves', 'betaCattleMeds', 'betaCattleLocs',
+    'betaCattleLots', 'betaCattleProtocols', 'betaCattleLocks',
+    'betaCattleSyncQueue', 'betaCattleTombstones', 'betaCattleRejected',
+    'betaLastSyncDate'
+    // 'crewMemberName' is deliberately kept - it is a convenience, not state,
+    // and retyping it is pure friction.
+];
+
+function refreshResetState() {
+    const status = document.getElementById('resetStatus');
+    const btn = document.getElementById('resetAppBtn');
+    if (!status || !btn) return;
+
+    const queued = syncQueue.length;
+    if (queued > 0) {
+        // Resetting now would destroy work the office has never seen.
+        status.textContent = `\u26a0 ${queued} record(s) still waiting to sync. Get signal and let the queue clear first.`;
+        status.className = 'reset-note blocked';
+        btn.disabled = true;
+    } else {
+        status.textContent = '\u2713 Nothing waiting to sync — safe to reset.';
+        status.className = 'reset-note ready';
+        btn.disabled = false;
+    }
+}
+
+async function resetAppData() {
+    // Re-check at the moment of the tap, not just when the modal opened.
+    if (syncQueue.length > 0) {
+        showToast(`\u26d4 ${syncQueue.length} record(s) still unsent. Reset blocked.`, 'error', 4000);
+        refreshResetState();
+        return;
+    }
+
+    if (!confirm(
+        'Reset app data?\n\n' +
+        'Clears this phone\'s saved records, lists and settings, then reloads a ' +
+        'fresh copy.\n\nNothing is removed from the ranch database — Pull Cloud ' +
+        'History brings your entries back.'
+    )) return;
+
+    const btn = document.getElementById('resetAppBtn');
+    btn.disabled = true;
+    btn.textContent = 'Resetting…';
+
+    try {
+        RESET_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+
+        // Drop the cached app shell, otherwise the reload just serves the
+        // same stale build back and the reset appears to do nothing.
+        if ('caches' in window) {
+            const names = await caches.keys();
+            await Promise.all(names.filter(n => n.startsWith('beta-cattle')).map(n => caches.delete(n)));
+        }
+
+        // Unregister the worker so the next load fetches a fresh one rather
+        // than waking the old one from its own cache.
+        if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+        }
+    } catch (err) {
+        // Never leave the user staring at a dead button — say what happened.
+        console.error('reset error:', err);
+        alert('Reset hit a problem: ' + (err.message || err) +
+              '\n\nThe app will reload anyway. If it still looks wrong, clear ' +
+              'website data in your browser settings.');
+    }
+
+    // Cache-busted so the reload cannot be answered from the HTTP cache.
+    window.location.replace(window.location.pathname + '?reset=' + Date.now());
+}
+
+document.getElementById('resetAppBtn').addEventListener('click', resetAppData);
+
 document.getElementById('troubleshootBtn').addEventListener('click', () => {
+    refreshResetState();
     troubleModal.style.display = 'block';
     const content = troubleModal.querySelector('.modal-content');
     if (content) content.scrollTop = 0;
