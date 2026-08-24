@@ -160,45 +160,97 @@ footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
 </header>
 
 <section class="sec" style="border-top:none;padding-top:0;margin-top:0">
-  <div class="sechead"><span class="secnum">00</span><h2>Before you add anyone</h2></div>
-  <p>Four of seven done. The three open ones are quick, and all are worth doing before
-     you onboard anybody &mdash; they change what a new user actually experiences on
-     their first sign-in.</p>
+  <div class="sechead"><span class="secnum">00</span><h2>Where this stands</h2></div>
+  <p>The system is live and ready to take users. Two settings and one account are
+     still outstanding; neither blocks you.</p>
   <ul class="check">
     <li class="done"><span class="mark">&check;</span><div>
       <strong>Crew are read-only in the books</strong>
-      <small>Migration run and verified. All 27 write policies across the nine affected
-      tables now read <code>owner, office</code>.</small></div></li>
-    <li class="done"><span class="mark">&check;</span><div>
-      <strong>A Users screen, owner-only</strong>
-      <small>Settings &rarr; Users. Rename, re-role, activate and deactivate without
-      touching SQL. Written and tested. Waiting on deploy and on its migration.</small></div></li>
+      <small>Run and verified. All 27 write policies across the nine affected tables
+      read <code>owner, office</code>.</small></div></li>
     <li class="done"><span class="mark">&check;</span><div>
       <strong>The login screen refuses inactive accounts</strong>
-      <small>Written and tested. Waiting on deploy.</small></div></li>
+      <small>Deployed. Covers both a fresh sign-in and a restored session.</small></div></li>
     <li class="done"><span class="mark">&check;</span><div>
       <strong>The app hides controls a role cannot use</strong>
-      <small>Written and tested across all three roles. Waiting on deploy.</small></div></li>
-    <li class="todo"><span class="mark">&rarr;</span><div>
-      <strong>Deploy the branch to <code>main</code></strong>
-      <small>The two items above are on <code>claude/user-manual-auth-rls-3b0ytr</code>, not
-      <code>main</code>. Until that merges, GitHub Pages is serving the old app: a new user
-      who is not yet activated gets an empty, erroring screen instead of being told why,
-      and crew see buttons that silently do nothing.</small></div></li>
-    <li class="todo"><span class="mark">&rarr;</span><div>
-      <strong>Run <code>2026-08-24_users_admin.sql</code></strong>
-      <small>Adds the owner-only roster function and the last-owner guard. Until it runs,
-      the Users screen loads but reports that no users came back. Section 3 explains why
-      the browser cannot read email without it.</small></div></li>
+      <small>Deployed. 65 controls gated across all three roles.</small></div></li>
+    <li class="done"><span class="mark">&check;</span><div>
+      <strong>Settings &rarr; Users, owner-only</strong>
+      <small>Deployed, migration run and verified. Names, roles, and activation
+      without touching SQL.</small></div></li>
     <li class="todo"><span class="mark">&rarr;</span><div>
       <strong>Two Supabase dashboard settings</strong>
-      <small>Turn on leaked-password protection, and check whether public signup is open.
-      Section 8 has both. Do it before handing out passwords, not after.</small></div></li>
+      <small>Leaked-password protection on, and check whether public signup is open.
+      Section 9 has both. Do it before handing out more passwords.</small></div></li>
+    <li class="todo"><span class="mark">&rarr;</span><div>
+      <strong>Lauren&rsquo;s account is unusable as it stands</strong>
+      <small>Confirmed but never signed in, no password anyone knows, name still her
+      email, and <span class="chip crew">crew</span> now means read-only. She has zero
+      history in the books, so Protocol C fixes it in about two minutes. Decide her
+      role while you are there.</small></div></li>
   </ul>
-  <div class="note"><p><strong>So: nearly.</strong> Deploy, run the second migration, flip
-     the two settings &mdash; then section 3 takes about a minute per person. Adding
-     someone before the deploy is not dangerous, since the database refuses them
-     regardless. It just makes a poor first impression on someone you are onboarding.</p></div>
+  <div class="note"><p>The full list of what is open and what was deliberately deferred
+     &mdash; including the missing email provider &mdash; lives in
+     <code>docs/OPEN-ITEMS.md</code> in the repo.</p></div>
+</section>
+
+<section class="sec">
+  <div class="sechead"><span class="secnum">&mdash;</span><h2>The two-minute version</h2></div>
+  <p>Three protocols. Everything after them is the detail behind these.</p>
+
+  <h3>Protocol A &mdash; add a user</h3>
+  <p><strong>Supabase dashboard</strong>, once per person:</p>
+  <ol class="steps">
+    <li><div><p>Authentication &rarr; Users &rarr; <strong>Add user</strong> &rarr;
+      <strong>Create new user</strong></p></div></li>
+    <li><div><p>Their <strong>email</strong>, and a <strong>password you invent</strong>
+      &mdash; write it down.</p></div></li>
+    <li><div><p><strong>Tick &ldquo;Auto Confirm User.&rdquo;</strong> Skip it and they
+      cannot sign in at all.</p></div></li>
+    <li><div><p><strong>Create user</strong></p></div></li>
+  </ol>
+  <p><strong>Office app</strong>, right after:</p>
+  <ol class="steps" style="counter-reset: s 4">
+    <li><div><p>Settings &rarr; <strong>Users</strong> &rarr; <strong>Refresh</strong></p></div></li>
+    <li><div><p>They appear as: name = their email, role =
+      <span class="chip crew">crew</span>, status = <strong>not active</strong></p></div></li>
+    <li><div><p><strong>Type their real name</strong> over the email, then click away.</p></div></li>
+    <li><div><p><strong>Set the role</strong> in the dropdown.</p></div></li>
+    <li><div><p>Click <strong>Activate</strong>.</p></div></li>
+    <li><div><p>Text them the app URL, their email, and the password.</p></div></li>
+  </ol>
+
+  <h3>Protocol B &mdash; edit a user</h3>
+  <p>All in the app, Settings &rarr; Users.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>To do this</th><th>Do this</th></tr></thead>
+    <tbody>
+      <tr><td>Fix a name</td><td>Type over it, click away</td></tr>
+      <tr><td>Change role</td><td>Dropdown &rarr; confirm</td></tr>
+      <tr><td>Remove access</td><td><strong>Deactivate</strong> &mdash; instant, everywhere, history kept</td></tr>
+      <tr><td>Restore access</td><td><strong>Activate</strong></td></tr>
+    </tbody>
+  </table></div>
+  <p>Your own row and the last active owner&rsquo;s row are locked. That is the lockout
+     guard, not a fault.</p>
+
+  <h3>Protocol C &mdash; someone cannot get in and has no history</h3>
+  <p>For an account created but never used, where nobody knows the password.</p>
+  <div class="warn"><p><strong>Only safe when the person has no history in the books.</strong>
+     Otherwise deactivate them and start a fresh account instead &mdash; deleting a user
+     with history fails on a foreign key (section 6).</p></div>
+  <ol class="steps">
+    <li><div><p>Authentication &rarr; Users &rarr; find them &rarr; <strong>Delete user</strong></p></div></li>
+    <li><div><p><strong>Add user &rarr; Create new user</strong> &mdash; same email, a
+      password you choose, <strong>Auto Confirm &#10003;</strong></p></div></li>
+    <li><div><p>App &rarr; Settings &rarr; Users &rarr; Refresh &rarr; name &rarr; role
+      &rarr; <strong>Activate</strong></p></div></li>
+    <li><div><p>Text them the URL, email, and password.</p></div></li>
+  </ol>
+  <div class="note"><p>There is no emailed password reset available today. Supabase
+     refuses to deliver auth mail to any address outside the project&rsquo;s organization
+     until a custom SMTP server is configured &mdash; a refusal, not a rate limit. That is
+     open item 1; until it is done, <strong>you are the reset mechanism</strong>.</p></div>
 </section>
 
 <section class="sec">
@@ -517,6 +569,9 @@ WHERE id = (SELECT id FROM auth.users
      a trigger that refuses to let the final active owner be demoted or deactivated.</p>
   <p>SQL Editor, paste, Run. It verifies its own grants and raises if <code>anon</code>
      can still execute the function.</p>
+
+  <div class="note"><p>The full list of what is still open &mdash; including the missing
+     email provider &mdash; lives in <code>docs/OPEN-ITEMS.md</code> in the repo.</p></div>
 
   <h3>Leaked-password protection</h3>
   <p>Authentication &rarr; Policies (password settings) &rarr; enable it. Supabase then

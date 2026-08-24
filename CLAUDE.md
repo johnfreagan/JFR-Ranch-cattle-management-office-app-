@@ -90,10 +90,17 @@ cattle operation in Kosse, TX. Deployed via GitHub Pages. Backend is Supabase
 - Production DB is the live books of a real ranch. Schema changes and data
   corrections require explicit approval before execution.
 
+## Open items
+
+`docs/OPEN-ITEMS.md` is the live list of what still needs doing and what was
+deliberately deferred. Read it before planning work. `docs/USER-ADMIN-GUIDE.md`
+covers roles, RLS, and adding users.
+
 ## Roadmap (agreed, in order)
 
 1. This: Claude Code + CLAUDE.md + Supabase MCP connector
-2. Multi-user auth + RLS (roles: admin/manager/cowboy/guest) — prerequisite for 3
+2. Multi-user auth + RLS — DONE 2026-08-24. Shipped roles are owner/office/crew
+   (NOT the admin/manager/cowboy/guest named here originally). Crew are read-only.
 3. Field PWA for cowboys: pending_field_entries queue + office review screen,
    offline-first
 4. Cost ledger (18 categories, monthly, per-head-day allocation; Redwing

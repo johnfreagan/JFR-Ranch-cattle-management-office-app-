@@ -7,6 +7,59 @@ removing people who can sign in to the JFR Ranch apps.
 
 ---
 
+## The two-minute version
+
+Three protocols. Everything below them is the detail behind these.
+
+### Protocol A — add a user
+
+**Supabase dashboard**, once per person:
+
+1. Authentication → Users → **Add user** → **Create new user**
+2. Their **email**, and a **password you invent** — write it down
+3. **Tick "Auto Confirm User."** Skip it and they cannot sign in at all
+4. **Create user**
+
+**Office app**, right after:
+
+5. Settings → **Users** → **Refresh**
+6. They appear as: name = their email, role = `crew`, status = **not active**
+7. **Type their real name** over the email, then click away
+8. **Set the role** in the dropdown
+9. Click **Activate**
+10. Text them the app URL, their email, and the password
+
+### Protocol B — edit a user
+
+All in the app, Settings → Users:
+
+| To do this | Do this |
+|---|---|
+| Fix a name | Type over it, click away |
+| Change role | Dropdown → confirm |
+| Remove access | **Deactivate** — instant, everywhere, history kept |
+| Restore access | **Activate** |
+
+Your own row and the last active owner's row are locked. That is the lockout
+guard, not a fault.
+
+### Protocol C — someone cannot get in and has no history
+
+Use when an account was created but never used, and nobody knows the password.
+**Only safe when the person has no history in the books** — otherwise deactivate
+and start a fresh account instead, because deleting a user with history fails on
+a foreign key.
+
+1. Authentication → Users → find them → **Delete user**
+2. **Add user → Create new user** — same email, a password you choose,
+   **Auto Confirm ✅**
+3. App → Settings → Users → Refresh → name → role → **Activate**
+4. Text them the URL, email, and password
+
+There is no emailed reset available today — see `docs/OPEN-ITEMS.md` item 1.
+
+---
+
 ## 1. The three roles
 
 The database allows exactly three role values. A `CHECK` constraint on
@@ -389,6 +442,9 @@ them need an action from you — see §9.
 5. **Leaked-password protection is off.** Your action — see §9.
 
 6. **Public signup may be open.** Your action — see §9.
+
+See **`docs/OPEN-ITEMS.md`** for everything still open, including the two
+dashboard settings and the missing email provider.
 
 ### Still true, and deliberately not fixed
 

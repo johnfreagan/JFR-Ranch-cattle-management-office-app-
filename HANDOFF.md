@@ -2,6 +2,9 @@
 
 **Last updated:** 2026-08-24 (retirement merged; auth + RLS hardening)
 
+**Open items live in `docs/OPEN-ITEMS.md`** — read that first for what still
+needs doing. This file is the narrative of how things got here.
+
 Working note for picking up in-flight work, not app code. Read alongside
 `CLAUDE.md`, which holds the standing business rules and schema landmines and
 takes precedence over anything here.
