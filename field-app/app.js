@@ -78,6 +78,33 @@ let booksHistory = JSON.parse(localStorage.getItem('betaCattleBooksHistory')) ||
 // knowable from the books. See the resolution rules in pullCloudData().
 let tagLocationMap = JSON.parse(localStorage.getItem('betaCattleTagLocations')) || {};
 
+// tag number -> lot number, straight from lot_tags. This is the ONLY
+// reliable tag->lot mapping: lots.start_tag/end_tag covers 100 of 1,782
+// open tags (most lots have no range at all, and hundreds of tags sit
+// outside their lot's range), so the range is a last-ditch fallback only.
+let tagLotMap = JSON.parse(localStorage.getItem('betaCattleTagLots')) || {};
+
+// Per-receipt tag ranges, for a tag that is physically in the pasture but not
+// registered in lot_tags yet.
+let tagRanges = JSON.parse(localStorage.getItem('betaCattleTagRanges')) || [];
+
+// One place that answers "which lot is this tag on", best source first.
+function resolveLotForTag(tag) {
+    const key = String(tag).trim();
+    if (!key) return '';
+    // 1. Registered in lot_tags - authoritative.
+    if (tagLotMap[key]) return tagLotMap[key];
+    const n = parseInt(key, 10);
+    if (isNaN(n)) return '';
+    // 2. Inside a delivery receipt's tag range.
+    const hit = tagRanges.find(r => n >= r.start && n <= r.end);
+    if (hit) return hit.lotNumber;
+    // 3. lots.start_tag/end_tag - first load only, so genuinely last resort.
+    const lot = lotsDatabase.find(l =>
+        l.startTag != null && l.endTag != null && n >= parseInt(l.startTag) && n <= parseInt(l.endTag));
+    return lot ? lot.lotNumber : '';
+}
+
 // Every read-only lookup by tag must see the books as well as this phone's
 // own submissions, otherwise an animal treated last month looks brand new.
 function historyPool() {
@@ -1135,7 +1162,7 @@ async function fetchOpenLotTags() {
     for (;;) {
         const { data, error } = await sb
             .from('lot_tags')
-            .select('tag_number, lot_id, delivery_receipt_id, retired_at, lots!inner(closed_at, is_test)')
+            .select('tag_number, lot_id, delivery_receipt_id, retired_at, lots!inner(lot_number, closed_at, is_test)')
             .is('retired_at', null)
             .is('lots.closed_at', null)
             .order('tag_number')
@@ -1157,7 +1184,7 @@ async function pullCloudData() {
     if (!currentUserId) { showToast('Sign in first', 'error', 2000); return; }
     syncCloudBtn.innerText = "⏳ Downloading...";
     try {
-        const [entriesRes, medsRes, pasturesRes, statusRes, lotsRes, bookRes, assignRes, destRes, actionsRes, protosRes] = await Promise.all([
+        const [entriesRes, medsRes, pasturesRes, statusRes, lotsRes, bookRes, assignRes, destRes, receiptRes, actionsRes, protosRes] = await Promise.all([
             // Own submissions (RLS widens this to everything for owner/office).
             // Withdrawn entries are excluded so a deleted record cannot
             // reappear in the history list.
@@ -1199,15 +1226,39 @@ async function pullCloudData() {
             // with lot_tags.delivery_receipt_id this is the only per-ANIMAL
             // location the books hold.
             sb.from('load_out_destinations').select('receipt_id, pasture_id').limit(1000),
+            // Tag ranges per RECEIPT. lots.start_tag/end_tag only ever held the
+            // FIRST load: lot 36-27 reads 8255-8283 there while its eleven
+            // receipts actually span 8255-8695. Receipt ranges are the real ones.
+            sb.from('delivery_receipts')
+              .select('lot_id, tag_start, tag_end, lots!inner(lot_number, closed_at, is_test)')
+              .is('lots.closed_at', null).limit(1000),
             sb.from('field_actions').select('name, is_dead, sort_order').order('sort_order'),
             sb.from('field_protocols')
-              .select('is_active, field_actions(name), m1:default_med_1_id(name), m2:default_med_2_id(name), m3:default_med_3_id(name)')
+              .select('is_active, field_actions(name), ' +
+                      'm1:medications!field_protocols_default_med_1_id_fkey(name), ' +
+                      'm2:medications!field_protocols_default_med_2_id_fkey(name), ' +
+                      'm3:medications!field_protocols_default_med_3_id_fkey(name)')
               .eq('is_active', true)
         ]);
 
-        const firstError = [entriesRes, medsRes, pasturesRes, statusRes, lotsRes,
-                            bookRes, assignRes, destRes, actionsRes, protosRes].find(r => r.error);
-        if (firstError) throw firstError.error;
+        // Degrade rather than die. Previously a single failing query threw and
+        // the cowboy lost lots, meds and protocols together, with nothing to
+        // say which one broke. Now each is reported by name and whatever
+        // succeeded is still used.
+        const named = [
+            ['entries', entriesRes], ['medications', medsRes], ['pastures', pasturesRes],
+            ['lot_status', statusRes], ['lots', lotsRes], ['doctoring history', bookRes],
+            ['pasture assignments', assignRes], ['receipt destinations', destRes],
+            ['receipt tag ranges', receiptRes], ['actions', actionsRes], ['protocols', protosRes]
+        ];
+        const failed = named.filter(([, r]) => r.error);
+        if (failed.length) {
+            failed.forEach(([name, r]) => console.error(`pull failed for ${name}:`, r.error));
+            showToast(`\u26a0 Couldn't load: ${failed.map(([n]) => n).join(', ')}`, 'error', 6000);
+        }
+        // Losing the lot list is not a partial failure - the form cannot work
+        // without it, so that one still stops the pull.
+        if (statusRes.error && lotsRes.error) throw statusRes.error;
 
         const entries = entriesRes.data || [];
 
@@ -1293,9 +1344,11 @@ async function pullCloudData() {
         });
 
         const tagLocations = {};
+        const tagLots = {};
         try {
             const openTags = await fetchOpenLotTags();
             openTags.forEach(t => {
+                if (t.lots && t.lots.lot_number) tagLots[String(t.tag_number)] = t.lots.lot_number;
                 const dests = destsByReceipt[t.delivery_receipt_id] || [];
                 const openHere = openPastureIdsByLot[t.lot_id] || [];
                 let pid = null;
@@ -1310,8 +1363,15 @@ async function pullCloudData() {
             // whole pull and leave the cowboy without lots or meds.
             console.warn('tag location build failed:', tagErr);
         }
+        tagRanges = (receiptRes.data || [])
+            .filter(r => r.lots && !r.lots.is_test && r.tag_start != null && r.tag_end != null)
+            .map(r => ({ lotNumber: r.lots.lot_number, start: r.tag_start, end: r.tag_end }));
+        safeSetItem('betaCattleTagRanges', JSON.stringify(tagRanges));
+
         tagLocationMap = tagLocations;
+        tagLotMap = tagLots;
         safeSetItem('betaCattleTagLocations', JSON.stringify(tagLocationMap));
+        safeSetItem('betaCattleTagLots', JSON.stringify(tagLotMap));
 
         // Book treatments, shaped like the app's own records so the same
         // lookups work on both. No id: these must never be edited or deleted
@@ -1333,7 +1393,7 @@ async function pullCloudData() {
                     || tagLocations[String(d.tag_number)]
                     || (pastureCountByLot[d.lot_id] === 1 ? (soleLocationByLot[d.lot_id] || '') : '')
             }));
-        safeSetItem('betaCattleBooksHistory', 'betaCattleTagLocations', JSON.stringify(booksHistory));
+        safeSetItem('betaCattleBooksHistory', 'betaCattleTagLocations', 'betaCattleTagLots', 'betaCattleTagRanges', JSON.stringify(booksHistory));
 
         // The action dropdown is built from protocols, and it appends Dead
         // and Other itself — so those two are excluded here to avoid
@@ -1409,10 +1469,7 @@ tagNumberInput.oninput = function(e) {
     const hist = historyPool().find(r => String(r.tagNumber) === val);
     let foundLot = hist ? hist.lotNumber : "";
 
-    if (!foundLot && !isNaN(parseInt(val))) {
-        const lot = lotsDatabase.find(l => parseInt(val) >= parseInt(l.startTag) && parseInt(val) <= parseInt(l.endTag));
-        if (lot) foundLot = lot.lotNumber;
-    }
+    if (!foundLot) foundLot = resolveLotForTag(val);
     
     if (foundLot && !locks.lot) {
         lotInput.value = foundLot;
@@ -1567,7 +1624,8 @@ function validateActionSafety(tag, action) {
             return { valid: false, msg: `Tag ${tag} already has a 2nd Pull on record.` };
         }
         if (!isNaN(parseInt(tag))) {
-            const lot = lotsDatabase.find(l => parseInt(tag) >= parseInt(l.startTag) && parseInt(tag) <= parseInt(l.endTag));
+            const resolved = resolveLotForTag(tag);
+            const lot = resolved ? lotsDatabase.find(l => String(l.lotNumber) === String(resolved)) : null;
             if (lot && lot.arrivalDate && String(lot.arrivalDate).trim() !== "") {
                 if (!hasFirstPull) {
                     return { valid: false, msg: `Tag ${tag} is registered to Lot ${lot.lotNumber} with an arrival date. You cannot record a 2nd Pull without a 1st Pull.` };

@@ -10,7 +10,7 @@
 // Bump CACHE_VERSION whenever you deploy changes to index.html / app.js / styles.css.
 // =========================================================
 
-const CACHE_VERSION = 'v5';   // v5: per-tag location from the books
+const CACHE_VERSION = 'v6';   // v6: tag->lot from lot_tags + receipt ranges
 const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 
 const APP_SHELL = [
