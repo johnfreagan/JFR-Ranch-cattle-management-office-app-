@@ -264,10 +264,11 @@ SET is_active = FALSE, updated_at = now()
 WHERE id = (SELECT id FROM auth.users WHERE lower(email) = lower('person@example.com'));
 ```
 
-Immediate and total: `current_user_role()` goes NULL and every policy denies
-them. They can still sign in — the app has no active check on the login screen
-(see §8) — but they will see an empty, erroring app. Their history stays intact
-and attributed.
+Immediate and total on two levels: `current_user_role()` goes NULL so every
+policy denies them, and the login screen refuses them with "Your account is not
+active yet" rather than letting them into an empty app. A person already signed
+in is kicked out the next time the app loads. Their history stays intact and
+attributed.
 
 Reactivating is the same statement with `TRUE`.
 
@@ -296,8 +297,8 @@ window and confirm both halves:
   invoice screens come back empty or error. Both must be true.
 - **Office:** can they record a sale and edit a lot? Then confirm a hard delete
   of a lot is refused (that is owner-only).
-- **Inactive:** an inactive account should be able to reach the app shell but
-  show no data anywhere.
+- **Inactive:** an inactive account should be bounced at the login screen with
+  "Your account is not active yet", never reaching the app shell.
 
 ---
 
@@ -306,12 +307,12 @@ window and confirm both halves:
 Documented deliberately — none of these are bugs you have hit yet, but each
 will produce a confusing support call one day.
 
-1. **The login screen does not check `is_active`.** `onLoggedIn()` in
-   `index.html` loads the profile and lets the user in regardless. An
-   inactive or not-yet-activated person gets the full app with every screen
-   empty and errors on load, instead of a clean "your account is pending
-   approval" message. *Fix: one `if (!profile.is_active)` guard before
-   revealing the shell.*
+1. ~~**The login screen does not check `is_active`.**~~ **Fixed
+   2026-08-24.** `onLoggedIn()` now refuses an inactive profile before
+   revealing the app shell: it signs the session back out, returns to the
+   login screen, and shows *"Your account is not active yet. Ask John to
+   activate it."* This covers both a fresh sign-in and a restored session,
+   so somebody you deactivate is kicked out the next time they open the app.
 
 2. **The UI is not role-aware.** `currentProfile` is assigned and then used
    only for the header badge. Every button is visible to every role; the

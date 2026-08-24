@@ -2696,6 +2696,15 @@ window.addEventListener('unhandledrejection', function(e) {
         currentUser=user;
         const {data:profile,error}=await supabase.from('user_profiles').select('*').eq('id',user.id).single();
         if(error||!profile){showAlert('loginAlert','Could not load your profile.');await supabase.auth.signOut();return;}
+        // is_active is the authorization gate: current_user_role() returns NULL for an
+        // inactive profile, so every RLS policy denies. Without this check the user gets
+        // the full shell with every screen empty and erroring. Stop them at the door.
+        if(!profile.is_active){
+            await supabase.auth.signOut();
+            showLoginScreen();
+            showAlert('loginAlert','Your account is not active yet. Ask John to activate it.');
+            return;
+        }
         currentProfile=profile;
         $('userName').textContent=profile.full_name;
         $('userRole').textContent=profile.role;
