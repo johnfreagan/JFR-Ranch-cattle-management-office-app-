@@ -1,7 +1,25 @@
 // =========================================================
-// YOUR BETA GOOGLE URL
+// SUPABASE — the ranch books
 // =========================================================
-const CLOUD_URL = 'https://script.google.com/macros/s/AKfycbzr834h25EsOZaKxibQpdLAVldu_Jt7DGnNquAVJl-W3wZRoLzIgtC4WkFHNqshDeu3jg/exec';
+// The field app never writes to the books directly. Everything a cowboy
+// saves lands in pending_field_entries (a staging table), and the office
+// reviews and approves it before it becomes a real doctoring/death/move
+// row. RLS enforces that: this app's token cannot write anywhere else.
+//
+// Replaces the old Google Apps Script transport. That one used
+// mode:'no-cors', so it could not read the response and a rejected write
+// looked exactly like a good one. This one sees real errors.
+const SUPABASE_URL = 'https://xpfmebdzcxorvwikfvtj.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_LhyJ7-bxebSa7HuRTxjmBQ__73Oc-66';
+const STAGING_TABLE = 'pending_field_entries';
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true }
+});
+
+// Set once a session is confirmed. Every staged row is stamped with this.
+let currentUserId = null;
+let currentProfile = null;
 
 // --- UI ELEMENT SELECTORS ---
 const doctoringTabBtn = document.getElementById('doctoringTabBtn');
@@ -57,9 +75,11 @@ let deleteTimers = {};
 // --- SYNC QUEUE & TOMBSTONES (offline resilience) ---
 const SYNC_QUEUE_KEY = 'betaCattleSyncQueue';
 const TOMBSTONES_KEY = 'betaCattleTombstones';
+const REJECTED_KEY = 'betaCattleRejected';
 let syncQueue = JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY)) || [];
 let tombstones = JSON.parse(localStorage.getItem(TOMBSTONES_KEY)) || {};
 let isSyncingQueue = false;
+const MAX_SYNC_ATTEMPTS = 25;   // ~25 min of retries before we call it dead
 let isSubmittingDoctoring = false;
 let isSubmittingMove = false;
 
@@ -194,15 +214,115 @@ function enqueueForSync(payload) {
     }
 }
 
-function sendOne(payload) {
-    // Strip internal meta before sending
+// Anything that is not a transport failure is the database refusing the
+// row on its merits (RLS, a check constraint, a bad FK). Retrying that
+// forever just burns battery on a phone in a pasture, so those are
+// dropped from the queue and surfaced instead. Only genuine network
+// failures stay queued.
+const PERMANENT_PG_CODES = [
+    '42501',  // RLS / insufficient privilege
+    '23514',  // check constraint (bad entry_type, bad status, negative head)
+    '23503',  // FK violation
+    '23502',  // not-null violation
+    '22P02',  // malformed input (bad uuid/timestamp)
+    'P0001'   // our own guard triggers (pfe_settled / pfe_status)
+];
+
+// "2026-08-24T14:32:01" carries no zone. new Date() reads that DATE-TIME
+// form as LOCAL time, which is what the cowboy meant, and toISOString()
+// converts it to UTC correctly for a timestamptz column.
+//
+// A DATE-ONLY string is the trap: JS parses "2026-08-24" as UTC midnight,
+// not local midnight. In Texas that is 7pm the PREVIOUS day, so a move
+// would show up in the office dated a day early. Moves carry a bare date,
+// so pin those to local midnight explicitly.
+function toIsoOrNull(value) {
+    if (!value) return null;
+    const str = String(value);
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(str);
+    const d = new Date(dateOnly ? str + 'T00:00:00' : str);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// Map a field payload onto the staging row. `raw` is the payload verbatim
+// and is never edited — the office resolves lot/pasture/action/meds at
+// review time against live data, so the client deliberately does NOT
+// guess at those foreign keys here.
+function toStagingRow(record) {
+    const isMove = record.type === 'move';
+    const tag = String(record.tagNumber || '').trim();
+    return {
+        entry_type: isMove ? 'move' : 'doctoring',
+        client_id: String(record.id),
+        raw: record,
+        tag_number: isMove ? null : (tag || null),
+        no_tag: !isMove && /^NT\d*$/i.test(tag),
+        event_datetime: toIsoOrNull(isMove ? record.date : record.dateTime),
+        head_count: isMove ? (parseInt(record.headCount, 10) || 0) : null,
+        submitted_by: currentUserId,
+        status: 'pending'
+    };
+}
+
+// Returns true when the item can leave the queue (delivered, or rejected
+// on its merits and reported), false to keep it queued for another try.
+async function sendOne(payload) {
+    if (!currentUserId) return false;   // not signed in yet; stay queued
+
     const { _attempts, _queuedAt, ...record } = payload;
-    record.cb = Date.now();
-    const params = new URLSearchParams(record).toString();
-    // no-cors = we can't read the response, but fetch still rejects on real network failure
-    return fetch(CLOUD_URL + "?" + params, { method: 'GET', mode: 'no-cors' })
-        .then(() => true)
-        .catch(() => false);
+
+    try {
+        let error;
+
+        if (record.action === 'delete') {
+            // A record the cowboy deleted in the field. Withdraw it so it
+            // stops showing up in the office queue as something live.
+            // Guarded to status='pending' so a withdrawal that arrives
+            // after the office already approved it cannot take it back.
+            ({ error } = await sb
+                .from(STAGING_TABLE)
+                .update({ status: 'withdrawn' })
+                .eq('entry_type', record.type === 'move' ? 'move' : 'doctoring')
+                .eq('client_id', String(record.id))
+                .eq('status', 'pending'));
+        } else {
+            // Upsert, not insert: the app lets a cowboy edit a saved
+            // record and re-queues it under the SAME id, so the second
+            // delivery has to update the staged row rather than collide.
+            ({ error } = await sb
+                .from(STAGING_TABLE)
+                .upsert(toStagingRow(record), { onConflict: 'entry_type,client_id' }));
+        }
+
+        if (!error) return true;
+
+        if (PERMANENT_PG_CODES.includes(error.code)) {
+            recordRejection(record, error);
+            return true;    // stop retrying; it will never succeed
+        }
+
+        console.warn('sendOne transient error:', error);
+        return false;       // server hiccup / offline — try again later
+    } catch (err) {
+        console.warn('sendOne network error:', err);
+        return false;
+    }
+}
+
+// A rejected record must never disappear quietly — the cowboy needs to
+// know the save did not stick.
+function recordRejection(record, error) {
+    console.error('Record rejected by server:', record, error);
+    const rejects = JSON.parse(localStorage.getItem(REJECTED_KEY) || '[]');
+    rejects.unshift({
+        id: String(record.id),
+        type: record.type || 'doctoring',
+        tag: record.tagNumber || record.fromPasture || '',
+        reason: error.message || String(error.code || 'unknown'),
+        at: new Date().toISOString()
+    });
+    safeSetItem(REJECTED_KEY, JSON.stringify(rejects.slice(0, 50)));
+    showToast(`\u26d4 Save rejected: ${error.message || error.code}`, 'error', 6000);
 }
 
 async function processSyncQueue() {
@@ -221,7 +341,15 @@ async function processSyncQueue() {
         const ok = await sendOne(item);
         if (!ok) {
             item._attempts = (item._attempts || 0) + 1;
-            stillFailed.push(item);
+            // Backstop. _attempts was counted but never checked before,
+            // which was harmless when every send reported success. Now a
+            // record that keeps failing transiently would otherwise retry
+            // every 60s forever.
+            if (item._attempts >= MAX_SYNC_ATTEMPTS) {
+                recordRejection(item, { message: `gave up after ${item._attempts} attempts` });
+            } else {
+                stillFailed.push(item);
+            }
         }
     }
 
@@ -972,13 +1100,99 @@ window.processCloudData = function(data) {
     setTimeout(() => { syncCloudBtn.innerText = "🔄 Pull Cloud History"; }, 3000);
 };
 
-function pullCloudData() {
+// Reads now come from Supabase instead of a JSONP <script> injection
+// against the Apps Script endpoint. The payload is shaped to exactly what
+// processCloudData already expects, so the merge/tombstone logic below it
+// is untouched.
+async function pullCloudData() {
+    if (!currentUserId) { showToast('Sign in first', 'error', 2000); return; }
     syncCloudBtn.innerText = "⏳ Downloading...";
-    const script = document.createElement('script');
-    script.src = CLOUD_URL + "?action=read&callback=processCloudData&cb=" + Date.now();
-    // Remove the script tag once it's done so the DOM doesn't accumulate
-    script.onload = script.onerror = () => script.remove();
-    document.body.appendChild(script);
+    try {
+        const [entriesRes, medsRes, pasturesRes, lotsRes, actionsRes, protosRes] = await Promise.all([
+            // Own submissions (RLS widens this to everything for owner/office).
+            // Withdrawn entries are excluded so a deleted record cannot
+            // reappear in the history list.
+            sb.from(STAGING_TABLE)
+              .select('entry_type, raw, status')
+              .neq('status', 'withdrawn')
+              .order('submitted_at', { ascending: false })
+              .limit(1000),
+            sb.from('medications')
+              .select('name, dose_mode, flat_dose_amount, per_weight_rate, per_weight_basis, default_dose_amount')
+              .eq('is_active', true).order('name'),
+            sb.from('pastures')
+              .select('name, is_active, ranches!inner(name, is_active)')
+              .eq('is_active', true).order('name'),
+            // Tags recycle across fiscal years, so the field app only ever
+            // offers OPEN lots.
+            sb.from('lots')
+              .select('lot_number, closed_at, is_test')
+              .is('closed_at', null).order('lot_number'),
+            sb.from('field_actions').select('name, is_dead, sort_order').order('sort_order'),
+            sb.from('field_protocols')
+              .select('is_active, field_actions(name), m1:default_med_1_id(name), m2:default_med_2_id(name), m3:default_med_3_id(name)')
+              .eq('is_active', true)
+        ]);
+
+        const firstError = [entriesRes, medsRes, pasturesRes, lotsRes, actionsRes, protosRes]
+            .find(r => r.error);
+        if (firstError) throw firstError.error;
+
+        const entries = entriesRes.data || [];
+
+        // Rebuild the app's own record shape straight out of `raw` — it is
+        // the submitted payload verbatim, so no back-conversion is needed.
+        const cloudRecords = entries.filter(e => e.entry_type === 'doctoring').map(e => e.raw);
+        const cloudMoves   = entries.filter(e => e.entry_type === 'move').map(e => e.raw);
+
+        // The dose string feeds triggerMedAutoFill(), which splits on '/'
+        // to mean rate-per-basis and otherwise treats it as a flat dose.
+        const medications = (medsRes.data || []).map(m => ({
+            name: m.name,
+            dose: m.dose_mode === 'per_weight' && m.per_weight_rate && m.per_weight_basis
+                ? `${m.per_weight_rate}/${m.per_weight_basis}`
+                : String(m.flat_dose_amount ?? m.default_dose_amount ?? '')
+        }));
+
+        const locations = (pasturesRes.data || [])
+            .filter(p => p.ranches && p.ranches.is_active)
+            .map(p => ({ property: p.ranches.name, pasture: p.name }));
+
+        const lots = (lotsRes.data || [])
+            .filter(l => !l.is_test)
+            .map(l => ({ lotNumber: l.lot_number }));
+
+        // The action dropdown is built from protocols, and it appends Dead
+        // and Other itself — so those two are excluded here to avoid
+        // listing them twice. Receiving has no protocol row but must still
+        // appear, which is why this is driven by field_actions rather than
+        // by field_protocols.
+        const medsByAction = {};
+        (protosRes.data || []).forEach(fp => {
+            const name = fp.field_actions && fp.field_actions.name;
+            if (name) medsByAction[name] = fp;
+        });
+        const protocols = (actionsRes.data || [])
+            .filter(a => a.name !== 'Dead' && a.name !== 'Other')
+            .map(a => {
+                const fp = medsByAction[a.name] || {};
+                return {
+                    actionName: a.name,
+                    med1: (fp.m1 && fp.m1.name) || '',
+                    med2: (fp.m2 && fp.m2.name) || '',
+                    med3: (fp.m3 && fp.m3.name) || ''
+                };
+            });
+
+        window.processCloudData({
+            records: cloudRecords, moves: cloudMoves,
+            medications, locations, lots, protocols
+        });
+    } catch (err) {
+        console.error('pullCloudData error:', err);
+        syncCloudBtn.innerText = "❌ " + (err.message ? err.message.slice(0, 24) : 'Data Error');
+        setTimeout(() => { syncCloudBtn.innerText = "🔄 Pull Cloud History"; }, 4000);
+    }
 }
 syncCloudBtn.onclick = pullCloudData;
 
@@ -1578,11 +1792,114 @@ troubleModal.addEventListener('click', (e) => {
     if (e.target === troubleModal) closeTrouble();
 });
 
-// Init
+// =========================================================
+// AUTH GATE
+// =========================================================
+// Nothing in the app is usable until Supabase confirms a session — the
+// staging table is the only thing this app can write to, and every row
+// has to be stamped with a real user id.
+const loginScreen = document.getElementById('loginScreen');
+const loginForm = document.getElementById('loginForm');
+const loginBtn = document.getElementById('loginBtn');
+const loginAlert = document.getElementById('loginAlert');
+const userChip = document.getElementById('userChip');
+
+function showLoginError(msg) {
+    loginAlert.textContent = msg;
+    loginAlert.style.display = 'block';
+}
+
+async function onSignedIn(user) {
+    currentUserId = user.id;
+
+    // A user can authenticate but have no profile row, in which case
+    // current_user_role() returns null and every insert would be refused
+    // by RLS. Catch that here rather than letting saves fail in a pasture.
+    const { data: profile, error } = await sb
+        .from('user_profiles').select('full_name, role, is_active').eq('id', user.id).single();
+
+    if (error || !profile || !profile.is_active) {
+        currentUserId = null;
+        await sb.auth.signOut();
+        showLoginError('No active ranch profile for this account. Ask the office to set one up.');
+        loginBtn.disabled = false;
+        return;
+    }
+
+    currentProfile = profile;
+    loginScreen.style.display = 'none';
+    userChip.style.display = 'flex';
+    document.getElementById('userChipName').textContent = `${profile.full_name} · ${profile.role}`;
+
+    // Default the crew-member field to the signed-in name when the phone
+    // has no saved name yet.
+    if (!recordedByInput.value) {
+        recordedByInput.value = profile.full_name;
+        moveRecordedByInput.value = profile.full_name;
+    }
+
+    startApp();
+}
+
+function showLoginScreen() {
+    currentUserId = null; currentProfile = null;
+    loginScreen.style.display = 'flex';
+    userChip.style.display = 'none';
+}
+
+loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    loginAlert.style.display = 'none';
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Signing in…';
+    try {
+        const { data, error } = await sb.auth.signInWithPassword({
+            email: document.getElementById('loginEmail').value.trim(),
+            password: document.getElementById('loginPassword').value
+        });
+        if (error) { showLoginError(error.message); loginBtn.disabled = false; }
+        else await onSignedIn(data.user);
+    } catch (err) {
+        showLoginError(err.message || 'Sign-in failed. Check signal and try again.');
+        loginBtn.disabled = false;
+    }
+    loginBtn.textContent = 'Sign in';
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+    // Anything still queued would have nobody to submit as after sign-out.
+    if (syncQueue.length > 0 &&
+        !confirm(`${syncQueue.length} record(s) still waiting to sync. Sign out anyway?`)) return;
+    await sb.auth.signOut();
+    showLoginScreen();
+});
+
+// Init — the parts that are safe before a session exists.
 setCurrentDateTime();
 updateDataLists();
 updateSyncBadge();
 updateDailySummary();
 updateChuteBanner();
-if (navigator.onLine) processSyncQueue();
-checkDailySync();
+
+// The rest waits until we know who is signed in.
+function startApp() {
+    updateDataLists();
+    updateSyncBadge();
+    updateDailySummary();
+    if (navigator.onLine) processSyncQueue();
+    checkDailySync();
+}
+
+(async function bootstrap() {
+    try {
+        const { data: { session } } = await sb.auth.getSession();
+        if (session && session.user) await onSignedIn(session.user);
+        else showLoginScreen();
+    } catch (err) {
+        // Offline on a cold start with a stored session: supabase-js reads
+        // the session from localStorage, so this only trips on a genuinely
+        // broken client. Fail closed rather than pretending to be signed in.
+        console.error('bootstrap error:', err);
+        showLoginScreen();
+    }
+})();
