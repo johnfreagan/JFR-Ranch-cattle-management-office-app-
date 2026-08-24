@@ -100,7 +100,7 @@
 // has to keep working without app.js.
 // ---------------------------------------------------------------------
 (function () {
-    var BUILD = 'v10';
+    var BUILD = 'v11';
     window.__FIELD_BUILD = BUILD;
 
     var reported = false;
@@ -132,7 +132,7 @@
                     'betaCattleLots','betaCattleProtocols','betaCattleLocks','betaCattleSyncQueue',
                     'betaCattleTombstones','betaCattleRejected','betaLastSyncDate',
                     'betaCattleBooksHistory','betaCattleTagLocations','betaCattleTagLots',
-                    'betaCattleTagRanges'];
+                    'betaCattleTagRanges','betaCattleDataVersion'];
         try { keys.forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {}
 
         var done = function () {
@@ -191,7 +191,7 @@
             <span>App stuck or not loading right?</span>
             <button type="button" id="loginResetBtn">Reset app</button>
         </div>
-        <div class="build-stamp">build v10</div>
+        <div class="build-stamp">build v11</div>
     </form>
 </div>
 
@@ -673,6 +673,6 @@
      same-origin assets, so a CDN copy would leave the app dead offline on a
      cold start - which is exactly when a phone in a pasture needs it. -->
 <script src="supabase.min.js?v=2.46.1"></script>
-<script src="app.js?v=v10"></script>
+<script src="app.js?v=v11"></script>
 </body>
 </html>

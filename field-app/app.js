@@ -882,11 +882,27 @@ historyTabBtn.onclick = () => switchTab('history');
 // =========================================================
 // DAILY AUTO-SYNC LOGIC
 // =========================================================
+// Bump whenever a release starts caching something new. A device that
+// synced under an older schema has a current betaLastSyncDate but is
+// missing the new data entirely, and would otherwise sit there looking
+// synced while tag lookups quietly returned nothing.
+const DATA_SCHEMA_VERSION = 3;
+
 function checkDailySync() {
     const lastSync = localStorage.getItem('betaLastSyncDate');
-    const today = new Date().toISOString().split('T')[0]; 
-    
-    if (records.length === 0 || locsDatabase.length === 0 || lastSync !== today) {
+    const today = new Date().toISOString().split('T')[0];
+    const storedSchema = parseInt(localStorage.getItem('betaCattleDataVersion'), 10);
+
+    // Everything the doctoring form needs before it can answer a tag.
+    // Checking only records/locsDatabase was the gap: those survive from an
+    // older build while the tag maps do not exist at all.
+    const missingData =
+        locsDatabase.length === 0 ||
+        lotsDatabase.length === 0 ||
+        Object.keys(tagLotMap).length === 0 ||
+        tagRanges.length === 0;
+
+    if (missingData || storedSchema !== DATA_SCHEMA_VERSION || lastSync !== today) {
         syncCloudBtn.innerText = "⏳ Auto-Syncing Daily Data...";
         pullCloudData();
     }
@@ -1158,6 +1174,9 @@ window.processCloudData = function(data) {
             safeSetItem('betaCattleProtocols', JSON.stringify(protocolsDatabase));
             
             safeSetItem('betaLastSyncDate', new Date().toISOString().split('T')[0]);
+        // Recorded only here, after a pull has populated everything, so a
+        // failed or partial pull cannot mark the device as up to date.
+        safeSetItem('betaCattleDataVersion', String(DATA_SCHEMA_VERSION));
 
             // Retire tombstones the cloud has already dropped (keeps the set from growing forever)
             const allCloudIds = new Set([...cloudRecordIds, ...cloudMoveIds]);
@@ -2060,7 +2079,7 @@ const RESET_KEYS = [
     'betaCattleBooksHistory', 'betaCattleTagLocations', 'betaCattleTagLots',
     'betaCattleTagRanges',
     'betaCattleSyncQueue', 'betaCattleTombstones', 'betaCattleRejected',
-    'betaLastSyncDate'
+    'betaLastSyncDate', 'betaCattleDataVersion'
     // 'crewMemberName' is deliberately kept - it is a convenience, not state,
     // and retyping it is pure friction.
 ];
