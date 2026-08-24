@@ -2,7 +2,10 @@
 
 Single-file web app (index.html at repo root) for JFR Ranch Co. Ltd., a stocker
 cattle operation in Kosse, TX. Deployed via GitHub Pages. Backend is Supabase
-(PostgreSQL + auth + PostgREST). Owner: John Reagan. Currently single-user.
+(PostgreSQL + auth + PostgREST). Owner: John Reagan.
+
+**Multi-user as of Aug 2026** — three roles (owner/office/crew) enforced by RLS.
+See "Access control" below and `docs/security-model.md`.
 
 ## Deploy
 
@@ -11,6 +14,8 @@ cattle operation in Kosse, TX. Deployed via GitHub Pages. Backend is Supabase
 - After deploy, hard refresh (Cmd+Shift+R) to bypass cache.
 - Supabase URL: https://xpfmebdzcxorvwikfvtj.supabase.co (publishable key is
   embedded in index.html — this is expected for this app).
+  **Corollary: the key is public, so anything GRANTed to `anon` is public.**
+  Embedding the key is fine; granting `anon` access to anything is not.
 
 ## Business rules (get these wrong and the books are wrong)
 
@@ -27,10 +32,102 @@ cattle operation in Kosse, TX. Deployed via GitHub Pages. Backend is Supabase
 - Treatment cost comes from doctoring_events + doctoring_event_meds (cost is
   FROZEN per row at save time).
 - Processing $/hd is per head IN; Treatment $/hd is per LIVE head current.
+
+### Changing a protocol or a drug price — read before editing either
+
+- **Processing cost is DERIVED LIVE, not frozen.** `lot_processing_costs` and
+  `lot_processing_cost_detail` join
+  `delivery_receipts.receiving_protocol_id → protocol_meds → medications` and
+  read **current** prices, dose config and `round_up_to`. Editing a protocol's
+  meds, or a medication's price or rounding, retroactively rewrites processing
+  cost for **every lot that ever used it** — closed lots and prior fiscal years
+  included — silently and with no audit trail. Contrast treatment cost, which
+  is frozen per row at save time; the two behave oppositely.
+- **`protocols.effective_from` is decorative. Nothing enforces it.** The cost
+  views never reference a date. Creating a new version with an effective date
+  changes nothing on its own.
+- **To change processing from a date:** create a NEW protocol row
+  (`parent_protocol_id` → old, new `version_label`, set `effective_from`), then
+  `UPDATE delivery_receipts.receiving_protocol_id` on exactly the receipts
+  on/after that date. Never edit the old protocol in place — the earlier loads
+  genuinely got the old product and their books must keep saying so.
+- **An unpriced medication prices as NULL, and `SUM()` ignores NULL** — the
+  line silently vanishes from processing cost instead of erroring. Price a med
+  BEFORE pointing a protocol at it, and check `unpriced_line_count` after any
+  protocol change. Guard repoint scripts with a pre-check that raises if any
+  med on the target protocol has both `cost_per_unit` and `cost_per_head` null.
+- **Keep `round_up_to` consistent between generic and brand of the same drug.**
+  It models the syringe setting including waste, not drug consumed. A generic
+  entered at 0.1 against a brand at 1.0 is a math change disguised as a price
+  change.
+- Worked example (2026-08-24): lot 36-27, Draxxin → Macrosyn effective Wed
+  2026-08-19. New protocol version created, 5 of 11 receipts (197 of 441 head)
+  repointed. Lot processing went $9,109.06 → $8,901.48, $20.66 → $20.18/hd in.
+  The six Aug 11–18 loads stayed on branded Draxxin.
 - Doctoring eligibility: pulls start 8–9 days after Draxxin at receiving;
   fresh-cattle report window is 17 days.
 - Tag numbers recycle across fiscal years. "Current animal for a tag" =
   the tag on an OPEN lot. Doctoring search scopes to open lots by default.
+
+## Access control (RLS — read before touching auth, policies, or views)
+
+The gate is `public.current_user_role()`. It reads `user_profiles.role` for
+`auth.uid()` **and requires `is_active = true`**. Returns NULL for anyone
+inactive or unknown; every policy is written so NULL denies.
+
+| | crew | office | owner |
+|---|---|---|---|
+| Read operational data (lots, weights, tags, doctoring, pastures, movements) | ✅ | ✅ | ✅ |
+| Write field data (doctoring, weights, tags, receipts, pasture assignments) | ✅ | ✅ | ✅ |
+| Correct/update operational records | ❌ | ✅ | ✅ |
+| Invoices, cost and margin data | ❌ | ✅ | ✅ |
+| Delete lots, weights, medications, protocols, audit rows | ❌ | ❌ | ✅ |
+| See the user roster | own row | own row | all |
+
+Deletes are the narrowest privilege on purpose: `lot_movements`, `lot_events`
+and `lot_pasture_assignments` are audit trails, and an accidental delete there
+is unrecoverable in a way an accidental insert is not.
+
+### Rules — each of these was a live hole in Aug 2026, not a style preference
+
+1. **Never read a role, permission, or tenant from `raw_user_meta_data`.**
+   That field is written by the client at signup. `handle_new_user()` trusted
+   it and `signUp({data:{role:'owner'}})` minted a working owner account.
+   Roles are set by an owner in `user_profiles`, never at account creation.
+   The trigger is `AFTER INSERT ON auth.users FOR EACH ROW`, so this applies
+   to `inviteUserByEmail` and `admin.createUser` too — never pass `data:{...}`
+   with a role to either.
+2. **New users land inactive** (`role='crew'`, `is_active=false`). A new
+   account seeing zero rows is correct, not a bug. An owner activates it.
+   Public signups are also disabled in the dashboard; both locks stay on.
+3. **Every view must be created `WITH (security_invoker = true)`.** Without it
+   a view runs as its owner and bypasses RLS entirely regardless of base-table
+   policies. Ten views were exposed this way and readable by `anon` with no
+   login at all. No exceptions.
+4. **Never GRANT anything to `anon`.** `authenticated` + RLS is the only path.
+   Revoke from `PUBLIC`, not just `anon` — Postgres grants function EXECUTE to
+   PUBLIC by default, so `revoke ... from anon` alone silently does nothing.
+5. **New tables need RLS *and* policies.** `ENABLE ROW LEVEL SECURITY` with no
+   policy is a total lockout; policies without `ENABLE` are decoration.
+6. **`SECURITY DEFINER` needs a reason and a pinned `search_path`.** Each one
+   bypasses RLS. Deliberate today: `current_user_role` (it is the gate),
+   `handle_new_user`, `cleanup_attachment_storage`, `lot_projected_weight`,
+   `lot_weighted_arrival_date`. Default to INVOKER.
+7. **Run `supabase/migrations/20260821000300_rls_verify.sql` after any
+   migration that adds a table, view, or function.** It asserts 1–6.
+
+### Offline/PWA consequences (matters for the field app in roadmap #3)
+
+- An RLS denial on SELECT returns **zero rows, not an error**. "No lots" is
+  ambiguous between not-authorized, offline, and genuinely empty. Call
+  `current_user_role()` on load and distinguish all three, or every access
+  problem looks like a sync bug.
+- A write queued offline replays under **later** authorization. Queued Tuesday,
+  synced Thursday, user deactivated Wednesday → `42501`. Needs a dead-letter
+  path. Never a silent drop (this is animal health data), never infinite retry.
+- Purge local stores on sign-out and on user change; IndexedDB knows nothing
+  about RLS. Persist the write queue outside the auth session, keyed by user
+  id — days offline can outlive the refresh token.
 
 ## Schema landmines (verified by painful trial and error — trust these)
 
@@ -47,6 +144,11 @@ cattle operation in Kosse, TX. Deployed via GitHub Pages. Backend is Supabase
   large fetch.
 - When unsure of a column name, QUERY information_schema — do not guess.
   Schemas evolved inconsistently across tables.
+  **Exception: do NOT trust information_schema for GRANTS or PRIVILEGES.**
+  `role_table_grants` only shows roles the *querying* user belongs to, so on
+  hosted Supabase it returns an empty set for `anon` while `anon` in fact holds
+  full grants. Use `has_table_privilege()` / `pg_class.relacl` for privileges.
+  Columns and types are fine.
 
 ## Data-integrity architecture (do not bypass)
 
@@ -68,6 +170,24 @@ cattle operation in Kosse, TX. Deployed via GitHub Pages. Backend is Supabase
 - Watch PL/pgSQL name collisions between loop variables and table aliases
   (use row_rec, rn — a FOR var named `r` once shadowed `ranches r`).
 - Errors must never be silently swallowed — surface them to the user.
+- `to_regclass()` resolves views and sequences too, not just tables. Check
+  `relkind` before `ALTER TABLE`, or a view in a table list aborts the whole
+  migration and silently leaves everything after it unprotected.
+
+## Migrations (CLI not yet adopted)
+
+**The remote has NO CLI migration history** — this schema was built through the
+dashboard and SQL editor. `supabase db push` would try to apply every local
+migration from scratch against tables that already exist.
+
+Until that is reconciled, apply migrations through the **SQL editor**. To adopt
+the CLI: `supabase link --project-ref xpfmebdzcxorvwikfvtj` → `supabase db pull`
+for a baseline → mark it applied → verify with `supabase migration list`.
+
+Migration files here carry explicit `begin;`/`commit;` so they are
+all-or-nothing in the SQL editor. **Strip those two lines if applying via the
+CLI** — it wraps migrations in its own transaction and the inner `commit;`
+closes it early.
 
 ## App code conventions
 
@@ -90,21 +210,19 @@ cattle operation in Kosse, TX. Deployed via GitHub Pages. Backend is Supabase
 - Production DB is the live books of a real ranch. Schema changes and data
   corrections require explicit approval before execution.
 
-## Open items
-
-`docs/OPEN-ITEMS.md` is the live list of what still needs doing and what was
-deliberately deferred. Read it before planning work. `docs/USER-ADMIN-GUIDE.md`
-covers roles, RLS, and adding users.
-
 ## Roadmap (agreed, in order)
 
-1. This: Claude Code + CLAUDE.md + Supabase MCP connector
-2. Multi-user auth + RLS — DONE 2026-08-24. Shipped roles are owner/office/crew
-   (NOT the admin/manager/cowboy/guest named here originally). Crew are read-only.
+1. ✅ Claude Code + CLAUDE.md + Supabase MCP connector
+2. ✅ Multi-user auth + RLS — **implemented as owner/office/crew**, not the
+   originally planned admin/manager/cowboy/guest. The `user_profiles.role`
+   CHECK constraint permits only those three. **Open decision:** whether a
+   read-only `guest` role is still wanted; it does not exist today.
+   Lauren Yezak is provisioned as `crew` but has never signed in.
 3. Field PWA for cowboys: pending_field_entries queue + office review screen,
-   offline-first
+   offline-first. `crew` is the role this targets — see the offline/PWA notes
+   under Access control before building the queue.
 4. Cost ledger (18 categories, monthly, per-head-day allocation; Redwing
-   exports imported via Cowork) 
+   exports imported via Cowork). Note: cost data is office+owner only.
 5. Daily buy/sell dashboard: breakevens vs market data
 Also parked: breakeven budget-vs-actual, bottle inventory, lot comparison
 report, weather integration.
