@@ -1204,24 +1204,37 @@ window.processCloudData = function(data) {
 // so this pages until a short page comes back. Without paging, tags beyond
 // the first 1000 would silently have no location - the worst kind of wrong,
 // because it looks like "no data" rather than "truncated".
-async function fetchOpenLotTags() {
+// PostgREST caps a response at 1000 rows. Anything that can outgrow that has
+// to be paged, or it truncates silently - which reads as "no data" rather
+// than an error, and is the worst way for this to fail.
+//
+// `build` is called per page and must return a fresh query; PostgREST
+// builders are single-use, so reusing one across pages does not work.
+async function fetchAllPages(build, label) {
     const PAGE = 1000;
     let from = 0, all = [];
     for (;;) {
-        const { data, error } = await sb
-            .from('lot_tags')
-            .select('tag_number, lot_id, delivery_receipt_id, retired_at, lots!inner(lot_number, closed_at, is_test)')
-            .is('retired_at', null)
-            .is('lots.closed_at', null)
-            .order('tag_number')
-            .range(from, from + PAGE - 1);
+        const { data, error } = await build().range(from, from + PAGE - 1);
         if (error) throw error;
         all = all.concat(data || []);
         if (!data || data.length < PAGE) break;
         from += PAGE;
-        if (from > 50000) break;   // runaway guard
+        if (from > 50000) {
+            console.warn(`${label}: stopped paging at ${from} rows (runaway guard)`);
+            break;
+        }
     }
-    return all.filter(t => t.lots && !t.lots.is_test);
+    return all;
+}
+
+async function fetchOpenLotTags() {
+    const rows = await fetchAllPages(() => sb
+        .from('lot_tags')
+        .select('tag_number, lot_id, delivery_receipt_id, retired_at, lots!inner(lot_number, closed_at, is_test)')
+        .is('retired_at', null)
+        .is('lots.closed_at', null)
+        .order('tag_number'), 'lot_tags');
+    return rows.filter(t => t.lots && !t.lots.is_test);
 }
 
 // Reads now come from Supabase instead of a JSONP <script> injection
@@ -1236,11 +1249,11 @@ async function pullCloudData() {
             // Own submissions (RLS widens this to everything for owner/office).
             // Withdrawn entries are excluded so a deleted record cannot
             // reappear in the history list.
-            sb.from(STAGING_TABLE)
+            fetchAllPages(() => sb.from(STAGING_TABLE)
               .select('entry_type, raw, status')
               .neq('status', 'withdrawn')
-              .order('submitted_at', { ascending: false })
-              .limit(1000),
+              .order('submitted_at', { ascending: false }), 'pending_field_entries')
+              .then(data => ({ data, error: null }), error => ({ data: null, error })),
             sb.from('medications')
               .select('name, dose_mode, flat_dose_amount, per_weight_rate, per_weight_basis, default_dose_amount')
               .eq('is_active', true).order('name'),
@@ -1260,11 +1273,11 @@ async function pullCloudData() {
             // Treatments already in the books. Without these, tag recall and
             // the 1st/2nd-pull safety checks only ever see what this phone
             // submitted, so an animal treated last month looks untouched.
-            sb.from('doctoring_events')
+            fetchAllPages(() => sb.from('doctoring_events')
               .select('tag_number, event_datetime, lot_id, pasture_id, field_actions(name), lots!inner(lot_number, closed_at, is_test)')
               .is('lots.closed_at', null)
-              .order('event_datetime', { ascending: false })
-              .limit(1000),
+              .order('event_datetime', { ascending: false }), 'doctoring_events')
+              .then(data => ({ data, error: null }), error => ({ data: null, error })),
             // A lot usually spans several pastures, so location can only be
             // inferred when it sits in exactly one.
             sb.from('lot_pasture_assignments')
@@ -1273,13 +1286,18 @@ async function pullCloudData() {
             // Where each delivery receipt's cattle were turned out. Combined
             // with lot_tags.delivery_receipt_id this is the only per-ANIMAL
             // location the books hold.
-            sb.from('load_out_destinations').select('receipt_id, pasture_id').limit(1000),
+            // No open-lot filter here (a tag's receipt may sit on any lot), so
+            // this only ever grows - one row per receipt per destination.
+            fetchAllPages(() => sb.from('load_out_destinations')
+              .select('receipt_id, pasture_id').order('receipt_id'), 'load_out_destinations')
+              .then(data => ({ data, error: null }), error => ({ data: null, error })),
             // Tag ranges per RECEIPT. lots.start_tag/end_tag only ever held the
             // FIRST load: lot 36-27 reads 8255-8283 there while its eleven
             // receipts actually span 8255-8695. Receipt ranges are the real ones.
-            sb.from('delivery_receipts')
+            fetchAllPages(() => sb.from('delivery_receipts')
               .select('lot_id, tag_start, tag_end, lots!inner(lot_number, closed_at, is_test)')
-              .is('lots.closed_at', null).limit(1000),
+              .is('lots.closed_at', null).order('lot_id'), 'delivery_receipts')
+              .then(data => ({ data, error: null }), error => ({ data: null, error })),
             sb.from('field_actions').select('name, is_dead, sort_order').order('sort_order'),
             sb.from('field_protocols')
               .select('is_active, field_actions(name), ' +

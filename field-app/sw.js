@@ -10,7 +10,7 @@
 // Bump CACHE_VERSION whenever you deploy changes to index.html / app.js / styles.css.
 // =========================================================
 
-const CACHE_VERSION = 'v11';   // v11: schema-versioned data freshness
+const CACHE_VERSION = 'v12';   // v12: page every growable query
 const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 
 // Must match the query strings index.html actually requests, or these get
@@ -21,7 +21,7 @@ const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 const APP_SHELL = [
     './',
     './index.html',
-    './app.js?v=v11',
+    './app.js?v=v12',
     './supabase.min.js?v=2.46.1',
     './styles.css?v=beta3',
     './manifest.json'
