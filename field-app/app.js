@@ -67,6 +67,19 @@ let locsDatabase = JSON.parse(localStorage.getItem('betaCattleLocs')) || [];
 let lotsDatabase = JSON.parse(localStorage.getItem('betaCattleLots')) || []; 
 let protocolsDatabase = JSON.parse(localStorage.getItem('betaCattleProtocols')) || []; 
 
+// Treatments already in the ranch books (doctoring_events), as opposed to
+// `records`, which is what THIS app has submitted. Kept separate on purpose:
+// these are read-only reference rows and must never be editable, deletable
+// or re-submittable from the field app. Tag recall and the safety checks
+// consult both; everything that writes only ever touches `records`.
+let booksHistory = JSON.parse(localStorage.getItem('betaCattleBooksHistory')) || [];
+
+// Every read-only lookup by tag must see the books as well as this phone's
+// own submissions, otherwise an animal treated last month looks brand new.
+function historyPool() {
+    return records.concat(booksHistory);
+}
+
 let currentEstWeight = 0; 
 let editingRecordId = null;
 let editingMoveId = null;
@@ -1116,7 +1129,7 @@ async function pullCloudData() {
     if (!currentUserId) { showToast('Sign in first', 'error', 2000); return; }
     syncCloudBtn.innerText = "⏳ Downloading...";
     try {
-        const [entriesRes, medsRes, pasturesRes, lotsRes, actionsRes, protosRes] = await Promise.all([
+        const [entriesRes, medsRes, pasturesRes, statusRes, lotsRes, bookRes, assignRes, actionsRes, protosRes] = await Promise.all([
             // Own submissions (RLS widens this to everything for owner/office).
             // Withdrawn entries are excluded so a deleted record cannot
             // reappear in the history list.
@@ -1132,18 +1145,36 @@ async function pullCloudData() {
               .select('name, is_active, ranches!inner(name, is_active)')
               .eq('is_active', true).order('name'),
             // Tags recycle across fiscal years, so the field app only ever
-            // offers OPEN lots.
-            sb.from('lots')
-              .select('lot_number, closed_at, is_test')
+            // offers OPEN lots. lot_status carries the weight/ADG figures the
+            // estimated-weight box and the dose auto-fill depend on; `lots`
+            // carries the tag range used to infer a lot from a tag number.
+            sb.from('lot_status')
+              .select('lot_id, lot_number, arrival_date, target_adg, avg_weight_in, closed_at')
               .is('closed_at', null).order('lot_number'),
+            sb.from('lots')
+              .select('id, lot_number, start_tag, end_tag, closed_at, is_test')
+              .is('closed_at', null),
+            // Treatments already in the books. Without these, tag recall and
+            // the 1st/2nd-pull safety checks only ever see what this phone
+            // submitted, so an animal treated last month looks untouched.
+            sb.from('doctoring_events')
+              .select('tag_number, event_datetime, lot_id, field_actions(name), lots!inner(lot_number, closed_at, is_test)')
+              .is('lots.closed_at', null)
+              .order('event_datetime', { ascending: false })
+              .limit(1000),
+            // A lot usually spans several pastures, so location can only be
+            // inferred when it sits in exactly one.
+            sb.from('lot_pasture_assignments')
+              .select('lot_id, moved_out, pastures!inner(name, ranches!inner(name))')
+              .is('moved_out', null),
             sb.from('field_actions').select('name, is_dead, sort_order').order('sort_order'),
             sb.from('field_protocols')
               .select('is_active, field_actions(name), m1:default_med_1_id(name), m2:default_med_2_id(name), m3:default_med_3_id(name)')
               .eq('is_active', true)
         ]);
 
-        const firstError = [entriesRes, medsRes, pasturesRes, lotsRes, actionsRes, protosRes]
-            .find(r => r.error);
+        const firstError = [entriesRes, medsRes, pasturesRes, statusRes, lotsRes,
+                            bookRes, assignRes, actionsRes, protosRes].find(r => r.error);
         if (firstError) throw firstError.error;
 
         const entries = entriesRes.data || [];
@@ -1166,9 +1197,58 @@ async function pullCloudData() {
             .filter(p => p.ranches && p.ranches.is_active)
             .map(p => ({ property: p.ranches.name, pasture: p.name }));
 
-        const lots = (lotsRes.data || [])
-            .filter(l => !l.is_test)
-            .map(l => ({ lotNumber: l.lot_number }));
+        // The app reads lotNumber, startTag, endTag, arrivalDate, targetADG and
+        // avgWeight off these rows. Anything missing silently degrades a
+        // feature rather than erroring: no tag range means no lot inferred
+        // from a tag, and no weight/ADG means estimated weight stays 0, which
+        // in turn stops per-weight doses auto-filling.
+        const tagRangeById = {};
+        (lotsRes.data || []).forEach(l => { tagRangeById[l.id] = l; });
+        const lots = (statusRes.data || [])
+            .map(l => {
+                const base = tagRangeById[l.lot_id] || {};
+                return {
+                    lotNumber:   l.lot_number,
+                    startTag:    base.start_tag,
+                    endTag:      base.end_tag,
+                    arrivalDate: l.arrival_date,
+                    targetADG:   l.target_adg,
+                    avgWeight:   l.avg_weight_in,
+                    isTest:      !!base.is_test
+                };
+            })
+            .filter(l => !l.isTest);
+
+        // Lot -> "Ranch - Pasture", only where the lot sits in exactly one
+        // pasture. Ambiguous lots are left out so the form asks rather than
+        // guessing wrong.
+        const pastureCountByLot = {};
+        const soleLocationByLot = {};
+        (assignRes.data || []).forEach(a => {
+            pastureCountByLot[a.lot_id] = (pastureCountByLot[a.lot_id] || 0) + 1;
+            if (a.pastures && a.pastures.ranches) {
+                soleLocationByLot[a.lot_id] = `${a.pastures.ranches.name} - ${a.pastures.name}`;
+            }
+        });
+
+        // Book treatments, shaped like the app's own records so the same
+        // lookups work on both. No id: these must never be edited or deleted
+        // from the field app, and every write path keys off id.
+        const lotNumberById = {};
+        (lotsRes.data || []).forEach(l => { lotNumberById[l.id] = l.lot_number; });
+        booksHistory = (bookRes.data || [])
+            .filter(d => d.lots && !d.lots.is_test)
+            .map(d => ({
+                fromBooks: true,
+                tagNumber: d.tag_number,
+                dateTime: d.event_datetime,
+                lotNumber: (d.lots && d.lots.lot_number) || lotNumberById[d.lot_id] || '',
+                treatmentType: (d.field_actions && d.field_actions.name) || '',
+                // doctoring_events carries no pasture, so fall back to where
+                // the lot is now - and only when that is unambiguous.
+                location: pastureCountByLot[d.lot_id] === 1 ? (soleLocationByLot[d.lot_id] || '') : ''
+            }));
+        safeSetItem('betaCattleBooksHistory', JSON.stringify(booksHistory));
 
         // The action dropdown is built from protocols, and it appends Dead
         // and Other itself — so those two are excluded here to avoid
@@ -1241,7 +1321,7 @@ tagNumberInput.oninput = function(e) {
 
     treatmentTypeInput.disabled = false;
 
-    const hist = records.find(r => String(r.tagNumber) === val);
+    const hist = historyPool().find(r => String(r.tagNumber) === val);
     let foundLot = hist ? hist.lotNumber : "";
 
     if (!foundLot && !isNaN(parseInt(val))) {
@@ -1286,7 +1366,7 @@ function updateAlertBox() {
     let alertHtml = "";
     
     if (tagVal !== '') {
-        const history = records.filter(r => String(r.tagNumber) === tagVal && String(r.id) !== String(editingRecordId));
+        const history = historyPool().filter(r => String(r.tagNumber) === tagVal && String(r.id) !== String(editingRecordId));
         if (history.length > 0) {
             // Tappable history line — opens a modal with the prior records
             alertHtml += `<div class="tag-history-link" onclick="showTagHistory('${tagVal.replace(/'/g, "\\'")}')">⚠️ <b>History:</b> ${history.length} previous record${history.length > 1 ? 's' : ''} <span class="tag-history-cta">— tap to view ▸</span></div>`;
@@ -1325,7 +1405,7 @@ function updateAlertBox() {
 // TAG HISTORY MODAL — one-tap drill-in for chute decisions
 // =========================================================
 window.showTagHistory = function(tag) {
-    const history = records
+    const history = historyPool()
         .filter(r => String(r.tagNumber) === String(tag))
         .sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
 
@@ -1356,6 +1436,7 @@ window.showTagHistory = function(tag) {
                     <div class="thc-meta">
                         ${r.location ? `📍 ${r.location}` : ''}
                         ${r.recordedBy ? ` · by ${r.recordedBy}` : ''}
+                        ${r.fromBooks ? ` · <span class="thc-books">from the books</span>` : ''}
                     </div>
                     ${r.drugOff ? `<div class="thc-drugoff">⚠ Drug off: ${r.drugOff}</div>` : ''}
                     ${r.notes ? `<div class="thc-notes">📝 ${r.notes}</div>` : ''}
@@ -1378,7 +1459,7 @@ function validateActionSafety(tag, action) {
     if (!tag || !action) return { valid: true };
     
     const actionLower = action.toLowerCase();
-    const tagHistory = records.filter(r => String(r.tagNumber) === tag && String(r.id) !== String(editingRecordId));
+    const tagHistory = historyPool().filter(r => String(r.tagNumber) === tag && String(r.id) !== String(editingRecordId));
 
     const hasFirstPull = tagHistory.some(r => r.treatmentType.toLowerCase().includes('1st') || r.treatmentType.toLowerCase().includes('first'));
     const hasSecondPull = tagHistory.some(r => r.treatmentType.toLowerCase().includes('2nd') || r.treatmentType.toLowerCase().includes('second'));
@@ -1796,6 +1877,7 @@ document.getElementById('helpBtn').addEventListener('click', () => {
 const RESET_KEYS = [
     'betaCattleRecords', 'betaCattleMoves', 'betaCattleMeds', 'betaCattleLocs',
     'betaCattleLots', 'betaCattleProtocols', 'betaCattleLocks',
+    'betaCattleBooksHistory',
     'betaCattleSyncQueue', 'betaCattleTombstones', 'betaCattleRejected',
     'betaLastSyncDate'
     // 'crewMemberName' is deliberately kept - it is a convenience, not state,
