@@ -1104,6 +1104,17 @@
                 </div>
 
                 <div style="margin-bottom: 14px;">
+                    <label for="docEntryPasture">Pasture (shared, optional)</label>
+                    <select id="docEntryPasture">
+                        <option value="">— Not recorded —</option>
+                    </select>
+                    <div class="muted" style="font-size: 11px; margin-top: 4px;">
+                        Where these animals were worked. Applied to every tag in the batch,
+                        and feeds the field app's tag lookup.
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 14px;">
                     <label for="docEntryNotes">Notes (shared, optional)</label>
                     <textarea id="docEntryNotes" rows="2" placeholder="e.g. morning pulls"></textarea>
                 </div>
@@ -2323,6 +2334,18 @@
                         <option value="true">Yes</option>
                         <option value="false">No</option>
                     </select>
+                </div>
+            </div>
+
+            <div class="form-grid" style="margin-bottom: 14px;">
+                <div>
+                    <label for="doctoringPastureId">Pasture</label>
+                    <select id="doctoringPastureId">
+                        <option value="">— Not recorded —</option>
+                    </select>
+                    <div class="muted" style="font-size: 11px; margin-top: 4px;" id="doctoringPastureHint">
+                        Where the animal actually was. Feeds the field app's tag lookup.
+                    </div>
                 </div>
             </div>
 
@@ -12132,6 +12155,31 @@ ${ranchBlocks}
             allActionsForDoctoringCache = actions || [];
         }
 
+        // Shared pasture list for the batch. A batch is normally one pen's
+        // worth of pulls, so a single value for the whole batch is right;
+        // rows may span lots, and a pasture belongs to a ranch not a lot.
+        const pastureSel = $('docEntryPasture');
+        if (pastureSel) {
+            const { data: pastureRows, error: pastureErr } = await supabase
+                .from('pastures')
+                .select('id, name, is_active, ranches!inner(name)')
+                .eq('is_active', true)
+                .order('name');
+            if (pastureErr) {
+                console.warn('pasture list failed:', pastureErr);
+            } else {
+                const keep = pastureSel.value;
+                pastureSel.innerHTML = '<option value="">— Not recorded —</option>';
+                (pastureRows || []).forEach(pr => {
+                    const opt = document.createElement('option');
+                    opt.value = pr.id;
+                    opt.textContent = `${pr.ranches ? pr.ranches.name + ' - ' : ''}${pr.name}`;
+                    pastureSel.appendChild(opt);
+                });
+                if (keep) pastureSel.value = keep;
+            }
+        }
+
         // Full medication data including dose rules
         const { data: meds } = await supabase
             .from('medications')
@@ -12539,6 +12587,7 @@ ${ranchBlocks}
         const dateStr = $('docEntryDate').value;
         const actionId = $('docEntryAction').value;
         const notes = $('docEntryNotes').value.trim() || null;
+        const batchPastureId = $('docEntryPasture').value || null;
 
         if (!dateStr) {
             showAlert('doctoringEntryAlert', 'Date is required.');
@@ -12592,6 +12641,7 @@ ${ranchBlocks}
                         no_tag: false,
                         event_datetime: eventDatetime,
                         field_action_id: actionId,
+                        pasture_id: batchPastureId,
                         notes: notes,
                         recorded_by_user_id: currentUser.id
                     })
@@ -12922,6 +12972,60 @@ ${ranchBlocks}
     // ==========================================================
     // PER-LOT DOCTORING MODAL (legacy single-event entry on lot detail page)
     // ==========================================================
+    // Pasture picker for a doctoring event. The lot's CURRENT pastures are
+    // listed first because that is nearly always where the animal was; the
+    // rest stay available for a correction or a back-dated entry.
+    async function populateDoctoringPastures(lotId, selectedPastureId) {
+        const sel = $('doctoringPastureId');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— Not recorded —</option>';
+        try {
+            const [assignRes, allRes] = await Promise.all([
+                supabase.from('lot_pasture_assignments')
+                    .select('pasture_id, pastures(name, ranches(name))')
+                    .eq('lot_id', lotId).is('moved_out', null),
+                supabase.from('pastures')
+                    .select('id, name, is_active, ranches!inner(name)')
+                    .eq('is_active', true).order('name')
+            ]);
+            if (assignRes.error) throw assignRes.error;
+            if (allRes.error) throw allRes.error;
+
+            const onLot = (assignRes.data || []).filter(a => a.pastures);
+            const onLotIds = new Set(onLot.map(a => a.pasture_id));
+
+            const addOpt = (id, label, group) => {
+                const opt = document.createElement('option');
+                opt.value = id; opt.textContent = label;
+                (group || sel).appendChild(opt);
+            };
+
+            if (onLot.length) {
+                const g = document.createElement('optgroup');
+                g.label = 'This lot is here now';
+                onLot.forEach(a => addOpt(a.pasture_id,
+                    `${a.pastures.ranches ? a.pastures.ranches.name + ' - ' : ''}${a.pastures.name}`, g));
+                sel.appendChild(g);
+            }
+            const others = (allRes.data || []).filter(p => !onLotIds.has(p.id));
+            if (others.length) {
+                const g2 = document.createElement('optgroup');
+                g2.label = 'Other pastures';
+                others.forEach(p => addOpt(p.id,
+                    `${p.ranches ? p.ranches.name + ' - ' : ''}${p.name}`, g2));
+                sel.appendChild(g2);
+            }
+
+            // Default a NEW event to the lot's pasture when there is only one
+            // — no ambiguity to resolve, and it saves a tap on every entry.
+            if (selectedPastureId) sel.value = selectedPastureId;
+            else if (onLot.length === 1) sel.value = onLot[0].pasture_id;
+        } catch (err) {
+            // Pasture is optional; never block recording a treatment over it.
+            console.warn('populateDoctoringPastures failed:', err);
+        }
+    }
+
     async function openDoctoringModal(event) {
         clearAlert('doctoringModalAlert');
         $('doctoringForm').reset();
@@ -12958,6 +13062,10 @@ ${ranchBlocks}
             opt.textContent = a.name;
             actionSel.appendChild(opt);
         });
+
+        // Pasture picker — awaited so an edit shows its saved value rather
+        // than briefly rendering blank and looking like it was never set.
+        await populateDoctoringPastures(currentLot.id, event ? event.pasture_id : null);
 
         // Populate fields
         if (event) {
@@ -13276,6 +13384,9 @@ ${ranchBlocks}
                 event_datetime: eventDatetime,
                 lot_id: currentLot.id,
                 field_action_id: actionId,
+                // Where the animal was. Optional, but once recorded the field
+                // app can recall it for that tag instead of asking again.
+                pasture_id: $('doctoringPastureId').value || null,
                 drug_off: drugOffStr === '' ? null : (drugOffStr === 'true'),
                 notes
             };
