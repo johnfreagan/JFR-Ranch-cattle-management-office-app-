@@ -122,6 +122,46 @@ Also expected: `auth_leaked_password_protection` — that is item 2 above.
 
 ---
 
+## 7. Automatic daily send of the daily report
+
+**Status:** report built 2026-08-25, delivery not started. Agreed order is
+email first, then SMS.
+
+Reports → Daily Report composes the day's doctoring, moves and deads and can
+be printed, texted as a PDF through the share sheet, emailed or copied. All of
+that needs the app open. Sending it on a schedule does not, so it needs a
+Supabase Edge Function on a cron — `pg_cron` and `pg_net` are available on the
+project but **not installed**.
+
+**Decision that gates the build.** The function has to compose the report with
+no browser: either the report logic is written a second time in TypeScript, or
+a SQL function becomes the single source of truth and both the app and the
+function read it. The rules that would drift if duplicated are the test-lot
+filter, the death dedupe between `doctoring_events` and `lot_events`, the
+carcass-not-hauled detection, and recovering the cowboy's name through
+`approved_ref`. The second option means refactoring the screen that was just
+shipped and verified.
+
+**Blocked on John either way:**
+
+- A Resend account and a verified sending domain. The same account closes
+  item 1 above — custom SMTP for password resets — so it is worth doing once
+  for both.
+- Enabling `pg_cron` and `pg_net` in the dashboard.
+
+**SMS is a separate hurdle.** US A2P 10DLC registration is mandatory for
+automated texts on a normal number; the sole-proprietor path is a few dollars
+a month plus a few days for approval. Until it clears, texting the PDF from
+the share sheet is the path. Carrier email-to-SMS gateways were considered and
+rejected: they are free but drop messages silently, and a blocked report and a
+quiet day look identical.
+
+**Agreed settings, not yet built:** 6:30pm CT, pinned to `America/Chicago` so
+DST does not move it; recipients in an owner-managed table with a Settings
+screen; short recap in the text, full PDF in the email.
+
+---
+
 ## Closed
 
 - **2026-08-25 — Part B: the field app writes to the books.** Roadmap item 3,
