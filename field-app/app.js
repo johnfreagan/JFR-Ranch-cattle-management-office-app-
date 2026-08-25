@@ -426,7 +426,30 @@ async function processSyncQueue() {
         }
     }
 
-    syncQueue = stillFailed;
+    // Every send above is an await, so a cowboy can save another record
+    // mid-drain. enqueueForSync pushes it straight onto syncQueue and its
+    // processSyncQueue() call returns immediately on the isSyncingQueue
+    // guard, so that push is the ONLY record of it. Overwriting syncQueue
+    // with the snapshot's survivors used to drop it on the floor: no retry,
+    // no rejection entry, nothing in the badge - a silent loss of animal
+    // health data.
+    //
+    // Match on object IDENTITY, not id. `pending` is a shallow copy, so the
+    // entries we just processed are the same objects. An EDIT re-queued
+    // mid-drain is a brand new object under the SAME id (enqueueForSync
+    // drops the old one first), so filtering by id here would throw the
+    // cowboy's correction away instead of the stale copy.
+    const handled = new Set(pending);
+    const arrivedDuringDrain = syncQueue.filter(q => !handled.has(q));
+
+    // If a newer version of a record arrived while we were draining, that
+    // version supersedes the one that just failed - retrying the old one
+    // would overwrite the correction on the next pass.
+    const superseded = new Set(arrivedDuringDrain.map(q => String(q.id)));
+    syncQueue = [
+        ...stillFailed.filter(q => !superseded.has(String(q.id))),
+        ...arrivedDuringDrain
+    ];
     saveQueue();
     isSyncingQueue = false;
     updateSyncBadge();

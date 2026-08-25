@@ -2906,6 +2906,14 @@ window.addEventListener('unhandledrejection', function(e) {
         }
         return dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     }
+    // "Today" as the ranch's calendar day, NOT UTC.
+    // new Date().toISOString().slice(0,10) rolls over to TOMORROW after
+    // ~7pm Central, which is exactly when evening work gets entered. Every
+    // form default and every fallback date must use this instead.
+    function todayLocal() {
+        const d = new Date(), p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
     function showModal(id){$(id).classList.add('show');}
     function hideModal(id){$(id).classList.remove('show');}
     function formatSexClass(v){if(!v) return '—';const m={steer_bulls:'Steer/Bulls',steers:'Steers',heifers:'Heifers',mixed:'Mixed',bulls:'Bulls',cutting_bulls:'Cutting Bulls'};return m[v]||v;}
@@ -4098,7 +4106,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 target_ship_weight: currentLot.target_ship_weight,
                 target_days_on_feed: currentLot.target_days_on_feed,
                 fiscal_year: currentLot.fiscal_year,
-                arrival_date: new Date().toISOString().slice(0, 10),
+                arrival_date: todayLocal(),
                 notes: 'Duplicated from ' + currentLot.lot_number
             };
             const { data, error } = await supabase
@@ -4556,7 +4564,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('lotId').value=mode==='edit'?(seed?.id||''):'';
         $('lotNumber').value=mode==='duplicate'?'':(seed?.lot_number||'');
         // For brand-new lots, default arrival date to today. For edit, use existing. For duplicate, blank (user must set fresh).
-        const todayIso = new Date().toISOString().slice(0, 10);
+        const todayIso = todayLocal();
         let arrivalVal;
         if (mode === 'edit') arrivalVal = seed?.arrival_date || '';
         else if (mode === 'duplicate') arrivalVal = '';
@@ -5107,7 +5115,11 @@ window.addEventListener('unhandledrejection', function(e) {
             if (!from.pasture) issues.push(`from-pasture "${raw.fromRanch || ''} ${raw.fromPasture || ''}" not found`);
             if (!to.pasture)   issues.push(`to-pasture "${raw.toRanch || ''} ${raw.toPasture || ''}" not found`);
             const head = parseInt(raw.headCount, 10);
-            if (isNaN(head) || head <= 0) warnings.push('head count not given — uncounted move');
+            // record_move_with_pasture RAISES on a null or non-positive head
+            // count, so an uncounted move can never post. Blocking it here
+            // keeps it out of a batch instead of failing the whole batch and
+            // rolling back every good row alongside it.
+            if (isNaN(head) || head <= 0) issues.push('head count not given — uncounted move cannot post');
 
             // The field app never asks which lot is moving, and
             // lot_movements.lot_id is NOT NULL. When the from-pasture holds
@@ -9181,10 +9193,9 @@ ${body}
     }
 
     // ---- Dose computation helpers ----
-    function ceilTo(v, inc) {
-        if (!inc || inc <= 0) return v;
-        return Math.ceil(v / inc) * inc;
-    }
+    // ceilTo lives above, next to the medication dose preview. It was
+    // declared a second time here with identical behaviour; two top-level
+    // declarations of the same name silently keep only the last.
 
     function computeDose(med, protoMed, weightLb) {
         // Resolve effective mode and parameters (override beats medication default)
@@ -9401,7 +9412,7 @@ ${body}
         $('protoSexClass').value = sourceProto ? (sourceProto.sex_class || '') : '';
         $('protoEffectiveFrom').value = (mode === 'edit' && sourceProto)
             ? (sourceProto.effective_from || '')
-            : new Date().toISOString().slice(0, 10);
+            : todayLocal();
         $('protoActive').value = (sourceProto && sourceProto.is_active === false) ? 'false' : 'true';
         $('protoFormNotes').value = sourceProto ? (sourceProto.notes || '') : '';
 
@@ -10018,7 +10029,7 @@ ${body}
             version_label: $('protoVersion').value.trim() || null,
             protocol_type: $('protoType').value,
             sex_class: $('protoSexClass').value || null,
-            effective_from: $('protoEffectiveFrom').value || new Date().toISOString().slice(0, 10),
+            effective_from: $('protoEffectiveFrom').value || todayLocal(),
             is_active: $('protoActive').value === 'true',
             notes: $('protoFormNotes').value.trim() || null
         };
@@ -11436,73 +11447,6 @@ ${ranchBlocks}
         showLotDetail(currentLot.id);
     }
 
-    // Old assignment edit/delete kept for compatibility — these operate on
-    // lot_pasture_assignments rows directly (used by the Currently In card,
-    // not the move-history table).
-    async function openEditAssignmentModal(assignmentId, allAssignments) {
-        const a = allAssignments.find(x => x.id === assignmentId);
-        if (!a) return;
-        const ranchName = a.pastures?.ranches?.name || '?';
-        const pastureName = a.pastures?.name || '?';
-        const currentNotes = a.notes || '';
-        const currentHead = a.head_count;
-
-        const newHeadStr = prompt(
-            `Edit ${ranchName} / ${pastureName}\n` +
-            `Notes: ${currentNotes}\n\n` +
-            `Current head count: ${currentHead}\n` +
-            `Enter new head count:`,
-            String(currentHead)
-        );
-        if (newHeadStr === null) return;
-        const newHead = parseInt(newHeadStr, 10);
-        if (isNaN(newHead) || newHead < 0) {
-            alert('Invalid head count.');
-            return;
-        }
-
-        if (newHead === 0) {
-            if (!confirm(`Setting head count to 0 will close the assignment. Continue?`)) return;
-            const { error } = await supabase
-                .from('lot_pasture_assignments')
-                .update({ moved_out: new Date().toISOString().slice(0, 10) })
-                .eq('id', assignmentId);
-            if (error) { alert('Update failed: ' + error.message); return; }
-        } else {
-            const { error } = await supabase
-                .from('lot_pasture_assignments')
-                .update({ head_count: newHead })
-                .eq('id', assignmentId);
-            if (error) { alert('Update failed: ' + error.message); return; }
-        }
-        showAlert('globalAlert', 'Pasture assignment updated.', 'success');
-        showLotDetail(currentLot.id);
-    }
-
-    async function deleteAssignmentRow(assignmentId, allAssignments) {
-        const a = allAssignments.find(x => x.id === assignmentId);
-        if (!a) return;
-        const ranchName = a.pastures?.ranches?.name || '?';
-        const pastureName = a.pastures?.name || '?';
-        if (!confirm(
-            `Delete this pasture assignment?\n\n` +
-            `Pasture: ${ranchName} / ${pastureName}\n` +
-            `Head: ${a.head_count}\n\n` +
-            `This reduces the lot's pasture-tracked head count by ${a.head_count}. Cannot be undone.`
-        )) return;
-
-        const { error } = await supabase
-            .from('lot_pasture_assignments')
-            .delete()
-            .eq('id', assignmentId);
-        if (error) {
-            alert('Delete failed: ' + error.message);
-            return;
-        }
-        showAlert('globalAlert', 'Assignment deleted.', 'success');
-        showLotDetail(currentLot.id);
-    }
-
     // ---- Death log (lot detail) ----
     let deathLogCache = [];
 
@@ -11912,7 +11856,7 @@ ${ranchBlocks}
         $('deathsModalTitle').textContent = 'Record deaths';
         $('deathsEventId').value = '';
         $('deathsLotInfo').textContent = `Lot ${currentLot.lot_number} · ${fmtNum(currentStatus.head_current)} head currently`;
-        setDateValue('deathsDate', new Date().toISOString().slice(0, 10));
+        setDateValue('deathsDate', todayLocal());
         $('deathsCause').value = '';
         $('deathsNotes').value = '';
         $('deathsTreatmentHistory').style.display = 'none';
@@ -12177,7 +12121,7 @@ ${ranchBlocks}
             const eventId = $('deathsEventId').value || null;
             const isEdit = !!eventId;
 
-            const eventDate = $('deathsDate').value || new Date().toISOString().slice(0, 10);
+            const eventDate = $('deathsDate').value || todayLocal();
             const cause = $('deathsCause').value.trim() || null;
             const notes = $('deathsNotes').value.trim() || null;
 
@@ -12373,7 +12317,7 @@ ${ranchBlocks}
         $('moveLotTitle').textContent = isFirstMove
             ? `Assign lot ${currentLot.lot_number} to pasture(s)`
             : `Move lot ${currentLot.lot_number}`;
-        $('moveDate').value = new Date().toISOString().slice(0, 10);
+        $('moveDate').value = todayLocal();
         if ($('moveNotes')) $('moveNotes').value = '';
 
         if (currentMoveAssignments.length === 0) {
@@ -12527,7 +12471,7 @@ ${ranchBlocks}
         $('moveLotSaveBtn').disabled = true;
 
         try {
-            const moveDate = $('moveDate').value || new Date().toISOString().slice(0, 10);
+            const moveDate = $('moveDate').value || todayLocal();
 
             const validDests = moveDestinations.filter(d => d.pasture_id && d.head_count > 0);
             if (validDests.length === 0) {
@@ -12860,7 +12804,7 @@ ${ranchBlocks}
             await loadReceiptAttachments(receipt.id);
         } else {
             $('receiptModalTitle').textContent = 'New load out';
-            setDateValue('receiptDate', new Date().toISOString().slice(0, 10));
+            setDateValue('receiptDate', todayLocal());
             $('receiptDeleteBtn').classList.add('hidden');
             receiptDestinations = [{ pasture_id: '', head_count: '' }];
             $('receiptDestHint').textContent = 'On save, these become pasture assignments for the lot.';
@@ -13515,10 +13459,10 @@ ${ranchBlocks}
             $('doctoringContent').innerHTML = '<div class="empty">No doctoring events on this lot yet. Click "+ New" to add one.</div>';
             return;
         }
-        renderDoctoringTable();
+        renderLotDoctoringTable();
     }
 
-    function renderDoctoringTable() {
+    function renderLotDoctoringTable() {
         const search = $('doctoringSearchInput').value.trim().toLowerCase();
         const actionFilter = $('doctoringActionFilter').value;
         const placeholdersOnly = $('doctoringPlaceholdersOnly').checked;
@@ -13620,9 +13564,9 @@ ${ranchBlocks}
     }
 
     // Filter event handlers
-    $('doctoringSearchInput').addEventListener('input', renderDoctoringTable);
-    $('doctoringActionFilter').addEventListener('change', renderDoctoringTable);
-    $('doctoringPlaceholdersOnly').addEventListener('change', renderDoctoringTable);
+    $('doctoringSearchInput').addEventListener('input', renderLotDoctoringTable);
+    $('doctoringActionFilter').addEventListener('change', renderLotDoctoringTable);
+    $('doctoringPlaceholdersOnly').addEventListener('change', renderLotDoctoringTable);
     $('newDoctoringBtn').addEventListener('click', () => {
         doctoringModalContext = 'lot';
         openDoctoringModal(null);
@@ -14616,7 +14560,7 @@ ${ranchBlocks}
             $('doctoringNoTag').checked = false;
             $('doctoringDeleteBtn').classList.add('hidden');
             renderMedRows([]);
-            initOrUpdateDoctoringDatepicker(new Date().toISOString().slice(0, 10));
+            initOrUpdateDoctoringDatepicker(todayLocal());
         }
 
         // Show/hide drug off based on selected action
@@ -15425,7 +15369,7 @@ ${ranchBlocks}
             });
         } else {
             $('saleModalTitle').textContent = 'New sale';
-            $('saleDate').value = new Date().toISOString().slice(0, 10);
+            $('saleDate').value = todayLocal();
             $('saleDeleteBtn').classList.add('hidden');
 
             // Pre-fill source if lot has only one active pasture
