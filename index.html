@@ -5015,6 +5015,10 @@ window.addEventListener('unhandledrejection', function(e) {
     // Never invents a value: an unmatched name becomes an issue, not a guess.
     function resolveApprovalEntry(entry, lk) {
         const raw = entry.raw || {};
+        // Both RPCs take a date, and deaths and moves have to be replayed in
+        // event order. An entry whose timestamp never parsed cannot do either,
+        // so it is blocked rather than posted with an empty date.
+        const missingWhen = !entry.event_datetime;
         // Two distinct lists. A BLOCKER means the entry cannot be posted
         // correctly and must not be selectable. A WARNING means it will post,
         // but something about it should be seen first - an unpriced med posts
@@ -5069,13 +5073,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     issues.push(`${head} head exceeds the ${a.head_count} in that pasture`);
                 }
             }
-            // Posting a move means writing lot_movements AND re-balancing the
-            // pasture assignments. There is no atomic RPC for that yet, and a
-            // part-written move leaves drift that lot_movements DELETE
-            // (owner-only) cannot reliably undo. Blocked with a stated reason
-            // rather than offered and then refused at the last moment.
-            issues.push('move approval not built yet — needs an atomic RPC so a part-written move cannot leave drift');
-
+            if (missingWhen) issues.push('no usable date on this entry');
             return {
                 entry, raw, kind: 'move',
                 lot, ranch: from.ranch, pasture: from.pasture,
@@ -5116,6 +5114,8 @@ window.addEventListener('unhandledrejection', function(e) {
             meds.push({ position: i, name: name || '', med,
                         dose: (dose != null && !isNaN(dose)) ? dose : null, unpriced });
         }
+
+        if (missingWhen) issues.push('no usable date on this entry');
 
         const isDead = !!(action && action.is_dead);
         // "Drug off" is whether the carcass was hauled to the disposal spot.
@@ -5384,6 +5384,21 @@ window.addEventListener('unhandledrejection', function(e) {
         return { kind: 'lot_event', id: data };
     }
 
+    async function postMoveEntry(r) {
+        const raw = r.raw;
+        const { data, error } = await supabase.rpc('record_move_with_pasture', {
+            p_lot_id: r.lot.id,
+            p_from_pasture_id: r.pasture.id,
+            p_to_pasture_id: r.toPasture.id,
+            p_head_count: r.head,
+            p_move_date: String(r.entry.event_datetime || '').slice(0, 10),
+            p_notes: [raw.notes, '(from field app)'].filter(Boolean).join(' · '),
+            p_recorded_by: currentUser.id
+        });
+        if (error) throw new Error(`move ${raw.fromPasture} → ${raw.toPasture}: ${error.message}`);
+        return { kind: 'lot_movement', id: data };
+    }
+
     async function rollbackPosted(posted) {
         const failures = [];
         // Reverse order: undo the most recent first.
@@ -5396,6 +5411,9 @@ window.addEventListener('unhandledrejection', function(e) {
                 } else if (p.kind === 'lot_event') {
                     // Atomic reversal that also restores the pasture count.
                     const { error } = await supabase.rpc('delete_death_event', { p_event_id: p.id });
+                    if (error) throw error;
+                } else if (p.kind === 'lot_movement') {
+                    const { error } = await supabase.rpc('delete_move_event', { p_movement_id: p.id });
                     if (error) throw error;
                 }
             } catch (err) {
@@ -5410,19 +5428,13 @@ window.addEventListener('unhandledrejection', function(e) {
         if (!checked.length) { showAlert('globalAlert', 'Nothing selected.', 'error'); return; }
 
         const rows = approvalsCache.entries.filter(r => checked.includes(String(r.entry.id)));
-        const moves = rows.filter(r => r.kind === 'move');
-        if (moves.length) {
-            showAlert('globalAlert',
-                'Moves cannot be approved yet — they need an atomic RPC so a part-written move ' +
-                'cannot leave drift. Un-tick the moves and approve the rest.', 'error');
-            return;
-        }
-
         const nDoc = rows.filter(r => r.kind === 'doctoring').length;
         const nDead = rows.filter(r => r.kind === 'dead').length;
+        const nMove = rows.filter(r => r.kind === 'move').length;
         const priceWarn = rows.filter(r => r.warnings.some(w => w.includes('no price'))).length;
         let msg = `Post ${rows.length} entr${rows.length === 1 ? 'y' : 'ies'} to the books?\n\n` +
-                  `  ${nDoc} doctoring\n  ${nDead} death${nDead === 1 ? '' : 's'}\n\n` +
+                  `  ${nDoc} doctoring\n  ${nDead} death${nDead === 1 ? '' : 's'}\n` +
+                  `  ${nMove} move${nMove === 1 ? '' : 's'}\n\n` +
                   `If any one fails, the whole batch is rolled back.`;
         if (priceWarn) msg += `\n\n⚠ ${priceWarn} carry an unpriced medication and will post with $0 cost. ` +
                               `Cost is frozen at approval and cannot be corrected later by pricing the med.`;
@@ -5431,12 +5443,26 @@ window.addEventListener('unhandledrejection', function(e) {
         const btn = $('approvalsApproveBtn');
         btn.disabled = true; btn.textContent = 'Posting…';
 
-        // Doctoring first (office can reverse it), deaths last.
-        const ordered = [...rows.filter(r => r.kind === 'doctoring'), ...rows.filter(r => r.kind === 'dead')];
+        // Doctoring first: it does not touch head math at all, and it is the
+        // only kind office (not just owner) can reverse, so a failure later
+        // has the least irreversible work behind it.
+        //
+        // Deaths and moves BOTH move head between pastures, so they have to
+        // replay in the order the day actually happened. A move that empties
+        // a pasture, posted before a death recorded in that same pasture,
+        // would leave record_death_with_pasture with no active assignment and
+        // fail a batch that is perfectly valid in the right order.
+        const headMath = rows.filter(r => r.kind === 'dead' || r.kind === 'move')
+            .sort((a, b) => String(a.entry.event_datetime || '')
+                .localeCompare(String(b.entry.event_datetime || '')));
+        const ordered = [...rows.filter(r => r.kind === 'doctoring'), ...headMath];
+
         const posted = [];
         try {
             for (const r of ordered) {
-                const ref = r.kind === 'dead' ? await postDeathEntry(r) : await postDoctoringEntry(r);
+                const ref = r.kind === 'dead' ? await postDeathEntry(r)
+                          : r.kind === 'move' ? await postMoveEntry(r)
+                          : await postDoctoringEntry(r);
                 posted.push(ref);
                 r.__ref = ref;
             }
