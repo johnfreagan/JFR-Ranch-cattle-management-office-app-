@@ -886,7 +886,7 @@ historyTabBtn.onclick = () => switchTab('history');
 // synced under an older schema has a current betaLastSyncDate but is
 // missing the new data entirely, and would otherwise sit there looking
 // synced while tag lookups quietly returned nothing.
-const DATA_SCHEMA_VERSION = 3;
+const DATA_SCHEMA_VERSION = 4;
 
 function checkDailySync() {
     const lastSync = localStorage.getItem('betaLastSyncDate');
@@ -1245,12 +1245,28 @@ async function pullCloudData() {
     if (!currentUserId) { showToast('Sign in first', 'error', 2000); return; }
     syncCloudBtn.innerText = "⏳ Downloading...";
     try {
-        const [entriesRes, medsRes, pasturesRes, statusRes, lotsRes, bookRes, assignRes, destRes, receiptRes, actionsRes, protosRes] = await Promise.all([
-            // Own submissions (RLS widens this to everything for owner/office).
-            // Withdrawn entries are excluded so a deleted record cannot
-            // reappear in the history list.
+        // Window for the day's-activity report. Local midnight, not UTC:
+        // after about 7pm Central the UTC date is already tomorrow.
+        const reportSince = new Date();
+        reportSince.setHours(0, 0, 0, 0);
+        reportSince.setDate(reportSince.getDate() - (REPORT_DAYS - 1));
+        const reportSinceDay = localDay(reportSince);
+        const reportSinceIso = reportSince.toISOString();
+
+        const [entriesRes, medsRes, pasturesRes, statusRes, lotsRes, bookRes, assignRes, destRes, receiptRes, actionsRes, protosRes,
+               docDayRes, moveDayRes, deadDayRes, stagedDayRes] = await Promise.all([
+            // THIS PHONE'S OWN submissions, and only ever those. It feeds
+            // `records`, which the History tab renders with Edit and Delete
+            // buttons, so anything that lands here is treated as this user's
+            // to change. Since 2026-08-25 crew can SELECT every staged row
+            // (for the day's-activity report), which means RLS no longer
+            // narrows this on its own - the filter has to be explicit, or a
+            // pull would drop every other cowboy's entries into this list
+            // with edit controls that the write policies would then refuse,
+            // silently. The report reads its own copy further down.
             fetchAllPages(() => sb.from(STAGING_TABLE)
               .select('entry_type, raw, status')
+              .eq('submitted_by', currentUserId)
               .neq('status', 'withdrawn')
               .order('submitted_at', { ascending: false }), 'pending_field_entries')
               .then(data => ({ data, error: null }), error => ({ data: null, error })),
@@ -1304,7 +1320,37 @@ async function pullCloudData() {
                       'm1:medications!field_protocols_default_med_1_id_fkey(name), ' +
                       'm2:medications!field_protocols_default_med_2_id_fkey(name), ' +
                       'm3:medications!field_protocols_default_med_3_id_fkey(name)')
-              .eq('is_active', true)
+              .eq('is_active', true),
+
+            // ---- The day's-activity report -----------------------------
+            // Everyone's work, not just this phone's. Deliberately a narrow
+            // window: booksHistory above is unbounded because tag recall
+            // needs every treatment an animal ever had, but the report only
+            // looks back a few days and carrying meds on 1,000+ rows would
+            // push a phone into the storage-full path for no gain.
+            fetchAllPages(() => sb.from('doctoring_events')
+              .select('id, tag_number, no_tag, event_datetime, pasture_id, legacy_source, legacy_id, ' +
+                      'field_actions(name, is_dead), lots!inner(lot_number, is_test), ' +
+                      'doctoring_event_meds(position, dose_cc, medication_name_freetext, medications(name))')
+              .gte('event_datetime', reportSinceIso)
+              .order('event_datetime', { ascending: true }), 'report doctoring')
+              .then(data => ({ data, error: null }), error => ({ data: null, error })),
+            sb.from('lot_movements')
+              .select('id, move_date, head_count, notes, from_pasture_id, to_pasture_id, lots!inner(lot_number, is_test)')
+              .gte('move_date', reportSinceDay),
+            sb.from('lot_events')
+              .select('id, event_date, head_count, tag_number, cause, notes, pasture_id, lots!inner(lot_number, is_test)')
+              .eq('event_type', 'death').gte('event_date', reportSinceDay),
+            // Staged rows for the same window. Approved ones are already in
+            // the books above, so they are carried only to recover the name
+            // of the cowboy who did the work - the posted row records the
+            // office user who approved it, not him.
+            fetchAllPages(() => sb.from(STAGING_TABLE)
+              .select('entry_type, raw, status, review_notes, event_datetime, client_id, approved_ref')
+              .neq('status', 'withdrawn')
+              .gte('event_datetime', reportSinceIso)
+              .order('event_datetime', { ascending: true }), 'report staged entries')
+              .then(data => ({ data, error: null }), error => ({ data: null, error }))
         ]);
 
         // Degrade rather than die. Previously a single failing query threw and
@@ -1315,7 +1361,9 @@ async function pullCloudData() {
             ['entries', entriesRes], ['medications', medsRes], ['pastures', pasturesRes],
             ['lot_status', statusRes], ['lots', lotsRes], ['doctoring history', bookRes],
             ['pasture assignments', assignRes], ['receipt destinations', destRes],
-            ['receipt tag ranges', receiptRes], ['actions', actionsRes], ['protocols', protosRes]
+            ['receipt tag ranges', receiptRes], ['actions', actionsRes], ['protocols', protosRes],
+            ['day report: doctoring', docDayRes], ['day report: moves', moveDayRes],
+            ['day report: deaths', deadDayRes], ['day report: entries', stagedDayRes]
         ];
         const failed = named.filter(([, r]) => r.error);
         if (failed.length) {
@@ -1460,6 +1508,13 @@ async function pullCloudData() {
                     || (pastureCountByLot[d.lot_id] === 1 ? (soleLocationByLot[d.lot_id] || '') : '')
             }));
         safeSetItem('betaCattleBooksHistory', JSON.stringify(booksHistory));
+
+        // The day's-activity report, built from the four windowed queries.
+        // Stored whole so the modal opens instantly and works with no signal.
+        dayReport = buildDayReport(
+            docDayRes.data, moveDayRes.data, deadDayRes.data, stagedDayRes.data,
+            pastureLabelById);
+        safeSetItem(DAY_REPORT_KEY, JSON.stringify(dayReport));
 
         // The action dropdown is built from protocols, and it appends Dead
         // and Other itself — so those two are excluded here to avoid
@@ -2030,16 +2085,331 @@ window.editLocal = function(id) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
+// =========================================================
+// DAY'S ACTIVITY REPORT
+//
+// What happened on the ranch on one day - everyone's work, not this
+// phone's. Built for the head man staying current without waiting on the
+// office.
+//
+// It merges two sources because neither is enough on its own:
+//
+//   - The BOOKS (doctoring_events, lot_movements, deaths in lot_events).
+//     These hold approved work, whatever its origin, so office-entered
+//     work shows up here too.
+//   - STAGED entries not yet approved. This is the important half: at the
+//     hour anyone actually looks, most of the day's work is still sitting
+//     in pending_field_entries. A books-only report would show an empty
+//     afternoon and be worse than useless.
+//
+// No dedupe is needed. An approved staged row IS its book row, so only
+// pending and rejected staged rows are carried as report lines; approved
+// ones are kept aside purely to recover who did the work.
+//
+// Everything is as of the last Pull Cloud History, and says so. A phone
+// with no signal shows the last pull's picture rather than an empty day,
+// because an empty day and no data are not the same thing.
+// =========================================================
+const REPORT_DAYS = 7;
+
+// The rest of this file interpolates values straight into template
+// literals. The report renders free text - the office's review notes and
+// the cowboy's own notes - so it escapes rather than trusting them.
+function escapeHtml(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+const DAY_REPORT_KEY = 'betaCattleDayReport';
+
+let dayReport = loadJSON(DAY_REPORT_KEY, null);
+let dayReportDay = null;   // which day the modal is showing
+
+function localDay(d) {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function dayReportLabel(day) {
+    const d = new Date(day + 'T00:00:00');
+    if (isNaN(d.getTime())) return day;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff = Math.round((today - d) / 86400000);
+    const base = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    if (diff === 0) return base + ' · today';
+    if (diff === 1) return base + ' · yesterday';
+    return base;
+}
+
+// Tags are text and may be "NT3", so a plain sort puts 8402 before 8310.
+function drCompareTags(a, b) {
+    const na = parseInt(a, 10), nb = parseInt(b, 10);
+    const aNum = !isNaN(na) && /^\d+$/.test(String(a || '').trim());
+    const bNum = !isNaN(nb) && /^\d+$/.test(String(b || '').trim());
+    if (aNum && bNum) return na - nb;
+    if (aNum !== bNum) return aNum ? -1 : 1;
+    return String(a || '').localeCompare(String(b || ''));
+}
+
+// ---- Built during pullCloudData, from the four report queries ----------
+function buildDayReport(docRows, moveRows, deadRows, stagedRows, pastureLabelById) {
+    const rows = [];
+    const notTest = r => !(r.lots && r.lots.is_test);
+    const pastureOf = id => pastureLabelById[id] || '(pasture not recorded)';
+
+    // Who actually did the work. The posted row carries the office user who
+    // approved it, so the cowboy's name has to come off the staged entry.
+    const whoByRowId = {}, whoByClientId = {};
+    (stagedRows || []).forEach(e => {
+        const who = e.raw && e.raw.recordedBy;
+        if (!who) return;
+        if (e.client_id) whoByClientId[String(e.client_id)] = who;
+        if (e.approved_ref && e.approved_ref.id) whoByRowId[String(e.approved_ref.id)] = who;
+    });
+    const bookWho = (row) =>
+        whoByRowId[String(row.id)] ||
+        (row.legacy_id ? whoByClientId[String(row.legacy_id)] : '') ||
+        'Office';
+
+    (docRows || []).filter(notTest).forEach(d => {
+        const meds = (d.doctoring_event_meds || [])
+            .slice().sort((a, b) => (a.position || 0) - (b.position || 0))
+            .map(m => {
+                const name = (m.medications && m.medications.name) || m.medication_name_freetext || '(unnamed)';
+                return name + (m.dose_cc != null ? ' ' + Number(m.dose_cc) + 'cc' : '');
+            });
+        const when = new Date(d.event_datetime);
+        rows.push({
+            kind: (d.field_actions && d.field_actions.is_dead) ? 'dead' : 'doctoring',
+            day: localDay(when),
+            when: d.event_datetime,
+            timeLabel: when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+            lot: (d.lots && d.lots.lot_number) || '(lot not set)',
+            pasture: pastureOf(d.pasture_id),
+            tag: d.no_tag ? 'NT' : (d.tag_number || 'NT'),
+            action: (d.field_actions && d.field_actions.name) || 'Doctoring',
+            detail: meds.join(', '),
+            head: null,
+            who: bookWho(d),
+            status: 'posted',
+            statusNote: '',
+            flags: []
+        });
+    });
+
+    (moveRows || []).filter(notTest).forEach(m => {
+        rows.push({
+            kind: 'move',
+            day: m.move_date,
+            when: m.move_date,
+            timeLabel: '',
+            lot: (m.lots && m.lots.lot_number) || '(lot not set)',
+            pasture: pastureOf(m.from_pasture_id),
+            tag: '',
+            action: 'Move',
+            detail: '→ ' + pastureOf(m.to_pasture_id),
+            head: m.head_count != null ? m.head_count : null,
+            who: bookWho(m),
+            status: 'posted',
+            statusNote: '',
+            flags: (m.head_count == null || m.head_count <= 0) ? ['uncounted'] : []
+        });
+    });
+
+    (deadRows || []).filter(notTest).forEach(d => {
+        const notHauled = /carcass hauled off:\s*(no|not answered)/i.test(String(d.notes || ''));
+        rows.push({
+            kind: 'dead',
+            day: d.event_date,
+            when: d.event_date,
+            timeLabel: '',
+            lot: (d.lots && d.lots.lot_number) || '(lot not set)',
+            pasture: pastureOf(d.pasture_id),
+            tag: d.tag_number || 'NT',
+            action: 'Dead',
+            detail: d.cause ? String(d.cause) : '',
+            head: d.head_count != null ? d.head_count : 1,
+            who: bookWho(d),
+            status: 'posted',
+            statusNote: '',
+            flags: notHauled ? ['not hauled off'] : []
+        });
+    });
+
+    // Staged rows that are NOT in the books yet. Approved ones were used
+    // above for names only; carrying them again would double every line.
+    (stagedRows || [])
+        .filter(e => e.status === 'pending' || e.status === 'rejected')
+        .forEach(e => {
+            const raw = e.raw || {};
+            const isMove = e.entry_type === 'move';
+            const stamp = e.event_datetime || (isMove ? raw.date : raw.dateTime);
+            const when = stamp ? new Date(stamp) : null;
+            const status = e.status === 'rejected' ? 'sent back' : 'waiting';
+            const meds = [];
+            for (let i = 1; i <= 3; i++) {
+                const name = raw['medication' + i], dose = raw['dosage' + i];
+                if (!name && !dose) continue;
+                meds.push(String(name || '(unnamed)') + (dose ? ' ' + dose + 'cc' : ''));
+            }
+            const head = parseInt(raw.headCount, 10);
+            const notHauled = String(raw.treatmentType || '').toLowerCase() === 'dead' &&
+                              String(raw.drugOff || '').toLowerCase() !== 'yes';
+            rows.push({
+                kind: isMove ? 'move'
+                    : (String(raw.treatmentType || '').toLowerCase() === 'dead' ? 'dead' : 'doctoring'),
+                day: when && !isNaN(when.getTime()) ? localDay(when) : '',
+                when: stamp || '',
+                timeLabel: when && !isNaN(when.getTime()) && !isMove
+                    ? when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '',
+                lot: raw.lotNumber || (isMove ? '(lot not picked)' : '(lot not set)'),
+                pasture: isMove
+                    ? `${raw.fromRanch || ''} - ${raw.fromPasture || ''}`.trim()
+                    : (raw.location || '(pasture not recorded)'),
+                tag: isMove ? '' : (raw.tagNumber || 'NT'),
+                action: isMove ? 'Move' : (raw.treatmentType || 'Doctoring'),
+                detail: isMove
+                    ? `→ ${raw.toRanch || ''} - ${raw.toPasture || ''}`.trim()
+                    : meds.join(', '),
+                head: isMove ? (isNaN(head) ? null : head) : null,
+                who: raw.recordedBy || '',
+                status,
+                statusNote: e.status === 'rejected' ? (e.review_notes || '') : '',
+                flags: (isMove && (isNaN(head) || head <= 0) ? ['uncounted'] : [])
+                       .concat(notHauled ? ['not hauled off'] : [])
+            });
+        });
+
+    return { pulledAt: new Date().toISOString(), days: REPORT_DAYS, rows };
+}
+
+// ---- Rendering ---------------------------------------------------------
+const DR_KINDS = [
+    { key: 'doctoring', label: 'Doctoring' },
+    { key: 'move', label: 'Moves' },
+    { key: 'dead', label: 'Dead' }
+];
+
+function renderDayReport() {
+    const body = document.getElementById('reportContent');
+    const title = document.getElementById('reportDayLabel');
+    if (!dayReportDay) dayReportDay = localDay(new Date());
+    if (title) title.textContent = dayReportLabel(dayReportDay);
+
+    // Never signed on, or never pulled. An empty day and no data at all are
+    // different answers and must not look the same.
+    if (!dayReport || !Array.isArray(dayReport.rows)) {
+        body.innerHTML = `<p class="dr-empty">No activity loaded yet.<br>
+            Tap <b>🔄 Pull Cloud History</b> when you have signal.</p>`;
+        return;
+    }
+
+    const oldest = new Date(); oldest.setHours(0, 0, 0, 0);
+    oldest.setDate(oldest.getDate() - ((dayReport.days || REPORT_DAYS) - 1));
+    const beyond = dayReportDay < localDay(oldest);
+
+    const nextBtn = document.getElementById('drNextDay');
+    const prevBtn = document.getElementById('drPrevDay');
+    if (nextBtn) nextBtn.disabled = dayReportDay >= localDay(new Date());
+    if (prevBtn) prevBtn.disabled = dayReportDay <= localDay(oldest);
+
+    const forDay = dayReport.rows.filter(r => r.day === dayReportDay);
+    const pulled = dayReport.pulledAt ? new Date(dayReport.pulledAt) : null;
+    const stamp = pulled
+        ? `As of ${pulled.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${pulled.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+        : 'As of the last pull';
+
+    let html = `<div class="dr-stamp">${stamp} · pull again for anything newer</div>`;
+
+    if (beyond) {
+        html += `<p class="dr-empty">The app only keeps the last ${dayReport.days || REPORT_DAYS} days.<br>
+            Ask the office for anything older.</p>`;
+        body.innerHTML = html;
+        return;
+    }
+
+    const waiting = forDay.filter(r => r.status === 'waiting').length;
+    const sentBack = forDay.filter(r => r.status === 'sent back').length;
+    const counts = DR_KINDS.map(k => ({ ...k, n: forDay.filter(r => r.kind === k.key).length }));
+
+    html += `<div class="dr-chips">` +
+        counts.map(c => `<span class="dr-chip${c.key === 'dead' && c.n ? ' dead' : ''}">${c.n} ${c.key === 'dead' ? 'dead' : c.label.toLowerCase()}</span>`).join('') +
+        (waiting ? `<span class="dr-chip waiting">${waiting} waiting on the office</span>` : '') +
+        (sentBack ? `<span class="dr-chip sentback">${sentBack} sent back</span>` : '') +
+        `</div>`;
+
+    if (!forDay.length) {
+        html += `<p class="dr-empty">Nothing recorded for this day.</p>`;
+        body.innerHTML = html;
+        return;
+    }
+
+    DR_KINDS.forEach(k => {
+        const of = forDay.filter(r => r.kind === k.key);
+        if (!of.length) return;
+        html += `<div class="dr-section"><h3>${k.label} (${of.length})</h3>`;
+
+        const byLot = {};
+        of.forEach(r => {
+            (byLot[r.lot] = byLot[r.lot] || {});
+            (byLot[r.lot][r.pasture] = byLot[r.lot][r.pasture] || []).push(r);
+        });
+        Object.keys(byLot).sort().forEach(lot => {
+            Object.keys(byLot[lot]).sort().forEach(pasture => {
+                const lotLabel = lot.startsWith('(') ? lot.slice(1, -1) : 'Lot ' + lot;
+                html += `<div class="dr-group">${escapeHtml(lotLabel)} · ${escapeHtml(pasture)}</div>`;
+                byLot[lot][pasture]
+                    .sort((a, b) => drCompareTags(a.tag, b.tag) || String(a.when).localeCompare(String(b.when)))
+                    .forEach(r => { html += dayReportCard(r); });
+            });
+        });
+        html += `</div>`;
+    });
+
+    body.innerHTML = html;
+}
+
+function dayReportCard(r) {
+    const badge = r.status === 'posted' ? ''
+        : `<span class="dr-badge ${r.status === 'waiting' ? 'waiting' : 'sentback'}">${r.status === 'waiting' ? 'waiting on the office' : 'sent back'}</span>`;
+    const bits = [];
+    if (r.detail) bits.push(escapeHtml(r.detail));
+    if (r.head != null) bits.push(`<b>${r.head} hd</b>`);
+    const flags = r.flags.map(f =>
+        `<span class="dr-flag${f === 'not hauled off' ? ' danger' : ''}">${escapeHtml(f)}</span>`).join(' ');
+
+    return `<div class="dr-card ${r.kind === 'dead' ? 'dead' : ''}">
+        <div class="dr-row">
+            ${r.tag ? `<span class="dr-tag">${escapeHtml(r.tag)}</span>` : ''}
+            <span class="dr-action">${escapeHtml(r.action)}</span>
+            <span class="dr-when">${escapeHtml(r.timeLabel)}</span>
+        </div>
+        ${bits.length ? `<div class="dr-detail">${bits.join(' · ')}</div>` : ''}
+        <div class="dr-foot">${escapeHtml(r.who || '')}${badge}${flags}</div>
+        ${r.statusNote ? `<div class="dr-note">Office: ${escapeHtml(r.statusNote)}</div>` : ''}
+    </div>`;
+}
+
+function shiftDayReport(days) {
+    const base = new Date((dayReportDay || localDay(new Date())) + 'T00:00:00');
+    base.setDate(base.getDate() + days);
+    const next = localDay(base);
+    if (next > localDay(new Date())) return;   // no reports from the future
+    const oldest = new Date(); oldest.setHours(0, 0, 0, 0);
+    oldest.setDate(oldest.getDate() - (((dayReport && dayReport.days) || REPORT_DAYS) - 1));
+    if (next < localDay(oldest)) return;       // nothing cached that far back
+    dayReportDay = next;
+    renderDayReport();
+}
+
 document.getElementById('openReportBtn').onclick = function() {
-    const today = new Date().toISOString().split('T')[0];
-    const todays = records.filter(r => String(r.dateTime).startsWith(today));
-    let html = `<p><b>Total Today:</b> ${todays.length}</p><ul>`;
-    const counts = {};
-    todays.forEach(r => counts[r.treatmentType] = (counts[r.treatmentType] || 0) + 1);
-    for (const [type, count] of Object.entries(counts)) { html += `<li>${type}: ${count}</li>`; }
-    document.getElementById('reportContent').innerHTML = html;
-    document.getElementById('reportModal').style.display = "block";
+    dayReportDay = localDay(new Date());
+    renderDayReport();
+    document.getElementById('reportModal').style.display = 'block';
 };
+document.getElementById('drPrevDay').onclick = () => shiftDayReport(-1);
+document.getElementById('drNextDay').onclick = () => shiftDayReport(1);
+
 document.getElementById('closeModalBtn').onclick = () => document.getElementById('reportModal').style.display = "none";
 
 function setCurrentDateTime() { dateTimeInput.valueAsDate = new Date(); }
@@ -2097,7 +2467,7 @@ const RESET_KEYS = [
     'betaCattleBooksHistory', 'betaCattleTagLocations', 'betaCattleTagLots',
     'betaCattleTagRanges',
     'betaCattleSyncQueue', 'betaCattleTombstones', 'betaCattleRejected',
-    'betaLastSyncDate', 'betaCattleDataVersion'
+    'betaLastSyncDate', 'betaCattleDataVersion', 'betaCattleDayReport'
     // 'crewMemberName' is deliberately kept - it is a convenience, not state,
     // and retyping it is pure friction.
 ];

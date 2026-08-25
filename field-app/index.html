@@ -73,6 +73,52 @@
         /* Marks a history card that came from the ranch books rather than
            this phone, so a cowboy knows why he cannot edit it. */
         .thc-books { color: #6b6b70; font-style: italic; }
+        /* ---- Day's activity report ---- */
+        .dr-nav { display: flex; align-items: center; gap: 10px; margin: 2px 0 12px; }
+        .dr-nav button {
+            width: 40px; padding: 6px 0; font-size: 18px; font-weight: 700; line-height: 1;
+            background: #f2f2f7; color: #1c1c1e; border: 1px solid #d1d1d6; border-radius: 8px;
+        }
+        .dr-nav button:disabled { opacity: .35; }
+        .dr-day { font-weight: 700; font-size: 15px; flex: 1; text-align: center; }
+        .dr-stamp { font-size: 12px; color: #8e8e93; margin-bottom: 10px; }
+        .dr-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+        .dr-chip {
+            font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 11px;
+            background: #f2f2f7; color: #3a3a3c;
+        }
+        .dr-chip.dead     { background: #ffe5e7; color: #b3121f; }
+        .dr-chip.waiting  { background: #fff4e5; color: #8a4b00; }
+        .dr-chip.sentback { background: #ffe5e7; color: #b3121f; }
+        .dr-section { margin-bottom: 16px; }
+        .dr-section h3 {
+            font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+            color: #6b6b70; margin: 0 0 6px; font-weight: 700;
+        }
+        .dr-group { font-size: 13px; font-weight: 700; color: #1c1c1e; margin: 10px 0 4px; }
+        .dr-card {
+            background: #f9f9fb; border-left: 3px solid #007aff; border-radius: 6px;
+            padding: 7px 10px; margin-bottom: 6px;
+        }
+        .dr-card.dead { border-left-color: #d70015; background: #fff5f5; }
+        .dr-row { display: flex; align-items: baseline; gap: 8px; }
+        .dr-tag { font-family: ui-monospace, Menlo, monospace; font-weight: 700; min-width: 48px; }
+        .dr-action { font-weight: 600; flex: 1; }
+        .dr-when { color: #8e8e93; font-size: 12px; white-space: nowrap; }
+        .dr-detail { margin-top: 3px; font-size: 14px; color: #1c1c1e; }
+        .dr-foot {
+            margin-top: 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+            font-size: 12px; color: #6b6b70;
+        }
+        .dr-badge, .dr-flag {
+            font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+        }
+        .dr-badge.waiting  { background: #fff4e5; color: #8a4b00; }
+        .dr-badge.sentback { background: #ffe5e7; color: #b3121f; }
+        .dr-flag { background: #fff4e5; color: #8a4b00; }
+        .dr-flag.danger { background: #ffe5e7; color: #b3121f; }
+        .dr-note { margin-top: 4px; font-size: 12px; color: #b3121f; }
+        .dr-empty { color: #6b6b70; font-size: 14px; line-height: 1.6; }
         .reset-section { border-top: 1px solid #e5e5ea; padding-top: 14px; }
         .reset-btn {
             width: 100%; padding: 13px; font-size: 16px; font-weight: 600;
@@ -411,7 +457,7 @@
             </table>
         </div>
 
-        <button id="openReportBtn" class="report-btn" style="margin-top: 15px;" title="Open a quick summary popup of today's records: head treated, dead, moves.">📊 View Today's Report</button>
+        <button id="openReportBtn" class="report-btn" style="margin-top: 15px;" title="What happened on the ranch that day — everyone's doctoring, moves and deads, including work the office has not approved yet.">📊 Day's Activity</button>
     </div>
 
     <!-- Help row — always visible at the bottom of the app -->
@@ -422,10 +468,18 @@
 
 </div>
 
+<!-- Day's activity: everyone's work for one day, the books plus anything
+     still waiting on the office. Read-only by design — nothing in here is
+     editable, and the edit paths on the History tab are untouched. -->
 <div id="reportModal" class="modal">
     <div class="modal-content">
         <span class="close-modal" id="closeModalBtn">&times;</span>
-        <h2 style="margin-top: 0;">Today's Summary</h2>
+        <h2 style="margin-top: 0;">Day's Activity</h2>
+        <div class="dr-nav">
+            <button type="button" id="drPrevDay" title="Previous day">&lsaquo;</button>
+            <span id="reportDayLabel" class="dr-day"></span>
+            <button type="button" id="drNextDay" title="Next day">&rsaquo;</button>
+        </div>
         <div id="reportContent"></div>
     </div>
 </div>
