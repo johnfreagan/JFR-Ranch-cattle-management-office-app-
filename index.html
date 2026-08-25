@@ -655,6 +655,30 @@
             flex-basis: 100%; font-size: 12px; color: #8a4b00;
             padding: 4px 0 2px 24px; line-height: 1.5;
         }
+
+        /* ---- Daily report ---- */
+        /* Reuses the .appr-* grouping styles on purpose: the whole point is
+           that this reads the same as the approvals screen. */
+        .dfr-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .dfr-controls input { width: 160px; margin: 0; }   /* flatpickr's alt input, not the hidden original */
+        .dfr-nav { padding: 4px 11px; font-weight: 700; line-height: 1.2; }
+        .dfr-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+        .dfr-row .appr-detail { flex: 1 1 200px; }
+        .dfr-head { font-size: 12px; font-weight: 700; }
+        .dfr-src {
+            font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+            padding: 1px 6px; border-radius: 4px; background: #eef0f2; color: #6b6b70;
+        }
+        .dfr-src.field { background: #e8f1ff; color: #1a4b8c; }
+        .dfr-late {
+            background: #fffaf3; border: 1px solid #f0e0c8;
+            border-radius: var(--radius, 8px); padding: 10px 14px; margin-top: 18px;
+        }
+        .dfr-late-head { font-size: 13px; font-weight: 700; margin: 0 0 2px; text-transform: none; letter-spacing: 0; color: #8a4b00; }
+        .dfr-foot {
+            margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--border, #e5e5ea);
+            font-size: 12px; color: var(--text-muted, #6b6b70); line-height: 1.6;
+        }
 </style>
 </head>
 <body>
@@ -718,6 +742,7 @@
         </div>
         <div class="sub-tabs hidden" id="reportsSubtabs">
             <button class="sub-tab active" data-subtab="active-lots">Active Lots</button>
+            <button class="sub-tab" data-subtab="daily-report" data-perm="office">Daily Report</button>
             <button class="sub-tab" data-subtab="yard-sheet">Yard Sheet</button>
             <button class="sub-tab" data-subtab="anomalies">Anomalies</button>
             <button class="sub-tab" data-subtab="pasture-utilization">Pasture Utilization</button>
@@ -1303,6 +1328,36 @@
         </div>
 
         <!-- Yard Sheet report -->
+        <!-- Daily report: one day's doctoring, moves and deads as they stand in
+             the BOOKS, grouped the way the approvals screen groups them. Reading
+             the books rather than the staging table is what makes it cover both
+             origins - approved field-app entries and office-entered work.
+             Office+owner: crew can only read their own pending_field_entries
+             rows, so the "awaiting approval" footnote would be silently wrong. -->
+        <div id="reportDailyView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Daily Report</h2>
+                    <button id="dfrRefreshBtn">Refresh</button>
+                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Doctoring, moves and deads posted to the books for one day &mdash; from the field app or entered here &mdash; grouped like the approvals screen. Print it, text the PDF, or email it.</p>
+                <div class="dfr-controls">
+                    <button id="dfrPrevBtn" class="dfr-nav" title="Previous day">&lsaquo;</button>
+                    <input type="date" id="dfrDate">
+                    <button id="dfrNextBtn" class="dfr-nav" title="Next day">&rsaquo;</button>
+                    <button id="dfrTodayBtn">Today</button>
+                    <div class="dfr-actions">
+                        <button id="dfrPrintBtn">Print</button>
+                        <button id="dfrPdfBtn" class="primary">Text / share PDF</button>
+                        <button id="dfrEmailBtn">Email</button>
+                        <button id="dfrCopyBtn">Copy text</button>
+                    </div>
+                </div>
+                <div id="dfrSummary" class="approvals-summary"></div>
+                <div id="dfrContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
         <div id="reportYardSheetView" class="hidden">
             <div class="card">
                 <div class="card-header">
@@ -4855,7 +4910,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'fieldActionsView', 'fieldProtocolsView',
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
-         'reportActiveLotsView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
+         'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
          'approvalsView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
@@ -5585,6 +5640,9 @@ window.addEventListener('unhandledrejection', function(e) {
         if (subtab === 'active-lots') {
             $('reportActiveLotsView').classList.remove('hidden');
             loadActiveLotsReport();
+        } else if (subtab === 'daily-report') {
+            $('reportDailyView').classList.remove('hidden');
+            initDailyReport();
         } else if (subtab === 'yard-sheet') {
             $('reportYardSheetView').classList.remove('hidden');
             loadYardSheetReport();
@@ -6890,6 +6948,687 @@ window.addEventListener('unhandledrejection', function(e) {
     // ==========================================================
     let doctoringReportInitialized = false;
     let lastDoctoringRows = [];
+
+    // ==========================================================
+    // DAILY REPORT  (Reports -> Daily Report)
+    //
+    // One day's work as it stands in the BOOKS - doctoring, moves and deads -
+    // grouped the way the approvals screen groups it (kind -> lot -> pasture
+    // -> tag) so the two screens read the same.
+    //
+    // Reading the books rather than pending_field_entries is what makes this
+    // origin-agnostic: an entry a cowboy synced and the office approved and an
+    // entry keyed straight into this app both land in the same tables, so both
+    // appear here. Nothing unapproved is in the books, which is why the two
+    // footnotes below exist.
+    //
+    // Two things are stated rather than left to be discovered:
+    //   - work for the day still sitting unapproved. Otherwise a quiet day and
+    //     an unreviewed day look identical.
+    //   - work from EARLIER days posted on this one. A Tuesday pull approved on
+    //     Wednesday missed Tuesday's report and would appear on no report at
+    //     all; it shows on Wednesday's under "Posted late".
+    //
+    // Office+owner only. Not a cost decision - the report carries no money -
+    // but crew can only SELECT their own pending_field_entries rows, so the
+    // "awaiting approval" count would be quietly wrong for them, and an RLS
+    // denial reads as zero rather than as an error.
+    // ==========================================================
+    let dailyReportCache = null;
+    let dailyReportInitialized = false;
+
+    // toISOString() is UTC and would roll the date over during the evening,
+    // which is exactly when this report gets looked at.
+    function dfrLocalDay(d) {
+        const p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
+    function dfrDayBounds(day) {
+        const start = new Date(day + 'T00:00:00');
+        const end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        return { start, end };
+    }
+
+    function dfrLongDate(day) {
+        const d = new Date(day + 'T00:00:00');
+        return isNaN(d.getTime()) ? day
+            : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    // A text message drops to 70 characters per segment the moment one
+    // non-GSM character appears, so the shareable text is kept to plain
+    // ASCII - no em dashes, middots or warning glyphs.
+    function dfrAscii(s) {
+        return String(s == null ? '' : s)
+            .replace(/[–—]/g, '-')
+            .replace(/[‘’]/g, "'")
+            .replace(/[“”]/g, '"')
+            .replace(/→/g, '->')
+            .replace(/[·•]/g, '-')
+            .replace(/[^\x20-\x7E\n]/g, '');
+    }
+
+    const DFR_DOC_SELECT = `
+        id, tag_number, no_tag, event_datetime, created_at, pasture_id, notes,
+        legacy_source, legacy_id, recorded_by_user_id,
+        lots!inner(lot_number, is_test),
+        field_actions(name, is_dead),
+        doctoring_event_meds(position, dose_cc, medication_name_freetext, medications(name))`;
+    const DFR_MOVE_SELECT =
+        'id, move_date, head_count, notes, created_at, from_pasture_id, to_pasture_id, recorded_by, lots!inner(lot_number, is_test)';
+    const DFR_DEAD_SELECT =
+        'id, event_date, head_count, tag_number, cause, notes, created_at, pasture_id, created_by, lots!inner(lot_number, is_test)';
+
+    async function loadDailyReport() {
+        const day = $('dfrDate').value;
+        const content = $('dfrContent');
+        const summary = $('dfrSummary');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+            summary.innerHTML = '';
+            content.innerHTML = '<div class="empty">Pick a date.</div>';
+            dailyReportCache = null;
+            return;
+        }
+        content.innerHTML = '<div class="empty">Loading…</div>';
+        summary.innerHTML = '';
+
+        const { start, end } = dfrDayBounds(day);
+        const startIso = start.toISOString(), endIso = end.toISOString();
+
+        try {
+            const [docRes, moveRes, deadRes, lateDocRes, lateMoveRes, lateDeadRes, pastRes, profRes, pendRes] =
+                await Promise.all([
+                    supabase.from('doctoring_events').select(DFR_DOC_SELECT)
+                        .gte('event_datetime', startIso).lt('event_datetime', endIso)
+                        .order('event_datetime', { ascending: true }),
+                    supabase.from('lot_movements').select(DFR_MOVE_SELECT)
+                        .eq('move_date', day).order('created_at', { ascending: true }),
+                    supabase.from('lot_events').select(DFR_DEAD_SELECT)
+                        .eq('event_type', 'death').eq('event_date', day)
+                        .order('created_at', { ascending: true }),
+                    // Worked before this day, entered into the books ON it.
+                    supabase.from('doctoring_events').select(DFR_DOC_SELECT)
+                        .lt('event_datetime', startIso)
+                        .gte('created_at', startIso).lt('created_at', endIso),
+                    supabase.from('lot_movements').select(DFR_MOVE_SELECT)
+                        .lt('move_date', day)
+                        .gte('created_at', startIso).lt('created_at', endIso),
+                    supabase.from('lot_events').select(DFR_DEAD_SELECT)
+                        .eq('event_type', 'death').lt('event_date', day)
+                        .gte('created_at', startIso).lt('created_at', endIso),
+                    supabase.from('pastures').select('id, name, ranches(name)'),
+                    // Own row only unless owner - see the RLS note above. Rows
+                    // whose name will not resolve fall back to "Office", never
+                    // to a blank that reads as missing data.
+                    supabase.from('user_profiles').select('id, full_name'),
+                    // The review queue is small by design, so pull it whole and
+                    // count for this day client-side.
+                    supabase.from('pending_field_entries')
+                        .select('id, entry_type, event_datetime').eq('status', 'pending')
+                ]);
+
+            const firstErr = [docRes, moveRes, deadRes, lateDocRes, lateMoveRes, lateDeadRes, pastRes, pendRes]
+                .find(r => r.error);
+            if (firstErr) throw firstErr.error;
+
+            const pastureLabel = {};
+            (pastRes.data || []).forEach(p => {
+                pastureLabel[p.id] = `${p.ranches ? p.ranches.name + ' – ' : ''}${p.name}`;
+            });
+            const profiles = {};
+            (profRes.data || []).forEach(p => { profiles[p.id] = p.full_name; });
+
+            const notTest = r => !(r.lots && r.lots.is_test);
+            const books = {
+                doc:  (docRes.data  || []).filter(notTest),
+                move: (moveRes.data || []).filter(notTest),
+                dead: (deadRes.data || []).filter(notTest)
+            };
+            const lateBooks = {
+                doc:  (lateDocRes.data  || []).filter(notTest),
+                move: (lateMoveRes.data || []).filter(notTest),
+                dead: (lateDeadRes.data || []).filter(notTest)
+            };
+
+            // The cowboy who did the work is not on the posted row - the office
+            // user who approved it is. His name survives on the staged entry,
+            // which approval links back by approved_ref, so recover it there.
+            const allIds = [].concat(
+                books.doc, books.move, books.dead, lateBooks.doc, lateBooks.move, lateBooks.dead
+            ).map(r => r.id);
+            const dates = [].concat(
+                books.doc.map(r => r.event_datetime), lateBooks.doc.map(r => r.event_datetime),
+                books.move.map(r => r.move_date), lateBooks.move.map(r => r.move_date),
+                books.dead.map(r => r.event_date), lateBooks.dead.map(r => r.event_date)
+            ).filter(Boolean).sort();
+            const byRef = {};
+            if (allIds.length) {
+                const minIso = dates.length ? new Date(String(dates[0]).slice(0, 10) + 'T00:00:00').toISOString() : startIso;
+                const { data: appr } = await supabase.from('pending_field_entries')
+                    .select('approved_ref, raw').eq('status', 'approved')
+                    .gte('event_datetime', minIso).lt('event_datetime', endIso);
+                (appr || []).forEach(a => {
+                    const ref = a.approved_ref && a.approved_ref.id;
+                    const who = a.raw && a.raw.recordedBy;
+                    if (ref && who) byRef[ref] = who;
+                });
+            }
+
+            const ctx = { pastureLabel, profiles, byRef };
+            const rows = dfrNormalizeAll(books, ctx);
+            const late = dfrNormalizeAll(lateBooks, ctx);
+
+            const pending = (pendRes.data || []);
+            dailyReportCache = {
+                day,
+                rows,
+                late,
+                pendingForDay: pending.filter(p =>
+                    p.event_datetime && dfrLocalDay(new Date(p.event_datetime)) === day).length,
+                pendingUndated: pending.filter(p => !p.event_datetime).length,
+                pendingTotal: pending.length
+            };
+            renderDailyReport(dailyReportCache);
+        } catch (err) {
+            dailyReportCache = null;
+            summary.innerHTML = '';
+            content.innerHTML = `<div class="alert error">Could not load the report: ${escapeHtml(err.message || String(err))}</div>`;
+        }
+    }
+
+    function dfrNormalizeAll(books, ctx) {
+        const rows = [];
+        books.doc.forEach(e => rows.push(dfrNormalizeDoctoring(e, ctx)));
+        books.move.forEach(m => rows.push(dfrNormalizeMove(m, ctx)));
+        books.dead.forEach(d => rows.push(dfrNormalizeDeath(d, ctx)));
+
+        // A death recorded as a doctoring event AND as a lot_event is one
+        // death. Deaths belong to lot_events, so that copy wins.
+        const deathKey = r => `${r.lot}|${r.tag}|${r.workDay}`;
+        const fromLotEvents = new Set(rows.filter(r => r.kind === 'dead' && r.source === 'lot_event').map(deathKey));
+        return rows.filter(r => !(r.kind === 'dead' && r.source !== 'lot_event' && fromLotEvents.has(deathKey(r))));
+    }
+
+    function dfrWho(ctx, rowId, userId) {
+        return ctx.byRef[rowId] || ctx.profiles[userId] || 'Office';
+    }
+
+    function dfrFromField(row, ctx) {
+        return !!ctx.byRef[row.id] ||
+               row.legacy_source === 'field_app' ||
+               /\(from field app\)/i.test(String(row.notes || ''));
+    }
+
+    function dfrNormalizeDoctoring(e, ctx) {
+        const meds = (e.doctoring_event_meds || [])
+            .slice().sort((a, b) => (a.position || 0) - (b.position || 0))
+            .map(m => {
+                const name = (m.medications && m.medications.name) || m.medication_name_freetext || '(unnamed)';
+                return name + (m.dose_cc != null ? ' ' + Number(m.dose_cc) + 'cc' : '');
+            });
+        const when = new Date(e.event_datetime);
+        const isDead = !!(e.field_actions && e.field_actions.is_dead);
+        return {
+            kind: isDead ? 'dead' : 'doctoring',
+            source: 'doctoring_event',
+            id: e.id,
+            lot: (e.lots && e.lots.lot_number) || '(lot not set)',
+            pasture: ctx.pastureLabel[e.pasture_id] || '(pasture not recorded)',
+            tag: e.no_tag ? 'NT' : (e.tag_number || 'NT'),
+            action: (e.field_actions && e.field_actions.name) || 'Doctoring',
+            detail: meds.length ? meds.join(', ') : '—',
+            head: null,
+            when,
+            workDay: dfrLocalDay(when),
+            timeLabel: when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+            who: dfrWho(ctx, e.id, e.recorded_by_user_id),
+            fromField: dfrFromField(e, ctx),
+            notes: e.notes || '',
+            flags: []
+        };
+    }
+
+    function dfrNormalizeMove(m, ctx) {
+        const when = new Date(m.move_date + 'T00:00:00');
+        const from = ctx.pastureLabel[m.from_pasture_id] || '(pasture not recorded)';
+        const to = ctx.pastureLabel[m.to_pasture_id] || '(pasture not recorded)';
+        return {
+            kind: 'move',
+            source: 'lot_movement',
+            id: m.id,
+            lot: (m.lots && m.lots.lot_number) || '(lot not set)',
+            // Grouped under the pasture it left, matching the approvals screen,
+            // so the row itself only has to say where the cattle went.
+            pasture: from,
+            tag: '—',
+            action: 'Move',
+            detail: `→ ${to}`,
+            head: m.head_count != null ? m.head_count : null,
+            when,
+            workDay: m.move_date,
+            timeLabel: '',
+            who: dfrWho(ctx, m.id, m.recorded_by),
+            fromField: dfrFromField(m, ctx),
+            notes: m.notes || '',
+            flags: m.head_count == null || m.head_count <= 0 ? ['uncounted'] : []
+        };
+    }
+
+    function dfrNormalizeDeath(d, ctx) {
+        const when = new Date(d.event_date + 'T00:00:00');
+        // record_death_with_pasture writes the field app's carcass answer into
+        // the note. A carcass still out is an open job, so it is flagged rather
+        // than left buried in the note text.
+        const notHauled = /carcass hauled off:\s*(no|not answered)/i.test(String(d.notes || ''));
+        return {
+            kind: 'dead',
+            source: 'lot_event',
+            id: d.id,
+            lot: (d.lots && d.lots.lot_number) || '(lot not set)',
+            pasture: ctx.pastureLabel[d.pasture_id] || '(pasture not recorded)',
+            tag: d.tag_number || 'NT',
+            action: 'Dead',
+            detail: d.cause ? String(d.cause) : '—',
+            head: d.head_count != null ? d.head_count : 1,
+            when,
+            workDay: d.event_date,
+            timeLabel: '',
+            who: dfrWho(ctx, d.id, d.created_by),
+            fromField: dfrFromField(d, ctx),
+            notes: d.notes || '',
+            flags: (notHauled ? ['not hauled off'] : []).concat(d.cause ? [] : ['cause not recorded'])
+        };
+    }
+
+    const DFR_KINDS = [
+        { key: 'doctoring', label: 'Doctoring' },
+        { key: 'move', label: 'Moves' },
+        { key: 'dead', label: 'Dead' }
+    ];
+
+    // kind -> lot -> pasture -> tag, the approvals screen's own order.
+    function dfrGroup(rows) {
+        return DFR_KINDS.map(k => {
+            const of = rows.filter(r => r.kind === k.key);
+            const byLot = {};
+            of.forEach(r => {
+                (byLot[r.lot] = byLot[r.lot] || {});
+                (byLot[r.lot][r.pasture] = byLot[r.lot][r.pasture] || []).push(r);
+            });
+            const lots = Object.keys(byLot).sort().map(lot => ({
+                lot,
+                pastures: Object.keys(byLot[lot]).sort().map(pasture => ({
+                    pasture,
+                    rows: byLot[lot][pasture].slice().sort((a, b) =>
+                        compareTags(a.tag, b.tag) || (a.when - b.when))
+                }))
+            }));
+            return { ...k, count: of.length, lots };
+        }).filter(g => g.count > 0);
+    }
+
+    function renderDailyReport(model) {
+        const content = $('dfrContent');
+        const summary = $('dfrSummary');
+        const counts = {
+            doctoring: model.rows.filter(r => r.kind === 'doctoring').length,
+            move: model.rows.filter(r => r.kind === 'move').length,
+            dead: model.rows.filter(r => r.kind === 'dead').length
+        };
+        const notHauled = model.rows.filter(r => r.flags.includes('not hauled off')).length;
+
+        summary.innerHTML =
+            `<span class="appr-chip ok">${counts.doctoring} doctoring</span>` +
+            `<span class="appr-chip">${counts.move} move${counts.move === 1 ? '' : 's'}</span>` +
+            `<span class="appr-chip ${counts.dead ? 'blocked' : ''}">${counts.dead} dead</span>` +
+            (notHauled ? `<span class="appr-chip warn">${notHauled} not hauled off</span>` : '') +
+            (model.pendingForDay ? `<span class="appr-chip warn">${model.pendingForDay} awaiting approval</span>` : '');
+
+        let html = '';
+        const groups = dfrGroup(model.rows);
+        if (!groups.length) {
+            html += `<div class="empty">Nothing posted to the books for ${escapeHtml(dfrLongDate(model.day))}.</div>`;
+        } else {
+            groups.forEach(g => {
+                html += `<div class="appr-section"><h3>${g.label} (${g.count})</h3>`;
+                g.lots.forEach(l => {
+                    html += `<div class="appr-lot"><div class="appr-lot-head">Lot ${escapeHtml(l.lot)}</div>`;
+                    l.pastures.forEach(p => {
+                        html += `<div class="appr-pasture">${escapeHtml(p.pasture)}</div>`;
+                        p.rows.forEach(r => { html += dfrRowHtml(r); });
+                    });
+                    html += `</div>`;
+                });
+                html += `</div>`;
+            });
+        }
+
+        if (model.late.length) {
+            html += `<div class="dfr-late"><h3 class="dfr-late-head">Posted late (${model.late.length})</h3>
+                <div class="muted" style="font-size:12px;margin-bottom:8px;">Worked on an earlier day, entered into the books on this one — so it appeared on no other report.</div>`;
+            dfrGroup(model.late).forEach(g => {
+                html += `<div class="appr-section"><h3>${g.label} (${g.count})</h3>`;
+                g.lots.forEach(l => {
+                    html += `<div class="appr-lot"><div class="appr-lot-head">Lot ${escapeHtml(l.lot)}</div>`;
+                    l.pastures.forEach(p => {
+                        html += `<div class="appr-pasture">${escapeHtml(p.pasture)}</div>`;
+                        p.rows.forEach(r => { html += dfrRowHtml(r, true); });
+                    });
+                    html += `</div>`;
+                });
+                html += `</div>`;
+            });
+            html += `</div>`;
+        }
+
+        const notes = [];
+        if (model.pendingForDay) {
+            notes.push(`<strong>${model.pendingForDay}</strong> field entr${model.pendingForDay === 1 ? 'y' : 'ies'} for this day ${model.pendingForDay === 1 ? 'is' : 'are'} still awaiting approval and ${model.pendingForDay === 1 ? 'is' : 'are'} not counted above.`);
+        }
+        if (model.pendingUndated) {
+            notes.push(`${model.pendingUndated} pending entr${model.pendingUndated === 1 ? 'y carries' : 'ies carry'} no usable date and cannot be placed on any day.`);
+        }
+        notes.push('Reads the books, so it covers field-app entries that have been approved and anything entered here directly. Nothing unapproved is included.');
+        html += `<div class="dfr-foot">${notes.join('<br>')}</div>`;
+
+        content.innerHTML = html;
+    }
+
+    function dfrDetailLine(r, withFlags) {
+        const bits = [];
+        if (r.detail && r.detail !== '—') bits.push(r.detail);
+        if (r.head != null) bits.push(fmtNum(r.head) + ' hd');
+        if (withFlags && r.flags.length) bits.push(r.flags.join(', ').toUpperCase());
+        return bits.join(' · ') || '—';
+    }
+
+    function dfrWhenLabel(r, showDay) {
+        if (!showDay) return r.timeLabel;
+        return fmtDate(r.workDay) + (r.timeLabel ? ' ' + r.timeLabel : '');
+    }
+
+    function dfrRowHtml(r, showDay) {
+        const flags = r.flags.map(f =>
+            `<span class="appr-flag${f === 'not hauled off' ? ' danger' : ''}">${escapeHtml(f)}</span>`).join(' ');
+        const head = r.head != null ? `<span class="dfr-head">${fmtNum(r.head)} hd</span>` : '';
+        return `
+            <div class="appr-row dfr-row">
+                <span class="appr-tag">${escapeHtml(String(r.tag))}</span>
+                <span class="appr-action">${escapeHtml(r.action)}</span>
+                <span class="appr-detail">${escapeHtml(r.detail)}</span>
+                ${head}
+                <span class="appr-when">${escapeHtml(dfrWhenLabel(r, showDay))}</span>
+                <span class="appr-who">${escapeHtml(r.who)}</span>
+                <span class="dfr-src ${r.fromField ? 'field' : ''}">${r.fromField ? 'Field' : 'Office'}</span>
+                ${flags}
+            </div>`;
+    }
+
+    // ---- Shareable forms -------------------------------------------------
+    // Plain text is the one that gets texted, so it stays ASCII (see dfrAscii)
+    // and leads with the counts: at a glance is the whole point.
+    function buildDailyReportText(model) {
+        const counts = DFR_KINDS.map(k => {
+            const n = model.rows.filter(r => r.kind === k.key).length;
+            return `${k.key === 'dead' ? 'Dead' : k.label} ${n}`;
+        }).join(' | ');
+
+        const lines = [`JFR Ranch - ${dfrLongDate(model.day)}`, counts, ''];
+
+        const emit = (rows, heading) => {
+            const groups = dfrGroup(rows);
+            if (!groups.length) return;
+            if (heading) lines.push(heading);
+            groups.forEach(g => {
+                lines.push(`${g.label.toUpperCase()} (${g.count})`);
+                g.lots.forEach(l => l.pastures.forEach(p => {
+                    lines.push(`${l.lot} / ${p.pasture}`);
+                    p.rows.forEach(r => {
+                        // Fields are separated by " | ", not " - ": a pasture
+                        // reads "Corner - 2" once the text is flattened to
+                        // ASCII, and a dash separator disappears into it.
+                        const lead = [
+                            r.tag && r.tag !== '—' ? r.tag : null,
+                            r.kind === 'move' ? 'Move ' + r.detail : r.action
+                        ].filter(Boolean).join(' ');
+                        const bits = [lead];
+                        if (r.kind !== 'move' && r.detail && r.detail !== '—') bits.push(r.detail);
+                        if (r.head != null) bits.push(r.head + ' hd');
+                        if (r.flags.length) bits.push(r.flags.join(', ').toUpperCase());
+                        if (r.who) bits.push(r.who);
+                        lines.push('  ' + bits.join(' | '));
+                    });
+                }));
+                lines.push('');
+            });
+        };
+
+        if (!dfrGroup(model.rows).length) lines.push('Nothing posted to the books for this day.', '');
+        emit(model.rows, null);
+        if (model.late.length) emit(model.late, 'POSTED LATE - worked earlier, entered this day');
+
+        if (model.pendingForDay) {
+            lines.push(`${model.pendingForDay} field entr${model.pendingForDay === 1 ? 'y' : 'ies'} for this day still awaiting approval.`);
+        }
+        if (model.pendingUndated) {
+            lines.push(`${model.pendingUndated} pending entr${model.pendingUndated === 1 ? 'y has' : 'ies have'} no usable date.`);
+        }
+        return dfrAscii(lines.join('\n').replace(/\n{3,}/g, '\n\n').trim());
+    }
+
+    function dfrRequireModel() {
+        if (!dailyReportCache) {
+            showAlert('globalAlert', 'Nothing to send — the report has not loaded.', 'error');
+            return null;
+        }
+        return dailyReportCache;
+    }
+
+    function printDailyReport() {
+        const model = dfrRequireModel();
+        if (!model) return;
+        // One table per section, not one per pasture: separate tables size
+        // their columns independently and the page prints ragged. Lot and
+        // pasture become banner rows inside the single table instead.
+        const section = (rows, showDay, title, sub) => {
+            const groups = dfrGroup(rows);
+            if (!groups.length) return '';
+            let h = title ? `<h2 class="late">${escapeHtml(title)}</h2>` : '';
+            if (sub) h += `<div class="sub">${escapeHtml(sub)}</div>`;
+            groups.forEach(g => {
+                h += `<h3>${escapeHtml(g.label)} (${g.count})</h3><table>`;
+                g.lots.forEach(l => l.pastures.forEach(p => {
+                    h += `<tr class="grp"><td colspan="7">Lot ${escapeHtml(l.lot)} &nbsp;&middot;&nbsp; ${escapeHtml(p.pasture)}</td></tr>`;
+                    p.rows.forEach(r => {
+                        h += `<tr>
+                            <td class="tag">${escapeHtml(String(r.tag))}</td>
+                            <td>${escapeHtml(r.action)}</td>
+                            <td>${escapeHtml(dfrDetailLine(r, false))}</td>
+                            <td class="c">${escapeHtml(dfrWhenLabel(r, showDay))}</td>
+                            <td>${escapeHtml(r.who)}</td>
+                            <td class="c">${r.fromField ? 'Field' : 'Office'}</td>
+                            <td class="flag">${escapeHtml(r.flags.join(', '))}</td>
+                        </tr>`;
+                    });
+                }));
+                h += `</table>`;
+            });
+            return h;
+        };
+
+        let body = section(model.rows, false);
+        if (!body) body = `<div class="sub">Nothing posted to the books for this day.</div>`;
+        body += section(model.late, true, 'Posted late', 'Worked on an earlier day, entered into the books on this one.');
+
+        const foot = [];
+        if (model.pendingForDay) foot.push(`${model.pendingForDay} field entry(ies) for this day are still awaiting approval and are not included.`);
+        if (model.pendingUndated) foot.push(`${model.pendingUndated} pending entry(ies) carry no usable date.`);
+        foot.push('Source: the books — approved field-app entries and anything entered in the office app. Unapproved work is not included.');
+
+        const w = window.open('', '_blank');
+        if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
+        w.document.write(`<!DOCTYPE html><html><head><title>Daily Report — ${escapeHtml(dfrLongDate(model.day))}</title>
+<style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 32px; color: #1a1a1a; }
+    h1 { font-size: 20px; margin: 0 0 2px 0; }
+    h2.late { font-size: 15px; margin: 26px 0 2px; padding-top: 12px; border-top: 2px solid #888; }
+    h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #555; margin: 16px 0 4px; }
+    .sub { color: #555; font-size: 13px; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 4px; }
+    td { border-bottom: 1px solid #ddd; padding: 4px 8px; vertical-align: top; }
+    tr.grp td { font-weight: 700; font-size: 12px; background: #f2f2ec; border-bottom: 1px solid #999; padding-top: 7px; }
+    td.tag { font-family: ui-monospace, Menlo, monospace; font-weight: 700; width: 62px; }
+    td.c { text-align: center; white-space: nowrap; }
+    td.flag { color: #b3121f; font-weight: 700; font-size: 12px; }
+    .footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid #888; font-size: 12px; color: #666; line-height: 1.6; }
+    @media print { body { margin: 12mm; } }
+</style></head><body>
+<h1>Daily Report — ${escapeHtml(dfrLongDate(model.day))}</h1>
+<div class="sub">JFR Ranch Co. · doctoring, moves and deads · printed ${new Date().toLocaleString()}</div>
+${body}
+<div class="footer">${foot.map(escapeHtml).join('<br>')}</div>
+<script>window.onload = () => window.print();<\/script>
+</body></html>`);
+        w.document.close();
+    }
+
+    function buildDailyReportPdf(model) {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        // jsPDF's standard fonts are Latin-1. An arrow is not in that set: it
+        // renders as a stray glyph and drags the cell's letter spacing apart
+        // with it. Everything that reaches the page goes through the same
+        // ASCII pass the text version uses.
+        const cell = v => dfrAscii(v);
+        doc.setFontSize(17);
+        doc.text(cell(`Daily Report - ${dfrLongDate(model.day)}`), 14, 16);
+        doc.setFontSize(10.5);
+        doc.setTextColor(100);
+        const counts = DFR_KINDS.map(k =>
+            `${k.key === 'dead' ? 'Dead' : k.label} ${model.rows.filter(r => r.kind === k.key).length}`).join('   |   ');
+        doc.text(cell(`JFR Ranch Co.   |   ${counts}`), 14, 23);
+
+        let y = 30;
+        const addGroups = (rows, showDay, heading) => {
+            const groups = dfrGroup(rows);
+            if (!groups.length) return;
+            if (heading) {
+                doc.setFontSize(12); doc.setTextColor(30);
+                doc.text(cell(heading), 14, y); y += 6;
+            }
+            groups.forEach(g => {
+                const body = [];
+                g.lots.forEach(l => l.pastures.forEach(p => p.rows.forEach(r => {
+                    body.push([
+                        l.lot,
+                        p.pasture,
+                        String(r.tag),
+                        r.action,
+                        dfrDetailLine(r, true),
+                        dfrWhenLabel(r, showDay),
+                        r.who + (r.fromField ? ' (F)' : '')
+                    ].map(cell));
+                })));
+                // The section name is a line above the table, not the first
+                // column's header: an 18mm Lot column wrapped it mid-word.
+                doc.setFontSize(10); doc.setTextColor(90);
+                doc.text(`${g.label} (${g.count})`, 14, y); y += 4;
+                doc.autoTable({
+                    startY: y,
+                    head: [['Lot', 'Pasture', 'Tag', 'Action', 'Detail', 'When', 'By']],
+                    body,
+                    styles: { fontSize: 9, cellPadding: 2 },
+                    headStyles: { fillColor: [240, 240, 234], textColor: 30, fontStyle: 'bold', fontSize: 9 },
+                    columnStyles: {
+                        0: { cellWidth: 18, fontStyle: 'bold' },
+                        2: { cellWidth: 15 },
+                        3: { cellWidth: 24 },
+                        5: { cellWidth: 20 },
+                        6: { cellWidth: 24 }
+                    },
+                    theme: 'grid'
+                });
+                y = doc.lastAutoTable.finalY + 6;
+            });
+        };
+
+        if (!dfrGroup(model.rows).length) {
+            doc.setFontSize(11); doc.setTextColor(60);
+            doc.text('Nothing posted to the books for this day.', 14, y); y += 8;
+        }
+        addGroups(model.rows, false);
+        if (model.late.length) addGroups(model.late, true, 'Posted late - worked earlier, entered this day');
+
+        const foot = [];
+        if (model.pendingForDay) foot.push(`${model.pendingForDay} field entry(ies) for this day are still awaiting approval and are not included.`);
+        if (model.pendingUndated) foot.push(`${model.pendingUndated} pending entry(ies) carry no usable date.`);
+        foot.push('Source: the books - approved field-app entries and office-entered work. Unapproved work is not included.');
+        doc.setFontSize(8);
+        doc.setTextColor(120);
+        foot.forEach((line, i) => doc.text(cell(line), 14, y + 4 + i * 4));
+        return doc;
+    }
+
+    async function shareDailyReportPdf() {
+        const model = dfrRequireModel();
+        if (!model || !pdfReady()) return;
+        const doc = buildDailyReportPdf(model);
+        await sharePdfFile(doc, `daily-report-${model.day}.pdf`, `Daily Report — ${dfrLongDate(model.day)}`);
+    }
+
+    function emailDailyReport() {
+        const model = dfrRequireModel();
+        if (!model) return;
+        const subject = encodeURIComponent(`JFR daily report — ${dfrLongDate(model.day)}`);
+        const body = encodeURIComponent(buildDailyReportText(model));
+        window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    }
+
+    async function copyDailyReportText() {
+        const model = dfrRequireModel();
+        if (!model) return;
+        const text = buildDailyReportText(model);
+        try {
+            await navigator.clipboard.writeText(text);
+            showAlert('globalAlert', 'Report copied — paste it into a text or email.', 'success');
+        } catch (err) {
+            // Clipboard is blocked without a secure context or a user gesture;
+            // showing the text is better than reporting a copy that never happened.
+            window.prompt('Copy the report text:', text);
+        }
+    }
+
+    function dfrShiftDay(days) {
+        const cur = $('dfrDate').value;
+        const base = /^\d{4}-\d{2}-\d{2}$/.test(cur) ? new Date(cur + 'T00:00:00') : new Date();
+        base.setDate(base.getDate() + days);
+        setDateValue('dfrDate', dfrLocalDay(base));
+        loadDailyReport();
+    }
+
+    function initDailyReport() {
+        if (!dailyReportInitialized) {
+            // Plain .value only fills flatpickr's hidden ISO input and
+            // leaves the visible MM/DD/YYYY field blank - setDateValue does both.
+            setDateValue('dfrDate', dfrLocalDay(new Date()));
+            $('dfrDate').addEventListener('change', loadDailyReport);
+            $('dfrPrevBtn').addEventListener('click', () => dfrShiftDay(-1));
+            $('dfrNextBtn').addEventListener('click', () => dfrShiftDay(1));
+            $('dfrTodayBtn').addEventListener('click', () => {
+                setDateValue('dfrDate', dfrLocalDay(new Date()));
+                loadDailyReport();
+            });
+            $('dfrRefreshBtn').addEventListener('click', loadDailyReport);
+            $('dfrPrintBtn').addEventListener('click', printDailyReport);
+            $('dfrPdfBtn').addEventListener('click', shareDailyReportPdf);
+            $('dfrEmailBtn').addEventListener('click', emailDailyReport);
+            $('dfrCopyBtn').addEventListener('click', copyDailyReportText);
+            dailyReportInitialized = true;
+        }
+        loadDailyReport();
+    }
 
     async function initDoctoringReport() {
         if (!doctoringReportInitialized) {
