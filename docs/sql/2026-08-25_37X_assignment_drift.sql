@@ -62,6 +62,14 @@ BEGIN
       INTO v_drift
       FROM public.lot_status ls WHERE ls.lot_id = v_lot;
 
+    -- A missing lot_status row would leave v_drift NULL, and every
+    -- comparison below would then be NULL rather than true - so both
+    -- guards would fall through silently and the update would run
+    -- unverified. Fail loudly instead.
+    IF v_drift IS NULL THEN
+        RAISE EXCEPTION 'Could not read head_current for 37X from lot_status. Aborting rather than guessing.';
+    END IF;
+
     IF v_drift = 0 THEN
         RAISE EXCEPTION '37X drift is already 0 - this correction has been applied. Nothing to do.';
     END IF;
@@ -69,6 +77,9 @@ BEGIN
         RAISE EXCEPTION 'Expected 37X drift of -%, found %. State has changed since diagnosis; aborting.',
             c_head, v_drift;
     END IF;
+
+    RAISE NOTICE 'Pre-check OK: 37X head_current=%, drift=%. Proceeding.',
+        (SELECT ls.head_current FROM public.lot_status ls WHERE ls.lot_id = v_lot), v_drift;
 
     SELECT a.id, a.head_count INTO v_assign, v_head
       FROM public.lot_pasture_assignments a
