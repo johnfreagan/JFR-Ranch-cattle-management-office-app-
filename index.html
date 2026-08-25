@@ -611,6 +611,10 @@
             margin-left: auto; font-size: 11px; font-weight: 600; padding: 3px 9px;
             border: 1px solid var(--border, #d1d1d6); border-radius: 6px; background: none;
         }
+        .appr-date {
+            width: 132px; padding: 2px 6px; font-size: 12px;
+            border: 1px solid var(--border, #d1d1d6); border-radius: 5px;
+        }
         .appr-note {
             width: 150px; padding: 3px 7px; font-size: 12px;
             border: 1px solid var(--border, #d1d1d6); border-radius: 5px;
@@ -5291,6 +5295,10 @@ window.addEventListener('unhandledrejection', function(e) {
                 <span class="appr-tag">${escapeHtml(String(tag))}</span>
                 <span class="appr-action">${escapeHtml(raw.treatmentType || (isMove ? 'Move' : ''))}</span>
                 <span class="appr-detail">${detail}</span>
+                <input type="date" class="appr-date" data-id="${r.entry.id}"
+                       value="${escapeHtml(String(r.entry.event_datetime || '').slice(0, 10))}"
+                       title="The day the work happened. Saved on its own; corrects a record entered on the wrong day."
+                       ${r.entry.status === 'pending' ? '' : 'disabled'}>
                 <span class="appr-when">${escapeHtml(when)}</span>
                 <span class="appr-who">${escapeHtml(raw.recordedBy || '')}</span>
                 ${r.notHauled ? '<span class="appr-flag danger">not hauled off</span>' : ''}
@@ -5504,6 +5512,52 @@ window.addEventListener('unhandledrejection', function(e) {
         loadApprovals();
     }
 
+    // Correcting the day an entry was worked. The staged row holds the date
+    // twice - resolved in event_datetime, and verbatim in raw.dateTime - so
+    // both move together or the screen and the payload start disagreeing.
+    // The clock time is carried over untouched: only the day was wrong.
+    async function saveApprovalDate(id, newDay) {
+        const row = approvalsCache.entries.find(r => String(r.entry.id) === String(id));
+        if (!row) return;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(newDay)) {
+            showAlert('globalAlert', 'That is not a usable date.', 'error');
+            return;
+        }
+        const oldStamp = String(row.entry.event_datetime || '');
+        const oldDay = oldStamp.slice(0, 10);
+        if (oldDay === newDay) return;
+
+        // event_datetime is UTC; shift it by whole days so the time of day
+        // survives a move across a DST boundary.
+        const days = Math.round(
+            (Date.parse(newDay + 'T00:00:00Z') - Date.parse(oldDay + 'T00:00:00Z')) / 86400000);
+        if (!isFinite(days) || days === 0) return;
+        const shifted = new Date(Date.parse(oldStamp) + days * 86400000).toISOString();
+
+        // raw.dateTime is the cowboy's local "YYYY-MM-DDTHH:MM:SS"; swap only
+        // the date half so his recorded time of day is preserved verbatim.
+        const rawStamp = String((row.raw && row.raw.dateTime) || '');
+        const newRaw = Object.assign({}, row.raw);
+        if (rawStamp.includes('T')) newRaw.dateTime = newDay + 'T' + rawStamp.split('T')[1];
+        else newRaw.dateTime = newDay;
+
+        const prior = row.entry.review_notes ? row.entry.review_notes + ' · ' : '';
+        const { error } = await supabase.from('pending_field_entries')
+            .update({
+                event_datetime: shifted,
+                raw: newRaw,
+                review_notes: `${prior}date corrected ${oldDay} → ${newDay} by ${currentProfile.full_name}`
+            })
+            .eq('id', id)
+            .eq('status', 'pending');   // never rewrite something already posted
+        if (error) {
+            showAlert('globalAlert', 'Could not change the date: ' + error.message, 'error');
+            return;
+        }
+        showAlert('globalAlert', `Moved to ${newDay}.`, 'success');
+        loadApprovals();
+    }
+
     // Notes save on their own so a "leave it for tomorrow" note survives
     // without approving or rejecting anything.
     async function saveApprovalNote(id, value) {
@@ -5576,6 +5630,9 @@ window.addEventListener('unhandledrejection', function(e) {
 
     $('approvalsContent').addEventListener('change', (e) => {
         if (e.target.classList.contains('appr-check')) refreshApprovalSelection();
+        if (e.target.classList.contains('appr-date')) {
+            saveApprovalDate(e.target.dataset.id, e.target.value);
+        }
     });
     $('approvalsContent').addEventListener('click', (e) => {
         const rej = e.target.closest('.appr-reject');
