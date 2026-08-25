@@ -3,7 +3,7 @@
 Things known to need attention, and deliberately not done yet. Ordered by when
 they will bite, not by size.
 
-**Last reviewed:** 2026-08-24
+**Last reviewed:** 2026-08-25
 
 Anything finished moves to the bottom under *Closed* with the date, so the
 history of what was decided survives.
@@ -54,24 +54,7 @@ invitations, password resets, and forgot-password all work without John.
 
 ---
 
-## 3. Lauren's account is unusable as it stands
-
-**Status:** open, and the fix takes about two minutes.
-
-`lauren.yezak@gmail.com` — confirmed, **never signed in**, no password anyone
-knows, display name still her email address, and role `crew`, which since
-2026-08-24 means read-only.
-
-Verified 2026-08-24: she has **zero rows** across all sixteen tables that
-reference `auth.users`, so her account can be deleted and recreated with no
-loss of history. That is the shortcut — see "Protocol C" in the admin manual.
-
-Decide her role while doing it: `office` if she works the books, `crew` if she
-is strictly field.
-
----
-
-## 4. A refused UPDATE or DELETE is silent
+## 3. A refused UPDATE or DELETE is silent
 
 **Status:** known, mitigated in one place, not fixed generally.
 
@@ -88,7 +71,7 @@ through `index.html` and has not been attempted.
 
 ---
 
-## 5. Retire the old field-app repo
+## 4. Retire the old field-app repo
 
 **Status:** waiting on a date — **on or after 2026-09-14**.
 
@@ -104,23 +87,7 @@ Worth a nudge to anyone still on the old copy to open it once on signal first.
 
 ---
 
-## 6. Part B — field app writes to Supabase
-
-**Status:** designed, not started. Roadmap item 3.
-
-The field app still writes to Google Apps Script; nothing a cowboy records
-reaches the books without someone re-keying it. Full design is in `HANDOFF.md`.
-
-The auth prerequisite is **done** — crew are read-only across the books as of
-2026-08-24. What remains is the granting half: create `pending_field_entries`
-and give crew `INSERT` on that table and nothing else.
-
-**Do not restore any grant the crew read-only migration revoked.** The staging
-table is meant to be the field app's only write surface.
-
----
-
-## 7. The guides exist in two places
+## 5. The guides exist in two places
 
 **Status:** low priority, but it will cause a stale page eventually.
 
@@ -133,18 +100,23 @@ the markdown and treat the HTML as the only source.
 
 ---
 
-## 8. SECURITY DEFINER advisor warnings are expected
+## 6. SECURITY DEFINER advisor warnings are expected
 
 **Status:** no action needed — recorded so a future advisor run is not alarming.
 
-`get_advisors` reports four `SECURITY DEFINER` functions callable by signed-in
-users: `current_user_role`, `admin_list_users`, `lot_projected_weight`, and
-`lot_weighted_arrival_date`.
+Re-verified 2026-08-25: `public` holds **seven** `SECURITY DEFINER` functions,
+and **all seven carry a pinned `search_path`** —  `current_user_role`,
+`admin_list_users`, `guard_last_owner`, `handle_new_user`,
+`cleanup_attachment_storage`, `lot_projected_weight`, `lot_weighted_arrival_date`.
 
-The first two are deliberate and guarded — `current_user_role()` filters on
-`is_active`, and `admin_list_users()` checks for owner inside the query and is
-revoked from `anon`. Both fail closed. The two lot functions predate this work
-and have not been reviewed.
+The first three are deliberate and guarded — `current_user_role()` filters on
+`is_active`, `admin_list_users()` checks for owner inside the query and is
+revoked from `anon`, and `guard_last_owner()` is a trigger. All fail closed. The
+two lot functions predate this work and have not been reviewed.
+
+Also verified 2026-08-25: the head-math RPCs (`record_death_with_pasture`,
+`record_move_with_pasture`, `delete_death_event`, `delete_move_event`) are all
+`SECURITY INVOKER`, which is correct — they must run under the caller's RLS.
 
 Also expected: `auth_leaked_password_protection` — that is item 2 above.
 
@@ -152,6 +124,22 @@ Also expected: `auth_leaked_password_protection` — that is item 2 above.
 
 ## Closed
 
+- **2026-08-25 — Part B: the field app writes to the books.** Roadmap item 3,
+  done. The field app authenticates against Supabase and writes to
+  `pending_field_entries`; the office **Approvals** tab reviews and posts into
+  the books. Eleven real doctoring entries went through on 2026-08-25 with
+  frozen cost and zero drift. Deaths and moves are built, RPC-backed and
+  rollback-tested, but no real one has been approved yet — John will flag the
+  first of each. See "Field → books approval path" in `CLAUDE.md`.
+- **2026-08-25 — `delete_death_event` double-counted head on reversal.** When
+  the death closed an assignment outright, the reversal reopened it *and* added
+  the head back. Fixed alongside the new `record_move_with_pasture` /
+  `delete_move_event`.
+- **2026-08-25 — Lot 37X carried −3 drift.** Sixteen deaths predated the lot's
+  first pasture assignment (April import). Reduced Steele–Front Native 244→241
+  with an audit note, John's call. All lots verified at zero drift after.
+- **2026-08-25 — Lauren's account.** She signed in, works the books as `owner`,
+  and has pulled data on both her Windows machine and the field app.
 - **2026-08-24 — Crew write directly to the books.** Crew are now read-only
   everywhere; verified all 27 non-SELECT policies across nine tables.
 - **2026-08-24 — `doctoring_event_meds` had no ownership check.** Subsumed by

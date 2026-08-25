@@ -110,13 +110,17 @@ is unrecoverable in a way an accidental insert is not.
 5. **New tables need RLS *and* policies.** `ENABLE ROW LEVEL SECURITY` with no
    policy is a total lockout; policies without `ENABLE` are decoration.
 6. **`SECURITY DEFINER` needs a reason and a pinned `search_path`.** Each one
-   bypasses RLS. Deliberate today: `current_user_role` (it is the gate),
-   `handle_new_user`, `cleanup_attachment_storage`, `lot_projected_weight`,
-   `lot_weighted_arrival_date`. Default to INVOKER.
+   bypasses RLS. Deliberate today (all seven verified 2026-08-25 to carry a
+   pinned `search_path`): `current_user_role` (it is the gate),
+   `admin_list_users`, `guard_last_owner`, `handle_new_user`,
+   `cleanup_attachment_storage`, `lot_projected_weight`,
+   `lot_weighted_arrival_date`. Default to INVOKER — the head-math RPCs
+   (`record_death_with_pasture`, `record_move_with_pasture`, the delete
+   reversals) are all INVOKER and must stay that way.
 7. **Run `supabase/migrations/20260821000300_rls_verify.sql` after any
    migration that adds a table, view, or function.** It asserts 1–6.
 
-### Offline/PWA consequences (matters for the field app in roadmap #3)
+### Offline/PWA consequences (the live field app depends on all three)
 
 - An RLS denial on SELECT returns **zero rows, not an error**. "No lots" is
   ambiguous between not-authorized, offline, and genuinely empty. Call
@@ -129,6 +133,43 @@ is unrecoverable in a way an accidental insert is not.
   about RLS. Persist the write queue outside the auth session, keyed by user
   id — days offline can outlive the refresh token.
 
+## Field → books approval path (live 2026-08-25)
+
+Nothing a cowboy records reaches the books directly. The field app's only write
+surface is `pending_field_entries`; the office **Approvals** tab posts from
+there. Read this before touching either side.
+
+```
+field PWA → pending_field_entries → office Approvals tab → RPC → books
+         ↑ localStorage queue keeps this offline-first
+```
+
+- **`(entry_type, client_id)` is an UPSERT key, not a duplicate check.** The
+  field app re-sends an edited record under the same client id, and the second
+  send must overwrite the first. Do not add a reject-duplicates constraint.
+- **Statuses:** `pending → approved | rejected | withdrawn`; `withdrawn → pending`
+  (office reinstates); `rejected → pending` (office reopens); **`approved` is
+  terminal.** `pfe_guard_settled()` enforces this in the DB — the app is not the
+  only guard. `withdrawn` exists because the field app can delete a record.
+- **Approval is all-or-nothing per batch** (John's call, 2026-08-25). If any row
+  in a selection fails, `rollbackPosted()` unwinds the ones already written.
+  Deaths and moves post through their atomic RPCs so head math stays intact.
+- **Order matters within a batch.** Doctoring first, then deaths and moves
+  sorted by `event_datetime` — head-math entries must replay in the order they
+  happened or a move can outrun the death that freed the head.
+- **Cost freezes at approval, not at field entry.** Price a medication BEFORE
+  approving anything that uses it; an unpriced med writes a NULL cost line that
+  `SUM()` then ignores. The approvals screen flags unpriced meds — do not
+  approve past that flag.
+- **Correcting a date** is done on the approvals row, which shifts
+  `event_datetime` by whole days and rewrites only the date half of
+  `raw.dateTime`, preserving time of day. It is guarded `.eq('status','pending')`
+  so an already-posted entry can never be rewritten.
+- Deaths approve **without a cause** — cause is filled in later on the lot.
+  Carcass disposal is flagged when the animal was **NOT** hauled off.
+  (`drug_off` means removed to the proper location for dead animals; it has
+  nothing to do with drug withdrawal.)
+
 ## Schema landmines (verified by painful trial and error — trust these)
 
 - `doctoring_events.tag_number` is TEXT. `lot_tags.tag_number` is INTEGER.
@@ -140,8 +181,24 @@ is unrecoverable in a way an accidental insert is not.
 - `sales` has BOTH gross_weight_lb and net_weight_lb — realized ADG and pay
   weights use **net**.
 - `field_protocols` has default_med_1/2/3_id but NO dose columns.
+- `lot_pasture_assignments` uses `moved_in` / `moved_out` — NOT date_in/date_out.
+  An OPEN assignment is `moved_out is null`.
+- `pastures.name` — NOT pasture_name. `lots` has no `status` column; open means
+  `closed_at is null`. Head counts live on the `lot_status` VIEW, not on `lots`.
+- `pending_field_entries` has `reviewed_at`/`reviewed_by` and an `approved_ref`
+  jsonb (`{kind, id}`) — there is no `approved_at`.
 - Supabase PostgREST caps results at 1000 rows — PAGINATE lot_tags and any
-  large fetch.
+  large fetch. **PostgREST query builders are single-use** — a pager must take
+  a builder *function* and call it fresh per page, not reuse one object.
+- `lots.start_tag` / `end_tag` describe the FIRST receipt only, not the lot's
+  whole tag range. To resolve a tag to a lot, go lot_tags → receipt ranges →
+  and only then fall back to lots.start_tag/end_tag.
+- **The Supabase SQL editor swallows `begin;`/`commit;`** — a wrapped script
+  can report "Success. No rows returned" without applying anything. Omit the
+  wrapper when pasting into the editor; keep it in files meant for the CLI.
+- **The MCP Supabase connector is READ-ONLY.** DDL and DML fail with
+  `25006: cannot execute ... in a read-only transaction`. Give John pasteable
+  SQL in chat — not a file attachment, not a path. He has said so twice.
 - When unsure of a column name, QUERY information_schema — do not guess.
   Schemas evolved inconsistently across tables.
   **Exception: do NOT trust information_schema for GRANTS or PRIVILEGES.**
@@ -152,10 +209,17 @@ is unrecoverable in a way an accidental insert is not.
 
 ## Data-integrity architecture (do not bypass)
 
-- Deaths, sales, and receipt deletions go through atomic RPCs
+- Deaths, moves, sales, and receipt deletions go through atomic RPCs
   (`record_death_with_pasture`, `delete_death_event`,
+  `record_move_with_pasture`, `delete_move_event`,
   `delete_receipt_with_reversal`, etc.) that keep pasture assignments in
-  sync. NEVER raw-delete a receipt/death/sale from the app.
+  sync. NEVER raw-delete a receipt/death/sale/move from the app.
+- **A reversal that reopens a closed assignment must not also add head back.**
+  Reopening (`moved_out = null`) already restores the count; adding to
+  `head_count` on top double-counts. This was a live bug in
+  `delete_death_event` — 3 head, death of all 3, reversal, and the lot came
+  back with 6. Fixed 2026-08-25. Any new reversal RPC: test it against a lot
+  whose assignment the event closed outright, not just a partial one.
 - Load-out saves hard-block duplicates (same lot + date + head + tag range).
 - Historical scar tissue exists from pre-hardening eras; old lots may carry
   reconciliation notes. Read row notes before "fixing" anything.
@@ -217,10 +281,10 @@ closes it early.
    originally planned admin/manager/cowboy/guest. The `user_profiles.role`
    CHECK constraint permits only those three. **Open decision:** whether a
    read-only `guest` role is still wanted; it does not exist today.
-   Lauren Yezak is provisioned as `crew` but has never signed in.
-3. Field PWA for cowboys: pending_field_entries queue + office review screen,
-   offline-first. `crew` is the role this targets — see the offline/PWA notes
-   under Access control before building the queue.
+   Lauren Yezak signed in 2026-08-25 and works the books as `owner`.
+3. ✅ Field PWA for cowboys — live 2026-08-25. The field app writes to
+   `pending_field_entries`; the office **Approvals** tab reviews and posts them
+   into the books. See "Field → books approval path" above.
 4. Cost ledger (18 categories, monthly, per-head-day allocation; Redwing
    exports imported via Cowork). Note: cost data is office+owner only.
 5. Daily buy/sell dashboard: breakevens vs market data

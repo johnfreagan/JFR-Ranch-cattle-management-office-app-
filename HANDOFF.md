@@ -1,6 +1,7 @@
 # Handoff — field app merge & retirement
 
-**Last updated:** 2026-08-24 (retirement merged; auth + RLS hardening)
+**Last updated:** 2026-08-25 (Part B built and live — the field app now writes
+to the books through the office Approvals tab)
 
 **Open items live in `docs/OPEN-ITEMS.md`** — read that first for what still
 needs doing. This file is the narrative of how things got here.
@@ -14,14 +15,18 @@ takes precedence over anything here.
 ## Core goal
 
 Consolidate two cattle apps into one repo and one deploy, then retire the
-duplicate. A secondary goal emerged during the work: establish whether the field
-app is connected to the production books (**it is not**) and design that
-connection for later.
+duplicate. A secondary goal emerged during the work: connect the field app to
+the production books. **Both are done as of 2026-08-25.**
 
 | | Repo | Backend |
 |---|---|---|
 | Office app | `johnfreagan/JFR-Ranch-cattle-management-office-app-` | Supabase `xpfmebdzcxorvwikfvtj` — the real books |
-| Field app (PWA for cowboys) | `johnfreagan/JFR-Ranch-Cattle-Field-App` | Google Apps Script → a Google Sheet |
+| Field app (PWA for cowboys) | same repo, `field-app/` | **Supabase, same project** — via `pending_field_entries` |
+| ~~Old field app repo~~ | `johnfreagan/JFR-Ranch-Cattle-Field-App` | retired; redirect stub only. Archive on/after 2026-09-14 |
+
+Google Apps Script and the Google Sheet are **out of the loop entirely** — the
+field app no longer writes to them. The Sheet was abandoned in place (test data
+only, John's call).
 
 ---
 
@@ -45,6 +50,42 @@ diff, not assumed.
 
 **Live URL — confirmed working on John's phone (2026-08-24):**
 `https://johnfreagan.github.io/JFR-Ranch-cattle-management-office-app-/field-app/`
+
+### Part B, live on office repo `main` (2026-08-25)
+
+Field app swapped off Google Apps Script and onto Supabase, plus the office
+Approvals tab. Shipped across `e1d1359 … d191f13`. Field app is at **build v12**.
+
+Things that broke on the way and are worth not repeating:
+
+- **The service worker served the app shell cache-first**, leaving every device
+  one deploy behind and — worse — able to pair new HTML with old JS. Now
+  network-first for the shell (`isAppShell()`), stale-while-revalidate for the
+  rest. Reproduced both ways before and after the fix.
+- **A careless find-and-replace called `safeSetItem` with five arguments**,
+  storing a literal key name where JSON belonged. `JSON.parse` threw on load and
+  killed every event handler — Lauren could not sign in at all. Fixed, and all
+  fourteen `JSON.parse(localStorage…)` sites now go through `loadJSON()`, which
+  self-heals a corrupt value instead of throwing. **The tests missed it because
+  they always started from empty storage and never reloaded after a pull.**
+- **`checkDailySync()` only checked whether `records` existed**, so a device
+  that had cached data before the new lookups were added looked synced while
+  holding empty tag maps. Now gated on `DATA_SCHEMA_VERSION` (currently 3) —
+  bump it whenever the shape of cached data changes.
+- **Swapping the reads lost three features** — dose auto-fill, tag recall, and
+  the safety checks all went blind to the books. Fixed with a `lot_status` join
+  and a `booksHistory` pool. Lesson: the field app reads more than it looks like
+  it does; enumerate every consumer before changing a fetch.
+- **`lots.start_tag`/`end_tag` is the first receipt only.** Tag resolution goes
+  lot_tags → receipt ranges → and only then that fallback. John caught this:
+  *"8310 is in the range of tags for 36-27 you just looked at first load."*
+- **`supabase.min.js` is vendored pristine from npm (2.46.1).** An earlier
+  attempt concatenated it with a webpack chunk, whose leading `"use strict"`
+  became a prologue for the whole file. Do not concatenate it with anything.
+- **`index.html` carries an inline boot-diagnostics block that runs first**,
+  catches `error`/`unhandledrejection`, renders into `#bootError`, and wires a
+  `hardReset()` that does **not** depend on `app.js`. That independence is the
+  point — it is what made a dead-on-boot app recoverable in the field.
 
 ### Live on field app repo `main`
 
@@ -165,43 +206,34 @@ delete data unprompted.
 
 1. ~~John verifies the new URL on a phone~~ — ✅ done, works.
 2. ~~Merge the retirement to the field app repo's `main`~~ — ✅ done, `1dc84cb`.
-3. **Disable Pages on the old repo and archive it — on or after 2026-09-14.**
-   *Outstanding; this is the only open item.* Archiving early strands anyone who
-   hasn't opened the app online since the switch: an installed copy needs **one
-   online load** to run the self-destructing worker. Until then it keeps working
-   from its own cache. Three weeks from the 2026-08-24 switch was the agreed
-   wait, hence the date.
+3. ~~Part B — field app writes to Supabase~~ — ✅ **done and live 2026-08-25.**
+   See the section below; it is now a record of what was built, not a plan.
+4. **Disable Pages on the old repo and archive it — on or after 2026-09-14.**
+   *Outstanding.* Archiving early strands anyone who hasn't opened the app
+   online since the switch: an installed copy needs **one online load** to run
+   the self-destructing worker. Until then it keeps working from its own cache.
+   Three weeks from the 2026-08-24 switch was the agreed wait, hence the date.
 
    Steps are John's, in the GitHub UI: old repo → Settings → Pages (disable),
-   then Settings → Archive.
-4. **Part B stays blocked** on roadmap item 2 (multi-user auth + RLS), but that
-   item moved substantially on 2026-08-24. Roles are `owner` / `office` / `crew`
-   (not the roadmap's admin/manager/cowboy/guest); RLS is on and policied across
-   all 26 tables; the login screen now refuses inactive accounts; and the office
-   UI hides controls a role cannot use. See `docs/USER-ADMIN-GUIDE.md`.
+   then Settings → Archive. Worth nudging anyone still on the old copy to open
+   it once on signal first.
+5. **First real death and first real move through Approvals.** Both paths are
+   built, RPC-backed and rollback-tested, but neither has been exercised on
+   production data. John will run one of each as they occur and flag it for
+   verification. Check `event_datetime`, the `approved_ref`, and **drift on the
+   affected lot** after.
 
-   **Two things are outstanding and are John's:** run
-   `docs/sql/2026-08-24_crew_read_only.sql` in the SQL Editor, and flip two
-   Supabase dashboard settings. Both are written up in that guide's §9.
-
-   Once the migration is run, **crew have no write access to any table.** That is
-   deliberate and is the precondition for Part B: when `pending_field_entries`
-   lands, grant crew INSERT on that table and nothing else. Do not restore any
-   grant the migration revoked — the staging table is meant to be the field
-   app's only write surface.
-
-Worth a look before archiving: anyone still on the old copy has, by definition,
-not loaded it online since the switch. If cowboys are already using it, give them
-a nudge to open it once on signal.
-
-**Do not** start Part B or import Sheet data.
+Roadmap items 4 (cost ledger) and 5 (daily buy/sell dashboard) are next and
+untouched. Item 4 needs a Redwing export from John before it can start.
 
 ---
 
-## Part B design — field app → Supabase (build after roadmap #2)
+## Part B — field app → Supabase (BUILT, live 2026-08-25)
 
-Not started. Recorded here so the design survives; execute only once cowboys can
-log in.
+**This section was the design; it is now the record of what shipped.** Where the
+build diverged from the plan, the divergence is called out inline — those
+divergences are the load-bearing part. The operational rules live in `CLAUDE.md`
+under "Field → books approval path"; that file takes precedence.
 
 ### Shape
 
@@ -221,18 +253,39 @@ supabase-js insert.
 
 ### New table: `pending_field_entries`
 
+*Applied 2026-08-24 via `docs/sql/2026-08-24_pending_field_entries.sql`. As
+built:*
+
 - `id uuid pk`, `entry_type text` (`'doctoring'` | `'move'`)
 - `raw jsonb` — the field payload verbatim, never edited
 - `client_id text` — the app's own id (`String(Date.now())`, or `"M-"+…` for
-  moves). **Unique together with `entry_type`** — the idempotency key that makes
-  offline-queue retries safe.
-- resolved FKs, nullable until review: `lot_id`, `pasture_id`,
-  `field_action_id`, `tag_number`
-- `status text` (`'pending'` | `'approved'` | `'rejected'`), `review_notes text`
-- `submitted_by uuid` → `user_profiles`, `reviewed_by uuid`, timestamps
+  moves), unique together with `entry_type`
+- resolved FKs, nullable until review: `lot_id`, `pasture_id`, `to_pasture_id`,
+  `field_action_id`, `tag_number`, `no_tag`, `head_count`, `resolved_meds`
+- `status text`, `review_notes text`, `approved_ref jsonb` (`{kind, id}` —
+  what the approval actually wrote)
+- `submitted_by uuid` → `user_profiles`, `reviewed_by`, `reviewed_at`, timestamps
+
+**Three divergences from the design above, all deliberate:**
+
+1. **`(entry_type, client_id)` is an UPSERT key, not a reject-duplicates
+   constraint.** The design got this backwards. The field app re-sends an
+   *edited* record under the same client id, so the second send must overwrite
+   the first — rejecting it would strand the correction on the phone.
+2. **`status` has a fourth value, `'withdrawn'`** — the field app can delete a
+   record. Transitions are enforced in the DB by `pfe_guard_settled()`:
+   `pending → approved | rejected | withdrawn`; `withdrawn → pending` and
+   `rejected → pending` (office reinstates/reopens); **`approved` is terminal.**
+3. **There is no `'dead'` entry_type.** A death arrives as
+   `entry_type='doctoring'` and is identified by `field_actions.is_dead` on its
+   resolved action. Anything classifying entries must check `is_dead`, not the
+   entry type — this is landmine 1 below, and it is easy to miss.
+
+Grants are pinned to `{authenticated, service_role}`, revoked from `PUBLIC` and
+`anon`.
 
 On approve, write `legacy_source='field_app'` and `legacy_id=client_id` into
-`doctoring_events`.
+`doctoring_events`, and stamp `approved_ref` on the staged row.
 
 ### Mapping free text → UUIDs
 
@@ -265,45 +318,68 @@ Cowboy login, plus RLS so a cowboy can INSERT into `pending_field_entries` and
 read lookup tables only — never write to `doctoring_events`, `lots`, `sales`, or
 receipts. The staging table is the field app's only write surface.
 
-**Status 2026-08-24:** the revoking half is done — `crew` is read-only across
-the books once `docs/sql/2026-08-24_crew_read_only.sql` is run. What remains for
-Part B is the granting half: create `pending_field_entries` and give crew INSERT
-on it alone.
+**Status 2026-08-25: done.** Both halves are in place — `crew` is read-only
+across the books, and `pending_field_entries` is the one table they may INSERT
+into. Note that in practice both current users (John, Lauren) are `owner`; the
+`crew` path is built and policied but no `crew` user works the field app today.
 
-### Office review screen
+### Office review screen — as built
 
-Lives in the office `index.html`. Entry list newest-first, filter bar
-(`All / Ready / Needs info / Deaths`), and a bulk **Approve all ready** covering
-only fully-resolved non-death entries. Cards reuse `buildTileRows()` (label left,
-value right), `showModal()`/`hideModal()` for pickers, `showAlert()` for results.
+The **Approvals** tab in the office `index.html`. John's spec (2026-08-25):
+*"concise and organized by lot, pasture, then tag number… each entry selectable
+to transfer… leaving behind ones that need to be followed up on… a note by each
+one left behind"*, plus *"group approvals by day"* and *"one line is enough"*.
 
-- **Ready** — everything resolved. Shows tag, datetime, lot, pasture, meds with
-  doses, recorded-by, and med cost priced at review time. One-tap Approve.
-- **Needs info** — unresolved fields render inline with ⚠ and a picker
-  (`Pick lot ▾`, `Map medication ▾`, or `Keep as text` → writes
-  `medication_name_freetext`, no cost, labelled as such). **Approve stays
-  disabled** until nothing is unresolved.
-- **Death** — flagged ☠, excluded from bulk approve, previews the head math
-  before commit (`head_current 412 → 411`, matching pasture assignment, drift
-  after = none).
-- **Move** — from/to/head plus a lot picker. A partial move (120 of 412) splits
-  the assignment rather than moving the whole thing.
+**It shipped as one line per entry, not the card layout designed above.** Rows
+group by **work day** (newest day first), then sort by lot → pasture → tag.
+Doctoring, Move and Dead each have their own section. Checkbox per row.
 
-Reject prompts for a reason, sets `status='rejected'` + `review_notes`, and
-surfaces it back in the cowboy's app. Rejected entries are never deleted.
+- **Per-row note** — the "left behind" note John asked for; writes
+  `review_notes` without changing status, so an entry can be parked with a
+  reason and picked up later.
+- **Per-row date** — added after John entered a doctoring on the wrong day and
+  found he could not fix it from either app. Shifts `event_datetime` by whole
+  days and rewrites only the date half of `raw.dateTime`, preserving time of
+  day, guarded `.eq('status','pending')` so a posted entry can never be
+  rewritten. Appends an audit note.
+- **Batch approve is all-or-nothing** (John's call: *"b. all or nothing for
+  now"*). If any row fails, `rollbackPosted()` unwinds what was already
+  written.
+- **Order within a batch matters:** doctoring first, then deaths and moves
+  sorted by `event_datetime`. Head-math entries must replay in the order they
+  happened or a move can outrun the death that freed the head.
+- **Deaths approve without a cause** (John's call, option B) — cause is filled
+  in later on the lot. Carcass disposal is flagged when the animal was **NOT**
+  hauled off. `drug_off` means "removed to the proper location for dead
+  animals" — nothing to do with drug withdrawal.
+- **Unpriced meds are flagged permanently** (John's call: *"a and c"*) — cost
+  freezes at approval, so a med must be priced before anything using it is
+  approved.
 
-### Verification when built
+Reject sets `status='rejected'` + `review_notes` and surfaces back in the
+cowboy's app. Rejected entries are never deleted, and can be reopened to
+`pending`.
 
-With a cowboy-role login: submit an entry in airplane mode, go online, confirm
-one `pending_field_entries` row. Submit the same entry twice — the
-`(entry_type, client_id)` constraint must reject the duplicate. Approve; confirm
-`doctoring_events` + `doctoring_event_meds` rows with frozen cost.
+### Verification — what actually happened
 
-Then the tests that actually matter:
+Done in production 2026-08-25. **Eleven real doctoring entries**, lot 36-27,
+First Pull EX, over three work days:
 
-- Approve a **Dead** entry and confirm the Anomalies report shows **no drift**.
-- Submit a garbage lot and an unknown med; confirm Approve stays disabled until
-  both resolve, and `Keep as text` lands in `medication_name_freetext` with no
-  cost.
-- Submit a move; confirm the lot picker pre-selects and a partial move splits.
-- Confirm a cowboy token is refused a direct write to `doctoring_events`.
+- All eleven posted with `legacy_source='field_app'`, a real `approved_ref`,
+  two med rows each, cost frozen at ~$16.17/head, **zero unpriced lines**.
+- **Drift = 0 on every open lot** after (36-27, 37X, 37X-1, 37X-F, 47-26, 59X,
+  60X) — checked as `head_current` vs the sum of open
+  `lot_pasture_assignments`.
+- The date correction was exercised for real: tag 8288 moved Aug 25 → Aug 24,
+  time of day preserved, audit note on the staged row.
+
+**Still unexercised on production data:** a real **Dead** and a real **Move**.
+Both are built, RPC-backed, and their reversals were tested against a local
+Postgres replica — that testing is what caught the `delete_death_event`
+double-count. John will run one of each as they occur.
+
+Also worth noting about the offline-queue test in the original plan: the
+`(entry_type, client_id)` pair is an **upsert**, so submitting the same entry
+twice correctly results in **one row that reflects the second submission** —
+not a rejected duplicate. Testing for a rejection would be testing for the
+wrong behaviour.
