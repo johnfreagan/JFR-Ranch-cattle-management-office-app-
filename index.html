@@ -712,6 +712,7 @@
             <button class="nav-tab active" id="navLots">Lots</button>
             <button class="nav-tab" id="navAnimalHealth">Animal Health</button>
             <button class="nav-tab" id="navSales" data-perm="office">Sales</button>
+            <button class="nav-tab" id="navMoves" data-perm="office">Moves</button>
             <button class="nav-tab" id="navSettings">Settings</button>
             <button class="nav-tab" id="navReports">Reports</button>
             <button class="nav-tab" id="navApprovals" data-perm="office">Approvals <span id="navApprovalsCount" class="approvals-badge hidden">0</span></button>
@@ -1601,6 +1602,54 @@
         </div>
 
         <!-- ============================================================
+             MOVES: move several lots in one pass
+             ============================================================ -->
+        <div id="movesView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Move cattle</h2>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="mvRefreshBtn">Refresh inventory</button>
+                        <button id="mvAddTicketBtn" class="primary">+ Move ticket</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 14px 0;">
+                    One ticket per move. Work through as many lots and pastures as you like &mdash;
+                    the counts walk down as you go, so a pasture you draw on twice shows what is
+                    actually left. Nothing is written until you save, and if any ticket fails the
+                    whole batch is put back.
+                </p>
+
+                <div class="form-grid">
+                    <div>
+                        <label for="mvDate">Date &mdash; set every ticket to</label>
+                        <input type="date" id="mvDate">
+                    </div>
+                    <div>
+                        <label for="mvNotes">Notes (applied to every ticket)</label>
+                        <input type="text" id="mvNotes" placeholder="optional">
+                    </div>
+                </div>
+
+                <div id="mvTicketList" style="margin-top: 14px;"></div>
+                <div id="mvDrawSummary" style="margin-top: 14px;"></div>
+            </div>
+
+            <div class="card">
+                <div id="mvSaveAlert"></div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button class="primary" id="mvSaveBtn">Save moves</button>
+                    <button id="mvClearBtn">Clear all</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><h2>Recent moves</h2></div>
+                <div id="mvRecentContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- ============================================================
              SALES: accounting report (one shipment, lot x pasture)
              ============================================================ -->
         <div id="salesReportView" class="hidden" data-perm="office">
@@ -2000,7 +2049,7 @@
                     <label for="medWithdrawal">Slaughter withdrawal (days) *</label>
                     <input type="number" id="medWithdrawal" required min="0" placeholder="e.g. 18">
                 </div>
-                <div>
+                <div data-perm="office">
                     <label for="medCost">Cost / head ($)</label>
                     <input type="number" step="0.0001" id="medCost" placeholder="e.g. 2.50 (flat meds only)">
                     <div class="muted" style="font-size: 11px; margin-top: 2px;">For flat-dose meds (implants, tags) — used if bottle fields blank.</div>
@@ -2016,7 +2065,7 @@
                         </select>
                     </div>
                 </div>
-                <div>
+                <div data-perm="office">
                     <label for="medBottleCost">Bottle cost ($)</label>
                     <input type="number" step="0.01" min="0" id="medBottleCost" placeholder="e.g. 180.00">
                     <div class="muted" style="font-size: 11px; margin-top: 2px;" id="medCostPerUnitDisplay">Computed: cost/unit shown after save.</div>
@@ -5369,14 +5418,14 @@ window.addEventListener('unhandledrejection', function(e) {
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
-         'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView'].forEach(id => {
+         'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
         });
     }
     // Helper: clear active state on top nav and sub-tabs
     function clearAllNavActive() {
-        ['navLots', 'navAnimalHealth', 'navSales', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
+        ['navLots', 'navAnimalHealth', 'navSales', 'navMoves', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
             const el = $(id); if (el) el.classList.remove('active');
         });
         ['animalHealthSubtabs', 'salesSubtabs', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
@@ -6941,16 +6990,20 @@ window.addEventListener('unhandledrejection', function(e) {
     }
 
     // ---- LOAD INVENTORY --------------------------------------------------
-    async function loadShipmentInventory() {
-        // Open assignments are the truth for what is standing where. Closed
-        // lots are excluded - you cannot ship off a lot that is already shut -
-        // and so are TEST_ / TEST- lots, which are scaffolding, not cattle.
-        //
-        // Paged: PostgREST caps a response at 1000 rows and would simply stop
-        // there. The builder is rebuilt per page on purpose - a PostgREST
-        // query builder is single-use and reusing one returns page 1 forever.
+    // Shared by the shipment screen and the move screen. Both need the same
+    // answer to the same question - what is standing where, right now - and
+    // two copies of it would drift.
+    //
+    // Open assignments are the truth. Closed lots are excluded (you cannot
+    // ship or move off a lot that is already shut) and so are TEST_ / TEST-
+    // lots, which are scaffolding, not cattle.
+    //
+    // Paged: PostgREST caps a response at 1000 rows and would simply stop
+    // there. The builder is rebuilt per page on purpose - a PostgREST query
+    // builder is single-use and reusing one returns page 1 forever.
+    async function loadOpenPastureInventory() {
         const PAGE = 1000;
-        let data = [], from = 0, error = null;
+        let data = [], from = 0;
         for (;;) {
             const res = await supabase
                 .from('lot_pasture_assignments')
@@ -6958,19 +7011,13 @@ window.addEventListener('unhandledrejection', function(e) {
                 .is('moved_out', null)
                 .order('id', { ascending: true })
                 .range(from, from + PAGE - 1);
-            if (res.error) { error = res.error; break; }
+            if (res.error) return { error: res.error };
             data = data.concat(res.data || []);
             if (!res.data || res.data.length < PAGE) break;
             from += PAGE;
         }
 
-        if (error) {
-            showAlert('shipmentEntryAlert', 'Could not load inventory: ' + error.message);
-            shipmentInventory = []; shipmentLotIndex = [];
-            return;
-        }
-
-        shipmentInventory = (data || [])
+        const inventory = (data || [])
             .filter(r => r.lots && !r.lots.closed_at && (Number(r.head_count) || 0) > 0)
             .filter(r => !/^TEST[_-]/i.test(r.lots.lot_number || ''))
             .map(r => ({
@@ -6986,14 +7033,27 @@ window.addEventListener('unhandledrejection', function(e) {
                             a.pasture_label.localeCompare(b.pasture_label));
 
         const byLot = new Map();
-        shipmentInventory.forEach(i => {
+        inventory.forEach(i => {
             if (!byLot.has(i.lot_id)) {
                 byLot.set(i.lot_id, { lot_id: i.lot_id, lot_number: i.lot_number, pastures: [] });
             }
             byLot.get(i.lot_id).pastures.push(
                 { pasture_id: i.pasture_id, label: i.pasture_label, avail: i.head_count });
         });
-        shipmentLotIndex = [...byLot.values()].sort((a, b) => a.lot_number.localeCompare(b.lot_number));
+        const lotIndex = [...byLot.values()].sort((a, b) => a.lot_number.localeCompare(b.lot_number));
+
+        return { inventory, lotIndex };
+    }
+
+    async function loadShipmentInventory() {
+        const res = await loadOpenPastureInventory();
+        if (res.error) {
+            showAlert('shipmentEntryAlert', 'Could not load inventory: ' + res.error.message);
+            shipmentInventory = []; shipmentLotIndex = [];
+            return;
+        }
+        shipmentInventory = res.inventory;
+        shipmentLotIndex = res.lotIndex;
     }
 
     // ---- OPEN THE ENTRY SCREEN ------------------------------------------
@@ -7998,6 +8058,490 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('acctPrintBtn').addEventListener('click', acctPrint);
     $('acctPdfBtn').addEventListener('click', acctPdf);
     $('acctCopyBtn').addEventListener('click', acctCopy);
+
+
+    // ==========================================================
+    // MOVES - move several lots in one pass
+    // ==========================================================
+    // The lot-detail "+ Move" button moves one lot at a time, which is right
+    // when you are looking at a lot and wrong when you have just worked a set
+    // of pastures and need to record eight moves across five lots.
+    //
+    // Same shape as the shipment load tickets, for the same reason: the counts
+    // have to walk down as you enter, or a pasture drawn on twice is only
+    // caught at save. Availability is netted across the WHOLE batch.
+    //
+    // Every ticket posts through record_move_with_pasture - the same RPC the
+    // single-lot path uses - so pasture assignments stay in sync and nothing
+    // here reimplements head math.
+    // ----------------------------------------------------------
+
+    let moveState = null;        // { tickets: [...] }
+    let moveInventory = [];      // open (lot, pasture) with head standing
+    let moveLotIndex = [];       // [{lot_id, lot_number, pastures:[...]}]
+    let moveAllPastures = [];    // every active pasture, for destinations
+    let mvTempSeq = 0;
+    function mvTempId() { return 'mv_' + (++mvTempSeq); }
+
+    function mvNewTicket(date) {
+        return {
+            tempId: mvTempId(),
+            date: date || '',
+            lot_id: null, from_pasture_id: null, to_pasture_id: null,
+            head: ''
+        };
+    }
+
+    // Head this batch has already committed against each (lot, from-pasture).
+    // excludeTempId drops one ticket so its own head does not count against
+    // its own ceiling.
+    function mvDrawnByPair(excludeTempId) {
+        const m = new Map();
+        (moveState?.tickets || []).forEach(t => {
+            if (excludeTempId && t.tempId === excludeTempId) return;
+            if (!t.lot_id || !t.from_pasture_id) return;
+            const h = shpNum(t.head) || 0;
+            if (h <= 0) return;
+            const k = `${t.lot_id}|${t.from_pasture_id}`;
+            m.set(k, (m.get(k) || 0) + h);
+        });
+        return m;
+    }
+
+    function mvPairExists(lotId, pastureId) {
+        return moveInventory.some(i => i.lot_id === lotId && i.pasture_id === pastureId);
+    }
+
+    // Both source pickers narrow each other and either can go first, exactly
+    // as on the shipment screen - a pasture with several lots in it is the
+    // case worth being able to start from.
+    function mvLotOptions(selLot, selPasture, excludeTempId) {
+        const drawn = mvDrawnByPair(excludeTempId);
+        let list;
+        if (selPasture) {
+            list = moveInventory.filter(i => i.pasture_id === selPasture).map(i => ({
+                lot_id: i.lot_id, lot_number: i.lot_number,
+                standing: i.head_count,
+                remaining: i.head_count - (drawn.get(`${i.lot_id}|${i.pasture_id}`) || 0)
+            }));
+        } else {
+            list = moveLotIndex.map(l => {
+                const standing = l.pastures.reduce((a, p) => a + p.avail, 0);
+                const taken = l.pastures.reduce(
+                    (a, p) => a + (drawn.get(`${l.lot_id}|${p.pasture_id}`) || 0), 0);
+                return { lot_id: l.lot_id, lot_number: l.lot_number, standing, remaining: standing - taken };
+            });
+        }
+        list.sort((a, b) => a.lot_number.localeCompare(b.lot_number));
+        return '<option value="">— lot —</option>' + list.map(r =>
+            `<option value="${escapeHtml(r.lot_id)}"${r.lot_id === selLot ? ' selected' : ''}>` +
+            `${escapeHtml(r.lot_number)} (${shpAvailLabel(r.remaining, r.standing)})</option>`).join('');
+    }
+
+    function mvFromPastureOptions(selLot, selPasture, excludeTempId) {
+        const drawn = mvDrawnByPair(excludeTempId);
+        if (selLot) {
+            const lot = moveLotIndex.find(l => l.lot_id === selLot);
+            if (!lot) return '<option value="">— from pasture —</option>';
+            return '<option value="">— from pasture —</option>' + lot.pastures.map(p => {
+                const remaining = p.avail - (drawn.get(`${selLot}|${p.pasture_id}`) || 0);
+                return `<option value="${escapeHtml(p.pasture_id)}"${p.pasture_id === selPasture ? ' selected' : ''}>` +
+                       `${escapeHtml(p.label)} (${shpAvailLabel(remaining, p.avail)})</option>`;
+            }).join('');
+        }
+        const byPasture = new Map();
+        moveInventory.forEach(i => {
+            const cur = byPasture.get(i.pasture_id) ||
+                { pasture_id: i.pasture_id, label: i.pasture_label, standing: 0, remaining: 0, lots: 0 };
+            cur.standing += i.head_count;
+            cur.remaining += i.head_count - (drawn.get(`${i.lot_id}|${i.pasture_id}`) || 0);
+            cur.lots += 1;
+            byPasture.set(i.pasture_id, cur);
+        });
+        const list = [...byPasture.values()].sort((a, b) => a.label.localeCompare(b.label));
+        return '<option value="">— from pasture —</option>' + list.map(p =>
+            `<option value="${escapeHtml(p.pasture_id)}"${p.pasture_id === selPasture ? ' selected' : ''}>` +
+            `${escapeHtml(p.label)} (${shpAvailLabel(p.remaining, p.standing)}` +
+            `${p.lots > 1 ? `, ${p.lots} lots` : ''})</option>`).join('');
+    }
+
+    // Destination is any active pasture - the whole point of a move is to go
+    // somewhere the lot is not. Where the lot already stands is listed first
+    // because joining an existing bunch is the common case.
+    function mvToPastureOptions(selLot, selTo, fromId) {
+        const lot = moveLotIndex.find(l => l.lot_id === selLot);
+        const ownIds = new Set((lot?.pastures || []).map(p => p.pasture_id));
+        const sel = v => v === (selTo || '') ? ' selected' : '';
+        let html = `<option value=""${sel('')}>— to pasture —</option>`;
+        if (lot && lot.pastures.length) {
+            const own = lot.pastures.filter(p => p.pasture_id !== fromId);
+            if (own.length) {
+                html += '<optgroup label="This lot is already here">' + own.map(p =>
+                    `<option value="${escapeHtml(p.pasture_id)}"${sel(p.pasture_id)}>` +
+                    `${escapeHtml(p.label)} (${p.avail} hd)</option>`).join('') + '</optgroup>';
+            }
+        }
+        const others = moveAllPastures.filter(p => !ownIds.has(p.id) && p.id !== fromId);
+        if (others.length) {
+            html += '<optgroup label="Elsewhere">' + others.map(p =>
+                `<option value="${escapeHtml(p.id)}"${sel(p.id)}>${escapeHtml(p.label)}</option>`).join('') + '</optgroup>';
+        }
+        return html;
+    }
+
+    // ---- RENDER ----------------------------------------------------------
+    function renderMoveTickets() {
+        const c = $('mvTicketList');
+        if (!moveState.tickets.length) {
+            c.innerHTML = '<div class="empty">No tickets yet. Click "+ Move ticket".</div>';
+            recomputeMoves();
+            return;
+        }
+
+        c.innerHTML = `
+            <table style="font-size: 13px;">
+                <thead><tr>
+                    <th style="width: 34px;"></th><th style="width: 130px;">Date</th>
+                    <th style="width: 120px;">Lot</th><th>From</th>
+                    <th style="width: 80px;">Head</th><th>To</th><th style="width: 34px;"></th>
+                </tr></thead>
+                <tbody>
+                ${moveState.tickets.map((t, i) => `
+                    <tr>
+                        <td class="muted">${i + 1}.</td>
+                        <td><input type="date" class="mv-date" data-i="${i}"
+                            value="${escapeHtml(t.date || '')}" style="padding: 4px 6px; font-size: 12px;"></td>
+                        <td><select class="mv-lot" data-i="${i}" style="padding: 4px 6px; font-size: 12px;">
+                            ${mvLotOptions(t.lot_id, t.from_pasture_id, t.tempId)}</select></td>
+                        <td><select class="mv-from" data-i="${i}" style="padding: 4px 6px; font-size: 12px;">
+                            ${mvFromPastureOptions(t.lot_id, t.from_pasture_id, t.tempId)}</select></td>
+                        <td><input type="number" min="1" step="1" class="mv-head" data-i="${i}"
+                            value="${escapeHtml(String(t.head ?? ''))}" placeholder="head"
+                            style="padding: 4px 6px; font-size: 12px;"></td>
+                        <td><select class="mv-to" data-i="${i}" style="padding: 4px 6px; font-size: 12px;">
+                            ${mvToPastureOptions(t.lot_id, t.to_pasture_id, t.from_pasture_id)}</select></td>
+                        <td><button type="button" class="mv-remove" data-i="${i}" style="padding: 2px 7px;">&times;</button></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>`;
+
+        const T = e => moveState.tickets[+e.target.dataset.i];
+
+        c.querySelectorAll('.mv-date').forEach(el => el.addEventListener('change', e => {
+            T(e).date = e.target.value; recomputeMoves();
+        }));
+        c.querySelectorAll('.mv-head').forEach(el => el.addEventListener('input', e => {
+            T(e).head = e.target.value; recomputeMoves();
+        }));
+        c.querySelectorAll('.mv-to').forEach(el => el.addEventListener('change', e => {
+            T(e).to_pasture_id = e.target.value || null; recomputeMoves();
+        }));
+
+        // Source pickers narrow each other; a still-valid choice on the far
+        // side survives, same rule as the shipment screen.
+        c.querySelectorAll('.mv-lot').forEach(el => el.addEventListener('change', e => {
+            const t = T(e);
+            t.lot_id = e.target.value || null;
+            if (t.lot_id && t.from_pasture_id && !mvPairExists(t.lot_id, t.from_pasture_id)) {
+                t.from_pasture_id = null;
+            }
+            renderMoveTickets();
+        }));
+        c.querySelectorAll('.mv-from').forEach(el => el.addEventListener('change', e => {
+            const t = T(e);
+            t.from_pasture_id = e.target.value || null;
+            if (t.from_pasture_id && t.lot_id && !mvPairExists(t.lot_id, t.from_pasture_id)) {
+                t.lot_id = null;
+            }
+            // Moving somewhere and back out of the same pasture is not a move.
+            if (t.to_pasture_id && t.to_pasture_id === t.from_pasture_id) t.to_pasture_id = null;
+            renderMoveTickets();
+        }));
+        c.querySelectorAll('.mv-remove').forEach(el => el.addEventListener('click', e => {
+            moveState.tickets.splice(+e.target.dataset.i, 1);
+            renderMoveTickets();
+        }));
+
+        recomputeMoves();
+    }
+
+    // Head counts live in the option labels, and head fields deliberately do
+    // not re-render (it would eat the caret), so labels are refreshed here.
+    // A select the user is inside is skipped so an open dropdown is not shut.
+    function refreshMoveTicketLabels() {
+        document.querySelectorAll('.mv-lot, .mv-from').forEach(sel => {
+            if (sel === document.activeElement) return;
+            const t = moveState?.tickets?.[+sel.dataset.i];
+            if (!t) return;
+            const html = sel.classList.contains('mv-lot')
+                ? mvLotOptions(t.lot_id, t.from_pasture_id, t.tempId)
+                : mvFromPastureOptions(t.lot_id, t.from_pasture_id, t.tempId);
+            if (sel.innerHTML !== html) sel.innerHTML = html;
+        });
+    }
+
+    function mvValidate() {
+        const errs = [];
+        const tickets = moveState.tickets;
+        if (!tickets.length) errs.push('Add at least one ticket.');
+
+        tickets.forEach((t, i) => {
+            const any = t.lot_id || t.from_pasture_id || t.to_pasture_id || shpNum(t.head);
+            if (!any) return;
+            const miss = [];
+            if (!t.date) miss.push('a date');
+            if (!t.lot_id) miss.push('a lot');
+            if (!t.from_pasture_id) miss.push('a from pasture');
+            if (!t.to_pasture_id) miss.push('a to pasture');
+            if (!(shpNum(t.head) > 0)) miss.push('head');
+            if (miss.length) errs.push(`Ticket ${i + 1} is missing ${miss.join(', ')}.`);
+            if (t.from_pasture_id && t.from_pasture_id === t.to_pasture_id) {
+                errs.push(`Ticket ${i + 1}: from and to are the same pasture.`);
+            }
+        });
+
+        // Availability across the WHOLE batch, not per ticket - two tickets
+        // drawing on one pasture can each look fine and together overdraw it.
+        mvDrawnByPair(null).forEach((head, key) => {
+            const inv = moveInventory.find(i => i.key === key);
+            if (!inv) {
+                errs.push('A ticket points at a lot/pasture with no open cattle.');
+            } else if (head > inv.head_count) {
+                errs.push(`${inv.lot_number} / ${inv.pasture_label}: ${fmtNum(head)} head across the batch ` +
+                          `but only ${fmtNum(inv.head_count)} are there.`);
+            }
+        });
+
+        return errs;
+    }
+
+    function recomputeMoves() {
+        if (!moveState) return;
+        refreshMoveTicketLabels();
+
+        const drawn = mvDrawnByPair(null);
+        if (drawn.size === 0) {
+            $('mvDrawSummary').innerHTML = '';
+        } else {
+            const rows = [...drawn.entries()].map(([key, head]) => {
+                const inv = moveInventory.find(i => i.key === key);
+                return {
+                    lot: inv?.lot_number || '?', place: inv?.pasture_label || '?',
+                    standing: inv?.head_count ?? 0, head, left: (inv?.head_count ?? 0) - head
+                };
+            }).sort((a, b) => a.lot.localeCompare(b.lot) || a.place.localeCompare(b.place));
+
+            $('mvDrawSummary').innerHTML = `
+                <h4 style="margin: 0 0 6px 0; font-size: 13px;">Moving out of</h4>
+                <table>
+                    <thead><tr><th>Lot</th><th>Pasture</th>
+                        <th style="text-align:right;">Standing</th>
+                        <th style="text-align:right;">This batch</th>
+                        <th style="text-align:right;">Left</th></tr></thead>
+                    <tbody>${rows.map(r => `<tr>
+                        <td><strong>${escapeHtml(r.lot)}</strong></td>
+                        <td>${escapeHtml(r.place)}</td>
+                        <td style="text-align:right;" class="muted">${fmtNum(r.standing)}</td>
+                        <td style="text-align:right;">${fmtNum(r.head)}</td>
+                        <td style="text-align:right;${r.left < 0 ? ' color: var(--danger); font-weight:600;' : (r.left === 0 ? ' color: var(--success);' : '')}">
+                            ${fmtNum(r.left)}${r.left < 0 ? ' ⚠' : (r.left === 0 ? ' empty' : '')}</td>
+                    </tr>`).join('')}</tbody>
+                </table>`;
+        }
+
+        const errs = mvValidate();
+        $('mvSaveAlert').innerHTML = errs.length
+            ? `<div class="alert error"><strong>Not ready to save:</strong><ul style="margin:6px 0 0 18px;">` +
+              errs.map(e => `<li>${escapeHtml(e)}</li>`).join('') + `</ul></div>`
+            : `<div class="alert success">${fmtNum(moveState.tickets.length)} ticket(s) ready.</div>`;
+        $('mvSaveBtn').disabled = errs.length > 0;
+    }
+
+    // ---- SAVE ------------------------------------------------------------
+    // Each ticket posts through record_move_with_pasture, the same RPC the
+    // single-lot path uses, so nothing here reimplements head math.
+    //
+    // PostgREST gives no transaction across calls, so a failure part-way is
+    // unwound by reversing the moves already posted - delete_move_event, which
+    // is the same reversal the move history now uses. A ticket that fails
+    // takes nothing with it.
+    //
+    // Tickets post in DATE order. A batch that moves cattle A -> B and then
+    // B -> C has to replay in the order it happened, or the second move draws
+    // on a pasture the first has not filled yet.
+    async function saveMoves() {
+        const errs = mvValidate();
+        if (errs.length) { showAlert('mvSaveAlert', errs[0]); return; }
+
+        const tickets = moveState.tickets.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+        const notes = $('mvNotes').value.trim() || null;
+        const totalHead = tickets.reduce((a, t) => a + (shpNum(t.head) || 0), 0);
+        const lots = new Set(tickets.map(t => t.lot_id)).size;
+
+        if (!confirm(
+            `Post ${tickets.length} move${tickets.length === 1 ? '' : 's'}?\n\n` +
+            `  ${fmtNum(totalHead)} head across ${lots} lot${lots === 1 ? '' : 's'}\n\n` +
+            `If any one fails, the whole batch is put back.`
+        )) return;
+
+        const btn = $('mvSaveBtn');
+        btn.disabled = true; btn.textContent = 'Saving…';
+        const posted = [];
+
+        try {
+            for (const t of tickets) {
+                const { data, error } = await supabase.rpc('record_move_with_pasture', {
+                    p_lot_id: t.lot_id,
+                    p_from_pasture_id: t.from_pasture_id,
+                    p_to_pasture_id: t.to_pasture_id,
+                    p_head_count: shpNum(t.head),
+                    p_move_date: t.date,
+                    p_notes: notes,
+                    p_recorded_by: currentUser.id
+                });
+                if (error) throw error;
+                posted.push(data);   // the movement id
+            }
+
+            btn.disabled = false; btn.textContent = 'Save moves';
+            showAlert('globalAlert',
+                `${fmtNum(tickets.length)} move(s) recorded — ${fmtNum(totalHead)} head across ` +
+                `${lots} lot${lots === 1 ? '' : 's'}.`, 'success');
+
+            moveState = { tickets: [] };
+            await loadMoveInventory();
+            renderMoveTickets();
+            loadRecentMoves();
+
+        } catch (err) {
+            const failures = [];
+            for (const id of posted.slice().reverse()) {
+                const { error } = await supabase.rpc('delete_move_event', { p_movement_id: id });
+                if (error) failures.push(`move ${id}: ${error.message}`);
+            }
+            btn.disabled = false; btn.textContent = 'Save moves';
+
+            let msg = `Moves NOT saved: ${err.message || err}`;
+            msg += failures.length
+                ? `\n\nWARNING — the rollback did not fully complete. These need attention:\n` + failures.join('\n')
+                : ` The ${posted.length} already posted were reversed; nothing moved.`;
+            showAlert('mvSaveAlert', msg);
+            if (failures.length) console.error('Move batch rollback failures', failures);
+
+            await loadMoveInventory();
+            renderMoveTickets();
+        }
+    }
+
+    // ---- LOAD + LIST -----------------------------------------------------
+    async function loadMoveInventory() {
+        const res = await loadOpenPastureInventory();
+        if (res.error) {
+            showAlert('mvSaveAlert', 'Could not load inventory: ' + res.error.message);
+            moveInventory = []; moveLotIndex = [];
+            return;
+        }
+        moveInventory = res.inventory;
+        moveLotIndex = res.lotIndex;
+
+        const { data: pastures } = await supabase
+            .from('pastures')
+            .select('id, name, ranches!inner(name, is_active)')
+            .eq('is_active', true)
+            .order('name');
+        moveAllPastures = (pastures || [])
+            .filter(p => p.ranches && p.ranches.is_active)
+            .map(p => ({ id: p.id, label: `${p.ranches.name} / ${p.name}` }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    async function loadRecentMoves() {
+        const { data, error } = await supabase
+            .from('lot_movements')
+            .select('id, move_date, head_count, notes, lots(lot_number), ' +
+                    'from_pasture:pastures!lot_movements_from_pasture_id_fkey(name, ranches(name)), ' +
+                    'to_pasture:pastures!lot_movements_to_pasture_id_fkey(name, ranches(name))')
+            .order('move_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        if (error) {
+            $('mvRecentContent').innerHTML =
+                `<div class="alert error">Could not load recent moves: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+        if (!data || !data.length) {
+            $('mvRecentContent').innerHTML = '<div class="empty">No moves recorded yet.</div>';
+            return;
+        }
+        const place = p => p ? `${p.ranches?.name || '?'} / ${p.name}` : '—';
+        $('mvRecentContent').innerHTML = `
+            <table>
+                <thead><tr><th>Date</th><th>Lot</th><th>From</th><th>To</th>
+                    <th style="text-align:right;">Head</th><th>Notes</th></tr></thead>
+                <tbody>${data.map(m => `<tr>
+                    <td>${fmtDate(m.move_date)}</td>
+                    <td><strong>${escapeHtml(m.lots?.lot_number || '—')}</strong></td>
+                    <td>${escapeHtml(place(m.from_pasture))}</td>
+                    <td>${escapeHtml(place(m.to_pasture))}</td>
+                    <td style="text-align:right;">${fmtNum(m.head_count)}</td>
+                    <td class="muted" style="font-size: 12px;">${escapeHtml(m.notes || '')}</td>
+                </tr>`).join('')}</tbody>
+            </table>
+            <p class="muted" style="font-size: 11px; margin: 8px 0 0 0;">
+                To reverse a move, open its lot and delete it from the move history there —
+                that puts the cattle back.</p>`;
+    }
+
+    async function showMovesTab() {
+        hideAllViews();
+        clearAllNavActive();
+        $('navMoves').classList.add('active');
+        $('movesView').classList.remove('hidden');
+
+        if (!moveState) moveState = { tickets: [] };
+        if (!$('mvDate').value) $('mvDate').value = ranchToday();
+
+        await loadMoveInventory();
+        if (!moveState.tickets.length) moveState.tickets.push(mvNewTicket($('mvDate').value));
+        renderMoveTickets();
+        loadRecentMoves();
+    }
+
+    // ---- WIRING ----------------------------------------------------------
+    $('navMoves').addEventListener('click', showMovesTab);
+    $('mvAddTicketBtn').addEventListener('click', () => {
+        // A new ticket inherits the last one's date - a batch is normally one
+        // day's work - and its from-pasture, since working a pasture usually
+        // means several lots leaving it.
+        const prev = moveState.tickets[moveState.tickets.length - 1];
+        const t = mvNewTicket(prev ? prev.date : $('mvDate').value);
+        if (prev && prev.from_pasture_id) t.from_pasture_id = prev.from_pasture_id;
+        if (prev && prev.to_pasture_id) t.to_pasture_id = prev.to_pasture_id;
+        moveState.tickets.push(t);
+        renderMoveTickets();
+    });
+    $('mvClearBtn').addEventListener('click', () => {
+        if (!moveState.tickets.length) return;
+        if (!confirm('Clear every ticket? Nothing has been saved yet.')) return;
+        moveState.tickets = [mvNewTicket($('mvDate').value)];
+        renderMoveTickets();
+    });
+    $('mvSaveBtn').addEventListener('click', saveMoves);
+    $('mvRefreshBtn').addEventListener('click', async () => {
+        await loadMoveInventory();
+        renderMoveTickets();
+        loadRecentMoves();
+    });
+    // The date box is a "set them all" convenience, like the shipment sheet's.
+    $('mvDate').addEventListener('change', () => {
+        const v = $('mvDate').value;
+        if (v && moveState?.tickets?.length) {
+            moveState.tickets.forEach(t => { t.date = v; });
+            renderMoveTickets();
+        }
+    });
+    $('mvNotes').addEventListener('input', () => { /* applied at save */ });
 
     // Top nav click handlers
     $('navLots').addEventListener('click', showLotsTab);
@@ -10738,8 +11282,8 @@ ${body}
                     <td class="muted" style="font-size: 12px;">${m.dose_mode === 'flat' ? 'flat' : m.dose_mode === 'per_weight' ? 'by weight' : m.dose_mode === 'band' ? 'band' : '—'}</td>
                     <td class="num">${doseDisplay}</td>
                     <td class="num">${m.withdrawal_days != null ? m.withdrawal_days + ' d' : '—'}</td>
-                    <td class="num">${m.cost_per_unit != null ? '$' + Number(m.cost_per_unit).toFixed(4) + '/' + (m.bottle_size_unit || 'unit') : '—'}</td>
-                    <td class="num">${m.cost_per_head != null ? '$' + Number(m.cost_per_head).toFixed(4) : '—'}</td>
+                    <td class="num" data-perm="office">${m.cost_per_unit != null ? '$' + Number(m.cost_per_unit).toFixed(4) + '/' + (m.bottle_size_unit || 'unit') : '—'}</td>
+                    <td class="num" data-perm="office">${m.cost_per_head != null ? '$' + Number(m.cost_per_head).toFixed(4) : '—'}</td>
                     <td>${m.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
                 </tr>`;
             }).join('');
@@ -10752,8 +11296,8 @@ ${body}
                             <th>Mode</th>
                             <th class="num">Dose</th>
                             <th class="num">Withdrawal</th>
-                            <th class="num">$/Unit</th>
-                            <th class="num">$/Head</th>
+                            <th class="num" data-perm="office">$/Unit</th>
+                            <th class="num" data-perm="office">$/Head</th>
                             <th>Status</th>
                         </tr></thead>
                         <tbody>${rows}</tbody>

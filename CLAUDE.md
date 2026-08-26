@@ -445,6 +445,32 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
 - Medication deactivation already works: `medications.is_active`, a "Show
   inactive" toggle on the list, and every doctoring picker filters to active.
   Deactivating hides a med everywhere without losing it or its history.
+- **Med costs are HIDDEN from crew, not blocked** (2026-08-26). `$/Unit`,
+  `$/Head` and `Bottle cost` carry `data-perm="office"` in the medications
+  list and edit modal. `$/unit` goes with them because it is bottle cost
+  divided by bottle size — hiding two of the three would be theatre. This is
+  a display gate: crew still holds SELECT on `medications`, so the figures
+  are reachable through the API by someone who goes looking. John's call
+  (2026-08-26) after weighing the real fix — dollar-free views plus a
+  field-app test pass — as not worth the effort.
+
+### Moves tab (multi-lot moves)
+
+- The lot-detail "+ Move" moves one lot; the **Moves** tab records a whole
+  batch across lots and pastures in one pass, shaped like the shipment load
+  tickets and for the same reason: counts must walk down as you type or a
+  pasture drawn on twice is only caught at save.
+- **Availability is netted across the WHOLE batch.** Two tickets can each look
+  fine against a pasture and together overdraw it; `mvValidate()` checks the
+  sum, not the ticket.
+- **Tickets post in DATE order.** A batch moving A→B then B→C must replay in
+  the order it happened or the second move draws on a pasture the first has
+  not filled yet.
+- Every ticket goes through `record_move_with_pasture` — nothing here
+  reimplements head math — and a failure part-way reverses what already
+  posted with `delete_move_event`.
+- `loadOpenPastureInventory()` is shared with the shipment screen. Both need
+  the same answer to "what is standing where"; two copies would drift.
 - Historical scar tissue exists from pre-hardening eras; old lots may carry
   reconciliation notes. Read row notes before "fixing" anything.
 
