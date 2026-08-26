@@ -1,14 +1,18 @@
 # Handoff — field app merge & retirement
 
-**Last updated:** 2026-08-25 (Part B built and live — the field app now writes
-to the books through the office Approvals tab)
+**Last updated:** 2026-08-26 (both goals met and live. What remains is the old
+repo's archive date, and a first real Dead and Move through Approvals.)
 
 **Open items live in `docs/OPEN-ITEMS.md`** — read that first for what still
 needs doing. This file is the narrative of how things got here.
 
 Working note for picking up in-flight work, not app code. Read alongside
 `CLAUDE.md`, which holds the standing business rules and schema landmines and
-takes precedence over anything here.
+takes precedence over anything here. `docs/architecture.md` explains how the
+system fits together and why each rule exists; `docs/roadmap.md` is what comes
+next. The structure of this file is generalized as
+`docs/handoff-spec-template.md` — follow it for the next piece of in-flight
+work rather than extending this one.
 
 ---
 
@@ -70,8 +74,8 @@ Things that broke on the way and are worth not repeating:
   they always started from empty storage and never reloaded after a pull.**
 - **`checkDailySync()` only checked whether `records` existed**, so a device
   that had cached data before the new lookups were added looked synced while
-  holding empty tag maps. Now gated on `DATA_SCHEMA_VERSION` (currently 3) —
-  bump it whenever the shape of cached data changes.
+  holding empty tag maps. Now gated on `DATA_SCHEMA_VERSION` (**currently 4**
+  as of 2026-08-26) — bump it whenever the shape of cached data changes.
 - **Swapping the reads lost three features** — dose auto-fill, tag recall, and
   the safety checks all went blind to the books. Fixed with a `lot_status` join
   and a `booksHistory` pool. Lesson: the field app reads more than it looks like
@@ -136,21 +140,32 @@ Things that broke on the way and are worth not repeating:
 
 ## Critical technical findings
 
-- **The field app has zero Supabase references.** `CLOUD_URL` at
-  `field-app/app.js:4` points at Google Apps Script. Nothing a cowboy records
-  reaches the books; someone re-keys it by hand. This is expected per the
-  roadmap — it is not a regression.
+**Read the dates.** The first four bullets describe the app **as it was before
+Part B** and are kept because they are why Part B was built the way it was.
+They are no longer true of the code — each is marked. Everything from
+`field_actions` down still holds.
+
+- ~~**The field app has zero Supabase references.**~~ **Superseded 2026-08-25.**
+  It was true when this was written: `CLOUD_URL` pointed at Google Apps Script
+  and nothing a cowboy recorded reached the books — someone re-keyed it by
+  hand. The field app now talks to Supabase directly (`SUPABASE_URL` /
+  `SUPABASE_ANON_KEY` at the top of `field-app/app.js`, client `sb`,
+  `STAGING_TABLE = 'pending_field_entries'`). There is no `CLOUD_URL` and no
+  Apps Script call left in the file.
 - **`localStorage` is shared between the old and new URLs.** Both are on origin
   `johnfreagan.github.io`, and storage is scoped per *origin*, not per path. The
   `betaCattle*` keys carry over with no migration, and both copies write to the
   same Sheet. This is why the stub must not clear storage.
-- **Writes are fire-and-forget.** `sendOne()` uses `mode: 'no-cors'`
-  (`field-app/app.js:203`), so the app cannot read the response and cannot tell a
-  rejected write from a good one — only a hard network failure rejects. A 500
-  from Apps Script currently looks like success. Pre-existing; fixed for free
-  when the transport moves to supabase-js.
-- **Reads are manual only** — the ⏳ Sync button injects a JSONP `<script>`
-  (`field-app/app.js:978`). Nothing pulls automatically.
+- ~~**Writes are fire-and-forget.**~~ **Fixed 2026-08-25, as predicted.**
+  `sendOne()` used `mode: 'no-cors'`, so a 500 from Apps Script looked exactly
+  like success. Moving the transport to supabase-js fixed it for free: the app
+  now reads the real response, and a rejected write surfaces to the cowboy
+  (`⛔ Save rejected: …`) instead of vanishing. A rejected record never leaves
+  the queue quietly — that was deliberate, this being animal health data.
+- ~~**Reads are manual only.**~~ **Still manual, and still by design.** The
+  JSONP `<script>` injection is gone; **🔄 Pull Cloud History** now runs
+  authenticated Supabase reads. Nothing pulls automatically, which is the
+  intended behaviour on a metered phone in a pasture.
 - **`field_actions` already matches the field app exactly** — Receiving, First
   Pull EX, Second Pull RES, Pinkeye, Footrot Dart, Dead, Other. Action mapping is
   nearly free.
@@ -187,9 +202,13 @@ Things that broke on the way and are worth not repeating:
 
 ### Process
 
-- Designated branch in both repos: `claude/merge-field-app-repo-2hd0dr`.
-  The office repo has explicit permission for `main` (John gave it twice). The
-  field app repo does **not** — its stub is staged on the branch by design.
+- Designated branch is per piece of work and is given at the start of each
+  session; it is **not** a fixed property of the repo. The one this file was
+  written under was `claude/merge-field-app-repo-2hd0dr`, long since merged.
+  Take the current branch from the session's instructions, not from here.
+- The office repo has explicit permission for `main` (John gave it twice). The
+  field app repo does **not** — its retirement stub was staged on a branch by
+  design and merged only once the new URL was confirmed on a phone.
 - `git push -u origin <branch>`, retrying up to 4× with exponential backoff.
 - No PRs unless asked.
 
@@ -223,8 +242,18 @@ delete data unprompted.
    verification. Check `event_datetime`, the `approved_ref`, and **drift on the
    affected lot** after.
 
-Roadmap items 4 (cost ledger) and 5 (daily buy/sell dashboard) are next and
-untouched. Item 4 needs a Redwing export from John before it can start.
+6. **Two dashboard settings and a mail provider** — `docs/OPEN-ITEMS.md` items
+   1, 2 and 7, all John's to do and all still open: leaked-password protection,
+   confirming public signup is off, and a Resend account with a verified
+   sending domain. The Resend account unblocks both password resets and the
+   automatic daily report, so it is worth doing once for both.
+
+**Where the roadmap stands (2026-08-26):** item 4, the cost ledger, is **in
+progress** — its first phase, the Closeout rebuild, shipped 2026-08-25 and is
+verified against production. The ledger categories themselves need a Redwing
+export from John before they can start. Item 5, the daily buy/sell dashboard,
+is untouched and depends on item 4 for trustworthy cost inputs. Full detail in
+`docs/roadmap.md`.
 
 ---
 
@@ -237,7 +266,7 @@ under "Field → books approval path"; that file takes precedence.
 
 ### Shape
 
-The field app stops writing to Apps Script and writes to a **staging table**,
+The field app stopped writing to Apps Script and writes to a **staging table**,
 never straight into the books. The office reviews and approves; approval runs an
 RPC that writes the real rows.
 
@@ -373,10 +402,10 @@ First Pull EX, over three work days:
 - The date correction was exercised for real: tag 8288 moved Aug 25 → Aug 24,
   time of day preserved, audit note on the staged row.
 
-**Still unexercised on production data:** a real **Dead** and a real **Move**.
-Both are built, RPC-backed, and their reversals were tested against a local
-Postgres replica — that testing is what caught the `delete_death_event`
-double-count. John will run one of each as they occur.
+**Still unexercised on production data — still true as of 2026-08-26:** a real
+**Dead** and a real **Move**. Both are built, RPC-backed, and their reversals
+were tested against a local Postgres replica — that testing is what caught the
+`delete_death_event` double-count. John will run one of each as they occur.
 
 Also worth noting about the offline-queue test in the original plan: the
 `(entry_type, client_id)` pair is an **upsert**, so submitting the same entry

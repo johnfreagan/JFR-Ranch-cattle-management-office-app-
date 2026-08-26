@@ -447,6 +447,12 @@ To adopt the CLI: `supabase link --project-ref xpfmebdzcxorvwikfvtj` →
 `supabase db pull` for a baseline → mark it applied → verify with
 `supabase migration list`. This is in `docs/roadmap.md` as a background item.
 
+**How SQL actually reaches the database:** John pastes it into the SQL editor.
+The MCP connector is read-only, so there is no other path. Hand him the whole
+script as a code block in chat — never a file path, never an attachment. See
+"Handing over SQL" in `CLAUDE.md`; the `docs/sql/` copy is the record of what
+was applied, written after he confirms it ran, not the way it gets there.
+
 Applied to date (`docs/sql/`): crew read-only, pending_field_entries, users
 admin, crew read-all staged entries, 37X assignment drift, 37X-1 labor rate,
 budget and head days, head-days rename, record_move_with_pasture, ranch_today.

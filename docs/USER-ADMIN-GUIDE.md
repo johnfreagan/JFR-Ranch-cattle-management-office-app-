@@ -3,7 +3,10 @@
 **Who this is for:** the owner (John). Adding, activating, changing, and
 removing people who can sign in to the JFR Ranch apps.
 
-**Last verified against the live database:** 2026-08-24.
+**Last verified against the live database:** 2026-08-26 — both migrations
+confirmed applied, 28 tables all RLS-enabled with policies, 12 views all
+`security_invoker`, nothing readable by `anon`. The two dashboard settings in
+§9 are still outstanding.
 
 ---
 
@@ -396,8 +399,9 @@ window and confirm both halves:
 
 ## 8. Known gaps
 
-All six gaps found in the 2026-08-24 audit are closed or scheduled. Two of
-them need an action from you — see §9.
+All six gaps found in the 2026-08-24 audit are closed or scheduled. **Both
+migrations have been run.** Two dashboard settings still need an action from
+you — see §9. Re-checked 2026-08-26.
 
 1. ~~**The login screen does not check `is_active`.**~~ **Fixed 2026-08-24.**
    `onLoggedIn()` refuses an inactive profile before revealing the app shell:
@@ -428,16 +432,18 @@ them need an action from you — see §9.
    stronger than the per-row ownership check originally proposed.
 
 4. ~~**Crew write directly to the books.**~~ **Fixed** by
-   `docs/sql/2026-08-24_crew_read_only.sql` — **run it (see §9).** Crew lose
+   `docs/sql/2026-08-24_crew_read_only.sql`, run and verified 2026-08-24
+   (see §9). Crew lose
    INSERT on `doctoring_events`, `doctoring_event_meds`, `weights`,
    `delivery_receipts`, `delivery_receipt_attachments`,
    `load_out_destinations`, `lot_tags`, `lot_pasture_assignments` and
    `lot_movements`, plus the own-row UPDATE/DELETE they had on
    `doctoring_events`. Reads are untouched.
 
-   **When `pending_field_entries` lands, grant crew INSERT on that table and
-   nothing else.** Do not restore any grant this migration revoked — the
-   staging table is meant to be the field app's only write surface.
+   ~~**When `pending_field_entries` lands, grant crew INSERT on that table and
+   nothing else.**~~ **Done 2026-08-24.** The staging table exists, crew hold
+   INSERT on it and nothing else, and it is the field app's only write surface.
+   Do not restore any grant that migration revoked.
 
 5. **Leaked-password protection is off.** Your action — see §9.
 
@@ -470,17 +476,18 @@ tables now read `owner, office`, and no policy anywhere in `public` grants crew
 a write. Kept here because it is idempotent and safe to re-run if you ever need
 to confirm the state.
 
-### Run the Users screen migration
+### ~~Run the Users screen migration~~ — done
 
-`docs/sql/2026-08-24_users_admin.sql` adds `admin_list_users()` (the owner-only
-roster, needed because `authenticated` has no `SELECT` on `auth.users`) and
-`guard_last_owner()` (a trigger that refuses to let the final active owner be
-demoted or deactivated). Same drill: SQL Editor, paste, Run. It verifies its own
-grants and raises if `anon` can still execute the function.
+`docs/sql/2026-08-24_users_admin.sql` was run on 2026-08-24. It adds
+`admin_list_users()` (the owner-only roster, needed because `authenticated` has
+no `SELECT` on `auth.users`) and `guard_last_owner()` (a trigger that refuses to
+let the final active owner be demoted or deactivated). Both were confirmed
+present on 2026-08-26, each carrying a pinned `search_path`. Kept here because
+it is idempotent and safe to re-run if you ever need to confirm the state.
 
-Until it runs, the Users screen loads but reports that no users were returned.
+The Users screen works: Settings → Users does names, roles and activation.
 
-### Two dashboard settings
+### Two dashboard settings — **both still outstanding as of 2026-08-26**
 
 **Leaked-password protection.** Authentication → **Policies** (password
 settings) → enable it. Supabase then checks new passwords against

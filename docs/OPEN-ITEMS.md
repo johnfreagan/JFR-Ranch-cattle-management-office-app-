@@ -3,7 +3,7 @@
 Things known to need attention, and deliberately not done yet. Ordered by when
 they will bite, not by size.
 
-**Last reviewed:** 2026-08-25
+**Last reviewed:** 2026-08-26
 
 Anything finished moves to the bottom under *Closed* with the date, so the
 history of what was decided survives.
@@ -166,12 +166,14 @@ screen; short recap in the text, full PDF in the email.
 
 **Status:** open, and it is cited as mandatory in two places.
 
-`CLAUDE.md` rule 7 says to run
-`supabase/migrations/20260821000300_rls_verify.sql` after any migration that
-adds a table, view or function, and `docs/security-model.md` describes what
-it asserts. **There is no `supabase/` directory in the repo at all.** Every
-migration since has either skipped the check or, as with
-`2026-08-25_budget_and_head_days.sql`, inlined its own assertions.
+`CLAUDE.md` rule 7 and `docs/security-model.md` §4 both used to cite
+`supabase/migrations/20260821000300_rls_verify.sql` as a thing you run.
+**There is no `supabase/` directory in the repo at all**, and there never was
+one here. Both files were corrected on 2026-08-26 to say so; the list of
+assertions in `security-model.md` §4 is now the *specification* for the script
+rather than a description of one that exists. Every migration since has either
+skipped the check or, as with `2026-08-25_budget_and_head_days.sql`, inlined
+its own assertions.
 
 Inline assertions are better than nothing but they only cover the objects
 that migration touched. Nothing sweeps the whole schema for a view missing
@@ -181,6 +183,12 @@ to `anon`.
 **The fix:** write it once as a standalone script that asserts rules 1–6
 across every object in `public`, and run it after each migration. Until then
 every new migration must carry its own checks.
+
+A manual sweep on **2026-08-26** came back clean — 28 tables all RLS-enabled
+and all carrying policies, 12 views all `security_invoker = true`, zero objects
+in `public` readable by `anon`, seven `SECURITY DEFINER` functions all with a
+pinned `search_path`. That is exactly the sweep the script should automate, and
+running it by hand is exactly why it keeps not getting run.
 
 ---
 
@@ -241,8 +249,10 @@ per head per day) rather than a hard limit.
   the above; crew cannot write to it at all.
 - **2026-08-24 — Login screen ignored `is_active`.** Now refuses inactive
   accounts by name on both fresh sign-in and restored session.
-- **2026-08-24 — UI was not role-aware.** 65 controls carry `data-perm`; the
-  role gate hides what a role cannot use.
+- **2026-08-24 — UI was not role-aware.** Controls carry `data-perm` and the
+  role gate hides what a role cannot use. **77 as of 2026-08-26** — 69
+  `office`, 8 `owner`; it was 65 when this was closed, and it grows with every
+  new write control, which is the point.
 - **2026-08-24 — No way to administer users without SQL.** Settings → Users,
   owner-only, does names, roles, and activation.
 - **2026-08-24 — Nothing prevented locking yourself out.** `guard_last_owner()`

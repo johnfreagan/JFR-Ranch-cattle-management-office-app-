@@ -3,8 +3,11 @@
 How access control works in this database, what was wrong with it before
 2026-08-23, and how to verify it still holds.
 
+**Last verified:** 2026-08-26 — see §4.
+
 Operational rules live in `CLAUDE.md` at the repo root. This file is the
-reasoning behind them.
+reasoning behind them. `docs/architecture.md` §7 is the short version in
+context.
 
 ---
 
@@ -199,7 +202,20 @@ explicitly.
 
 ## 4. Verifying
 
-`supabase/migrations/20260821000300_rls_verify.sql` asserts:
+> **There is no verify script.** Earlier versions of this file and of
+> `CLAUDE.md` rule 7 told you to run
+> `supabase/migrations/20260821000300_rls_verify.sql`. That file does not
+> exist, and neither does the `supabase/` directory — this schema was built
+> through the dashboard and SQL editor and has no CLI migration history.
+> Corrected 2026-08-26. Tracked as `docs/OPEN-ITEMS.md` item 8.
+>
+> The list below is therefore the **specification** for the script somebody
+> should write, and the checklist to run by hand until they do. **Until it
+> exists, every migration that adds a table, view, or function must carry its
+> own inline assertions**, as `docs/sql/2026-08-25_budget_and_head_days.sql`
+> does.
+
+What it must assert:
 
 1. Every public table has RLS enabled
 2. No table has RLS on with zero policies (total lockout)
@@ -211,8 +227,54 @@ explicitly.
 8. At least one active user exists
 9. Prints the full roster
 
-Run it after every migration that adds a table, view, or function. It changes
-nothing and raises an exception on a real finding.
+It must change nothing and raise an exception on a real finding.
+
+### Last manual sweep — 2026-08-26, all clean
+
+| assertion | result |
+|---|---|
+| tables in `public` | 28, all RLS-enabled, all carrying policies |
+| views in `public` | 12, all `security_invoker = true` |
+| objects in `public` readable by `anon` | 0 |
+| `SECURITY DEFINER` functions | 7, all with a pinned `search_path` |
+| `user_profiles.role` CHECK | exactly `owner`, `office`, `crew` |
+
+The seven definers are `current_user_role`, `admin_list_users`,
+`guard_last_owner`, `handle_new_user`, `cleanup_attachment_storage`,
+`lot_projected_weight`, `lot_weighted_arrival_date`. The head-math RPCs
+(`record_death_with_pasture`, `record_move_with_pasture`, `delete_death_event`,
+`delete_move_event`) are all `SECURITY INVOKER`, which is correct — they must
+run under the caller's RLS.
+
+The queries behind that table are worth keeping to hand:
+
+```sql
+-- definers and their search_path
+select p.proname, p.prosecdef,
+       coalesce(array_to_string(p.proconfig, ','), '(none)') as config
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.prosecdef
+order by p.proname;
+
+-- views missing security_invoker
+select c.relname
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relkind = 'v'
+  and coalesce((select option_value from pg_options_to_table(c.reloptions)
+                where option_name = 'security_invoker'), 'unset') <> 'true';
+
+-- tables with RLS on and no policy (total lockout)
+select c.relname
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity
+  and not exists (select 1 from pg_policy p where p.polrelid = c.oid);
+
+-- anything anon can read
+select c.relname, c.relkind
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relkind in ('r','v','m')
+  and has_table_privilege('anon', c.oid, 'SELECT');
+```
 
 **The SQL editor swallows `RAISE NOTICE` output** — it shows only the final
 result grid. Read the notices in the editor's message pane, or run it through

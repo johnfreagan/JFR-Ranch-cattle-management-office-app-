@@ -5,10 +5,12 @@
 **The app:**
 <https://johnfreagan.github.io/JFR-Ranch-cattle-management-office-app-/field-app/>
 
-> **Status of this guide.** It is being written as the app grows. Section 2
-> (Signing in) describes the account system that is being built now — the
-> parts marked **Not live yet** do not work until John says so. Everything
-> else describes the app as it works today.
+**Last verified against the app:** 2026-08-26 (field app build v12).
+
+> **Everything in here is live.** Personal logins, the office seeing your
+> records directly, and records coming back marked **sent back** all went live
+> on 2026-08-25. Nothing in this guide is a promise any more — it describes the
+> app as it works today.
 
 ---
 
@@ -39,16 +41,9 @@ that icon from now on, not from the browser.
 
 ## 2. Signing in
 
-### Today
-
-There is no sign-in. Open the app and start recording. Type your name in the
-**Crew Member** box at the top of the form — that is how the office knows who
-did the work, so spell it the same way every time.
-
-### Coming: your own account — *Not live yet*
-
-Each person will get their own login. When it switches on, this is how it
-works.
+Each person has their own login. Your name fills in automatically from your
+account, and your name and role show at the top of the screen once you are in
+— so the office always knows who did the work without anybody typing it.
 
 **Getting your account.** John creates it. You will get either an email invite
 with a link to set your own password, or a password from him directly. You do
@@ -67,7 +62,8 @@ first sign-in needs a connection.
 has not switched it on. Text him. Nothing you do in the app will fix it.
 
 **If you forget your password:** text John. He resets it. There is no
-"forgot password" link in the app.
+"forgot password" link in the app, and there will not be one until the ranch
+runs its own mail — so do not wait on an email that is not coming.
 
 **Signing out.** Only sign out if you are handing the phone to somebody else.
 Signing out clears the app, and **anything still waiting to sync will be
@@ -85,7 +81,8 @@ Three tabs across the top: **🩺 Doctoring**, **🚚 Moves**, and **📖 Histor
 
 ### A doctoring record
 
-1. **Crew Member** — your name.
+1. **Crew Member** — already filled in from your account. Leave it alone
+   unless you are recording work somebody else did.
 2. **Tag #** — type the tag number, or use the two buttons beside it:
    - **↺** repeats the last tag you saved (same animal needs another action, or
      you are correcting a save).
@@ -172,8 +169,9 @@ does not overwrite your work.
 | Badge stuck on a number while you have bars | You are not really online. Try mobile data instead of weak Wi-Fi. If it still sticks, text John — **do not** delete the app. |
 | A ranch, pasture, or lot is missing | Tap **🔄 Pull Cloud History** first. If it is still missing, pick the closest match, say so in the notes, and text the office. Do not improvise a name. |
 | Wrong tag or wrong med saved | **📖 History** → **Edit**. |
-| "Not active yet" at sign-in *(not live yet)* | John needs to switch your account on. Text him. |
-| Forgot password *(not live yet)* | Text John for a reset. |
+| "Not active yet" at sign-in | John needs to switch your account on. Text him. Nothing you do in the app will fix it. |
+| Forgot password | Text John for a reset. There is no "forgot password" link. |
+| A record comes back marked **sent back** | The office could not use it. Their note says why. Fix it and save again — do not start a new record. |
 
 There is a **📘 Help** button at the bottom with a 30-second quickstart, and a
 troubleshoot button beside it.
@@ -182,16 +180,20 @@ troubleshoot button beside it.
 
 ## 6. What comes next
 
-Being built now, in this order:
+**The three things this section used to promise are all live now**, as of
+2026-08-25:
 
-1. **Your own login** — §2 above goes live.
-2. **The office sees your records directly.** Right now what you save is
-   re-keyed by hand into the office books. That step goes away: your records
-   will land in an office review queue, and the office approves them into the
-   books.
-3. **You will see rejections.** If the office sends a record back — wrong lot,
-   a medication they cannot read — it will show up in your app with their note,
-   for you to fix rather than redo.
+1. ~~Your own login~~ — done. §2 above describes how it works.
+2. ~~The office sees your records directly~~ — done. Nothing you save is
+   re-keyed by hand any more. It lands in an office review queue and the office
+   approves it into the books.
+3. ~~You will see rejections~~ — done. If the office sends a record back —
+   wrong lot, a medication they cannot read — it shows in your app marked
+   **sent back**, with their note, for you to fix rather than redo.
 
-Nothing about how you record changes. The lock buttons, the offline queue, the
-history tab all stay exactly as they are.
+Nothing about how you record changed, exactly as promised: the lock buttons,
+the offline queue and the history tab all work the way they always did.
+
+**Still to come:** the daily report sending itself to the office each evening
+instead of somebody opening the app to send it. Nothing about your side
+changes when that lands.

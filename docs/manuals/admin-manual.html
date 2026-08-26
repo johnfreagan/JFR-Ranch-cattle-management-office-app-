@@ -173,7 +173,8 @@ footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
       <small>Deployed. Covers both a fresh sign-in and a restored session.</small></div></li>
     <li class="done"><span class="mark">&check;</span><div>
       <strong>The app hides controls a role cannot use</strong>
-      <small>Deployed. 65 controls gated across all three roles.</small></div></li>
+      <small>Deployed. 77 controls gated across all three roles as of 26 Aug 2026
+      &mdash; 69 office, 8 owner. The count grows with every new write control.</small></div></li>
     <li class="done"><span class="mark">&check;</span><div>
       <strong>Settings &rarr; Users, owner-only</strong>
       <small>Deployed, migration run and verified. Names, roles, and activation
@@ -560,18 +561,23 @@ WHERE id = (SELECT id FROM auth.users
 
 <section class="sec">
   <div class="sechead"><span class="secnum">08</span><h2>What only you can do</h2></div>
-  <p>The migration, and two settings nothing but the dashboard can reach.</p>
-  <h3>Run the Users screen migration</h3>
-  <p><code>docs/sql/2026-08-24_users_admin.sql</code> adds two things the screen needs:
+  <p>Two settings nothing but the dashboard can reach. <strong>Both migrations have
+     already been run</strong> &mdash; see below.</p>
+  <h3><s>Run the Users screen migration</s> &mdash; done</h3>
+  <p><code>docs/sql/2026-08-24_users_admin.sql</code> was run on 24 Aug 2026, and both of
+     its functions were confirmed present on 26 Aug 2026, each carrying a pinned
+     <code>search_path</code>. It adds the two things the screen needs:
      <code>admin_list_users()</code>, the owner-guarded roster &mdash; necessary because
      <code>authenticated</code> has no <code>SELECT</code> on <code>auth.users</code> and
      PostgREST only exposes the public schema &mdash; and <code>guard_last_owner()</code>,
      a trigger that refuses to let the final active owner be demoted or deactivated.</p>
-  <p>SQL Editor, paste, Run. It verifies its own grants and raises if <code>anon</code>
-     can still execute the function.</p>
+  <p>Settings &rarr; Users works: names, roles and activation, without touching SQL. The
+     script is idempotent, so it is safe to re-run if you ever want to confirm the state.</p>
 
   <div class="note"><p>The full list of what is still open &mdash; including the missing
      email provider &mdash; lives in <code>docs/OPEN-ITEMS.md</code> in the repo.</p></div>
+
+  <p><strong>The two settings below are still outstanding as of 26 Aug 2026.</strong></p>
 
   <h3>Leaked-password protection</h3>
   <p>Authentication &rarr; Policies (password settings) &rarr; enable it. Supabase then

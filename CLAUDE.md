@@ -25,6 +25,10 @@ anything structural.**
 | `docs/security-model.md` | RLS detail |
 | `docs/processing-cost-and-protocol-versioning.md` | the full protocol-change procedure |
 | `docs/handoff-spec-template.md` | how to write a handoff for in-flight work |
+| `HANDOFF.md` | the field-app merge and the Part B build, as they happened |
+| `docs/USER-ADMIN-GUIDE.md` | John's guide to adding and managing users |
+| `docs/FIELD-APP-GUIDE.md` | the cowboys' guide to the field app |
+| `docs/manuals/` | the same two guides as published HTML — **edit both or the published page goes stale** |
 | `docs/sql/` | every migration and correction actually applied, dated |
 
 ## Deploy
@@ -228,8 +232,9 @@ pinned `search_path`.
   report "Success. No rows returned" without applying anything. Omit the wrapper
   when pasting into the editor; keep it in files meant for the CLI.
 - **The MCP Supabase connector is READ-ONLY.** DDL and DML fail with
-  `25006: cannot execute ... in a read-only transaction`. Give John pasteable
-  SQL in chat — not a file attachment, not a path. He has said so twice.
+  `25006: cannot execute ... in a read-only transaction`. Every schema change
+  reaches the database by John pasting it into the SQL editor — see
+  "Handing over SQL" below.
 - When unsure of a column name, QUERY information_schema — do not guess.
   **Exception: do NOT trust information_schema for GRANTS or PRIVILEGES.**
   `role_table_grants` only shows roles the *querying* user belongs to, so on
@@ -252,6 +257,28 @@ pinned `search_path`.
 - Load-out saves hard-block duplicates (same lot + date + head + tag range).
 - Historical scar tissue exists from pre-hardening eras; old lots may carry
   reconciliation notes. Read row notes before "fixing" anything.
+
+## Handing over SQL — copy/paste in chat, never a file
+
+**John runs SQL by pasting it into the Supabase SQL editor. Give it to him in
+the chat as a fenced code block he can copy straight out of.**
+
+- **Never** hand him a file path, an attachment, or "see `docs/sql/foo.sql`".
+  He should not have to go find a file, open it, or scroll a repo to run a
+  migration. He has asked for this three times.
+- Paste the **whole script in one block**, ready to run start to finish. If it
+  is long, paste it whole anyway — do not split it into pieces he has to
+  reassemble, and do not summarize it and offer the real thing on request.
+- **Omit `begin;`/`commit;`** from the pasted version — the SQL editor swallows
+  them and can report "Success. No rows returned" without applying anything.
+- Say in one line what it does and what it should print when it works, so he
+  can tell success from a silent no-op.
+- **After** he confirms it ran, commit the same SQL to `docs/sql/` as
+  `YYYY-MM-DD_what-it-does.sql`. That file is the record of what was applied —
+  it is not the delivery mechanism.
+- The MCP Supabase connector is READ-ONLY (DDL and DML fail with
+  `25006: cannot execute ... in a read-only transaction`), so pasting is not a
+  preference — it is the only path that works.
 
 ## SQL conventions and migrations
 
