@@ -111,6 +111,66 @@ The Closeout tab shows one set of economics in three columns. It is
   `lot_budgets.budget_cost_per_cwt` follows it for consistency. Both are
   multiplied by a weight in pounds. Do not "fix" one without the other.
 
+## Sales: the buyer's write-up (rebuilt 2026-08-26)
+
+An order buyer settles on one sheet: a date, a destination, truckloads
+grouped into weight classes, one $/cwt against one pay weight, and a draft
+after checkoff. One sheet routinely spans several lots and many pastures.
+
+```
+shipments ──┬── shipment_weight_groups ── shipment_loads
+            ├── shipment_deductions
+            └── sales (one per lot) ── sale_sources (one per lot+pasture)
+```
+
+- **`shipments` sits ABOVE `sales`; it does not replace it.** Each lot still
+  gets an ordinary `sales` row, so closeout, realized ADG, the lot activity
+  timeline and head math work unchanged and know nothing about shipments.
+  Moving `lot_id` off `sales` would be truer to "one sale = one check" and
+  would rewrite all of those against live books for no gain.
+- **`net_amount` is the draft; `book_proceeds` is the revenue.** They differ
+  only when `jfr_pays_freight` is on. `book_proceeds` is a GENERATED column
+  (`net_amount − freight when ours`), it is what gets allocated to lots, and
+  it is what lands in `sales.total_price`. Reconciling to the paper sheet uses
+  `net_amount`; anything about margin uses `book_proceeds`.
+- **Allocation order is weight-then-money, and it is load-bearing.** Weight is
+  allocated by head *inside the line's own weight group*; dollars are then
+  allocated by the resulting weight. That ordering is what makes the eventual
+  per-pasture weight override a small change — override the weight and the
+  money re-follows on its own.
+- **Per-GROUP head must tie, not just the shipment total.** A group's pay
+  weight is divided across the head assigned to it, so 298 head of sheet
+  against 250 head of allocation makes those 250 each absorb the missing
+  animals' weight, and every lot in that group books heavy. The shipment
+  total can look perfect while this is wrong. `shpValidate()` blocks it.
+- **Allocation uses largest-remainder, and the parts sum EXACTLY.** Not
+  "round each and dump the residual on the last line" — that works too, but
+  always parks the error on whichever lot was typed last. Verified against the
+  2026-08-21 Thigpen sheet: 549 hd, 446,194 lb, $320.00/cwt, $1,427,820.80
+  gross, $1,098 checkoff, $1,426,722.80 draft, all ties exact.
+- **A saved shipment cannot be re-allocated in place.** Changing who shipped
+  what would unwind head math that already happened. Delete and re-enter.
+- **Deleting a shipment does NOT return cattle to their pastures** — same wart
+  as deleting a single sale. A `delete_shipment_with_reversal` RPC is the
+  right fix and does not exist yet. Note the CLAUDE.md warning about reversals
+  that reopen a closed assignment: reopening already restores the count, so
+  adding head back on top double-counts.
+- **Shrink is an input, not a display.** The buyer writes gross and a shrink
+  %, and pay weight falls out. An explicit pay weight overrides. The old
+  single-lot sale form takes gross and net and only shows shrink afterwards;
+  it is unchanged and still works that way.
+- **`shipments` and its children are office+owner on SELECT too**, unlike
+  `sales`/`sale_sources`, whose SELECT policies include crew. That existing
+  inconsistency was left alone rather than widened or silently changed.
+- The buyer's own lines are TRUCKLOADS. Mapping loads to lots and pastures is
+  entirely our side; `shipment_loads` exists only so the app can catch a
+  transposed weight at entry instead of in closeout six months later.
+- `shipment_reconciliation` (view) answers "does this STILL tie", which is a
+  different question from the save-time check — it catches later edits to an
+  allocated sale. Non-zero variance shows as ⚠ on the Sales list.
+
+Migration: `docs/sql/2026-08-26_shipments.sql`.
+
 ## Access control (RLS — read before touching auth, policies, or views)
 
 The gate is `public.current_user_role()`. It reads `user_profiles.role` for
@@ -320,6 +380,8 @@ closes it early.
   jsPDF + autotable via CDN for shareable PDFs.
 - After ANY edit: validate the big script block parses (new Function) and
   that <div> open/close counts balance outside script/style. Ship only if both pass.
+  There is no node on this machine — run `osascript -l JavaScript
+  scripts/validate.jxa.js index.html`, which does both checks on JavaScriptCore.
 - Tiles on lot detail use buildTileRows() row-style (label left, value right).
 - Modals: showModal()/hideModal(); alerts via showAlert(id, msg, type).
 - Print/share pattern: window.open + document.write for print; jsPDF +
