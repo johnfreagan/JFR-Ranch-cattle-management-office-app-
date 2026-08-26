@@ -6072,20 +6072,26 @@ window.addEventListener('unhandledrejection', function(e) {
     // ==========================================================
     // SALES - SHIPMENTS (the buyer's settlement sheet)
     // ==========================================================
-    // A shipment is one buyer write-up: a date, a destination, truckloads
-    // grouped into weight classes, one price against one pay weight, and a
-    // draft after checkoff. It can span any number of lots and pastures.
+    // A shipment is one buyer write-up: a settlement date, a destination,
+    // truckloads grouped into weight classes, one price against one pay
+    // weight, and a draft after checkoff. It can span any number of lots,
+    // pastures and DAYS.
     //
-    // A LOAD names the lot and pasture it was gathered off. That is the whole
-    // model - loading a truck is the same act as taking cattle out of a
-    // pasture, so there is no second screen asking where they came from, and
-    // weight is distributed by each load's own scale ticket rather than
-    // pro-rata by head.
+    // The shape follows the scale house:
     //
-    // Nothing here is a new kind of sale. The sheet is stored once, allocated
-    // down, and each lot still gets an ordinary `sales` row with its
-    // `sale_sources` - so closeout, realized ADG, the lot timeline and head
-    // math all keep working without knowing shipments exist.
+    //   shipment
+    //     weight group        shrink %, pay weight  (the buyer's classes)
+    //       load              date, head, ONE gross weight (one scale ticket)
+    //         line            lot, pasture, head
+    //
+    // A truck is weighed once, so its gross is split across its lines BY HEAD.
+    // The chain is load gross -> line gross (by head) -> line pay weight (by
+    // gross, within the group) -> dollars (by pay weight). Every step is
+    // largest-remainder, so each share is exact and the sheet still ties.
+    //
+    // Nothing here is a new kind of sale. Each (lot, day) gets an ordinary
+    // `sales` row with its `sale_sources` - so closeout, realized ADG, the lot
+    // timeline and head math keep working without knowing shipments exist.
     // ----------------------------------------------------------
 
     let shipmentState = null;   // the shipment being entered
@@ -6107,8 +6113,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // Largest-remainder rather than the obvious "round each, dump the
     // leftover on the last line". Both sum correctly; only this one keeps the
     // error at a single unit and puts it where the rounding was closest,
-    // instead of parking the whole residual on whichever lot happened to be
-    // typed last.
+    // instead of parking the whole residual on whichever line was typed last.
     function allocateProportional(total, weights, decimals) {
         const n = weights.length;
         if (n === 0) return [];
@@ -6129,7 +6134,17 @@ window.addEventListener('unhandledrejection', function(e) {
         return out.map(v => v / pow);
     }
 
-    // ---- DERIVED TOTALS --------------------------------------------------
+    // ---- DERIVED ---------------------------------------------------------
+    // A single-line load takes its head straight from the load, so the common
+    // case (one pot, one pasture) needs the number typed once.
+    function shpLineHead(load, li) {
+        if (load.lines.length === 1) return shpNum(load.head) || 0;
+        return shpNum(load.lines[li].head) || 0;
+    }
+    function shpLoadLinesHead(load) {
+        return load.lines.reduce((a, _, li) => a + shpLineHead(load, li), 0);
+    }
+
     function shpGroupTotals(g) {
         const head  = g.loads.reduce((a, l) => a + (shpNum(l.head) || 0), 0);
         const gross = g.loads.reduce((a, l) => a + (shpNum(l.gross) || 0), 0);
@@ -6195,81 +6210,83 @@ window.addEventListener('unhandledrejection', function(e) {
         };
     }
 
-    // ---- LINES + ALLOCATION ---------------------------------------------
-    // Every load line that is filled in enough to mean something.
-    function shpActiveLines() {
-        const out = [];
+    // ---- ALLOCATION ------------------------------------------------------
+    // Two nested splits. The load's single scale ticket goes to its lines by
+    // head; then each group's pay weight goes to all its lines by the gross
+    // they just received. Money follows pay weight, per-head deductions
+    // follow head.
+    function shpAllocate() {
+        const st = shpSettlement();
+        const lines = [];
+
         (shipmentState?.groups || []).forEach(g => {
-            g.loads.forEach((l, li) => {
-                const head = shpNum(l.head) || 0;
-                const gross = shpNum(l.gross) || 0;
-                if (l.lot_id && l.pasture_id && head > 0) {
+            const groupLineIdx = [];
+            g.loads.forEach((load, ldi) => {
+                const valid = load.lines
+                    .map((ln, li) => ({ ln, li, head: shpLineHead(load, li) }))
+                    .filter(x => x.ln.lot_id && x.ln.pasture_id && x.head > 0);
+                if (!valid.length) return;
+
+                // One weighing, split by head.
+                const grossParts = allocateProportional(
+                    shpNum(load.gross) || 0, valid.map(v => v.head), 0);
+
+                valid.forEach((v, k) => {
                     const inv = shipmentInventory.find(
-                        i => i.lot_id === l.lot_id && i.pasture_id === l.pasture_id);
-                    out.push({
+                        i => i.lot_id === v.ln.lot_id && i.pasture_id === v.ln.pasture_id);
+                    groupLineIdx.push(lines.length);
+                    lines.push({
                         groupKey: g.tempId,
                         groupLabel: g.label,
-                        loadIdx: li,
-                        lot_id: l.lot_id,
-                        pasture_id: l.pasture_id,
+                        loadIdx: ldi,
+                        loadSeqLabel: ldi + 1,
+                        load_date: load.date || null,
+                        lot_id: v.ln.lot_id,
+                        pasture_id: v.ln.pasture_id,
                         lot_number: inv?.lot_number || '?',
                         pasture_label: inv?.pasture_label || '?',
                         available: inv?.head_count ?? 0,
-                        head, gross
+                        head: v.head,
+                        gross_weight_lb: grossParts[k]
                     });
-                }
+                });
             });
-        });
-        return out;
-    }
 
-    // Pay weight is distributed inside a group by each load's OWN gross
-    // weight, not by head. When the group has no pay-weight override this is
-    // just gross minus shrink per load; when it does, the override still lands
-    // proportionally and the group still sums exactly. Money then follows the
-    // pay weight, and per-head deductions follow head.
-    function shpAllocate() {
-        const lines = shpActiveLines();
-        const st = shpSettlement();
-        const n = lines.length;
-        const payWt = new Array(n).fill(0);
-
-        const byGroup = new Map();
-        lines.forEach((ln, i) => {
-            if (!byGroup.has(ln.groupKey)) byGroup.set(ln.groupKey, []);
-            byGroup.get(ln.groupKey).push(i);
+            // Group pay weight across every line in the group, by gross.
+            const gt = shpGroupTotals(g);
+            const payParts = allocateProportional(
+                gt.pay, groupLineIdx.map(i => lines[i].gross_weight_lb), 0);
+            groupLineIdx.forEach((i, k) => { lines[i].pay_weight_lb = payParts[k]; });
         });
 
-        byGroup.forEach((idxs, key) => {
-            const g = shipmentState.groups.find(x => x.tempId === key);
-            const gt = g ? shpGroupTotals(g) : { pay: 0 };
-            const grosses = idxs.map(i => lines[i].gross);
-            const parts = allocateProportional(gt.pay, grosses, 0);
-            idxs.forEach((i, j) => { payWt[i] = parts[j]; });
-        });
-
-        const heads = lines.map(l => l.head);
-        const grossAmt = allocateProportional(st.grossAmount, payWt, 2);
+        const payAll = lines.map(l => l.pay_weight_lb || 0);
+        const heads  = lines.map(l => l.head);
+        const grossAmt = allocateProportional(st.grossAmount, payAll, 2);
         const dedHead  = allocateProportional(st.dedPerHeadTotal, heads, 2);
-        const dedFlat  = allocateProportional(st.dedFlatTotal, payWt, 2);
+        const dedFlat  = allocateProportional(st.dedFlatTotal, payAll, 2);
         const freight  = allocateProportional(st.freightCharged, heads, 2);
 
         return lines.map((ln, i) => ({
             ...ln,
-            pay_weight_lb: payWt[i],
-            gross_weight_lb: ln.gross,
             gross_amount: grossAmt[i],
             net_amount: round2(grossAmt[i] - dedHead[i] - dedFlat[i] - freight[i])
         }));
     }
 
-    // Head taken out of one pasture across every load on the sheet, which is
-    // what has to fit inside what is standing there.
-    function shpHeadByPasture(lines) {
+    // Head taken out of one pasture across the whole sheet, with the last day
+    // it was drawn on - which is the day it actually emptied, if it did.
+    function shpPastureDraw(lines) {
         const m = new Map();
         lines.forEach(l => {
             const k = `${l.lot_id}|${l.pasture_id}`;
-            m.set(k, (m.get(k) || 0) + l.head);
+            const cur = m.get(k) || {
+                lot_id: l.lot_id, pasture_id: l.pasture_id,
+                lot_number: l.lot_number, pasture_label: l.pasture_label,
+                available: l.available, head: 0, lastDate: null
+            };
+            cur.head += l.head;
+            if (l.load_date && (!cur.lastDate || l.load_date > cur.lastDate)) cur.lastDate = l.load_date;
+            m.set(k, cur);
         });
         return m;
     }
@@ -6279,28 +6296,35 @@ window.addEventListener('unhandledrejection', function(e) {
         const errs = [];
         const st = shpSettlement();
         const t = st.totals;
-        const lines = shpActiveLines();
+        const lines = shpAllocate();
 
-        if (!$('shpDate').value) errs.push('Sale date is required.');
+        if (!$('shpDate').value) errs.push('Settlement date is required.');
         if (!shipmentState.groups.length) errs.push('Add at least one weight group.');
 
-        // Loads that are half-filled would silently vanish from the sheet.
         shipmentState.groups.forEach(g => {
-            g.loads.forEach((l, li) => {
-                const any = l.lot_id || l.pasture_id || shpNum(l.head) || shpNum(l.gross);
-                if (!any) return;
+            g.loads.forEach((load, ldi) => {
+                const tag = `"${g.label}" load ${ldi + 1}`;
                 const miss = [];
-                if (!l.lot_id) miss.push('lot');
-                if (!l.pasture_id) miss.push('pasture');
-                if (!(shpNum(l.head) > 0)) miss.push('head');
-                if (!(shpNum(l.gross) > 0)) miss.push('gross weight');
-                if (miss.length) {
-                    errs.push(`"${g.label}" load ${li + 1} is missing ${miss.join(', ')}.`);
+                if (!load.date) miss.push('a date');
+                if (!(shpNum(load.head) > 0)) miss.push('head');
+                if (!(shpNum(load.gross) > 0)) miss.push('a gross weight');
+                if (miss.length) errs.push(`${tag} is missing ${miss.join(', ')}.`);
+
+                const bad = load.lines.filter(l => !l.lot_id || !l.pasture_id);
+                if (bad.length) errs.push(`${tag} has ${bad.length} line(s) with no lot or pasture.`);
+
+                // The buyer's sheet states head per truck. If the split does
+                // not add back to it, the gross gets divided over the wrong
+                // number of animals and every lot on that truck books wrong -
+                // silently, because the money still allocates.
+                const lineHead = shpLoadLinesHead(load);
+                const loadHead = shpNum(load.head) || 0;
+                if (loadHead > 0 && load.lines.length > 1 && lineHead !== loadHead) {
+                    errs.push(`${tag}: ${fmtNum(loadHead)} head on the ticket but the pasture lines add to ` +
+                              `${fmtNum(lineHead)} (off by ${fmtNum(Math.abs(loadHead - lineHead))}).`);
                 }
             });
-        });
 
-        shipmentState.groups.forEach(g => {
             const gt = shpGroupTotals(g);
             if (gt.head <= 0) errs.push(`Group "${g.label}" has no loads.`);
             if (gt.pay <= 0) errs.push(`Group "${g.label}" has no pay weight.`);
@@ -6312,14 +6336,11 @@ window.addEventListener('unhandledrejection', function(e) {
         if (!lines.length) errs.push('Enter at least one load.');
 
         // Cannot ship more out of a pasture than is standing in it, counting
-        // every load on the sheet that draws on that pasture.
-        shpHeadByPasture(lines).forEach((head, key) => {
-            const inv = shipmentInventory.find(i => i.key === key);
-            if (!inv) {
-                errs.push('A load points at a lot/pasture that no longer has open cattle.');
-            } else if (head > inv.head_count) {
-                errs.push(`${inv.lot_number} / ${inv.pasture_label}: ${fmtNum(head)} head across the loads ` +
-                          `but only ${fmtNum(inv.head_count)} are there.`);
+        // every load on the sheet that draws on it - across all the days.
+        shpPastureDraw(lines).forEach(d => {
+            if (d.head > d.available) {
+                errs.push(`${d.lot_number} / ${d.pasture_label}: ${fmtNum(d.head)} head across the whole sheet ` +
+                          `but only ${fmtNum(d.available)} are there.`);
             }
         });
 
@@ -6335,7 +6356,7 @@ window.addEventListener('unhandledrejection', function(e) {
         return errs;
     }
 
-    // ---- RENDER: groups and their loads ---------------------------------
+    // ---- RENDER ----------------------------------------------------------
     function shpLotOptions(sel) {
         return '<option value="">— lot —</option>' + shipmentLotIndex.map(l =>
             `<option value="${escapeHtml(l.lot_id)}"${l.lot_id === sel ? ' selected' : ''}>${escapeHtml(l.lot_number)}</option>`
@@ -6350,6 +6371,30 @@ window.addEventListener('unhandledrejection', function(e) {
         ).join('');
     }
 
+    function renderLoadLines(g, gi, load, ldi) {
+        const single = load.lines.length === 1;
+        return load.lines.map((ln, li) => `
+            <tr>
+                <td style="width: 26px;"></td>
+                <td style="width: 110px;">
+                    <select class="shp-line-lot" data-g="${gi}" data-ld="${ldi}" data-ln="${li}"
+                        style="padding: 4px 6px; font-size: 12px;">${shpLotOptions(ln.lot_id)}</select></td>
+                <td>
+                    <select class="shp-line-pasture" data-g="${gi}" data-ld="${ldi}" data-ln="${li}"
+                        style="padding: 4px 6px; font-size: 12px;">${shpPastureOptions(ln.lot_id, ln.pasture_id)}</select></td>
+                <td style="width: 86px;">${single
+                    ? `<span class="muted" style="font-size: 12px;">${fmtNum(shpNum(load.head) || 0)} hd</span>`
+                    : `<input type="number" min="1" step="1" class="shp-line-head"
+                        data-g="${gi}" data-ld="${ldi}" data-ln="${li}"
+                        value="${escapeHtml(String(ln.head ?? ''))}" placeholder="head"
+                        style="padding: 4px 6px; font-size: 12px;">`}</td>
+                <td class="muted" style="font-size: 11px; width: 92px;" id="shpLineWt_${gi}_${ldi}_${li}"></td>
+                <td style="width: 30px;">${single ? '' :
+                    `<button type="button" class="shp-line-remove" data-g="${gi}" data-ld="${ldi}" data-ln="${li}"
+                        style="padding: 2px 6px;">&times;</button>`}</td>
+            </tr>`).join('');
+    }
+
     function renderWeightGroups() {
         const c = $('weightGroupList');
         if (!shipmentState.groups.length) {
@@ -6360,30 +6405,33 @@ window.addEventListener('unhandledrejection', function(e) {
 
         c.innerHTML = shipmentState.groups.map((g, gi) => {
             const gt = shpGroupTotals(g);
-            const loadRows = g.loads.map((l, li) => `
-                <tr>
-                    <td class="muted" style="width: 34px;">${li + 1}.</td>
-                    <td style="width: 110px;">
-                        <select class="shp-load-lot" data-g="${gi}" data-l="${li}"
-                            style="padding: 5px 7px; font-size: 13px;">${shpLotOptions(l.lot_id)}</select></td>
-                    <td>
-                        <select class="shp-load-pasture" data-g="${gi}" data-l="${li}"
-                            style="padding: 5px 7px; font-size: 13px;">${shpPastureOptions(l.lot_id, l.pasture_id)}</select></td>
-                    <td style="width: 90px;">
-                        <input type="number" min="1" step="1" class="shp-load-head" data-g="${gi}" data-l="${li}"
-                            value="${escapeHtml(String(l.head ?? ''))}" placeholder="head"
-                            style="padding: 5px 7px; font-size: 13px;"></td>
-                    <td style="width: 110px;">
-                        <input type="number" min="1" step="1" class="shp-load-gross" data-g="${gi}" data-l="${li}"
-                            value="${escapeHtml(String(l.gross ?? ''))}" placeholder="gross lb"
-                            style="padding: 5px 7px; font-size: 13px;"></td>
-                    <td class="muted" style="font-size: 12px; width: 72px;">${
-                        (shpNum(l.head) > 0 && shpNum(l.gross) > 0)
-                            ? fmtNum(shpNum(l.gross) / shpNum(l.head), 0) + ' avg' : ''}</td>
-                    <td style="width: 34px;">
-                        <button type="button" class="shp-load-remove" data-g="${gi}" data-l="${li}"
-                            style="padding: 3px 7px;">&times;</button></td>
-                </tr>`).join('');
+
+            const loadBlocks = g.loads.map((load, ldi) => {
+                const h = shpNum(load.head), w = shpNum(load.gross);
+                return `
+                <div style="border: 1px solid var(--border); border-radius: 5px; padding: 8px; margin-bottom: 8px;">
+                    <div style="display: grid; grid-template-columns: 46px 1fr 1fr 1fr 70px 30px; gap: 8px; align-items: center;">
+                        <span class="muted" style="font-size: 12px;">Load ${ldi + 1}</span>
+                        <input type="date" class="shp-load-date" data-g="${gi}" data-ld="${ldi}"
+                            value="${escapeHtml(load.date || '')}" style="padding: 4px 6px; font-size: 12px;">
+                        <input type="number" min="1" step="1" class="shp-load-head" data-g="${gi}" data-ld="${ldi}"
+                            value="${escapeHtml(String(load.head ?? ''))}" placeholder="head"
+                            style="padding: 4px 6px; font-size: 12px;">
+                        <input type="number" min="1" step="1" class="shp-load-gross" data-g="${gi}" data-ld="${ldi}"
+                            value="${escapeHtml(String(load.gross ?? ''))}" placeholder="gross lb"
+                            style="padding: 4px 6px; font-size: 12px;">
+                        <span class="muted" style="font-size: 11px;">${(h > 0 && w > 0) ? fmtNum(w / h, 0) + ' avg' : ''}</span>
+                        <button type="button" class="shp-load-remove" data-g="${gi}" data-ld="${ldi}"
+                            style="padding: 3px 7px;">&times;</button>
+                    </div>
+                    <table style="margin-top: 6px;">
+                        <tbody>${renderLoadLines(g, gi, load, ldi)}</tbody>
+                    </table>
+                    <button type="button" class="shp-line-add" data-g="${gi}" data-ld="${ldi}"
+                        style="padding: 3px 8px; font-size: 11px; margin-top: 4px;">+ another pasture on this load</button>
+                    <span class="muted" id="shpLoadNote_${gi}_${ldi}" style="font-size: 11px; margin-left: 8px;"></span>
+                </div>`;
+            }).join('');
 
             return `
             <div class="card" style="margin-bottom: 12px; background: var(--bg-subtle, rgba(0,0,0,0.02));">
@@ -6391,15 +6439,12 @@ window.addEventListener('unhandledrejection', function(e) {
                     <input type="text" class="shp-group-label" data-g="${gi}"
                         value="${escapeHtml(g.label)}" placeholder="Group name"
                         style="font-weight: 600; max-width: 220px;">
-                    <span class="muted" style="font-size: 12px;">${g.loads.length} line${g.loads.length === 1 ? '' : 's'}</span>
+                    <span class="muted" style="font-size: 12px;">${g.loads.length} load${g.loads.length === 1 ? '' : 's'}</span>
                     <button type="button" class="shp-group-remove" data-g="${gi}"
                         style="margin-left: auto; padding: 4px 9px;">Remove group</button>
                 </div>
 
-                <table style="margin-bottom: 8px;">
-                    <thead><tr><th></th><th>Lot</th><th>Pasture</th><th>Head</th><th>Gross lb</th><th></th><th></th></tr></thead>
-                    <tbody>${loadRows || '<tr><td colspan="7" class="muted" style="font-size:12px;">No loads yet.</td></tr>'}</tbody>
-                </table>
+                ${loadBlocks || '<div class="muted" style="font-size: 12px;">No loads yet.</div>'}
                 <button type="button" class="shp-load-add" data-g="${gi}" style="padding: 4px 10px; font-size: 12px;">+ Load</button>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;">
@@ -6420,64 +6465,97 @@ window.addEventListener('unhandledrejection', function(e) {
             </div>`;
         }).join('');
 
-        // Typed fields update state and recompute the read-only figures WITHOUT
-        // re-rendering; a full re-render on every keystroke eats the caret.
-        c.querySelectorAll('.shp-load-head').forEach(el => el.addEventListener('input', e => {
-            shipmentState.groups[+e.target.dataset.g].loads[+e.target.dataset.l].head = e.target.value;
-            recomputeShipment();
-        }));
-        c.querySelectorAll('.shp-load-gross').forEach(el => el.addEventListener('input', e => {
-            shipmentState.groups[+e.target.dataset.g].loads[+e.target.dataset.l].gross = e.target.value;
-            recomputeShipment();
+        wireWeightGroupInputs(c);
+        recomputeShipment();
+    }
+
+    // Typed fields update state and recompute the read-only figures WITHOUT
+    // re-rendering; a full re-render on every keystroke eats the caret.
+    // Structural changes (adding a load or a line) do re-render.
+    function wireWeightGroupInputs(c) {
+        const G = e => shipmentState.groups[+e.target.dataset.g];
+        const L = e => G(e).loads[+e.target.dataset.ld];
+
+        c.querySelectorAll('.shp-group-label').forEach(el => el.addEventListener('input', e => {
+            G(e).label = e.target.value; recomputeShipment();
         }));
         c.querySelectorAll('.shp-group-shrink').forEach(el => el.addEventListener('input', e => {
-            shipmentState.groups[+e.target.dataset.g].shrink_pct = e.target.value;
-            recomputeShipment();
+            G(e).shrink_pct = e.target.value; recomputeShipment();
         }));
         c.querySelectorAll('.shp-group-pay').forEach(el => el.addEventListener('input', e => {
-            shipmentState.groups[+e.target.dataset.g].pay_override = e.target.value;
-            recomputeShipment();
+            G(e).pay_override = e.target.value; recomputeShipment();
         }));
-        c.querySelectorAll('.shp-group-label').forEach(el => el.addEventListener('input', e => {
-            shipmentState.groups[+e.target.dataset.g].label = e.target.value;
-            recomputeShipment();
+        c.querySelectorAll('.shp-load-date').forEach(el => el.addEventListener('change', e => {
+            L(e).date = e.target.value; recomputeShipment();
+        }));
+        c.querySelectorAll('.shp-load-gross').forEach(el => el.addEventListener('input', e => {
+            L(e).gross = e.target.value; recomputeShipment();
+        }));
+        c.querySelectorAll('.shp-load-head').forEach(el => el.addEventListener('input', e => {
+            L(e).head = e.target.value; recomputeShipment();
+        }));
+        c.querySelectorAll('.shp-line-head').forEach(el => el.addEventListener('input', e => {
+            L(e).lines[+e.target.dataset.ln].head = e.target.value; recomputeShipment();
         }));
 
-        // Changing the lot rewrites only that row's pasture list. Picking a lot
-        // is what narrows the pastures to the ones where the lot actually has
-        // cattle, which is why there is no separate filter.
-        c.querySelectorAll('.shp-load-lot').forEach(el => el.addEventListener('change', e => {
-            const gi = +e.target.dataset.g, li = +e.target.dataset.l;
-            const load = shipmentState.groups[gi].loads[li];
-            load.lot_id = e.target.value || null;
-            load.pasture_id = null;
-            const sel = c.querySelector(`.shp-load-pasture[data-g="${gi}"][data-l="${li}"]`);
-            if (sel) sel.innerHTML = shpPastureOptions(load.lot_id, null);
+        // Picking a lot is what narrows the pastures to where that lot
+        // actually has cattle, which is why there is no separate filter.
+        c.querySelectorAll('.shp-line-lot').forEach(el => el.addEventListener('change', e => {
+            const { g, ld, ln } = e.target.dataset;
+            const line = shipmentState.groups[+g].loads[+ld].lines[+ln];
+            line.lot_id = e.target.value || null;
+            line.pasture_id = null;
+            const sel = c.querySelector(`.shp-line-pasture[data-g="${g}"][data-ld="${ld}"][data-ln="${ln}"]`);
+            if (sel) sel.innerHTML = shpPastureOptions(line.lot_id, null);
             recomputeShipment();
         }));
-        c.querySelectorAll('.shp-load-pasture').forEach(el => el.addEventListener('change', e => {
-            const load = shipmentState.groups[+e.target.dataset.g].loads[+e.target.dataset.l];
-            load.pasture_id = e.target.value || null;
+        c.querySelectorAll('.shp-line-pasture').forEach(el => el.addEventListener('change', e => {
+            L(e).lines[+e.target.dataset.ln].pasture_id = e.target.value || null;
             recomputeShipment();
         }));
 
         c.querySelectorAll('.shp-load-add').forEach(el => el.addEventListener('click', e => {
-            shipmentState.groups[+e.target.dataset.g].loads.push(
-                { tempId: shpTempId(), lot_id: null, pasture_id: null, head: '', gross: '' });
+            const g = shipmentState.groups[+e.target.dataset.g];
+            // A new load inherits the day the last one left - a sheet spanning
+            // days usually runs several trucks per day.
+            const prev = g.loads[g.loads.length - 1];
+            g.loads.push(shpNewLoad(prev ? prev.date : $('shpDate').value));
             renderWeightGroups();
         }));
         c.querySelectorAll('.shp-load-remove').forEach(el => el.addEventListener('click', e => {
-            shipmentState.groups[+e.target.dataset.g].loads.splice(+e.target.dataset.l, 1);
+            shipmentState.groups[+e.target.dataset.g].loads.splice(+e.target.dataset.ld, 1);
+            renderWeightGroups();
+        }));
+        c.querySelectorAll('.shp-line-add').forEach(el => el.addEventListener('click', e => {
+            const load = shipmentState.groups[+e.target.dataset.g].loads[+e.target.dataset.ld];
+            // Going from one line to two: the first line was showing the
+            // load's head implicitly, so write it down before it needs to be
+            // a real editable number.
+            if (load.lines.length === 1 && (load.lines[0].head === '' || load.lines[0].head == null)) {
+                load.lines[0].head = String(shpNum(load.head) || '');
+            }
+            load.lines.push({ tempId: shpTempId(), lot_id: null, pasture_id: null, head: '' });
+            renderWeightGroups();
+        }));
+        c.querySelectorAll('.shp-line-remove').forEach(el => el.addEventListener('click', e => {
+            shipmentState.groups[+e.target.dataset.g].loads[+e.target.dataset.ld]
+                .lines.splice(+e.target.dataset.ln, 1);
             renderWeightGroups();
         }));
         c.querySelectorAll('.shp-group-remove').forEach(el => el.addEventListener('click', e => {
             shipmentState.groups.splice(+e.target.dataset.g, 1);
             renderWeightGroups();
         }));
-
-        recomputeShipment();
     }
 
+    function shpNewLoad(date) {
+        return {
+            tempId: shpTempId(),
+            date: date || '',
+            head: '', gross: '',
+            lines: [{ tempId: shpTempId(), lot_id: null, pasture_id: null, head: '' }]
+        };
+    }
     // ---- RENDER: deductions ---------------------------------------------
     function renderDeductions() {
         const c = $('deductionList');
@@ -6557,7 +6635,30 @@ window.addEventListener('unhandledrejection', function(e) {
             $('shpGrossAmount').value = round2(t.pay * st.cwt / 100).toFixed(2);
         }
 
+        const alloc = shpAllocate();
+
+        // Per-line allocated weight, and per-load "does the split add up".
+        const byCell = {};
+        alloc.forEach(a => { byCell[`${a.groupKey}|${a.loadIdx}|${a.lot_id}|${a.pasture_id}`] = a; });
         shipmentState.groups.forEach((g, gi) => {
+            g.loads.forEach((load, ldi) => {
+                load.lines.forEach((ln, li) => {
+                    const el = $(`shpLineWt_${gi}_${ldi}_${li}`);
+                    if (!el) return;
+                    const a = byCell[`${g.tempId}|${ldi}|${ln.lot_id}|${ln.pasture_id}`];
+                    el.textContent = a ? `${fmtNum(a.gross_weight_lb)} lb` : '';
+                });
+                const note = $(`shpLoadNote_${gi}_${ldi}`);
+                if (note) {
+                    const loadHead = shpNum(load.head) || 0;
+                    const lineHead = shpLoadLinesHead(load);
+                    note.textContent = (load.lines.length > 1 && loadHead > 0 && lineHead !== loadHead)
+                        ? `⚠ lines add to ${fmtNum(lineHead)} of ${fmtNum(loadHead)} head`
+                        : '';
+                    note.style.color = note.textContent ? 'var(--danger)' : '';
+                }
+            });
+
             const gt = shpGroupTotals(g);
             const el = $(`shpGroupSummary_${gi}`);
             if (el) {
@@ -6567,8 +6668,12 @@ window.addEventListener('unhandledrejection', function(e) {
         });
 
         const shrinkPctEff = t.gross > 0 ? (t.shrinkLb / t.gross * 100) : 0;
-        const lines = shpActiveLines();
-        const lotCount = new Set(lines.map(l => l.lot_id)).size;
+        const lotCount = new Set(alloc.map(l => l.lot_id)).size;
+        const days = [...new Set(alloc.map(l => l.load_date).filter(Boolean))].sort();
+        const dayNote = days.length > 1
+            ? `${days.length} days, ${fmtDate(days[0])} – ${fmtDate(days[days.length - 1])}`
+            : (days.length === 1 ? fmtDate(days[0]) : '—');
+
         $('shipmentWeightSummary').innerHTML = `
             <table><tbody>
                 <tr><td>Head</td><td style="text-align:right;"><strong>${fmtNum(t.head)}</strong></td></tr>
@@ -6576,7 +6681,8 @@ window.addEventListener('unhandledrejection', function(e) {
                 <tr><td>Shrink</td><td style="text-align:right;">${fmtNum(t.shrinkLb)} lb (${fmtNum(shrinkPctEff, 2)}%)</td></tr>
                 <tr><td><strong>Pay weight</strong></td><td style="text-align:right;"><strong>${fmtNum(t.pay)} lb</strong></td></tr>
                 <tr><td>Average</td><td style="text-align:right;">${fmtNum(t.avg, 0)} lb</td></tr>
-                <tr><td class="muted">Off</td><td style="text-align:right;" class="muted">${fmtNum(lines.length)} load line${lines.length === 1 ? '' : 's'} · ${fmtNum(lotCount)} lot${lotCount === 1 ? '' : 's'}</td></tr>
+                <tr><td class="muted">Shipped</td><td style="text-align:right;" class="muted">${escapeHtml(dayNote)}</td></tr>
+                <tr><td class="muted">Off</td><td style="text-align:right;" class="muted">${fmtNum(alloc.length)} pasture line${alloc.length === 1 ? '' : 's'} · ${fmtNum(lotCount)} lot${lotCount === 1 ? '' : 's'}</td></tr>
             </tbody></table>`;
 
         shipmentState.deductions.forEach((d, i) => {
@@ -6675,11 +6781,10 @@ window.addEventListener('unhandledrejection', function(e) {
         $('shipmentEntryView').classList.remove('hidden');
         clearAlert('shipmentEntryAlert');
 
+        const today = ranchToday();
         shipmentState = {
-            groups: [{
-                tempId: shpTempId(), label: 'Group 1', shrink_pct: '', pay_override: '',
-                loads: [{ tempId: shpTempId(), lot_id: null, pasture_id: null, head: '', gross: '' }]
-            }],
+            groups: [{ tempId: shpTempId(), label: 'Group 1', shrink_pct: '', pay_override: '',
+                       loads: [shpNewLoad(today)] }],
             // Checkoff is not optional and it is the same two lines every
             // time, so it is seeded rather than retyped on every sheet.
             deductions: [
@@ -6693,7 +6798,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'shpFreightLoads','shpFreightTotal','shpPricePerCwt','shpGrossAmount'
         ].forEach(id => { $(id).value = ''; });
         $('shpJfrPaysFreight').checked = false;
-        $('shpDate').value = ranchToday();
+        $('shpDate').value = today;
 
         const { data: past } = await supabase.from('shipments').select('buyer, destination');
         const buyers = [...new Set((past || []).map(p => p.buyer).filter(Boolean))].sort();
@@ -6710,7 +6815,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // PostgREST gives us no transaction, so this is ordered so the
     // irreversible part happens last and everything before it can be undone:
     //
-    //   paperwork (shipment -> groups -> loads -> deductions)
+    //   paperwork (shipment -> groups -> loads -> lines -> deductions)
     //   books     (sales -> sale_sources)
     //   cattle    (decrement lot_pasture_assignments)   <- last
     //
@@ -6724,6 +6829,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const t = st.totals;
         const alloc = shpAllocate();
         const lotCount = new Set(alloc.map(a => a.lot_id)).size;
+        const days = [...new Set(alloc.map(a => a.load_date).filter(Boolean))].sort();
 
         if (!confirm(
             `Save this shipment?\n\n` +
@@ -6732,7 +6838,8 @@ window.addEventListener('unhandledrejection', function(e) {
             (st.jfrPays ? `, less ${fmtMoney(st.freightTotal)} freight` : '') + `\n` +
             `  Proceeds to the books ${fmtMoney(st.bookProceeds)}\n\n` +
             `This ships cattle off ${lotCount} lot${lotCount === 1 ? '' : 's'} ` +
-            `across ${alloc.length} load line${alloc.length === 1 ? '' : 's'}.`
+            `over ${days.length} day${days.length === 1 ? '' : 's'}` +
+            (days.length > 1 ? ` (${fmtDate(days[0])} – ${fmtDate(days[days.length - 1])})` : '') + `.`
         )) return;
 
         const btn = $('shipmentSaveBtn');
@@ -6740,14 +6847,14 @@ window.addEventListener('unhandledrejection', function(e) {
 
         let shipmentId = null;
         const insertedSaleIds = [];
-        const appliedDecrements = [];   // {id, prevHead, prevMovedOut}
+        const appliedDecrements = [];
 
         try {
-            const saleDate = $('shpDate').value;
+            const sheetDate = $('shpDate').value;
 
             // 1. the sheet
             const { data: shp, error: shpErr } = await supabase.from('shipments').insert({
-                sale_date: saleDate,
+                sale_date: sheetDate,
                 buyer: $('shpBuyer').value.trim() || null,
                 destination: $('shpDestination').value.trim() || null,
                 sex_class: $('shpSexClass').value.trim() || null,
@@ -6769,8 +6876,7 @@ window.addEventListener('unhandledrejection', function(e) {
             if (shpErr) throw shpErr;
             shipmentId = shp.id;
 
-            // 2. weight groups - keep tempId -> real id so loads and sources
-            //    can point at them
+            // 2. weight groups
             const groupIdByTemp = {};
             for (let gi = 0; gi < shipmentState.groups.length; gi++) {
                 const g = shipmentState.groups[gi];
@@ -6788,31 +6894,36 @@ window.addEventListener('unhandledrejection', function(e) {
                 groupIdByTemp[g.tempId] = gr.id;
             }
 
-            // 3. loads, now carrying the lot and pasture they came off.
-            //    load_seq counts trucks across the whole sheet; line_seq
-            //    separates the lines of a pot gathered off two pastures.
-            const loadRows = [];
+            // 3. loads, then their lines with the allocated shares written down
             let seq = 0;
-            shipmentState.groups.forEach(g => {
-                g.loads.forEach(l => {
-                    const h = shpNum(l.head), w = shpNum(l.gross);
-                    if (l.lot_id && l.pasture_id && h > 0 && w > 0) {
-                        loadRows.push({
-                            shipment_id: shipmentId,
-                            weight_group_id: groupIdByTemp[g.tempId],
-                            load_seq: ++seq,
-                            line_seq: 1,
-                            lot_id: l.lot_id,
-                            pasture_id: l.pasture_id,
-                            head_count: h,
-                            gross_weight_lb: w
-                        });
-                    }
-                });
-            });
-            if (loadRows.length) {
-                const { error } = await supabase.from('shipment_loads').insert(loadRows);
-                if (error) throw error;
+            for (const g of shipmentState.groups) {
+                for (let ldi = 0; ldi < g.loads.length; ldi++) {
+                    const load = g.loads[ldi];
+                    const mine = alloc.filter(a => a.groupKey === g.tempId && a.loadIdx === ldi);
+                    if (!mine.length) continue;
+
+                    const { data: lr, error: lErr } = await supabase.from('shipment_loads').insert({
+                        shipment_id: shipmentId,
+                        weight_group_id: groupIdByTemp[g.tempId],
+                        load_seq: ++seq,
+                        load_date: load.date,
+                        head_count: shpNum(load.head),
+                        gross_weight_lb: shpNum(load.gross)
+                    }).select().single();
+                    if (lErr) throw lErr;
+
+                    const { error: llErr } = await supabase.from('shipment_load_lines').insert(
+                        mine.map((a, k) => ({
+                            load_id: lr.id,
+                            line_seq: k + 1,
+                            lot_id: a.lot_id,
+                            pasture_id: a.pasture_id,
+                            head_count: a.head,
+                            gross_weight_lb: a.gross_weight_lb,
+                            pay_weight_lb: a.pay_weight_lb
+                        })));
+                    if (llErr) throw llErr;
+                }
             }
 
             // 4. deductions
@@ -6831,25 +6942,31 @@ window.addEventListener('unhandledrejection', function(e) {
                 if (error) throw error;
             }
 
-            // 5. one `sales` row per lot, summed from that lot's load lines.
-            //    Sources are keyed by (pasture, group): a pasture that fed two
-            //    weight groups is genuinely two lines of different weight.
-            const byLot = new Map();
+            // 5. one `sales` row per (lot, DAY), not per lot.
+            //    Cattle that left on the 19th ate grass on the 19th and not
+            //    the 21st, and head-days are what cost of gain and labor are
+            //    charged against. Collapsing nine loads onto one date would
+            //    hand the ranch days of head-days on cattle already gone.
+            const byLotDay = new Map();
             alloc.forEach(a => {
-                if (!byLot.has(a.lot_id)) byLot.set(a.lot_id, []);
-                byLot.get(a.lot_id).push(a);
+                const k = `${a.lot_id}|${a.load_date}`;
+                if (!byLotDay.has(k)) byLotDay.set(k, []);
+                byLotDay.get(k).push(a);
             });
 
-            for (const [lotId, lotLines] of byLot.entries()) {
-                const head    = lotLines.reduce((s, l) => s + l.head, 0);
-                const payWt   = lotLines.reduce((s, l) => s + l.pay_weight_lb, 0);
-                const grossWt = lotLines.reduce((s, l) => s + l.gross_weight_lb, 0);
-                const net     = round2(lotLines.reduce((s, l) => s + l.net_amount, 0));
+            const lotIds = new Set();
+            for (const [key, lines] of byLotDay.entries()) {
+                const [lotId, dayIso] = key.split('|');
+                lotIds.add(lotId);
+                const head    = lines.reduce((s, l) => s + l.head, 0);
+                const payWt   = lines.reduce((s, l) => s + (l.pay_weight_lb || 0), 0);
+                const grossWt = lines.reduce((s, l) => s + (l.gross_weight_lb || 0), 0);
+                const net     = round2(lines.reduce((s, l) => s + l.net_amount, 0));
 
                 const { data: sale, error: saleErr } = await supabase.from('sales').insert({
                     lot_id: lotId,
                     shipment_id: shipmentId,
-                    sale_date: saleDate,
+                    sale_date: dayIso,
                     head_count: head,
                     gross_weight_lb: grossWt || null,
                     // net_weight_lb is the pay weight - realized ADG and every
@@ -6859,16 +6976,16 @@ window.addEventListener('unhandledrejection', function(e) {
                     price_per_head: head ? round2(net / head) : null,
                     total_price: net,
                     buyer: $('shpBuyer').value.trim() || null,
-                    notes: `Shipment ${saleDate}` +
+                    notes: `Shipment settled ${sheetDate}` +
                            ($('shpDestination').value.trim() ? ` to ${$('shpDestination').value.trim()}` : '') +
-                           ` — allocated share of a ${fmtNum(t.head)} head sheet.`,
+                           ` — loads that left ${dayIso}, share of a ${fmtNum(t.head)} head sheet.`,
                     created_by: currentUser.id
                 }).select().single();
                 if (saleErr) throw saleErr;
                 insertedSaleIds.push(sale.id);
 
                 const srcAgg = new Map();
-                lotLines.forEach(l => {
+                lines.forEach(l => {
                     const k = `${l.pasture_id}|${l.groupKey}`;
                     const cur = srcAgg.get(k) || {
                         pasture_id: l.pasture_id,
@@ -6876,7 +6993,7 @@ window.addEventListener('unhandledrejection', function(e) {
                         head_count: 0, pay_weight_lb: 0, gross_amount: 0, net_amount: 0
                     };
                     cur.head_count    += l.head;
-                    cur.pay_weight_lb += l.pay_weight_lb;
+                    cur.pay_weight_lb += (l.pay_weight_lb || 0);
                     cur.gross_amount   = round2(cur.gross_amount + l.gross_amount);
                     cur.net_amount     = round2(cur.net_amount + l.net_amount);
                     srcAgg.set(k, cur);
@@ -6886,39 +7003,35 @@ window.addEventListener('unhandledrejection', function(e) {
                 if (srcErr) throw srcErr;
             }
 
-            // 6. move the cattle. Last, aggregated per pasture, and re-checked
-            //    against live rows - the screen may have been open a while.
-            const perPasture = new Map();
-            alloc.forEach(l => {
-                const k = `${l.lot_id}|${l.pasture_id}`;
-                const cur = perPasture.get(k) || { ...l, head: 0 };
-                cur.head += l.head;
-                perPasture.set(k, cur);
-            });
-
-            for (const l of perPasture.values()) {
+            // 6. move the cattle. Last, aggregated per pasture across every
+            //    day, and re-checked against live rows - the screen may have
+            //    been open a while. A pasture that empties closes on the date
+            //    of the LAST load that drew on it, not the sheet date.
+            for (const d of shpPastureDraw(alloc).values()) {
                 const { data: existing, error: exErr } = await supabase
                     .from('lot_pasture_assignments')
-                    .select('id, head_count, moved_out')
-                    .eq('lot_id', l.lot_id)
-                    .eq('pasture_id', l.pasture_id)
+                    .select('id, head_count')
+                    .eq('lot_id', d.lot_id)
+                    .eq('pasture_id', d.pasture_id)
                     .is('moved_out', null)
                     .maybeSingle();
                 if (exErr) throw exErr;
                 if (!existing) {
-                    throw new Error(`No open pasture assignment for ${l.lot_number} / ${l.pasture_label}. ` +
+                    throw new Error(`No open pasture assignment for ${d.lot_number} / ${d.pasture_label}. ` +
                                     `Someone may have moved these cattle while this screen was open.`);
                 }
-                const newHead = Number(existing.head_count) - l.head;
+                const newHead = Number(existing.head_count) - d.head;
                 if (newHead < 0) {
-                    throw new Error(`${l.lot_number} / ${l.pasture_label}: only ${existing.head_count} head are there, ` +
-                                    `${l.head} were entered.`);
+                    throw new Error(`${d.lot_number} / ${d.pasture_label}: only ${existing.head_count} head are there, ` +
+                                    `${d.head} were entered.`);
                 }
 
                 // Closing leaves head_count INTACT, matching the single-sale
                 // path and what delete_shipment_with_reversal expects:
                 // reopening a closed row restores the count on its own.
-                const patch = newHead === 0 ? { moved_out: saleDate } : { head_count: newHead };
+                const patch = newHead === 0
+                    ? { moved_out: d.lastDate || sheetDate }
+                    : { head_count: newHead };
                 const { error: updErr } = await supabase
                     .from('lot_pasture_assignments').update(patch).eq('id', existing.id);
                 if (updErr) throw updErr;
@@ -6927,10 +7040,10 @@ window.addEventListener('unhandledrejection', function(e) {
 
             btn.disabled = false; btn.textContent = 'Save shipment';
             showAlert('globalAlert',
-                `Shipment saved: ${fmtNum(t.head)} head, ${fmtMoney(st.bookProceeds)} to the books across ` +
-                `${lotCount} lot${lotCount === 1 ? '' : 's'}.`, 'success');
+                `Shipment saved: ${fmtNum(t.head)} head over ${days.length} day${days.length === 1 ? '' : 's'}, ` +
+                `${fmtMoney(st.bookProceeds)} to the books across ${lotCount} lot${lotCount === 1 ? '' : 's'}.`, 'success');
 
-            await offerToCloseEmptiedLots([...byLot.keys()]);
+            await offerToCloseEmptiedLots([...lotIds]);
             showSalesTab();
 
         } catch (err) {
@@ -6946,7 +7059,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 if (error) failures.push(`sale ${sid}: ${error.message}`);
             }
             if (shipmentId) {
-                // groups, loads and deductions cascade off the shipment
+                // groups, loads, lines and deductions all cascade off the shipment
                 const { error } = await supabase.from('shipments').delete().eq('id', shipmentId);
                 if (error) failures.push(`shipment ${shipmentId}: ${error.message}`);
             }
@@ -6974,7 +7087,6 @@ window.addEventListener('unhandledrejection', function(e) {
             }
         }
     }
-
     // ---- THE LIST --------------------------------------------------------
     function showSalesTab() {
         hideAllViews();
@@ -7050,15 +7162,16 @@ window.addEventListener('unhandledrejection', function(e) {
 
     // ---- DETAIL ----------------------------------------------------------
     async function showShipmentDetail(id) {
-        const [{ data: s, error }, { data: groups }, { data: loads }, { data: deds }, { data: recon }] =
+        const [{ data: s, error }, { data: groups }, { data: loads }, { data: deds }, { data: recon }, { data: loadRecon }] =
             await Promise.all([
                 supabase.from('shipments').select('*').eq('id', id).single(),
                 supabase.from('shipment_weight_groups').select('*').eq('shipment_id', id).order('sort_order'),
                 supabase.from('shipment_loads')
-                    .select('*, lots(lot_number), pastures(name, ranches(name)), shipment_weight_groups(group_label)')
-                    .eq('shipment_id', id).order('load_seq').order('line_seq'),
+                    .select('*, shipment_weight_groups(group_label), shipment_load_lines(*, lots(lot_number), pastures(name, ranches(name)))')
+                    .eq('shipment_id', id).order('load_seq'),
                 supabase.from('shipment_deductions').select('*').eq('shipment_id', id).order('sort_order'),
-                supabase.from('shipment_reconciliation').select('*').eq('shipment_id', id).maybeSingle()
+                supabase.from('shipment_reconciliation').select('*').eq('shipment_id', id).maybeSingle(),
+                supabase.from('shipment_load_reconciliation').select('*').eq('shipment_id', id)
             ]);
 
         if (error) { showAlert('globalAlert', 'Could not load shipment: ' + error.message, 'error'); return; }
@@ -7068,12 +7181,38 @@ window.addEventListener('unhandledrejection', function(e) {
         $('navSales').classList.add('active');
         $('salesView').classList.remove('hidden');
 
-        const loadsByGroup = {};
-        (loads || []).forEach(l => { (loadsByGroup[l.weight_group_id] = loadsByGroup[l.weight_group_id] || []).push(l); });
-
         const off = recon && (Math.abs(Number(recon.head_variance) || 0) > 0
                   || Math.abs(Number(recon.pay_weight_variance) || 0) > 0.5
                   || Math.abs(Number(recon.net_amount_variance) || 0) > 0.01);
+        const badLoads = (loadRecon || []).filter(r =>
+            Math.abs(Number(r.head_variance) || 0) > 0 || Math.abs(Number(r.gross_variance) || 0) > 0.5);
+
+        const days = [...new Set((loads || []).map(l => l.load_date).filter(Boolean))].sort();
+        const dayNote = days.length > 1
+            ? `${days.length} days, ${fmtDate(days[0])} – ${fmtDate(days[days.length - 1])}`
+            : (days.length === 1 ? fmtDate(days[0]) : '');
+
+        const loadRows = (loads || []).map(l => {
+            const lines = l.shipment_load_lines || [];
+            const head = `<tr>
+                <td><strong>${l.load_seq}</strong></td>
+                <td>${l.load_date ? fmtDate(l.load_date) : '—'}</td>
+                <td class="muted">${escapeHtml(l.shipment_weight_groups?.group_label || '—')}</td>
+                <td colspan="2" class="muted">${lines.length} pasture line${lines.length === 1 ? '' : 's'}</td>
+                <td style="text-align:right;"><strong>${fmtNum(l.head_count)}</strong></td>
+                <td style="text-align:right;"><strong>${fmtNum(l.gross_weight_lb)}</strong></td>
+                <td style="text-align:right;">${l.head_count ? fmtNum(Number(l.gross_weight_lb) / l.head_count, 0) : '—'}</td>
+            </tr>`;
+            const kids = lines.map(ln => `<tr>
+                <td></td><td></td><td></td>
+                <td>${escapeHtml(ln.lots?.lot_number || '—')}</td>
+                <td>${escapeHtml(ln.pastures ? `${ln.pastures.ranches?.name || '?'} / ${ln.pastures.name}` : '—')}</td>
+                <td style="text-align:right;" class="muted">${fmtNum(ln.head_count)}</td>
+                <td style="text-align:right;" class="muted">${fmtNum(ln.gross_weight_lb)}</td>
+                <td style="text-align:right;" class="muted">${fmtNum(ln.pay_weight_lb)} pay</td>
+            </tr>`).join('');
+            return head + kids;
+        }).join('');
 
         $('shipmentListContent').innerHTML = `
             <div style="margin-bottom: 14px;"><button id="shipmentDetailBackBtn">&larr; All shipments</button></div>
@@ -7082,39 +7221,32 @@ window.addEventListener('unhandledrejection', function(e) {
                 This shipment no longer ties to the sales allocated from it —
                 ${fmtNum(recon.head_variance)} head, ${fmtNum(recon.pay_weight_variance)} lb,
                 ${fmtMoney(recon.net_amount_variance)}. Something was edited underneath it.</div>` : ''}
+            ${badLoads.length ? `<div class="alert error">
+                ${badLoads.length} load${badLoads.length === 1 ? "'s pasture lines no longer add" : "s' pasture lines no longer add"}
+                up to the scale ticket.</div>` : ''}
 
             <h3 style="margin: 0 0 4px 0;">${escapeHtml(s.buyer || 'Shipment')} — ${fmtDate(s.sale_date)}</h3>
             <p class="muted" style="font-size: 12px; margin: 0 0 16px 0;">
-                ${[s.destination && 'to ' + s.destination, s.sex_class]
+                ${[s.destination && 'to ' + s.destination, s.sex_class, dayNote && 'shipped ' + dayNote]
                     .filter(Boolean).map(escapeHtml).join(' · ') || '—'}
             </p>
 
             <h4 style="margin: 18px 0 6px 0;">Loads</h4>
             <table>
-                <thead><tr><th>#</th><th>Group</th><th>Lot</th><th>Pasture</th>
+                <thead><tr><th>#</th><th>Date</th><th>Group</th><th>Lot</th><th>Pasture</th>
                     <th style="text-align:right;">Head</th><th style="text-align:right;">Gross lb</th>
                     <th style="text-align:right;">Avg</th></tr></thead>
-                <tbody>
-                ${(loads || []).map(l => `<tr>
-                    <td class="muted">${l.load_seq}</td>
-                    <td class="muted">${escapeHtml(l.shipment_weight_groups?.group_label || '—')}</td>
-                    <td><strong>${escapeHtml(l.lots?.lot_number || '—')}</strong></td>
-                    <td>${escapeHtml(l.pastures ? `${l.pastures.ranches?.name || '?'} / ${l.pastures.name}` : '—')}</td>
-                    <td style="text-align:right;">${fmtNum(l.head_count)}</td>
-                    <td style="text-align:right;">${fmtNum(l.gross_weight_lb)}</td>
-                    <td style="text-align:right;">${l.head_count ? fmtNum(Number(l.gross_weight_lb) / l.head_count, 0) : '—'}</td>
-                </tr>`).join('') || '<tr><td colspan="7" class="muted">No load detail recorded.</td></tr>'}
-                </tbody>
+                <tbody>${loadRows || '<tr><td colspan="8" class="muted">No load detail recorded.</td></tr>'}</tbody>
             </table>
 
             <h4 style="margin: 18px 0 6px 0;">Weight groups</h4>
             <table>
-                <thead><tr><th>Group</th><th style="text-align:right;">Lines</th><th style="text-align:right;">Head</th>
+                <thead><tr><th>Group</th><th style="text-align:right;">Loads</th><th style="text-align:right;">Head</th>
                     <th style="text-align:right;">Gross</th><th style="text-align:right;">Shrink</th>
                     <th style="text-align:right;">Pay wt</th><th style="text-align:right;">Avg</th></tr></thead>
                 <tbody>
                 ${(groups || []).map(g => {
-                    const n = (loadsByGroup[g.id] || []).length;
+                    const n = (loads || []).filter(l => l.weight_group_id === g.id).length;
                     const shrink = (Number(g.gross_weight_lb) || 0) - (Number(g.pay_weight_lb) || 0);
                     return `<tr>
                         <td>${escapeHtml(g.group_label)}</td>
@@ -7149,8 +7281,6 @@ window.addEventListener('unhandledrejection', function(e) {
                     <td style="text-align:right; color: var(--danger);">− ${fmtMoney(s.freight_total)}</td></tr>` : ''}
                 <tr><td><strong>Proceeds to the books</strong></td><td style="text-align:right;"><strong>${fmtMoney(s.book_proceeds)}</strong></td></tr>
             </tbody></table>
-
-            ${s.notes ? `<p class="muted" style="font-size: 12px; margin-top: 12px;">${escapeHtml(s.notes)}</p>` : ''}
 
             <div style="margin-top: 20px; display: flex; gap: 10px;">
                 <button id="shipmentDeleteDetailBtn" data-perm="owner"
@@ -7206,11 +7336,14 @@ window.addEventListener('unhandledrejection', function(e) {
     $('shipmentCancelBtn').addEventListener('click', showSalesTab);
     $('shipmentSaveBtn').addEventListener('click', saveShipment);
     $('addWeightGroupBtn').addEventListener('click', () => {
+        // A new group starts on the same day the previous one left off.
+        const prevG = shipmentState.groups[shipmentState.groups.length - 1];
+        const prevL = prevG && prevG.loads[prevG.loads.length - 1];
         shipmentState.groups.push({
             tempId: shpTempId(),
             label: `Group ${shipmentState.groups.length + 1}`,
             shrink_pct: '', pay_override: '',
-            loads: [{ tempId: shpTempId(), lot_id: null, pasture_id: null, head: '', gross: '' }]
+            loads: [shpNewLoad(prevL ? prevL.date : $('shpDate').value)]
         });
         renderWeightGroups();
     });

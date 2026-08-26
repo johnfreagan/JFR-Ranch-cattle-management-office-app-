@@ -118,9 +118,9 @@ grouped into weight classes, one $/cwt against one pay weight, and a draft
 after checkoff. One sheet routinely spans several lots and many pastures.
 
 ```
-shipments ──┬── shipment_weight_groups ── shipment_loads
+shipments ──┬── shipment_weight_groups ── shipment_loads ── shipment_load_lines
             ├── shipment_deductions
-            └── sales (one per lot) ── sale_sources (one per lot+pasture)
+            └── sales (one per lot PER DAY) ── sale_sources (per pasture+group)
 ```
 
 - **`shipments` sits ABOVE `sales`; it does not replace it.** Each lot still
@@ -133,18 +133,33 @@ shipments ──┬── shipment_weight_groups ── shipment_loads
   (`net_amount − freight when ours`), it is what gets allocated to lots, and
   it is what lands in `sales.total_price`. Reconciling to the paper sheet uses
   `net_amount`; anything about margin uses `book_proceeds`.
-- **A LOAD names the lot and pasture it was gathered off** (2026-08-26). That
-  is the whole entry model — loading a truck is the same act as taking cattle
-  out of a pasture, so there is no second screen asking where they came from.
-  The first cut had two sections describing one event and was replaced.
-- **Allocation order is weight-then-money, and it is load-bearing.** Pay
-  weight is distributed inside a group by each load's OWN gross weight;
-  dollars then follow the allocated weight, and per-head deductions follow
-  head. Because each truck carries its own scale ticket, a load books at its
-  real average (790–842 lb across group 1 of the 8-21 sheet) instead of the
-  827 lb group blend.
-- **`load_seq` is not unique by itself.** A pot gathered off two pastures is
-  one load number and two lines; the key is `(shipment, load_seq, line_seq)`.
+- **A truck is weighed ONCE.** `shipment_loads` holds the date, the head and
+  the single gross weight off the scale ticket; `shipment_load_lines` holds
+  the lot/pasture split. Nobody weighs a pot twice, so asking for a gross per
+  pasture (as the first cut did) is asking for a number that does not exist.
+- **Allocation is two nested splits, then money.** Load gross → line gross
+  (by head) → line pay weight (by gross, within the weight group) → dollars
+  (by pay weight); per-head deductions and freight follow head. Every step is
+  largest-remainder, so each share is exact at every level.
+- **A load's lines must sum to the load's own head.** The buyer states head
+  per truck; if the split does not add back to it the gross is divided over
+  the wrong number of animals and every lot on that truck books wrong —
+  silently, because the money still allocates. `shpValidate()` blocks it and
+  `shipment_load_reconciliation` catches it after the fact.
+- **A single-line load takes its head from the load**, so the common case
+  (one pot, one pasture) is typed once. Adding a second line writes the
+  implied head down first.
+
+### Multi-day sheets
+
+- **`shipments.sale_date` is the settlement date; `shipment_loads.load_date`
+  is when cattle actually left.** One sheet routinely spans days.
+- **The app writes one `sales` row per (lot, DAY), not per lot.** Cattle that
+  left on the 19th ate grass on the 19th and not the 21st, and head-days are
+  what cost of gain and labor are charged against. Collapsing nine loads onto
+  one date hands the ranch days of head-days on cattle already gone.
+- **A pasture that empties closes on the date of the LAST load that drew on
+  it**, not the sheet date.
 - **Allocation uses largest-remainder, and the parts sum EXACTLY.** Not
   "round each and dump the residual on the last line" — that works too, but
   always parks the error on whichever lot was typed last. Verified against the
@@ -189,8 +204,8 @@ shipments ──┬── shipment_weight_groups ── shipment_loads
   different question from the save-time check — it catches later edits to an
   allocated sale. Non-zero variance shows as ⚠ on the Sales list.
 
-Migrations: `docs/sql/2026-08-26_shipments.sql`, then
-`docs/sql/2026-08-26_shipments_phase2.sql`.
+Migrations, in order: `docs/sql/2026-08-26_shipments.sql`,
+`..._phase2.sql`, `..._phase3.sql`.
 
 ## Access control (RLS — read before touching auth, policies, or views)
 
