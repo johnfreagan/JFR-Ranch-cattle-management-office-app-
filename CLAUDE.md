@@ -1,126 +1,143 @@
 # JFR Ranch Cattle Management App
 
-Single-file web app (index.html at repo root) for JFR Ranch Co. Ltd., a stocker
-cattle operation in Kosse, TX. Deployed via GitHub Pages. Backend is Supabase
-(PostgreSQL + auth + PostgREST). Owner: John Reagan.
+Two apps, one repo, one Supabase project — the live books of JFR Ranch Co. Ltd.,
+a stocker cattle operation in Kosse, TX. Owner: John Reagan. Stocker operation:
+high-risk lightweight steers (275–350 lb in), ~11 ranches, ~60 pastures. Lots are
+the core unit (e.g. 36-27, 37X, 47-26).
 
-**Multi-user as of Aug 2026** — three roles (owner/office/crew) enforced by RLS.
-See "Access control" below and `docs/security-model.md`.
+| | where | what it is |
+|---|---|---|
+| Office app | `index.html` at repo root (~800 KB, single file, no build step) | the books |
+| Field PWA | `field-app/` (build v12) | cowboys' phones; writes only to staging |
+
+Backend is Supabase (PostgreSQL + auth + PostgREST), project
+`xpfmebdzcxorvwikfvtj`. Three roles — owner / office / crew — enforced by RLS.
+
+**This file is the standing rules. The reasoning behind them, and the history of
+what went wrong, lives in `docs/architecture.md` — read that before changing
+anything structural.**
+
+| doc | for |
+|---|---|
+| `docs/architecture.md` | how the system fits together, and why each rule below exists |
+| `docs/roadmap.md` | what is next, in order, and what was ruled out |
+| `docs/OPEN-ITEMS.md` | known gaps, deliberately not done yet |
+| `docs/security-model.md` | RLS detail |
+| `docs/processing-cost-and-protocol-versioning.md` | the full protocol-change procedure |
+| `docs/handoff-spec-template.md` | how to write a handoff for in-flight work |
+| `docs/sql/` | every migration and correction actually applied, dated |
 
 ## Deploy
 
-- The ONLY app file is `index.html` at repo root (~650KB). There is no build step.
-- Deploy = commit + push to main. GitHub Pages auto-deploys in 1-3 min.
-- After deploy, hard refresh (Cmd+Shift+R) to bypass cache.
-- Supabase URL: https://xpfmebdzcxorvwikfvtj.supabase.co (publishable key is
-  embedded in index.html — this is expected for this app).
-  **Corollary: the key is public, so anything GRANTed to `anon` is public.**
-  Embedding the key is fine; granting `anon` access to anything is not.
+- No build step. Deploy = commit + push to `main`; GitHub Pages publishes in
+  1–3 min. Hard refresh (Cmd+Shift+R) after to bypass cache.
+- The Supabase publishable key is embedded in both apps. That is expected and
+  fine. **Corollary: anything GRANTed to `anon` is public.** Embedding the key
+  is fine; granting `anon` anything is not.
+- The field app ships with the office app. Bump `CACHE_VERSION` in
+  `field-app/sw.js` on every field-app change, and `DATA_SCHEMA_VERSION` in
+  `field-app/app.js` (currently 4) whenever the *shape* of cached data changes.
 
-## Business rules (get these wrong and the books are wrong)
+## The invariants (get these wrong and the books are wrong)
 
-- Fiscal year runs **July 1 – June 30, named for the ENDING year**.
-  Aug 2026 arrival → FY 2027. A DB trigger (`derive_fiscal_year`) enforces this.
-- Stocker operation: high-risk lightweight steers (275–350 lb in). ~11 ranches,
-  ~60 pastures. Lots are the core unit (e.g. 36-27, 37X, 47-26).
-- Head math invariant: head_in − head_dead − head_sold = head_current, and
-  head_current must equal the sum of open lot_pasture_assignments. Divergence
-  = "drift" and shows on the Anomalies report. Never create drift.
-- Processing (receiving meds) is captured on **delivery receipts via
-  receiving_protocol_id** — NOT as doctoring events. Cost views derive from
-  receipts × protocol_meds × medication pricing.
-- Treatment cost comes from doctoring_events + doctoring_event_meds (cost is
-  FROZEN per row at save time).
-- Processing $/hd is per head IN; Treatment $/hd is per LIVE head current.
-
-### Changing a protocol or a drug price — read before editing either
-
-- **Processing cost is DERIVED LIVE, not frozen.** `lot_processing_costs` and
-  `lot_processing_cost_detail` join
-  `delivery_receipts.receiving_protocol_id → protocol_meds → medications` and
-  read **current** prices, dose config and `round_up_to`. Editing a protocol's
-  meds, or a medication's price or rounding, retroactively rewrites processing
-  cost for **every lot that ever used it** — closed lots and prior fiscal years
-  included — silently and with no audit trail. Contrast treatment cost, which
-  is frozen per row at save time; the two behave oppositely.
-- **`protocols.effective_from` is decorative. Nothing enforces it.** The cost
-  views never reference a date. Creating a new version with an effective date
-  changes nothing on its own.
-- **To change processing from a date:** create a NEW protocol row
-  (`parent_protocol_id` → old, new `version_label`, set `effective_from`), then
-  `UPDATE delivery_receipts.receiving_protocol_id` on exactly the receipts
-  on/after that date. Never edit the old protocol in place — the earlier loads
-  genuinely got the old product and their books must keep saying so.
-- **An unpriced medication prices as NULL, and `SUM()` ignores NULL** — the
-  line silently vanishes from processing cost instead of erroring. Price a med
-  BEFORE pointing a protocol at it, and check `unpriced_line_count` after any
-  protocol change. Guard repoint scripts with a pre-check that raises if any
-  med on the target protocol has both `cost_per_unit` and `cost_per_head` null.
+- **Fiscal year runs July 1 – June 30, named for the ENDING year.** Aug 2026
+  arrival → FY 2027. The `derive_fiscal_year` trigger enforces it.
+- **Head math:** `head_in − head_dead − head_sold = head_current`, and
+  `head_current` must equal the sum of open `lot_pasture_assignments`.
+  Divergence is "drift" and shows on the Anomalies report. **Never create drift.**
+- **Processing is not treatment.** Processing (receiving meds) is captured on
+  delivery receipts via `receiving_protocol_id`, never as doctoring events, and
+  its cost is **derived live from current prices**. Treatment cost comes from
+  `doctoring_events` + `doctoring_event_meds` and is **frozen per row at save
+  time**. The two behave oppositely.
+- Processing $/hd is per head **IN**; treatment $/hd is per **live head current**.
+- **Editing a protocol's meds, or a medication's price or rounding, retroactively
+  rewrites processing cost for every lot that ever used it** — closed lots and
+  prior fiscal years included, silently, with no audit trail.
+  `protocols.effective_from` is decorative; nothing enforces it. To change
+  processing from a date: create a NEW protocol row (`parent_protocol_id` → old,
+  new `version_label`, set `effective_from`), then `UPDATE
+  delivery_receipts.receiving_protocol_id` on exactly the receipts on/after that
+  date. Never edit the old protocol in place — the earlier loads genuinely got
+  the old product and their books must keep saying so.
 - **Keep `round_up_to` consistent between generic and brand of the same drug.**
-  It models the syringe setting including waste, not drug consumed. A generic
-  entered at 0.1 against a brand at 1.0 is a math change disguised as a price
-  change.
-- Worked example (2026-08-24): lot 36-27, Draxxin → Macrosyn effective Wed
-  2026-08-19. New protocol version created, 5 of 11 receipts (197 of 441 head)
-  repointed. Lot processing went $9,109.06 → $8,901.48, $20.66 → $20.18/hd in.
-  The six Aug 11–18 loads stayed on branded Draxxin.
-- Doctoring eligibility: pulls start 8–9 days after Draxxin at receiving;
+  It models the syringe setting including waste, not drug consumed.
+- **An unpriced medication prices as NULL, and `SUM()` ignores NULL** — the line
+  silently vanishes instead of erroring. Price a med BEFORE pointing a protocol
+  at it or approving anything that uses it, and check `unpriced_line_count`
+  after any protocol change.
+- **The database runs UTC; the ranch does not.** `CURRENT_DATE` becomes tomorrow
+  at 7pm Central. Anything counting days uses `public.ranch_today()` in SQL and
+  `ranchToday()` (pinned to `America/Chicago`) in the app — never
+  `CURRENT_DATE`, never `toISOString()`.
+- **Use `lot_head_days_by_month` (the view), not `lot_head_days()` (the
+  function), for anything involving cost.** They disagree: the function anchors
+  on invoice dates, the view on receipt dates. Cattle eat from the day they hit
+  the ground.
+- **Closeout is computed in total dollars and divided at the end** — never
+  per-head math, which double-counts death loss. Cost of gain and labor charge
+  against **head-days**, never today's head count × total days. A per-head
+  (flat) rate is charged once on `head_in`; only per-day rates accrue on
+  head-days. Closeout is office+owner only.
+- **`lots.target_sale_cwt` is $/lb despite the name**, and
+  `lot_budgets.budget_cost_per_cwt` follows it. Both multiply a weight in
+  pounds. Do not "fix" one without the other.
+- **`lot_budgets` is frozen by a trigger, not by a missing policy.** Office and
+  owner deliberately PASS the RLS check on UPDATE so `lot_budgets_frozen()`
+  fires and raises a real error. Owner-only DELETE is the escape hatch.
+  Assumptions that change over the life of the lot stay on `lots.*`.
+- Doctoring eligibility: pulls start 8–9 days after Draxxin at receiving; the
   fresh-cattle report window is 17 days.
-- Tag numbers recycle across fiscal years. "Current animal for a tag" =
-  the tag on an OPEN lot. Doctoring search scopes to open lots by default.
+- Tag numbers recycle across fiscal years. "Current animal for a tag" = the tag
+  on an OPEN lot. Doctoring search scopes to open lots by default.
 
-## Closeout: budget, actual, projection (rebuilt 2026-08-25)
+## Field → books approval path
 
-The Closeout tab shows one set of economics in three columns. It is
-**office+owner only** — the sub-tab carries `data-perm="office"`.
+Nothing a cowboy records reaches the books directly.
 
-| | where it comes from |
-|---|---|
-| **Budget** | `lot_budgets`, frozen when the lot starts, immutable |
-| **Actual** | the books: invoices, processing, treatment, real head-days |
-| **Projection** | actual to date, carried forward to the ship date |
+```
+field PWA → pending_field_entries → office Approvals tab → RPC → books
+         ↑ localStorage queue keeps this offline-first
+```
 
-- **`lot_budgets` is frozen by a trigger, not by a missing policy.** Office
-  and owner deliberately PASS the RLS check on UPDATE so `lot_budgets_frozen()`
-  fires and raises a real error. Denying at the policy layer would make
-  PostgREST return zero rows and the app would report a save that changed
-  nothing. Owner-only DELETE is the escape hatch for a budget typed wrong.
-  Working assumptions that change over the life of the lot stay on `lots.*`.
-- **Everything is computed in total dollars and divided at the end.** This is
-  what fixes the death-loss double count: the old per-head math added a death
-  loss line on top of a cattle cost that already contained the dead animals,
-  and applied the full assumed percentage to a head count already reduced by
-  the deaths that happened — 6% budgeted plus 5% already buried came out near
-  11%. In total dollars death loss needs no line; it falls out of the
-  division. The projection estimates only **deaths still to come**:
-  `clamp(0, head_current, head_in × pct − head_dead)`.
-- **Cost of gain and labor are charged against head-days, never against
-  today's head count × total days.** Cattle that shipped in June ate grass
-  until June. On 37X-1 the old math charged 75 head × 231 days = 17,325
-  head-days against a real 56,993 — about $39,700 of cost that appeared
-  nowhere.
-- A **per-head** (flat) COG or labor rate is charged once on `head_in` and
-  never carried forward again. Only **per-day** rates accrue on head-days.
-- **Interest** accrues on the cattle for the whole period and on operating
-  cost at half the period, the usual convention for a cost that builds
-  linearly. The old screen charged interest on the purchase price only.
-- Treatment carries forward at the lot's own observed $/head-day, not at the
-  budgeted med figure — once there is history, the lot's own burn rate beats
-  an assumption.
-- **`lots.target_sale_cwt` is $/lb despite the name**, and the new
-  `lot_budgets.budget_cost_per_cwt` follows it for consistency. Both are
-  multiplied by a weight in pounds. Do not "fix" one without the other.
+- **`(entry_type, client_id)` is an UPSERT key, not a duplicate check.** The
+  field app re-sends an edited record under the same client id and the second
+  send must overwrite the first. Do not add a reject-duplicates constraint.
+- **Statuses:** `pending → approved | rejected | withdrawn`; `withdrawn → pending`
+  and `rejected → pending` (office reinstates/reopens); **`approved` is
+  terminal.** `pfe_guard_settled()` enforces this in the DB.
+- **There is no `'dead'` entry_type.** A death arrives as
+  `entry_type='doctoring'` and is identified by `field_actions.is_dead` on its
+  resolved action. Classify on `is_dead`, never on entry type.
+- **Approval is all-or-nothing per batch.** If any row fails, `rollbackPosted()`
+  unwinds what was already written. Deaths and moves post through their atomic
+  RPCs so head math stays intact.
+- **Order matters within a batch:** doctoring first, then deaths and moves
+  sorted by `event_datetime`. Head-math entries must replay in the order they
+  happened or a move can outrun the death that freed the head.
+- **Cost freezes at approval, not at field entry.** The approvals screen flags
+  unpriced meds — do not approve past that flag.
+- **Never auto-create** ranches, pastures, lots, or medications from field text.
+  An unresolved name is a review item, not a new row.
+- Correcting a date on the approvals row shifts `event_datetime` by whole days
+  and rewrites only the date half of `raw.dateTime`, preserving time of day.
+  Guarded `.eq('status','pending')`.
+- Deaths approve **without a cause** — cause is filled in later on the lot.
+  Carcass disposal is flagged when the animal was **NOT** hauled off. (`drug_off`
+  means removed to the proper location for dead animals; nothing to do with drug
+  withdrawal.)
 
 ## Access control (RLS — read before touching auth, policies, or views)
 
 The gate is `public.current_user_role()`. It reads `user_profiles.role` for
 `auth.uid()` **and requires `is_active = true`**. Returns NULL for anyone
-inactive or unknown; every policy is written so NULL denies.
+inactive or unknown; every policy is written so NULL denies. The
+`user_profiles.role` CHECK permits exactly `owner`, `office`, `crew`.
 
 | | crew | office | owner |
 |---|---|---|---|
 | Read operational data (lots, weights, tags, doctoring, pastures, movements) | ✅ | ✅ | ✅ |
-| Write field data (doctoring, weights, tags, receipts, pasture assignments) | ✅ | ✅ | ✅ |
+| Write field data (via `pending_field_entries` only) | ✅ | ✅ | ✅ |
 | Correct/update operational records | ❌ | ✅ | ✅ |
 | Invoices, cost and margin data | ❌ | ✅ | ✅ |
 | Delete lots, weights, medications, protocols, audit rows | ❌ | ❌ | ✅ |
@@ -130,20 +147,19 @@ Deletes are the narrowest privilege on purpose: `lot_movements`, `lot_events`
 and `lot_pasture_assignments` are audit trails, and an accidental delete there
 is unrecoverable in a way an accidental insert is not.
 
-### Rules — each of these was a live hole in Aug 2026, not a style preference
+### Rules — each was a live hole in Aug 2026, not a style preference
 
-1. **Never read a role, permission, or tenant from `raw_user_meta_data`.**
-   That field is written by the client at signup. `handle_new_user()` trusted
-   it and `signUp({data:{role:'owner'}})` minted a working owner account.
-   Roles are set by an owner in `user_profiles`, never at account creation.
-   The trigger is `AFTER INSERT ON auth.users FOR EACH ROW`, so this applies
-   to `inviteUserByEmail` and `admin.createUser` too — never pass `data:{...}`
-   with a role to either.
-2. **New users land inactive** (`role='crew'`, `is_active=false`). A new
-   account seeing zero rows is correct, not a bug. An owner activates it.
-   Public signups are also disabled in the dashboard; both locks stay on.
-3. **Every view must be created `WITH (security_invoker = true)`.** Without it
-   a view runs as its owner and bypasses RLS entirely regardless of base-table
+1. **Never read a role, permission, or tenant from `raw_user_meta_data`.** That
+   field is written by the client at signup. `handle_new_user()` trusted it and
+   `signUp({data:{role:'owner'}})` minted a working owner account. The trigger
+   is `AFTER INSERT ON auth.users FOR EACH ROW`, so this applies to
+   `inviteUserByEmail` and `admin.createUser` too — never pass `data:{...}` with
+   a role to either. Roles are set by an owner in `user_profiles`.
+2. **New users land inactive** (`role='crew'`, `is_active=false`). A new account
+   seeing zero rows is correct, not a bug. An owner activates it. Public signups
+   are also disabled in the dashboard; both locks stay on.
+3. **Every view must be created `WITH (security_invoker = true)`.** Without it a
+   view runs as its owner and bypasses RLS entirely regardless of base-table
    policies. Ten views were exposed this way and readable by `anon` with no
    login at all. No exceptions.
 4. **Never GRANT anything to `anon`.** `authenticated` + RLS is the only path.
@@ -152,15 +168,22 @@ is unrecoverable in a way an accidental insert is not.
 5. **New tables need RLS *and* policies.** `ENABLE ROW LEVEL SECURITY` with no
    policy is a total lockout; policies without `ENABLE` are decoration.
 6. **`SECURITY DEFINER` needs a reason and a pinned `search_path`.** Each one
-   bypasses RLS. Deliberate today (all seven verified 2026-08-25 to carry a
-   pinned `search_path`): `current_user_role` (it is the gate),
+   bypasses RLS. Seven are deliberate: `current_user_role` (the gate),
    `admin_list_users`, `guard_last_owner`, `handle_new_user`,
    `cleanup_attachment_storage`, `lot_projected_weight`,
    `lot_weighted_arrival_date`. Default to INVOKER — the head-math RPCs
    (`record_death_with_pasture`, `record_move_with_pasture`, the delete
    reversals) are all INVOKER and must stay that way.
-7. **Run `supabase/migrations/20260821000300_rls_verify.sql` after any
-   migration that adds a table, view, or function.** It asserts 1–6.
+7. **Assert 1–6 after any migration that adds a table, view, or function.**
+   There is no standing verify script — `supabase/` does not exist in this repo
+   (see `docs/OPEN-ITEMS.md` item 8). Until one is written, **every migration
+   carries its own inline assertions**, as
+   `docs/sql/2026-08-25_budget_and_head_days.sql` does.
+
+**Last full sweep — 2026-08-26, all clean:** 28 tables, all RLS-enabled and all
+carrying policies; 12 views, all `security_invoker = true`; zero objects in
+`public` readable by `anon`; seven `SECURITY DEFINER` functions, all with a
+pinned `search_path`.
 
 ### Offline/PWA consequences (the live field app depends on all three)
 
@@ -172,96 +195,42 @@ is unrecoverable in a way an accidental insert is not.
   synced Thursday, user deactivated Wednesday → `42501`. Needs a dead-letter
   path. Never a silent drop (this is animal health data), never infinite retry.
 - Purge local stores on sign-out and on user change; IndexedDB knows nothing
-  about RLS. Persist the write queue outside the auth session, keyed by user
-  id — days offline can outlive the refresh token.
-
-## Field → books approval path (live 2026-08-25)
-
-Nothing a cowboy records reaches the books directly. The field app's only write
-surface is `pending_field_entries`; the office **Approvals** tab posts from
-there. Read this before touching either side.
-
-```
-field PWA → pending_field_entries → office Approvals tab → RPC → books
-         ↑ localStorage queue keeps this offline-first
-```
-
-- **`(entry_type, client_id)` is an UPSERT key, not a duplicate check.** The
-  field app re-sends an edited record under the same client id, and the second
-  send must overwrite the first. Do not add a reject-duplicates constraint.
-- **Statuses:** `pending → approved | rejected | withdrawn`; `withdrawn → pending`
-  (office reinstates); `rejected → pending` (office reopens); **`approved` is
-  terminal.** `pfe_guard_settled()` enforces this in the DB — the app is not the
-  only guard. `withdrawn` exists because the field app can delete a record.
-- **Approval is all-or-nothing per batch** (John's call, 2026-08-25). If any row
-  in a selection fails, `rollbackPosted()` unwinds the ones already written.
-  Deaths and moves post through their atomic RPCs so head math stays intact.
-- **Order matters within a batch.** Doctoring first, then deaths and moves
-  sorted by `event_datetime` — head-math entries must replay in the order they
-  happened or a move can outrun the death that freed the head.
-- **Cost freezes at approval, not at field entry.** Price a medication BEFORE
-  approving anything that uses it; an unpriced med writes a NULL cost line that
-  `SUM()` then ignores. The approvals screen flags unpriced meds — do not
-  approve past that flag.
-- **Correcting a date** is done on the approvals row, which shifts
-  `event_datetime` by whole days and rewrites only the date half of
-  `raw.dateTime`, preserving time of day. It is guarded `.eq('status','pending')`
-  so an already-posted entry can never be rewritten.
-- Deaths approve **without a cause** — cause is filled in later on the lot.
-  Carcass disposal is flagged when the animal was **NOT** hauled off.
-  (`drug_off` means removed to the proper location for dead animals; it has
-  nothing to do with drug withdrawal.)
+  about RLS. Persist the write queue outside the auth session, keyed by user id
+  — days offline can outlive the refresh token.
 
 ## Schema landmines (verified by painful trial and error — trust these)
 
 - `doctoring_events.tag_number` is TEXT. `lot_tags.tag_number` is INTEGER.
 - `doctoring_events` uses `recorded_by_user_id`; has NO updated_at.
 - `lot_events` uses `created_by`; has NO updated_at.
-- `lot_pasture_assignments` uses `recorded_by`.
+- `lot_pasture_assignments` uses `recorded_by`, and `moved_in` / `moved_out` —
+  NOT date_in/date_out. An OPEN assignment is `moved_out is null`.
 - Meds junction table is `doctoring_event_meds` (NOT doctoring_medications).
 - `load_out_destinations` FK to receipts is `receipt_id`.
 - `sales` has BOTH gross_weight_lb and net_weight_lb — realized ADG and pay
   weights use **net**.
 - `field_protocols` has default_med_1/2/3_id but NO dose columns.
-- `lot_pasture_assignments` uses `moved_in` / `moved_out` — NOT date_in/date_out.
-  An OPEN assignment is `moved_out is null`.
 - `pastures.name` — NOT pasture_name. `lots` has no `status` column; open means
   `closed_at is null`. Head counts live on the `lot_status` VIEW, not on `lots`.
-- **The database runs UTC; the ranch does not.** `CURRENT_DATE` becomes
-  tomorrow at 7pm Central (6pm in CST), so anything that counts days must use
-  `public.ranch_today()` instead. `lot_daily_head` shipped with `CURRENT_DATE`
-  and gained a whole extra day of head-days each evening — 441 on 36-27,
-  $882 at its rate, for a day Texas had not had. The app matches it with
-  `ranchToday()`, pinned to `America/Chicago` rather than the viewer's clock.
-  Same trap as `toISOString()` in the field app.
-- **There are TWO head-day implementations and they disagree.** The FUNCTION
-  `lot_head_days(uuid, date)` anchors on `lot_weighted_arrival_date()`, which
-  is built from INVOICE dates. The VIEW `lot_head_days_by_month` (over
-  `lot_daily_head`) walks arrivals by RECEIPT date. Where invoices follow
-  receipts closely they agree within ~1%; on 36-27 the function read 2,646
-  against the view's 3,424, 29% low, because the cattle landed Aug 11 and the
-  invoices weighted to Aug 19. **Use the view for anything involving cost** —
-  cattle eat from the day they hit the ground.
-- `lot_daily_head` reconciles to `lot_status.head_current` by construction and
-  is verified to do so on every lot. Head-day math must NOT be built on
-  `lot_pasture_assignments`: 37X's assignment history starts 2026-04-27
-  against a first invoice of 2025-12-04, so it would silently drop 144 days.
 - `pending_field_entries` has `reviewed_at`/`reviewed_by` and an `approved_ref`
   jsonb (`{kind, id}`) — there is no `approved_at`.
-- Supabase PostgREST caps results at 1000 rows — PAGINATE lot_tags and any
-  large fetch. **PostgREST query builders are single-use** — a pager must take
-  a builder *function* and call it fresh per page, not reuse one object.
 - `lots.start_tag` / `end_tag` describe the FIRST receipt only, not the lot's
-  whole tag range. To resolve a tag to a lot, go lot_tags → receipt ranges →
-  and only then fall back to lots.start_tag/end_tag.
-- **The Supabase SQL editor swallows `begin;`/`commit;`** — a wrapped script
-  can report "Success. No rows returned" without applying anything. Omit the
-  wrapper when pasting into the editor; keep it in files meant for the CLI.
+  whole tag range. To resolve a tag to a lot: lot_tags → receipt ranges → and
+  only then fall back to lots.start_tag/end_tag.
+- Head-day math must NOT be built on `lot_pasture_assignments`: 37X's assignment
+  history starts 2026-04-27 against a first invoice of 2025-12-04, so it would
+  silently drop 144 days. `lot_daily_head` reconciles to `lot_status.head_current`
+  by construction and is verified to do so on every lot.
+- Supabase PostgREST caps results at 1000 rows — PAGINATE `lot_tags` and any
+  large fetch. **PostgREST query builders are single-use** — a pager must take a
+  builder *function* and call it fresh per page, not reuse one object.
+- **The Supabase SQL editor swallows `begin;`/`commit;`** — a wrapped script can
+  report "Success. No rows returned" without applying anything. Omit the wrapper
+  when pasting into the editor; keep it in files meant for the CLI.
 - **The MCP Supabase connector is READ-ONLY.** DDL and DML fail with
   `25006: cannot execute ... in a read-only transaction`. Give John pasteable
   SQL in chat — not a file attachment, not a path. He has said so twice.
 - When unsure of a column name, QUERY information_schema — do not guess.
-  Schemas evolved inconsistently across tables.
   **Exception: do NOT trust information_schema for GRANTS or PRIVILEGES.**
   `role_table_grants` only shows roles the *querying* user belongs to, so on
   hosted Supabase it returns an empty set for `anon` while `anon` in fact holds
@@ -271,83 +240,64 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
 ## Data-integrity architecture (do not bypass)
 
 - Deaths, moves, sales, and receipt deletions go through atomic RPCs
-  (`record_death_with_pasture`, `delete_death_event`,
-  `record_move_with_pasture`, `delete_move_event`,
-  `delete_receipt_with_reversal`, etc.) that keep pasture assignments in
-  sync. NEVER raw-delete a receipt/death/sale/move from the app.
+  (`record_death_with_pasture`, `delete_death_event`, `record_move_with_pasture`,
+  `delete_move_event`, `delete_receipt_with_reversal`, …) that keep pasture
+  assignments in sync. NEVER raw-delete a receipt/death/sale/move from the app.
 - **A reversal that reopens a closed assignment must not also add head back.**
   Reopening (`moved_out = null`) already restores the count; adding to
-  `head_count` on top double-counts. This was a live bug in
-  `delete_death_event` — 3 head, death of all 3, reversal, and the lot came
-  back with 6. Fixed 2026-08-25. Any new reversal RPC: test it against a lot
-  whose assignment the event closed outright, not just a partial one.
+  `head_count` on top double-counts. This was a live bug in `delete_death_event`
+  — 3 head, death of all 3, reversal, and the lot came back with 6. Fixed
+  2026-08-25. Any new reversal RPC: test it against a lot whose assignment the
+  event closed outright, not just a partial one.
 - Load-out saves hard-block duplicates (same lot + date + head + tag range).
 - Historical scar tissue exists from pre-hardening eras; old lots may carry
   reconciliation notes. Read row notes before "fixing" anything.
 
-## SQL conventions
+## SQL conventions and migrations
 
 - ALL migration/correction SQL must be idempotent (IF NOT EXISTS, guarded DO
   blocks that RAISE EXCEPTION if state isn't as expected).
 - Any direct data correction APPENDS an audit note to the row's notes column
   (what changed, why, date).
 - In RAISE NOTICE strings avoid bare `%` collisions; never nest $$ in DO blocks.
-- Watch PL/pgSQL name collisions between loop variables and table aliases
-  (use row_rec, rn — a FOR var named `r` once shadowed `ranches r`).
+- Watch PL/pgSQL name collisions between loop variables and table aliases (a FOR
+  var named `r` once shadowed `ranches r` — use `row_rec`, `rn`).
 - Errors must never be silently swallowed — surface them to the user.
 - `to_regclass()` resolves views and sequences too, not just tables. Check
   `relkind` before `ALTER TABLE`, or a view in a table list aborts the whole
   migration and silently leaves everything after it unprotected.
-
-## Migrations (CLI not yet adopted)
-
-**The remote has NO CLI migration history** — this schema was built through the
-dashboard and SQL editor. `supabase db push` would try to apply every local
-migration from scratch against tables that already exist.
-
-Until that is reconciled, apply migrations through the **SQL editor**. To adopt
-the CLI: `supabase link --project-ref xpfmebdzcxorvwikfvtj` → `supabase db pull`
-for a baseline → mark it applied → verify with `supabase migration list`.
-
-Migration files here carry explicit `begin;`/`commit;` so they are
-all-or-nothing in the SQL editor. **Strip those two lines if applying via the
-CLI** — it wraps migrations in its own transaction and the inner `commit;`
-closes it early.
+- **The remote has NO CLI migration history** — this schema was built through
+  the dashboard and SQL editor, and `supabase db push` would try to apply
+  everything from scratch against tables that already exist. Apply migrations
+  through the **SQL editor**, and keep the applied file in `docs/sql/`, named
+  `YYYY-MM-DD_what-it-does.sql`. Adopting the CLI is in `docs/roadmap.md`.
 
 ## App code conventions
 
-- Vanilla JS, no framework, one <script> block. Supabase JS v2 via CDN.
-  jsPDF + autotable via CDN for shareable PDFs.
-- After ANY edit: validate the big script block parses (new Function) and
-  that <div> open/close counts balance outside script/style. Ship only if both pass.
-- Tiles on lot detail use buildTileRows() row-style (label left, value right).
-- Modals: showModal()/hideModal(); alerts via showAlert(id, msg, type).
-- Print/share pattern: window.open + document.write for print; jsPDF +
-  navigator.share({files}) for textable PDFs, download fallback on desktop.
+- Vanilla JS, no framework, one `<script>` block. Supabase JS v2 via CDN in the
+  office app; **vendored pristine from npm (2.46.1) at
+  `field-app/supabase.min.js`** in the field app — never concatenate it with
+  anything. jsPDF + autotable via CDN for shareable PDFs.
+- After ANY edit to `index.html`: validate the big script block parses
+  (`new Function`) and that `<div>` open/close counts balance outside
+  script/style. **Ship only if both pass.**
+- Role-gate every new control with `data-perm="office"` or `data-perm="owner"`.
+  A write path added without one will silently no-op for a role that cannot use
+  it — see `docs/OPEN-ITEMS.md` item 3.
+- Tiles on lot detail use `buildTileRows()` row-style (label left, value right).
+- Modals: `showModal()` / `hideModal()`; alerts via `showAlert(id, msg, type)`.
+- Print/share pattern: `window.open` + `document.write` for print; jsPDF +
+  `navigator.share({files})` for textable PDFs, download fallback on desktop.
+- `field-app/index.html` carries an inline boot-diagnostics block that runs
+  first, catches `error`/`unhandledrejection`, and wires a `hardReset()` that
+  does **not** depend on `app.js`. That independence is the point — keep it.
 
 ## Working style (owner preference)
 
-- Terse, decisive. Offer A/B/C options with a recommendation ("my vote");
-  he often replies "all your votes."
+- Terse, decisive. Offer A/B/C options with a recommendation ("my vote"); he
+  often replies "all your votes."
 - Ask before building anything significant; push back on scope creep.
 - Investigate before correcting: for data issues, query first, show findings,
   propose the fix, wait for approval. Never delete data on your own initiative.
 - Production DB is the live books of a real ranch. Schema changes and data
   corrections require explicit approval before execution.
-
-## Roadmap (agreed, in order)
-
-1. ✅ Claude Code + CLAUDE.md + Supabase MCP connector
-2. ✅ Multi-user auth + RLS — **implemented as owner/office/crew**, not the
-   originally planned admin/manager/cowboy/guest. The `user_profiles.role`
-   CHECK constraint permits only those three. **Open decision:** whether a
-   read-only `guest` role is still wanted; it does not exist today.
-   Lauren Yezak signed in 2026-08-25 and works the books as `owner`.
-3. ✅ Field PWA for cowboys — live 2026-08-25. The field app writes to
-   `pending_field_entries`; the office **Approvals** tab reviews and posts them
-   into the books. See "Field → books approval path" above.
-4. Cost ledger (18 categories, monthly, per-head-day allocation; Redwing
-   exports imported via Cowork). Note: cost data is office+owner only.
-5. Daily buy/sell dashboard: breakevens vs market data
-Also parked: breakeven budget-vs-actual, bottle inventory, lot comparison
-report, weather integration.
