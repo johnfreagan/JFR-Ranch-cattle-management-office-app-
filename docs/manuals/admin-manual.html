@@ -143,7 +143,6 @@ footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
-<title>Ranch Access Control</title>
 
 <div class="wrap">
 
@@ -156,13 +155,13 @@ footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
   <h1>Ranch Access Control</h1>
   <p class="standfirst">Adding people to the cattle office, what each role can touch,
      and how the database enforces it. Written for the owner.</p>
-  <span class="stamp">Verified against the live database &middot; 24 Aug 2026</span>
+  <span class="stamp">Verified against the live database &middot; 26 Aug 2026</span>
 </header>
 
 <section class="sec" style="border-top:none;padding-top:0;margin-top:0">
   <div class="sechead"><span class="secnum">00</span><h2>Where this stands</h2></div>
-  <p>The system is live and ready to take users. Two settings and one account are
-     still outstanding; neither blocks you.</p>
+  <p>The system is live and in daily use by two owner accounts. <strong>Two dashboard
+     settings are the only things still outstanding</strong>, and neither blocks you.</p>
   <ul class="check">
     <li class="done"><span class="mark">&check;</span><div>
       <strong>Crew are read-only in the books</strong>
@@ -183,12 +182,11 @@ footer.end{border-top:2px solid var(--ink);margin-top:56px;padding-top:16px;
       <strong>Two Supabase dashboard settings</strong>
       <small>Leaked-password protection on, and check whether public signup is open.
       Section 9 has both. Do it before handing out more passwords.</small></div></li>
-    <li class="todo"><span class="mark">&rarr;</span><div>
-      <strong>Lauren&rsquo;s account is unusable as it stands</strong>
-      <small>Confirmed but never signed in, no password anyone knows, name still her
-      email, and <span class="chip crew">crew</span> now means read-only. She has zero
-      history in the books, so Protocol C fixes it in about two minutes. Decide her
-      role while you are there.</small></div></li>
+    <li class="done"><span class="mark">&check;</span><div>
+      <strong>Lauren&rsquo;s account works</strong>
+      <small>Fixed 25 Aug 2026 via Protocol C. She signs in as
+      <span class="chip owner">owner</span>, has a proper display name, and has pulled
+      data on both her Windows machine and the field app.</small></div></li>
   </ul>
   <div class="note"><p>The full list of what is open and what was deliberately deferred
      &mdash; including the missing email provider &mdash; lives in
@@ -626,7 +624,7 @@ WHERE schemaname = 'public' AND tablename = 'lots';</code></pre>
 
 <footer class="end">
   <span>JFR Ranch Co. Ltd. &mdash; Kosse, TX</span>
-  <span>Verified against the live database, 24 Aug 2026</span>
+  <span>Verified against the live database, 26 Aug 2026</span>
 </footer>
 
 </div>
