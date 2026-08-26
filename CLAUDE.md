@@ -181,8 +181,19 @@ shipments ──┬── shipment_weight_groups ── shipment_loads ── sh
   always parks the error on whichever lot was typed last. Verified against the
   2026-08-21 Thigpen sheet: 549 hd, 446,194 lb, $320.00/cwt, $1,427,820.80
   gross, $1,098 checkoff, $1,426,722.80 draft, all ties exact.
-- **A saved shipment cannot be re-allocated in place.** Changing who shipped
-  what would unwind head math that already happened. Delete and re-enter.
+- **A saved shipment can be re-priced but not re-allocated.** "Edit money" on
+  the shipment detail changes buyer, destination, sex class, $/cwt,
+  deductions and freight, and recomputes the dollars over the head and pay
+  weights ALREADY RECORDED. `lot_pasture_assignments` is never opened, so no
+  cattle move and the worst outcome is a number still wrong, fixed by editing
+  again. It allocates over `sale_sources` rather than the load lines the
+  original save used — both sum exactly, and going through the rows that
+  carry the money means the thing being rewritten is the thing being read.
+  Deductions are rebuilt rather than diffed; there are two or three of them
+  and a diff is more ways to be wrong.
+- **What shipped, from where, on what day still cannot be edited.** That would
+  unwind head math that already happened. Delete and re-enter — deleting now
+  puts the cattle back.
 - **Deleting a shipment goes through `delete_shipment_with_reversal`** and
   DOES put the cattle back. Owner-only, INVOKER like every other head-math
   RPC. The reason it is an RPC and not four browser statements: a sale either

@@ -1823,6 +1823,86 @@
     </main>
 </div>
 
+<!-- Shipment money-only edit -->
+<div class="modal-backdrop" id="shipmentMoneyModal">
+    <div class="modal" style="max-width: 640px;">
+        <h2>Edit shipment &mdash; money only</h2>
+        <p class="muted" style="margin-bottom: 14px; font-size: 12px;">
+            Loads, head, weights, lots, pastures and dates are not touched &mdash; changing those
+            would unwind head math that has already happened. Everything here is money, so the
+            allocation is simply recomputed over the loads already recorded and no cattle move.
+        </p>
+        <div id="shipmentMoneyAlert"></div>
+
+        <input type="hidden" id="shipmentMoneyId">
+
+        <div class="form-grid">
+            <div>
+                <label for="smBuyer">Buyer</label>
+                <input type="text" id="smBuyer">
+            </div>
+            <div>
+                <label for="smDestination">Destination</label>
+                <input type="text" id="smDestination">
+            </div>
+        </div>
+        <div class="form-grid">
+            <div>
+                <label for="smSexClass">Sex class</label>
+                <input type="text" id="smSexClass">
+            </div>
+            <div>
+                <label for="smPricePerCwt">$ per cwt</label>
+                <input type="number" id="smPricePerCwt" step="0.01" min="0">
+            </div>
+        </div>
+        <div class="form-row">
+            <label for="smGrossAmount">Gross amount</label>
+            <input type="number" id="smGrossAmount" step="0.01" min="0">
+            <div class="muted" style="font-size: 11px; margin-top: 2px;" id="smWeightNote"></div>
+        </div>
+
+        <h3 style="margin: 18px 0 6px 0;">Deductions</h3>
+        <div id="smDeductionList"></div>
+        <button type="button" id="smAddDeductionBtn" style="margin-top: 8px;">+ Deduction</button>
+
+        <h3 style="margin: 18px 0 6px 0;">Freight</h3>
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+            <input type="checkbox" id="smJfrPaysFreight" style="width: auto;">
+            JFR paid the freight
+        </label>
+        <div id="smFreightFields" class="hidden" style="margin-top: 10px;">
+            <div class="form-grid">
+                <div>
+                    <label for="smFreightMiles">Miles</label>
+                    <input type="number" id="smFreightMiles" step="0.01" min="0">
+                </div>
+                <div>
+                    <label for="smFreightRate">$ per mile</label>
+                    <input type="number" id="smFreightRate" step="0.01" min="0">
+                </div>
+            </div>
+            <div class="form-grid">
+                <div>
+                    <label for="smFreightLoads">Loads</label>
+                    <input type="number" id="smFreightLoads" step="1" min="0">
+                </div>
+                <div>
+                    <label for="smFreightTotal">Freight total</label>
+                    <input type="number" id="smFreightTotal" step="0.01" min="0">
+                </div>
+            </div>
+        </div>
+
+        <div id="smSummary" style="margin-top: 16px;"></div>
+
+        <div class="modal-actions" style="margin-top: 18px; display: flex; gap: 10px;">
+            <button class="primary" id="smSaveBtn">Save money changes</button>
+            <button id="smCancelBtn">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <!-- Field Action modal -->
 <div class="modal-backdrop" id="fieldActionModal">
     <div class="modal" style="max-width: 600px;">
@@ -7589,16 +7669,22 @@ window.addEventListener('unhandledrejection', function(e) {
             </tbody></table>
 
             <div style="margin-top: 20px; display: flex; gap: 10px;">
+                <button id="shipmentMoneyBtn" data-perm="office">Edit money</button>
                 <button id="shipmentAcctBtn" class="primary">Accounting report</button>
                 <button id="shipmentDeleteDetailBtn" data-perm="owner"
                     style="background: var(--danger); margin-left: auto;">Delete shipment &amp; put the cattle back</button>
             </div>
             <p class="muted" style="font-size: 11px; margin-top: 8px;">
-                A saved shipment cannot be re-allocated in place — changing who shipped what would have to
-                unwind head math that has already happened. To correct one, delete it and re-enter.
+                <strong>Edit money</strong> changes buyer, destination, price, deductions and freight, and
+                re-prices the allocation over the loads already recorded — no cattle move.
+                What shipped, from where and on what day cannot be re-allocated in place, because that
+                would unwind head math that has already happened. To correct those, delete and re-enter;
+                deleting puts the cattle back.
             </p>`;
 
         $('shipmentDetailBackBtn').addEventListener('click', loadShipmentList);
+        const moneyBtn = $('shipmentMoneyBtn');
+        if (moneyBtn) moneyBtn.addEventListener('click', () => openShipmentMoneyEdit(s.id));
         const acctBtn = $('shipmentAcctBtn');
         if (acctBtn) acctBtn.addEventListener('click', async () => {
             await showSalesReportTab();
@@ -8542,6 +8628,367 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         }
     });
     $('mvNotes').addEventListener('input', () => { /* applied at save */ });
+
+
+    // ==========================================================
+    // SHIPMENT - MONEY-ONLY EDIT
+    // ==========================================================
+    // A saved shipment holds two kinds of fact. One kind moved cattle: loads,
+    // head, weights, lots, pastures, dates. Changing those means unwinding
+    // head math that already happened, which is why that path is still delete
+    // and re-enter.
+    //
+    // The other kind is only money - buyer, destination, $/cwt, deductions,
+    // freight. None of it touches a pasture. So this recomputes the allocation
+    // over the head and pay weights ALREADY RECORDED and rewrites the dollars
+    // in place. lot_pasture_assignments is never opened. The worst outcome is
+    // a number that is still wrong, which you fix by editing again.
+    //
+    // Allocation is over `sale_sources` rather than the load lines the
+    // original save used. Both sum exactly; going through the rows that
+    // actually carry the money means the thing being rewritten is the thing
+    // being read, with no mapping in between to get wrong.
+    // ----------------------------------------------------------
+
+    let smState = null;   // { shipment, lines: [...], deductions: [...] }
+
+    async function openShipmentMoneyEdit(shipmentId) {
+        clearAlert('shipmentMoneyAlert');
+
+        const [{ data: shp, error: sErr }, { data: sales, error: lErr }, { data: deds }] = await Promise.all([
+            supabase.from('shipments').select('*').eq('id', shipmentId).single(),
+            supabase.from('sales')
+                .select('id, lot_id, sale_date, head_count, net_weight_lb, ' +
+                        'sale_sources(id, pasture_id, head_count, pay_weight_lb)')
+                .eq('shipment_id', shipmentId)
+                .order('sale_date', { ascending: true }),
+            supabase.from('shipment_deductions').select('*').eq('shipment_id', shipmentId).order('sort_order')
+        ]);
+
+        if (sErr || lErr) {
+            showAlert('globalAlert', 'Could not load the shipment: ' + (sErr || lErr).message, 'error');
+            return;
+        }
+
+        // Flatten to the rows that carry money, keeping the sale each belongs
+        // to so the per-lot totals can be rebuilt from the same numbers.
+        const lines = [];
+        (sales || []).forEach(sa => {
+            (sa.sale_sources || []).forEach(src => {
+                lines.push({
+                    sale_id: sa.id,
+                    source_id: src.id,
+                    head: Number(src.head_count) || 0,
+                    pay: Number(src.pay_weight_lb) || 0
+                });
+            });
+        });
+        // Stable order so the same inputs always allocate the same pennies.
+        lines.sort((a, b) => String(a.source_id).localeCompare(String(b.source_id)));
+
+        if (!lines.length) {
+            showAlert('globalAlert', 'This shipment has no allocated lines to re-price.', 'error');
+            return;
+        }
+
+        smState = {
+            shipment: shp,
+            sales: sales || [],
+            lines,
+            deductions: (deds || []).map(d => ({
+                id: d.id, label: d.label, basis: d.basis,
+                rate: d.rate ?? '', amount: d.amount ?? ''
+            }))
+        };
+
+        $('shipmentMoneyId').value = shp.id;
+        $('smBuyer').value = shp.buyer || '';
+        $('smDestination').value = shp.destination || '';
+        $('smSexClass').value = shp.sex_class || '';
+        $('smPricePerCwt').value = shp.price_per_cwt ?? '';
+        $('smGrossAmount').value = shp.gross_amount ?? '';
+        $('smJfrPaysFreight').checked = !!shp.jfr_pays_freight;
+        $('smFreightMiles').value = shp.freight_miles ?? '';
+        $('smFreightRate').value = shp.freight_rate_per_mile ?? '';
+        $('smFreightLoads').value = shp.freight_loads ?? '';
+        $('smFreightTotal').value = shp.freight_total ?? '';
+        $('smWeightNote').textContent =
+            `${fmtNum(shp.head_count)} head and ${fmtNum(shp.pay_weight_lb)} lb pay weight are fixed here — ` +
+            `they come from the loads.`;
+
+        renderSmDeductions();
+        showModal('shipmentMoneyModal');
+    }
+
+    function smTotals() {
+        const shp = smState.shipment;
+        return {
+            head: Number(shp.head_count) || 0,
+            pay: Number(shp.pay_weight_lb) || 0
+        };
+    }
+
+    function smSettlement() {
+        const t = smTotals();
+        const cwt = shpNum($('smPricePerCwt').value);
+        let grossAmount = shpNum($('smGrossAmount').value);
+        if (grossAmount == null && cwt != null && t.pay > 0) grossAmount = round2(t.pay * cwt / 100);
+        if (grossAmount == null) grossAmount = 0;
+
+        let dedPerHead = 0, dedFlat = 0;
+        smState.deductions.forEach(d => {
+            const amt = shpDeductionAmount(d, t.head);
+            if (d.basis === 'per_head') dedPerHead += amt; else dedFlat += amt;
+        });
+        const dedTotal = round2(dedPerHead + dedFlat);
+        const netAmount = round2(grossAmount - dedTotal);
+
+        const jfrPays = $('smJfrPaysFreight').checked;
+        const freightTotal = jfrPays ? (shpNum($('smFreightTotal').value) || 0) : 0;
+
+        return {
+            totals: t, cwt, grossAmount,
+            dedPerHeadTotal: round2(dedPerHead), dedFlatTotal: round2(dedFlat),
+            dedTotal, netAmount, jfrPays, freightTotal,
+            bookProceeds: round2(netAmount - freightTotal)
+        };
+    }
+
+    // Same shape as the entry screen's allocator: dollars follow pay weight,
+    // per-head deductions and freight follow head, each split exact.
+    function smAllocate() {
+        const st = smSettlement();
+        const lines = smState.lines;
+        const pays = lines.map(l => l.pay);
+        const heads = lines.map(l => l.head);
+        const grossAmt = allocateProportional(st.grossAmount, pays, 2);
+        const dedHead  = allocateProportional(st.dedPerHeadTotal, heads, 2);
+        const dedFlat  = allocateProportional(st.dedFlatTotal, pays, 2);
+        const freight  = allocateProportional(st.freightTotal, heads, 2);
+        return lines.map((l, i) => ({
+            ...l,
+            gross_amount: grossAmt[i],
+            net_amount: round2(grossAmt[i] - dedHead[i] - dedFlat[i] - freight[i])
+        }));
+    }
+
+    function renderSmDeductions() {
+        const c = $('smDeductionList');
+        if (!smState.deductions.length) {
+            c.innerHTML = '<div class="muted" style="font-size: 12px;">No deductions.</div>';
+            recomputeSm();
+            return;
+        }
+        c.innerHTML = `
+            <table>
+                <thead><tr><th>Description</th><th style="width: 110px;">Basis</th>
+                    <th style="width: 90px;">Rate</th><th style="width: 110px;">Amount</th><th style="width: 30px;"></th></tr></thead>
+                <tbody>
+                ${smState.deductions.map((d, i) => `
+                    <tr>
+                        <td><input type="text" class="sm-ded-label" data-i="${i}"
+                            value="${escapeHtml(d.label || '')}" style="padding: 4px 6px; font-size: 12px;"></td>
+                        <td><select class="sm-ded-basis" data-i="${i}" style="padding: 4px 6px; font-size: 12px;">
+                            <option value="per_head" ${d.basis === 'per_head' ? 'selected' : ''}>Per head</option>
+                            <option value="flat" ${d.basis === 'flat' ? 'selected' : ''}>Flat</option>
+                        </select></td>
+                        <td><input type="number" step="0.01" min="0" class="sm-ded-rate" data-i="${i}"
+                            value="${escapeHtml(String(d.rate ?? ''))}" ${d.basis === 'per_head' ? '' : 'disabled'}
+                            style="padding: 4px 6px; font-size: 12px;"></td>
+                        <td>${d.basis === 'per_head'
+                            ? `<span class="muted" id="smDedAmt_${i}" style="font-size: 12px;"></span>`
+                            : `<input type="number" step="0.01" min="0" class="sm-ded-amount" data-i="${i}"
+                                 value="${escapeHtml(String(d.amount ?? ''))}" style="padding: 4px 6px; font-size: 12px;">`}</td>
+                        <td><button type="button" class="sm-ded-remove" data-i="${i}" style="padding: 2px 6px;">&times;</button></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>`;
+
+        c.querySelectorAll('.sm-ded-label').forEach(el => el.addEventListener('input', e => {
+            smState.deductions[+e.target.dataset.i].label = e.target.value;
+        }));
+        c.querySelectorAll('.sm-ded-rate').forEach(el => el.addEventListener('input', e => {
+            smState.deductions[+e.target.dataset.i].rate = e.target.value; recomputeSm();
+        }));
+        c.querySelectorAll('.sm-ded-amount').forEach(el => el.addEventListener('input', e => {
+            smState.deductions[+e.target.dataset.i].amount = e.target.value; recomputeSm();
+        }));
+        c.querySelectorAll('.sm-ded-basis').forEach(el => el.addEventListener('change', e => {
+            smState.deductions[+e.target.dataset.i].basis = e.target.value; renderSmDeductions();
+        }));
+        c.querySelectorAll('.sm-ded-remove').forEach(el => el.addEventListener('click', e => {
+            smState.deductions.splice(+e.target.dataset.i, 1); renderSmDeductions();
+        }));
+
+        recomputeSm();
+    }
+
+    function recomputeSm() {
+        if (!smState) return;
+        $('smFreightFields').classList.toggle('hidden', !$('smJfrPaysFreight').checked);
+
+        const fm = shpNum($('smFreightMiles').value);
+        const fr = shpNum($('smFreightRate').value);
+        const fl = shpNum($('smFreightLoads').value);
+        if (fm != null && fr != null && fl != null && document.activeElement !== $('smFreightTotal')) {
+            $('smFreightTotal').value = round2(fm * fr * fl).toFixed(2);
+        }
+
+        const st = smSettlement();
+        const t = st.totals;
+        if (st.cwt != null && t.pay > 0 && document.activeElement !== $('smGrossAmount')) {
+            $('smGrossAmount').value = round2(t.pay * st.cwt / 100).toFixed(2);
+        }
+
+        smState.deductions.forEach((d, i) => {
+            const el = $(`smDedAmt_${i}`);
+            if (el) el.textContent = fmtMoney(shpDeductionAmount(d, t.head));
+        });
+
+        const was = Number(smState.shipment.book_proceeds) || 0;
+        const delta = round2(st.bookProceeds - was);
+        const freightRow = st.jfrPays && st.freightTotal > 0
+            ? `<tr><td>Freight (ours)</td><td style="text-align:right; color: var(--danger);">− ${fmtMoney(st.freightTotal)}</td></tr>` : '';
+
+        $('smSummary').innerHTML = `
+            <table><tbody>
+                <tr><td>${fmtNum(t.pay)} lb @ ${st.cwt != null ? fmtMoney(st.cwt) : '—'}/cwt</td>
+                    <td style="text-align:right;">${fmtMoney(st.grossAmount)}</td></tr>
+                <tr><td>Deductions</td><td style="text-align:right; color: var(--danger);">− ${fmtMoney(st.dedTotal)}</td></tr>
+                <tr><td><strong>Amount of draft</strong></td><td style="text-align:right;"><strong>${fmtMoney(st.netAmount)}</strong></td></tr>
+                ${freightRow}
+                <tr><td><strong>Proceeds to the books</strong></td><td style="text-align:right;"><strong>${fmtMoney(st.bookProceeds)}</strong></td></tr>
+                <tr><td class="muted">Was</td><td style="text-align:right;" class="muted">${fmtMoney(was)}</td></tr>
+                <tr><td class="${delta ? '' : 'muted'}"><strong>Change</strong></td>
+                    <td style="text-align:right;" class="${delta ? '' : 'muted'}">
+                        <strong style="${delta > 0 ? 'color: var(--success);' : (delta < 0 ? 'color: var(--danger);' : '')}">
+                        ${delta > 0 ? '+' : ''}${fmtMoney(delta)}</strong></td></tr>
+            </tbody></table>`;
+
+        const errs = [];
+        if (st.grossAmount <= 0) errs.push('Enter a price per cwt or a gross amount.');
+        if (st.netAmount < 0) errs.push('Deductions exceed the gross amount.');
+        if (st.cwt != null && (st.cwt < 50 || st.cwt > 1000)) {
+            errs.push(`$/cwt of ${st.cwt} is outside the plausible $50-$1000 range — check the decimal.`);
+        }
+        if (st.jfrPays && !(st.freightTotal > 0)) errs.push('Freight is marked as ours but no amount is entered.');
+
+        $('shipmentMoneyAlert').innerHTML = errs.length
+            ? `<div class="alert error"><ul style="margin:4px 0 0 18px;">` +
+              errs.map(e => `<li>${escapeHtml(e)}</li>`).join('') + `</ul></div>`
+            : '';
+        $('smSaveBtn').disabled = errs.length > 0;
+    }
+
+    async function saveShipmentMoney() {
+        if (!smState) return;
+        const st = smSettlement();
+        const alloc = smAllocate();
+        const shipmentId = smState.shipment.id;
+        const was = Number(smState.shipment.book_proceeds) || 0;
+
+        if (!confirm(
+            `Rewrite the money on this shipment?\n\n` +
+            `  Proceeds ${fmtMoney(was)} → ${fmtMoney(st.bookProceeds)}\n` +
+            `  ${fmtNum(alloc.length)} allocated line(s) re-priced\n\n` +
+            `No cattle move and no head or weight changes.`
+        )) return;
+
+        const btn = $('smSaveBtn');
+        btn.disabled = true; btn.textContent = 'Saving…';
+
+        try {
+            // 1. the sheet
+            const { error: shpErr } = await supabase.from('shipments').update({
+                buyer: $('smBuyer').value.trim() || null,
+                destination: $('smDestination').value.trim() || null,
+                sex_class: $('smSexClass').value.trim() || null,
+                price_per_cwt: st.cwt,
+                gross_amount: st.grossAmount,
+                deduction_total: st.dedTotal,
+                net_amount: st.netAmount,
+                jfr_pays_freight: st.jfrPays,
+                freight_miles: st.jfrPays ? shpNum($('smFreightMiles').value) : null,
+                freight_rate_per_mile: st.jfrPays ? shpNum($('smFreightRate').value) : null,
+                freight_loads: st.jfrPays ? shpNum($('smFreightLoads').value) : null,
+                freight_total: st.freightTotal || null
+            }).eq('id', shipmentId);
+            if (shpErr) throw shpErr;
+
+            // 2. deductions: rebuilt rather than diffed - there are two or
+            //    three of them and a diff is more ways to be wrong.
+            const { error: delErr } = await supabase.from('shipment_deductions')
+                .delete().eq('shipment_id', shipmentId);
+            if (delErr) throw delErr;
+            const dedRows = smState.deductions.map((d, i) => ({
+                shipment_id: shipmentId,
+                label: d.label || 'Deduction',
+                basis: d.basis,
+                rate: shpNum(d.rate),
+                amount: shpDeductionAmount(d, st.totals.head),
+                sort_order: i
+            })).filter(d => d.amount > 0);
+            if (dedRows.length) {
+                const { error } = await supabase.from('shipment_deductions').insert(dedRows);
+                if (error) throw error;
+            }
+
+            // 3. the allocated lines
+            for (const l of alloc) {
+                const { error } = await supabase.from('sale_sources')
+                    .update({ gross_amount: l.gross_amount, net_amount: l.net_amount })
+                    .eq('id', l.source_id);
+                if (error) throw error;
+            }
+
+            // 4. per-lot sale rows, summed from the lines that belong to them
+            const bySale = new Map();
+            alloc.forEach(l => {
+                const cur = bySale.get(l.sale_id) || { net: 0, head: 0 };
+                cur.net = round2(cur.net + l.net_amount);
+                cur.head += l.head;
+                bySale.set(l.sale_id, cur);
+            });
+            for (const [saleId, v] of bySale.entries()) {
+                const { error } = await supabase.from('sales').update({
+                    total_price: v.net,
+                    price_per_head: v.head ? round2(v.net / v.head) : null,
+                    price_per_cwt: st.cwt,
+                    buyer: $('smBuyer').value.trim() || null
+                }).eq('id', saleId);
+                if (error) throw error;
+            }
+
+            btn.disabled = false; btn.textContent = 'Save money changes';
+            hideModal('shipmentMoneyModal');
+            showAlert('globalAlert',
+                `Shipment re-priced: proceeds ${fmtMoney(was)} → ${fmtMoney(st.bookProceeds)}.`, 'success');
+            showShipmentDetail(shipmentId);
+
+        } catch (err) {
+            // Nothing here moved cattle, so there is nothing dangerous left
+            // half-done - but the sheet and its lines can disagree until it is
+            // run again, and the detail screen's tie-out line will say so.
+            btn.disabled = false; btn.textContent = 'Save money changes';
+            showAlert('shipmentMoneyAlert',
+                `Not fully saved: ${err.message || err}\n\n` +
+                `No cattle were touched. Re-open this and save again — the reconciliation ` +
+                `line on the shipment will show any part that did not land.`);
+        }
+    }
+
+    // ---- wiring ----------------------------------------------------------
+    $('smCancelBtn').addEventListener('click', () => hideModal('shipmentMoneyModal'));
+    $('smSaveBtn').addEventListener('click', saveShipmentMoney);
+    $('smAddDeductionBtn').addEventListener('click', () => {
+        smState.deductions.push({ label: '', basis: 'flat', rate: '', amount: '' });
+        renderSmDeductions();
+    });
+    ['smPricePerCwt', 'smGrossAmount', 'smFreightMiles', 'smFreightRate',
+     'smFreightLoads', 'smFreightTotal', 'smJfrPaysFreight'].forEach(id => {
+        $(id).addEventListener('input', recomputeSm);
+        $(id).addEventListener('change', recomputeSm);
+    });
 
     // Top nav click handlers
     $('navLots').addEventListener('click', showLotsTab);
