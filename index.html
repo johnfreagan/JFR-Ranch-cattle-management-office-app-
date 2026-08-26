@@ -741,6 +741,10 @@
             <button class="sub-tab" data-subtab="data-tools">Data Tools</button>
             <button class="sub-tab" data-subtab="users" data-perm="owner">Users</button>
         </div>
+        <div class="sub-tabs hidden" id="salesSubtabs" data-perm="office">
+            <button class="sub-tab active" data-subtab="shipments">Shipments</button>
+            <button class="sub-tab" data-subtab="accounting">Accounting Report</button>
+        </div>
         <div class="sub-tabs hidden" id="reportsSubtabs">
             <button class="sub-tab active" data-subtab="active-lots">Active Lots</button>
             <button class="sub-tab" data-subtab="daily-report" data-perm="office">Daily Report</button>
@@ -1593,6 +1597,57 @@
                     pastures; the sheet's totals are allocated down to each of them.
                 </p>
                 <div id="shipmentListContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- ============================================================
+             SALES: accounting report (one shipment, lot x pasture)
+             ============================================================ -->
+        <div id="salesReportView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Accounting Report</h2>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="acctCopyBtn" title="Copy the rows as tab-separated text, ready to paste">Copy rows</button>
+                        <button id="acctPdfBtn">PDF / email</button>
+                        <button id="acctPrintBtn" class="primary">Print</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    One shipment, one row per lot and pasture, in the column order your accounting
+                    software expects. Head, pay weight and dollars are the shipment's own allocation,
+                    so the rows add back to the draft exactly.
+                </p>
+
+                <div class="form-grid">
+                    <div>
+                        <label for="acctShipment">Shipment</label>
+                        <select id="acctShipment"></select>
+                    </div>
+                    <div>
+                        <label for="acctAccount">Account</label>
+                        <input type="text" id="acctAccount" placeholder="Sales of Purchased - Cattle">
+                    </div>
+                </div>
+                <div class="form-grid">
+                    <div>
+                        <label for="acctProfitCenter">Profit Center</label>
+                        <input type="text" id="acctProfitCenter" placeholder="Stockers">
+                    </div>
+                    <div>
+                        <label for="acctProductionYear">Production Year</label>
+                        <input type="number" id="acctProductionYear" step="1" placeholder="2026">
+                    </div>
+                </div>
+                <p class="muted" style="font-size: 11px; margin: 4px 0 0 0;">
+                    These three are remembered for next time. Production Center is printed as the lot
+                    number exactly as the app holds it &mdash; translate it as you key the entry if your
+                    software wants a different code.
+                </p>
+            </div>
+
+            <div class="card">
+                <div id="acctReportContent"><div class="empty">Pick a shipment.</div></div>
             </div>
         </div>
 
@@ -5314,7 +5369,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
-         'approvalsView', 'salesView', 'shipmentEntryView'].forEach(id => {
+         'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
         });
@@ -5324,7 +5379,7 @@ window.addEventListener('unhandledrejection', function(e) {
         ['navLots', 'navAnimalHealth', 'navSales', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
             const el = $(id); if (el) el.classList.remove('active');
         });
-        ['animalHealthSubtabs', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
+        ['animalHealthSubtabs', 'salesSubtabs', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
             const el = $(id); if (el) el.classList.add('hidden');
         });
     }
@@ -6946,6 +7001,10 @@ window.addEventListener('unhandledrejection', function(e) {
         hideAllViews();
         clearAllNavActive();
         $('navSales').classList.add('active');
+        $('salesSubtabs').classList.remove('hidden');
+        $('salesSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            b.classList.toggle('active', b.dataset.subtab === 'shipments');
+        });
         $('shipmentEntryView').classList.remove('hidden');
         clearAlert('shipmentEntryAlert');
 
@@ -7271,6 +7330,10 @@ window.addEventListener('unhandledrejection', function(e) {
         hideAllViews();
         clearAllNavActive();
         $('navSales').classList.add('active');
+        $('salesSubtabs').classList.remove('hidden');
+        $('salesSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            b.classList.toggle('active', b.dataset.subtab === 'shipments');
+        });
         $('salesView').classList.remove('hidden');
         loadShipmentList();
     }
@@ -7358,6 +7421,10 @@ window.addEventListener('unhandledrejection', function(e) {
         hideAllViews();
         clearAllNavActive();
         $('navSales').classList.add('active');
+        $('salesSubtabs').classList.remove('hidden');
+        $('salesSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            b.classList.toggle('active', b.dataset.subtab === 'shipments');
+        });
         $('salesView').classList.remove('hidden');
 
         const off = recon && (Math.abs(Number(recon.head_variance) || 0) > 0
@@ -7462,8 +7529,9 @@ window.addEventListener('unhandledrejection', function(e) {
             </tbody></table>
 
             <div style="margin-top: 20px; display: flex; gap: 10px;">
+                <button id="shipmentAcctBtn" class="primary">Accounting report</button>
                 <button id="shipmentDeleteDetailBtn" data-perm="owner"
-                    style="background: var(--danger);">Delete shipment &amp; put the cattle back</button>
+                    style="background: var(--danger); margin-left: auto;">Delete shipment &amp; put the cattle back</button>
             </div>
             <p class="muted" style="font-size: 11px; margin-top: 8px;">
                 A saved shipment cannot be re-allocated in place — changing who shipped what would have to
@@ -7471,6 +7539,15 @@ window.addEventListener('unhandledrejection', function(e) {
             </p>`;
 
         $('shipmentDetailBackBtn').addEventListener('click', loadShipmentList);
+        const acctBtn = $('shipmentAcctBtn');
+        if (acctBtn) acctBtn.addEventListener('click', async () => {
+            await showSalesReportTab();
+            // Point the report at the shipment we were just looking at.
+            if ([...$('acctShipment').options].some(o => o.value === s.id)) {
+                $('acctShipment').value = s.id;
+                await loadAcctReport(s.id);
+            }
+        });
         const delBtn = $('shipmentDeleteDetailBtn');
         if (delBtn) delBtn.addEventListener('click', () => deleteShipment(s));
     }
@@ -7535,6 +7612,392 @@ window.addEventListener('unhandledrejection', function(e) {
         $(id).addEventListener('input', recomputeShipment);
         $(id).addEventListener('change', recomputeShipment);
     });
+
+
+    // ==========================================================
+    // SALES - ACCOUNTING REPORT
+    // ==========================================================
+    // One shipment, one row per (lot, pasture), in the column order Redwing
+    // expects. The numbers are NOT recomputed here - they are read straight
+    // off `sale_sources`, which is where the shipment's allocation was written
+    // down. A report that re-derived them could drift from the books it is
+    // supposed to document; this one cannot, and the tie-out line at the
+    // bottom proves it against the shipment header every time it renders.
+    // ----------------------------------------------------------
+
+    const ACCT_DEFAULTS = { account: 'Sales of Purchased - Cattle', profitCenter: 'Stockers' };
+    const ACCT_LS_KEY = 'jfr.acctReport.constants';
+    let acctReportCache = null;   // { shipment, rows }
+
+    function acctLoadConstants() {
+        // A convenience only. Wrapped because storage throws outright in some
+        // contexts (private windows, blocked site data) rather than returning
+        // empty, and a dead report is a worse outcome than retyping a header.
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem(ACCT_LS_KEY) || '{}') || {}; }
+        catch (e) { saved = {}; }
+        $('acctAccount').value = saved.account ?? ACCT_DEFAULTS.account;
+        $('acctProfitCenter').value = saved.profitCenter ?? ACCT_DEFAULTS.profitCenter;
+        if (saved.productionYear) $('acctProductionYear').value = saved.productionYear;
+    }
+    function acctSaveConstants() {
+        try {
+            localStorage.setItem(ACCT_LS_KEY, JSON.stringify({
+                account: $('acctAccount').value,
+                profitCenter: $('acctProfitCenter').value,
+                productionYear: $('acctProductionYear').value
+            }));
+        } catch (e) { /* storage unavailable; the report still works */ }
+    }
+
+    async function showSalesReportTab() {
+        hideAllViews();
+        clearAllNavActive();
+        $('navSales').classList.add('active');
+        $('salesSubtabs').classList.remove('hidden');
+        $('salesSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            b.classList.toggle('active', b.dataset.subtab === 'accounting');
+        });
+        $('salesReportView').classList.remove('hidden');
+
+        acctLoadConstants();
+
+        const { data, error } = await supabase
+            .from('shipments')
+            .select('id, sale_date, buyer, destination, head_count')
+            .order('sale_date', { ascending: false })
+            .limit(500);
+        if (error) {
+            $('acctReportContent').innerHTML =
+                `<div class="alert error">Could not load shipments: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+        if (!data || !data.length) {
+            $('acctShipment').innerHTML = '<option value="">— no shipments yet —</option>';
+            $('acctReportContent').innerHTML =
+                '<div class="empty">No shipments yet. Enter one on the Shipments tab first.</div>';
+            return;
+        }
+
+        const keep = $('acctShipment').value;
+        $('acctShipment').innerHTML = data.map(s =>
+            `<option value="${escapeHtml(s.id)}">${fmtDate(s.sale_date)} · ` +
+            `${escapeHtml(s.buyer || 'no buyer')}${s.destination ? ' → ' + escapeHtml(s.destination) : ''} · ` +
+            `${fmtNum(s.head_count)} hd</option>`).join('');
+        if (keep && data.some(s => s.id === keep)) $('acctShipment').value = keep;
+
+        await loadAcctReport($('acctShipment').value);
+    }
+
+    async function loadAcctReport(shipmentId) {
+        if (!shipmentId) { $('acctReportContent').innerHTML = '<div class="empty">Pick a shipment.</div>'; return; }
+
+        const [{ data: shp, error: sErr }, { data: sales, error: lErr }, { data: loads }] = await Promise.all([
+            supabase.from('shipments').select('*').eq('id', shipmentId).single(),
+            supabase.from('sales')
+                .select('id, lot_id, sale_date, lots(lot_number), ' +
+                        'sale_sources(pasture_id, head_count, pay_weight_lb, net_amount, pastures(name, ranches(name)))')
+                .eq('shipment_id', shipmentId),
+            supabase.from('shipment_loads').select('load_date').eq('shipment_id', shipmentId)
+        ]);
+
+        if (sErr || lErr) {
+            $('acctReportContent').innerHTML =
+                `<div class="alert error">Could not load the shipment: ${escapeHtml((sErr || lErr).message)}</div>`;
+            return;
+        }
+
+        // Roll the per-day sales rows up to one row per (lot, pasture). The
+        // app writes a sales row per lot PER DAY so head-days stay honest;
+        // accounting wants the shipment as one posting, so the days collapse
+        // here rather than in the books.
+        const byPair = new Map();
+        (sales || []).forEach(sa => {
+            (sa.sale_sources || []).forEach(src => {
+                const key = `${sa.lot_id}|${src.pasture_id}`;
+                const cur = byPair.get(key) || {
+                    lot: sa.lots?.lot_number || '?',
+                    ranch: src.pastures?.ranches?.name || '?',
+                    pasture: src.pastures?.name || '?',
+                    head: 0, weight: 0, amount: 0, days: new Set()
+                };
+                cur.head   += Number(src.head_count) || 0;
+                cur.weight += Number(src.pay_weight_lb) || 0;
+                cur.amount  = round2(cur.amount + (Number(src.net_amount) || 0));
+                if (sa.sale_date) cur.days.add(sa.sale_date);
+                byPair.set(key, cur);
+            });
+        });
+
+        const rows = [...byPair.values()]
+            .map(r => ({ ...r, days: [...r.days].sort() }))
+            .sort((a, b) => a.lot.localeCompare(b.lot)
+                         || a.ranch.localeCompare(b.ranch)
+                         || a.pasture.localeCompare(b.pasture));
+
+        acctReportCache = { shipment: shp, rows, shipDays: [...new Set((loads || []).map(l => l.load_date).filter(Boolean))].sort() };
+
+        if (!$('acctProductionYear').value && shp.sale_date) {
+            $('acctProductionYear').value = String(shp.sale_date).slice(0, 4);
+        }
+        renderAcctReport();
+    }
+
+    function acctConstants() {
+        return {
+            account: $('acctAccount').value.trim() || ACCT_DEFAULTS.account,
+            profitCenter: $('acctProfitCenter').value.trim() || ACCT_DEFAULTS.profitCenter,
+            productionYear: $('acctProductionYear').value.trim() || ''
+        };
+    }
+
+    // The rows as data, in the screenshot's column order. One place builds
+    // them so the screen, the print sheet, the PDF and the clipboard cannot
+    // disagree about what the report says.
+    const ACCT_COLUMNS = ['Account', 'Quantity 1', 'Quantity 2', 'Quantity 1 Price', 'UOM 1',
+                          'Amount', 'Notation', 'Distribution', 'Profit Center',
+                          'Production Center', 'Production Year', 'Production Center'];
+
+    function acctRowCells(r, k) {
+        return [
+            k.account,
+            Number(r.head).toFixed(8),
+            Number(r.weight).toFixed(6),
+            '',
+            '',
+            Number(r.amount).toFixed(2),
+            `${r.lot} ${r.ranch} / ${r.pasture}`,
+            'None',
+            k.profitCenter,
+            '',
+            k.productionYear,
+            r.lot
+        ];
+    }
+
+    function acctTotals(rows) {
+        return {
+            head:   rows.reduce((a, r) => a + r.head, 0),
+            weight: rows.reduce((a, r) => a + r.weight, 0),
+            amount: round2(rows.reduce((a, r) => a + r.amount, 0))
+        };
+    }
+
+    function acctHeaderLines() {
+        const { shipment: s, shipDays } = acctReportCache;
+        const shipped = shipDays.length > 1
+            ? `${fmtDate(shipDays[0])} – ${fmtDate(shipDays[shipDays.length - 1])} (${shipDays.length} days)`
+            : (shipDays.length === 1 ? fmtDate(shipDays[0]) : '—');
+        return [
+            ['Buyer', s.buyer || '—'],
+            ['Settlement date', fmtDate(s.sale_date)],
+            ['Destination', s.destination || '—'],
+            ['Shipped', shipped],
+            ['Head', fmtNum(s.head_count)],
+            ['Pay weight', `${fmtNum(s.pay_weight_lb)} lb`],
+            ['Price', s.price_per_cwt != null ? `${fmtMoney(s.price_per_cwt)}/cwt` : '—'],
+            ['Amount of draft', fmtMoney(s.net_amount)],
+            ['Proceeds to the books', fmtMoney(s.book_proceeds)]
+        ];
+    }
+
+    function renderAcctReport() {
+        if (!acctReportCache) return;
+        const { shipment: s, rows } = acctReportCache;
+        const k = acctConstants();
+        const t = acctTotals(rows);
+
+        // The rows must add back to what the shipment says it paid. They are
+        // read from the same rows the books hold, so a mismatch here means
+        // something was edited underneath the shipment - which is exactly what
+        // you do not want to discover after keying it into Redwing.
+        const bookProceeds = Number(s.book_proceeds) || 0;
+        const offAmount = Math.abs(t.amount - bookProceeds) > 0.01;
+        const offHead   = t.head !== (Number(s.head_count) || 0);
+        const offWeight = Math.abs(t.weight - (Number(s.pay_weight_lb) || 0)) > 0.5;
+
+        const tie = (offAmount || offHead || offWeight)
+            ? `<div class="alert error"><strong>These rows do not tie to the shipment.</strong>
+                 Rows: ${fmtNum(t.head)} hd · ${fmtNum(t.weight)} lb · ${fmtMoney(t.amount)}.
+                 Shipment: ${fmtNum(s.head_count)} hd · ${fmtNum(s.pay_weight_lb)} lb · ${fmtMoney(bookProceeds)}.
+                 Do not post this until it is sorted out.</div>`
+            : `<div class="alert success">Rows tie to the shipment exactly &mdash;
+                 ${fmtNum(t.head)} hd, ${fmtNum(t.weight)} lb, ${fmtMoney(t.amount)}.</div>`;
+
+        $('acctReportContent').innerHTML = `
+            ${tie}
+            <table style="font-size: 12px; margin-bottom: 18px;">
+                <tbody>${acctHeaderLines().map(([a, b]) =>
+                    `<tr><td class="muted" style="width: 180px;">${escapeHtml(a)}</td>
+                         <td><strong>${escapeHtml(b)}</strong></td></tr>`).join('')}
+                </tbody>
+            </table>
+
+            <div style="overflow-x: auto;">
+            <table style="font-size: 12px; white-space: nowrap;">
+                <thead><tr>${ACCT_COLUMNS.map((c, i) =>
+                    `<th style="text-align:${[1,2,3,5].includes(i) ? 'right' : 'left'};">${escapeHtml(c)}</th>`).join('')}</tr></thead>
+                <tbody>
+                ${rows.map(r => {
+                    const cells = acctRowCells(r, k);
+                    return `<tr>${cells.map((c, i) =>
+                        `<td style="text-align:${[1,2,3,5].includes(i) ? 'right' : 'left'};">${escapeHtml(c)}</td>`).join('')}</tr>`;
+                }).join('')}
+                <tr style="font-weight: 600; border-top: 2px solid var(--border);">
+                    <td>Total &mdash; ${fmtNum(rows.length)} row${rows.length === 1 ? '' : 's'}</td>
+                    <td style="text-align:right;">${fmtNum(t.head)}</td>
+                    <td style="text-align:right;">${fmtNum(t.weight)}</td>
+                    <td></td><td></td>
+                    <td style="text-align:right;">${fmtMoney(t.amount)}</td>
+                    <td colspan="6"></td>
+                </tr>
+                </tbody>
+            </table>
+            </div>`;
+    }
+
+    function acctFilename(ext) {
+        const s = acctReportCache.shipment;
+        const who = (s.buyer || 'shipment').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
+        return `JFR-sales-${s.sale_date}-${who}.${ext}`;
+    }
+
+    function acctPrint() {
+        if (!acctReportCache) return;
+        const { shipment: s, rows } = acctReportCache;
+        const k = acctConstants();
+        const t = acctTotals(rows);
+
+        const w = window.open('', '_blank');
+        if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
+
+        const head = acctHeaderLines()
+            .map(([a, b]) => `<div><span>${escapeHtml(a)}</span><strong>${escapeHtml(b)}</strong></div>`).join('');
+        const body = rows.map(r => `<tr>${acctRowCells(r, k).map((c, i) =>
+            `<td class="${[1,2,3,5].includes(i) ? 'r' : ''}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
+
+        // Landscape: twelve columns will not fit portrait at a readable size.
+        w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(acctFilename('pdf'))}</title>
+<style>
+    @page { size: landscape; margin: 10mm; }
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; color: #1a1a1a; }
+    h1 { font-size: 19px; margin: 0 0 2px 0; }
+    .sub { color: #555; font-size: 12px; margin-bottom: 14px; }
+    .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 24px; font-size: 12px; margin-bottom: 16px; }
+    .meta div { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 2px 0; }
+    .meta span { color: #666; }
+    table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+    th, td { border: 1px solid #999; padding: 4px 6px; text-align: left; white-space: nowrap; }
+    th { background: #f0f0ea; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.3px; }
+    td.r, th.r { text-align: right; }
+    tfoot td { font-weight: 700; background: #f7f7f2; }
+    .tie { margin-top: 14px; font-size: 11px; padding: 6px 8px; border: 1px solid #999; }
+    .footer { margin-top: 18px; font-size: 10px; color: #666; }
+</style></head><body>
+<h1>Cattle Sales — accounting detail</h1>
+<div class="sub">${escapeHtml(s.buyer || 'Shipment')} · settled ${escapeHtml(fmtDate(s.sale_date))} · printed ${new Date().toLocaleDateString()}</div>
+<div class="meta">${head}</div>
+<table>
+    <thead><tr>${ACCT_COLUMNS.map((c, i) =>
+        `<th class="${[1,2,3,5].includes(i) ? 'r' : ''}">${escapeHtml(c)}</th>`).join('')}</tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr>
+        <td>Total — ${rows.length} row${rows.length === 1 ? '' : 's'}</td>
+        <td class="r">${escapeHtml(fmtNum(t.head))}</td>
+        <td class="r">${escapeHtml(fmtNum(t.weight))}</td>
+        <td></td><td></td>
+        <td class="r">${escapeHtml(fmtMoney(t.amount))}</td>
+        <td colspan="6"></td>
+    </tr></tfoot>
+</table>
+<div class="tie">Rows total ${escapeHtml(fmtNum(t.head))} head, ${escapeHtml(fmtNum(t.weight))} lb, ${escapeHtml(fmtMoney(t.amount))} —
+against a shipment of ${escapeHtml(fmtNum(s.head_count))} head, ${escapeHtml(fmtNum(s.pay_weight_lb))} lb,
+${escapeHtml(fmtMoney(s.book_proceeds))} proceeds.</div>
+<div class="footer">Production Center is the lot number as the app holds it. Amounts are proceeds to the books —
+the draft less any freight JFR paid — allocated to each lot and pasture by pay weight.</div>
+<script>window.onload = () => window.print();<\/script>
+</body></html>`);
+        w.document.close();
+    }
+
+    async function acctPdf() {
+        if (!acctReportCache) return;
+        if (!window.jspdf || !window.jspdf.jsPDF) { alert('PDF library did not load. Try Print instead.'); return; }
+        const { shipment: s, rows } = acctReportCache;
+        const k = acctConstants();
+        const t = acctTotals(rows);
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'landscape' });
+
+        doc.setFontSize(14);
+        doc.text('Cattle Sales — accounting detail', 14, 14);
+        doc.setFontSize(9);
+        doc.text(`${s.buyer || 'Shipment'} · settled ${fmtDate(s.sale_date)} · printed ${new Date().toLocaleDateString()}`, 14, 20);
+
+        doc.autoTable({
+            startY: 24,
+            theme: 'plain',
+            styles: { fontSize: 8, cellPadding: 1 },
+            body: acctHeaderLines().map(([a, b]) => [a, b]),
+            columnStyles: { 0: { textColor: 110, cellWidth: 42 }, 1: { fontStyle: 'bold' } },
+            margin: { left: 14 },
+            tableWidth: 110
+        });
+
+        doc.autoTable({
+            startY: doc.lastAutoTable.finalY + 6,
+            head: [ACCT_COLUMNS],
+            body: rows.map(r => acctRowCells(r, k)),
+            foot: [[`Total — ${rows.length} row${rows.length === 1 ? '' : 's'}`,
+                    fmtNum(t.head), fmtNum(t.weight), '', '', fmtMoney(t.amount), '', '', '', '', '', '']],
+            styles: { fontSize: 7, cellPadding: 1.6, overflow: 'linebreak' },
+            headStyles: { fillColor: [240, 240, 234], textColor: 30, fontSize: 6.5 },
+            footStyles: { fillColor: [247, 247, 242], textColor: 30, fontStyle: 'bold' },
+            columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 5: { halign: 'right' } },
+            margin: { left: 10, right: 10 }
+        });
+
+        doc.setFontSize(7.5);
+        doc.text(
+            `Rows total ${fmtNum(t.head)} hd, ${fmtNum(t.weight)} lb, ${fmtMoney(t.amount)} — ` +
+            `shipment: ${fmtNum(s.head_count)} hd, ${fmtNum(s.pay_weight_lb)} lb, ${fmtMoney(s.book_proceeds)} proceeds.`,
+            10, doc.lastAutoTable.finalY + 6);
+
+        await sharePdfFile(doc, acctFilename('pdf'), 'JFR cattle sales — accounting detail');
+    }
+
+    // Tab-separated, which is what spreadsheets and most accounting grids
+    // accept on paste. Saves keying twelve columns by hand.
+    async function acctCopy() {
+        if (!acctReportCache) return;
+        const k = acctConstants();
+        const text = [ACCT_COLUMNS.join('\t')]
+            .concat(acctReportCache.rows.map(r => acctRowCells(r, k).join('\t')))
+            .join('\n');
+        try {
+            await navigator.clipboard.writeText(text);
+            showAlert('globalAlert', `${acctReportCache.rows.length} row(s) copied — paste into your accounting grid.`, 'success');
+        } catch (err) {
+            // Clipboard is blocked outside a secure context or without
+            // permission. Say so rather than appearing to have worked.
+            showAlert('globalAlert', 'Could not reach the clipboard. Use Print or PDF instead.', 'error');
+        }
+    }
+
+    // ---- wiring ----------------------------------------------------------
+    $('salesSubtabs').addEventListener('click', (e) => {
+        const btn = e.target.closest('.sub-tab');
+        if (!btn) return;
+        if (btn.dataset.subtab === 'accounting') showSalesReportTab(); else showSalesTab();
+    });
+    $('acctShipment').addEventListener('change', () => loadAcctReport($('acctShipment').value));
+    ['acctAccount', 'acctProfitCenter', 'acctProductionYear'].forEach(id => {
+        $(id).addEventListener('input', () => { acctSaveConstants(); renderAcctReport(); });
+    });
+    $('acctPrintBtn').addEventListener('click', acctPrint);
+    $('acctPdfBtn').addEventListener('click', acctPdf);
+    $('acctCopyBtn').addEventListener('click', acctCopy);
 
     // Top nav click handlers
     $('navLots').addEventListener('click', showLotsTab);

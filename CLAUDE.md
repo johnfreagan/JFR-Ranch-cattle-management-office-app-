@@ -220,6 +220,33 @@ shipments ──┬── shipment_weight_groups ── shipment_loads ── sh
   different question from the save-time check — it catches later edits to an
   allocated sale. Non-zero variance shows as ⚠ on the Sales list.
 
+### Accounting report (Sales → Accounting Report)
+
+One shipment, one row per (lot, pasture), in Redwing's column order:
+Account · Quantity 1 (head) · Quantity 2 (pay weight) · Quantity 1 Price ·
+UOM 1 · Amount · Notation · Distribution · Profit Center · Production Center ·
+Production Year · Production Center. Two columns really are both called
+Production Center — the first is blank, the last carries the lot.
+
+- **The report reads `sale_sources`, it does not recompute.** A report that
+  re-derived the split could drift from the books it is meant to document.
+  The tie-out line checks the rows against the shipment header on every
+  render and refuses to look clean if they disagree.
+- **Days collapse here, not in the books.** The app writes one `sales` row per
+  lot PER DAY so head-days stay honest; accounting wants the shipment as a
+  single posting, so the report rolls the days up.
+- **Amount is `book_proceeds`** — the draft less any freight JFR paid — not
+  the gross and not `net_amount`.
+- Production Center prints the lot number as the app holds it (`37X-1`), not
+  Redwing's collapsed code (`37-X`). John's call, 2026-08-26: better to print
+  what we know than to guess a mapping.
+- Account / Profit Center / Production Year are editable and remembered in
+  `localStorage` (wrapped in try/catch — storage throws outright in a private
+  window rather than returning empty).
+- Print is landscape (twelve columns will not fit portrait), PDF goes through
+  the existing `sharePdfFile()` share-or-download path, and "Copy rows" puts
+  tab-separated text on the clipboard, which is what actually saves the typing.
+
 Migrations, in order: `docs/sql/2026-08-26_shipments.sql`,
 `..._phase2.sql`, `..._phase3.sql`.
 
