@@ -111,9 +111,16 @@ Carrier email-to-SMS gateways were considered and **rejected**: free, but they
 drop messages silently, and a blocked report and a quiet day look identical.
 
 **A standing RLS verify script** (`OPEN-ITEMS.md` item 8). `CLAUDE.md` rule 7
-cites one; it does not exist, and neither does the `supabase/` directory. Write
+cited one; it does not exist, and neither does the `supabase/` directory. Write
 it once as a standalone script asserting rules 1–6 across every object in
 `public`. Until then every migration must carry its own inline assertions.
+
+The `tag_history` finding on 2026-08-26 is the argument for doing this sooner:
+a view had been reaching into `auth.users` for an email since before the August
+hardening, and the manual sweep three days earlier did not catch it because
+nobody thought to ask that question. Supabase's own linter did. The spec in
+`docs/security-model.md` §4 now carries that assertion — a script would run it
+every time instead of when somebody remembers.
 
 ---
 
@@ -125,6 +132,11 @@ it once as a standalone script asserting rules 1–6 across every object in
   `supabase link --project-ref xpfmebdzcxorvwikfvtj` → `supabase db pull` for a
   baseline → mark it applied → verify with `supabase migration list`. Until
   then, SQL editor, with the applied file kept in `docs/sql/`.
+- **Take `guard_last_owner()` off the API surface** (`OPEN-ITEMS.md` item 10).
+  `anon` can call it over RPC. It is a trigger function so the call raises and
+  there is no data path, but it should not be callable. Verify against the live
+  trigger before revoking — this is the guard that stops John locking himself
+  out of user administration.
 - **Review the two unreviewed `SECURITY DEFINER` functions**,
   `lot_projected_weight` and `lot_weighted_arrival_date`. They predate the
   hardening work. Both carry a pinned `search_path`, so this is a correctness

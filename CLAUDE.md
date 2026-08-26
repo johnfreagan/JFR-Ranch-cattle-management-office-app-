@@ -185,9 +185,17 @@ is unrecoverable in a way an accidental insert is not.
    `docs/sql/2026-08-25_budget_and_head_days.sql` does.
 
 **Last full sweep — 2026-08-26, all clean:** 28 tables, all RLS-enabled and all
-carrying policies; 12 views, all `security_invoker = true`; zero objects in
-`public` readable by `anon`; seven `SECURITY DEFINER` functions, all with a
-pinned `search_path`.
+carrying policies; 11 views, all `security_invoker = true`; zero objects in
+`public` readable by `anon`; zero views reading `auth.users`; seven
+`SECURITY DEFINER` functions, all with a pinned `search_path`.
+
+**No view may read `auth.users`** — not even to resolve a name. `tag_history`
+did, for an email it labelled `recorded_by_name`, and was dropped 2026-08-26
+(`docs/sql/2026-08-26_drop_tag_history.sql`). `security_invoker` made it error
+rather than leak, which is one dropped reloption away from not being true.
+Resolve a person through `user_profiles`, remembering that
+`user_profiles_select` is *own row OR owner* — a non-owner sees NULL for
+everyone else, so a view that joins it is not a general-purpose name source.
 
 ### Offline/PWA consequences (the live field app depends on all three)
 

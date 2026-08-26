@@ -224,8 +224,13 @@ What it must assert:
 5. No `SECURITY DEFINER` function is `anon`-callable
 6. No view bypasses RLS
 7. Every DEFINER function pins `search_path`
-8. At least one active user exists
-9. Prints the full roster
+8. **No view in an API-exposed schema reads `auth.users`** — added 2026-08-26
+   after Supabase's `auth_users_exposed` linter caught `tag_history` selecting
+   a user's email as `recorded_by_name`. `security_invoker` meant it errored
+   rather than leaked, but the original checklist had no assertion that would
+   have found it at all. The query is in the block below.
+9. At least one active user exists
+10. Prints the full roster
 
 It must change nothing and raise an exception on a real finding.
 
@@ -234,8 +239,9 @@ It must change nothing and raise an exception on a real finding.
 | assertion | result |
 |---|---|
 | tables in `public` | 28, all RLS-enabled, all carrying policies |
-| views in `public` | 12, all `security_invoker = true` |
+| views in `public` | 11, all `security_invoker = true` |
 | objects in `public` readable by `anon` | 0 |
+| views in `public`/`graphql_public` reading `auth.users` | 0 |
 | `SECURITY DEFINER` functions | 7, all with a pinned `search_path` |
 | `user_profiles.role` CHECK | exactly `owner`, `office`, `crew` |
 
@@ -274,7 +280,30 @@ select c.relname, c.relkind
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public' and c.relkind in ('r','v','m')
   and has_table_privilege('anon', c.oid, 'SELECT');
+
+-- any view reaching into auth.users (assertion 8)
+select c.relname
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname in ('public','graphql_public')
+  and c.relkind in ('v','m')
+  and pg_get_viewdef(c.oid) ilike '%auth.users%';
 ```
+
+### Never resolve a person through `auth.users`
+
+`tag_history` reached into `auth.users` for an email and labelled it
+`recorded_by_name`. Dropped 2026-08-26 —
+`docs/sql/2026-08-26_drop_tag_history.sql` carries the full reasoning.
+
+The trap is that `security_invoker` **masks** this rather than fixing it: the
+caller has no `SELECT` on `auth.users`, so the view raises `42501` instead of
+returning emails. It reads as a broken view, not as an exposure, and it becomes
+a real one the moment that reloption is dropped or someone grants the read.
+
+Resolve people through `user_profiles` instead — but note that
+`user_profiles_select` is *own row OR owner*, so under RLS a non-owner sees NULL
+for everyone else. It is not a general-purpose name source, and a view that
+joins it will look empty rather than wrong.
 
 **The SQL editor swallows `RAISE NOTICE` output** — it shows only the final
 result grid. Read the notices in the editor's message pane, or run it through

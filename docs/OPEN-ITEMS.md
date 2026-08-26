@@ -185,7 +185,7 @@ across every object in `public`, and run it after each migration. Until then
 every new migration must carry its own checks.
 
 A manual sweep on **2026-08-26** came back clean — 28 tables all RLS-enabled
-and all carrying policies, 12 views all `security_invoker = true`, zero objects
+and all carrying policies, 11 views all `security_invoker = true`, zero objects
 in `public` readable by `anon`, seven `SECURITY DEFINER` functions all with a
 pinned `search_path`. That is exactly the sweep the script should automate, and
 running it by hand is exactly why it keeps not getting run.
@@ -214,8 +214,43 @@ per head per day) rather than a hard limit.
 
 ---
 
+## 10. Two `SECURITY DEFINER` functions are callable over RPC
+
+**Status:** open, raised by the Supabase advisor 2026-08-26. Both are WARN, not
+critical, and neither is being exploited.
+
+- **`guard_last_owner()` is executable by `anon`** via
+  `/rest/v1/rpc/guard_last_owner`, and by `authenticated` too. It is a trigger
+  function, so a direct call raises *"trigger functions can only be called as
+  triggers"* — there is no data path through it. It still has no business on the
+  API surface.
+- **`admin_list_users()` is executable by `authenticated`.** That one is
+  deliberate: it is the owner roster, and it checks for owner *inside* the query,
+  so a non-owner gets zero rows. Recorded here so a future advisor run is not
+  alarming.
+
+**Why the `guard_last_owner` revoke was not just done.** Revoking `EXECUTE` on a
+function a trigger depends on needs verifying against the live trigger before it
+ships — PostgreSQL checks that privilege when the trigger is *created*, not each
+time it fires, so a revoke should be harmless, but "should be" is not good enough
+for the guard that stops John locking himself out of user administration. Test it
+against a scratch table first, then revoke from `PUBLIC` (not just `anon` — rule
+4), then confirm the last-owner guard still raises.
+
+---
+
 ## Closed
 
+- **2026-08-26 — `tag_history` exposed `auth.users` to the API schema.**
+  Supabase's `auth_users_exposed` linter caught a view selecting a user's email
+  as `recorded_by_name`. Not leaking when found — `security_invoker = true` plus
+  no `SELECT` on `auth.users` for `anon` or `authenticated` meant it raised
+  `42501` instead — but it would have leaked outright under the pre-hardening
+  owner-invoked behaviour, and nothing used it: no app reference, no dependents,
+  no function body. Dropped
+  (`docs/sql/2026-08-26_drop_tag_history.sql`); public views went 12 → 11. The
+  standing verify checklist in `docs/security-model.md` §4 gained an assertion
+  for this, because nothing in the old checklist would have found it.
 - **2026-08-25 — Closeout rebuilt as budget / actual / projection.** Roadmap
   item 4 phase 1. `lot_budgets` (frozen, immutable by trigger),
   `lot_daily_head` and `lot_head_days_by_month` added and verified against

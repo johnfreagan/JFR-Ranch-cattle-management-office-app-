@@ -4,8 +4,9 @@
 removing people who can sign in to the JFR Ranch apps.
 
 **Last verified against the live database:** 2026-08-26 — both migrations
-confirmed applied, 28 tables all RLS-enabled with policies, 12 views all
-`security_invoker`, nothing readable by `anon`. The two dashboard settings in
+confirmed applied, 28 tables all RLS-enabled with policies, 11 views all
+`security_invoker`, nothing readable by `anon`, and no view reading
+`auth.users`. The two dashboard settings in
 §9 are still outstanding.
 
 ---

@@ -389,8 +389,9 @@ unrecoverable in a way an accidental insert is not.
 | assertion | result |
 |---|---|
 | tables in `public` | 28, all RLS-enabled, all carrying policies |
-| views in `public` | 12, all `security_invoker = true` |
+| views in `public` | 11, all `security_invoker = true` |
 | objects readable by `anon` | 0 |
+| views reading `auth.users` | 0 |
 | `SECURITY DEFINER` functions | 7, all with a pinned `search_path` |
 
 The seven are `current_user_role` (the gate), `admin_list_users`,
@@ -436,12 +437,14 @@ dashboard and SQL editor, so `supabase db push` would try to apply every local
 migration from scratch against tables that already exist.
 
 Until that is reconciled, apply migrations through the **SQL editor** and keep
-the applied file in `docs/sql/`, named `YYYY-MM-DD_what-it-does.sql`. Files there
-carry explicit `begin;`/`commit;` so they are all-or-nothing in the editor —
-**strip those two lines if applying via the CLI**, which wraps migrations in its
-own transaction where the inner `commit;` closes it early. Note the editor
-*swallows* `begin;`/`commit;` in some paths and can report "Success. No rows
-returned" without applying anything.
+the applied file in `docs/sql/`, named `YYYY-MM-DD_what-it-does.sql`. The six
+files from 2026-08-24/25 still carry `begin;`/`commit;`; everything from
+`2026-08-25_head_days_rename.sql` on does not, and **that is the convention now**
+— the file should match what was actually pasted, and the editor swallows the
+wrapper, reporting "Success. No rows returned" without applying anything. If a
+file with the wrapper is ever run through the CLI, strip those two lines: the CLI
+wraps migrations in its own transaction, where the inner `commit;` closes it
+early.
 
 To adopt the CLI: `supabase link --project-ref xpfmebdzcxorvwikfvtj` →
 `supabase db pull` for a baseline → mark it applied → verify with
