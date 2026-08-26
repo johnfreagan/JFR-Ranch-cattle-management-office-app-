@@ -158,6 +158,13 @@ shipments ──┬── shipment_weight_groups ── shipment_loads ── sh
   clearing it unconditionally would make picking the pasture second wipe the
   lot just chosen. Two lines on one load may share a pasture and differ only
   by lot.
+- **The pickers net out what the sheet has already drawn**, so entering load
+  after load walks the counts down live: `Corner / 1 (23 of 85 left)`. The
+  line being edited is EXCLUDED from its own count — otherwise its head would
+  count against its own ceiling and the number would fight the person typing.
+  Head fields deliberately do not re-render (it would eat the caret), so the
+  option labels are refreshed from `recomputeShipment()` instead, skipping any
+  select the user is currently in so an open dropdown is not shut.
 
 ### Multi-day sheets
 

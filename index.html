@@ -1683,6 +1683,7 @@
                 </p>
                 <div id="weightGroupList"></div>
                 <div id="shipmentWeightSummary" style="margin-top: 14px;"></div>
+                <div id="shipmentDrawSummary" style="margin-top: 14px;"></div>
             </div>
 
             <!-- ---- 3. price + deductions ---- -->
@@ -6364,53 +6365,97 @@ window.addEventListener('unhandledrejection', function(e) {
     // 416 head across two - so a load gathered off one pasture routinely
     // draws on several lots, and being forced to name the lot first is
     // backwards for exactly the case that is hardest to get right by hand.
-    function shpLotOptions(selLot, selPasture) {
+    function shpLotOptions(selLot, selPasture, excludeTempId) {
+        const drawn = shpDrawnByPair(excludeTempId);
         // Narrowed to the lots standing in the chosen pasture, if there is one.
-        const rows = selPasture
-            ? shipmentInventory.filter(i => i.pasture_id === selPasture)
-            : shipmentLotIndex.map(l => ({
-                lot_id: l.lot_id,
-                lot_number: l.lot_number,
-                head_count: l.pastures.reduce((a, p) => a + p.avail, 0)
-              }));
-        const seen = new Map();
-        rows.forEach(r => { if (!seen.has(r.lot_id)) seen.set(r.lot_id, r); });
-        const list = [...seen.values()].sort((a, b) => a.lot_number.localeCompare(b.lot_number));
+        let list;
+        if (selPasture) {
+            list = shipmentInventory
+                .filter(i => i.pasture_id === selPasture)
+                .map(i => ({
+                    lot_id: i.lot_id, lot_number: i.lot_number,
+                    standing: i.head_count,
+                    remaining: i.head_count - (drawn.get(`${i.lot_id}|${i.pasture_id}`) || 0)
+                }));
+        } else {
+            list = shipmentLotIndex.map(l => {
+                const standing = l.pastures.reduce((a, p) => a + p.avail, 0);
+                const taken = l.pastures.reduce(
+                    (a, p) => a + (drawn.get(`${l.lot_id}|${p.pasture_id}`) || 0), 0);
+                return { lot_id: l.lot_id, lot_number: l.lot_number,
+                         standing, remaining: standing - taken };
+            });
+        }
+        list.sort((a, b) => a.lot_number.localeCompare(b.lot_number));
         return '<option value="">— lot —</option>' + list.map(r =>
             `<option value="${escapeHtml(r.lot_id)}"${r.lot_id === selLot ? ' selected' : ''}>` +
-            `${escapeHtml(r.lot_number)} (${r.head_count} hd)</option>`
+            `${escapeHtml(r.lot_number)} (${shpAvailLabel(r.remaining, r.standing)})</option>`
         ).join('');
     }
 
-    function shpPastureOptions(selLot, selPasture) {
+    function shpPastureOptions(selLot, selPasture, excludeTempId) {
+        const drawn = shpDrawnByPair(excludeTempId);
         // Narrowed to the chosen lot's pastures, if there is one. With no lot
         // picked, every pasture is offered with how many lots are standing in
         // it, which is the cue that a load off it will need more than one line.
         if (selLot) {
             const lot = shipmentLotIndex.find(l => l.lot_id === selLot);
             if (!lot) return '<option value="">— pasture —</option>';
-            return '<option value="">— pasture —</option>' + lot.pastures.map(p =>
-                `<option value="${escapeHtml(p.pasture_id)}"${p.pasture_id === selPasture ? ' selected' : ''}>` +
-                `${escapeHtml(p.label)} (${p.avail} hd)</option>`
-            ).join('');
+            return '<option value="">— pasture —</option>' + lot.pastures.map(p => {
+                const remaining = p.avail - (drawn.get(`${selLot}|${p.pasture_id}`) || 0);
+                return `<option value="${escapeHtml(p.pasture_id)}"${p.pasture_id === selPasture ? ' selected' : ''}>` +
+                       `${escapeHtml(p.label)} (${shpAvailLabel(remaining, p.avail)})</option>`;
+            }).join('');
         }
         const byPasture = new Map();
         shipmentInventory.forEach(i => {
             const cur = byPasture.get(i.pasture_id) ||
-                { pasture_id: i.pasture_id, label: i.pasture_label, avail: 0, lots: 0 };
-            cur.avail += i.head_count; cur.lots += 1;
+                { pasture_id: i.pasture_id, label: i.pasture_label, standing: 0, remaining: 0, lots: 0 };
+            cur.standing += i.head_count;
+            cur.remaining += i.head_count - (drawn.get(`${i.lot_id}|${i.pasture_id}`) || 0);
+            cur.lots += 1;
             byPasture.set(i.pasture_id, cur);
         });
         const list = [...byPasture.values()].sort((a, b) => a.label.localeCompare(b.label));
         return '<option value="">— pasture —</option>' + list.map(p =>
             `<option value="${escapeHtml(p.pasture_id)}"${p.pasture_id === selPasture ? ' selected' : ''}>` +
-            `${escapeHtml(p.label)} (${p.avail} hd${p.lots > 1 ? `, ${p.lots} lots` : ''})</option>`
+            `${escapeHtml(p.label)} (${shpAvailLabel(p.remaining, p.standing)}` +
+            `${p.lots > 1 ? `, ${p.lots} lots` : ''})</option>`
         ).join('');
     }
 
     // Is this (lot, pasture) pair actually a place cattle are standing?
     function shpPairExists(lotId, pastureId) {
         return shipmentInventory.some(i => i.lot_id === lotId && i.pasture_id === pastureId);
+    }
+
+    // Head this sheet has already committed against each (lot, pasture),
+    // across every group and load. `excludeTempId` drops one line from the
+    // count so a picker can show what is left for THAT line to take -
+    // otherwise a line's own head would count against its own ceiling and
+    // the number would fight the person typing it.
+    function shpDrawnByPair(excludeTempId) {
+        const m = new Map();
+        (shipmentState?.groups || []).forEach(g => {
+            g.loads.forEach(load => {
+                load.lines.forEach((ln, li) => {
+                    if (excludeTempId && ln.tempId === excludeTempId) return;
+                    if (!ln.lot_id || !ln.pasture_id) return;
+                    const h = shpLineHead(load, li);
+                    if (h <= 0) return;
+                    const k = `${ln.lot_id}|${ln.pasture_id}`;
+                    m.set(k, (m.get(k) || 0) + h);
+                });
+            });
+        });
+        return m;
+    }
+
+    // "23 of 85 left" once the sheet has taken some, plain "85 hd" before.
+    function shpAvailLabel(remaining, standing) {
+        return remaining === standing
+            ? `${remaining} hd`
+            : `${remaining} of ${standing} left`;
     }
 
     function renderLoadLines(g, gi, load, ldi) {
@@ -6420,10 +6465,10 @@ window.addEventListener('unhandledrejection', function(e) {
                 <td style="width: 26px;"></td>
                 <td style="width: 110px;">
                     <select class="shp-line-lot" data-g="${gi}" data-ld="${ldi}" data-ln="${li}"
-                        style="padding: 4px 6px; font-size: 12px;">${shpLotOptions(ln.lot_id, ln.pasture_id)}</select></td>
+                        style="padding: 4px 6px; font-size: 12px;">${shpLotOptions(ln.lot_id, ln.pasture_id, ln.tempId)}</select></td>
                 <td>
                     <select class="shp-line-pasture" data-g="${gi}" data-ld="${ldi}" data-ln="${li}"
-                        style="padding: 4px 6px; font-size: 12px;">${shpPastureOptions(ln.lot_id, ln.pasture_id)}</select></td>
+                        style="padding: 4px 6px; font-size: 12px;">${shpPastureOptions(ln.lot_id, ln.pasture_id, ln.tempId)}</select></td>
                 <td style="width: 86px;">${single
                     ? `<span class="muted" style="font-size: 12px;">${fmtNum(shpNum(load.head) || 0)} hd</span>`
                     : `<input type="number" min="1" step="1" class="shp-line-head"
@@ -6547,8 +6592,8 @@ window.addEventListener('unhandledrejection', function(e) {
         function rewireLinePair(g, ld, ln, line) {
             const lotSel  = c.querySelector(`.shp-line-lot[data-g="${g}"][data-ld="${ld}"][data-ln="${ln}"]`);
             const pastSel = c.querySelector(`.shp-line-pasture[data-g="${g}"][data-ld="${ld}"][data-ln="${ln}"]`);
-            if (lotSel)  lotSel.innerHTML  = shpLotOptions(line.lot_id, line.pasture_id);
-            if (pastSel) pastSel.innerHTML = shpPastureOptions(line.lot_id, line.pasture_id);
+            if (lotSel)  lotSel.innerHTML  = shpLotOptions(line.lot_id, line.pasture_id, line.tempId);
+            if (pastSel) pastSel.innerHTML = shpPastureOptions(line.lot_id, line.pasture_id, line.tempId);
         }
 
         c.querySelectorAll('.shp-line-lot').forEach(el => el.addEventListener('change', e => {
@@ -6607,6 +6652,25 @@ window.addEventListener('unhandledrejection', function(e) {
             shipmentState.groups.splice(+e.target.dataset.g, 1);
             renderWeightGroups();
         }));
+    }
+
+    // Head counts in the pickers go stale the moment a head field is typed,
+    // and head fields deliberately do NOT re-render (it would eat the caret).
+    // So the option labels are refreshed here instead. A select the user is
+    // actually in is skipped - rebuilding its options would shut the open
+    // dropdown - and unchanged markup is left alone to avoid DOM churn on
+    // every keystroke.
+    function refreshLinePickerLabels() {
+        document.querySelectorAll('.shp-line-lot, .shp-line-pasture').forEach(sel => {
+            if (sel === document.activeElement) return;
+            const g = +sel.dataset.g, ld = +sel.dataset.ld, ln = +sel.dataset.ln;
+            const line = shipmentState?.groups?.[g]?.loads?.[ld]?.lines?.[ln];
+            if (!line) return;
+            const html = sel.classList.contains('shp-line-lot')
+                ? shpLotOptions(line.lot_id, line.pasture_id, line.tempId)
+                : shpPastureOptions(line.lot_id, line.pasture_id, line.tempId);
+            if (sel.innerHTML !== html) sel.innerHTML = html;
+        });
     }
 
     function shpNewLoad(date) {
@@ -6745,6 +6809,49 @@ window.addEventListener('unhandledrejection', function(e) {
                 <tr><td class="muted">Shipped</td><td style="text-align:right;" class="muted">${escapeHtml(dayNote)}</td></tr>
                 <tr><td class="muted">Off</td><td style="text-align:right;" class="muted">${fmtNum(alloc.length)} pasture line${alloc.length === 1 ? '' : 's'} · ${fmtNum(lotCount)} lot${lotCount === 1 ? '' : 's'}</td></tr>
             </tbody></table>`;
+
+        // Pickers carry live head counts, so they have to be refreshed as head
+        // is typed rather than only on re-render.
+        refreshLinePickerLabels();
+
+        // What this sheet is taking out of each pasture, and what is left.
+        // The dropdowns say the same thing, but only when they are open -
+        // this is the running total you can watch while entering load after
+        // load.
+        const drawn = shpDrawnByPair(null);
+        if (drawn.size === 0) {
+            $('shipmentDrawSummary').innerHTML = '';
+        } else {
+            const rows = [...drawn.entries()].map(([key, head]) => {
+                const inv = shipmentInventory.find(i => i.key === key);
+                return {
+                    lot: inv?.lot_number || '?',
+                    place: inv?.pasture_label || '?',
+                    standing: inv?.head_count ?? 0,
+                    head,
+                    left: (inv?.head_count ?? 0) - head
+                };
+            }).sort((a, b) => a.lot.localeCompare(b.lot) || a.place.localeCompare(b.place));
+
+            $('shipmentDrawSummary').innerHTML = `
+                <h4 style="margin: 0 0 6px 0; font-size: 13px;">Drawing from</h4>
+                <table>
+                    <thead><tr><th>Lot</th><th>Pasture</th>
+                        <th style="text-align:right;">Standing</th>
+                        <th style="text-align:right;">On this sheet</th>
+                        <th style="text-align:right;">Left</th></tr></thead>
+                    <tbody>
+                    ${rows.map(r => `<tr>
+                        <td><strong>${escapeHtml(r.lot)}</strong></td>
+                        <td>${escapeHtml(r.place)}</td>
+                        <td style="text-align:right;" class="muted">${fmtNum(r.standing)}</td>
+                        <td style="text-align:right;">${fmtNum(r.head)}</td>
+                        <td style="text-align:right;${r.left < 0 ? ' color: var(--danger); font-weight: 600;' : (r.left === 0 ? ' color: var(--success);' : '')}">
+                            ${fmtNum(r.left)}${r.left < 0 ? ' ⚠' : (r.left === 0 ? ' empty' : '')}</td>
+                    </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
 
         shipmentState.deductions.forEach((d, i) => {
             const el = $(`shpDedAmt_${i}`);
