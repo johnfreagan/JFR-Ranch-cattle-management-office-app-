@@ -4252,9 +4252,15 @@ window.addEventListener('unhandledrejection', function(e) {
         return Math.round((p(toStr) - p(fromStr)) / 86400000);
     }
 
-    function todayIsoLocal(){
-        const d = new Date();
-        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    // Today in Kosse, Texas - not on the viewer's clock. The database counts
+    // head-days on the same boundary via ranch_today(), and the server runs
+    // UTC, so a browser anywhere east of Central would otherwise label the
+    // Actual column with a different day than the data behind it covers.
+    function ranchToday(){
+        return new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Chicago',
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(new Date());
     }
 
     // ---- ACTUAL TO DATE -------------------------------------------------
@@ -4270,7 +4276,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const headDays    = Number(currentHeadDaysToDate) || 0;
 
         const start = st.weighted_arrival_date || lot.arrival_date || null;
-        const daysToDate = start ? Math.max(0, daysBetween(start, todayIsoLocal())) : 0;
+        const daysToDate = start ? Math.max(0, daysBetween(start, ranchToday())) : 0;
 
         const processing = currentActualMedCost ? (currentActualMedCost.processing || 0) : 0;
         const treatment  = currentActualMedCost ? (currentActualMedCost.treatment  || 0) : 0;
@@ -4312,7 +4318,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
     // ---- PROJECTION AT CLOSE --------------------------------------------
     function closeoutProjection(rates, actual){
-        const today = todayIsoLocal();
+        const today = ranchToday();
         const remainingDays = rates.shipDate ? Math.max(0, daysBetween(today, rates.shipDate)) : null;
 
         // Deaths still to come = what we assumed for the whole lot, less what
@@ -4617,7 +4623,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <thead><tr>
                     <th style="text-align:left; padding-bottom:6px;"></th>
                     ${headCell('Budget', currentLotBudget ? 'frozen '+String(currentLotBudget.frozen_at).slice(0,10) : 'not set')}
-                    ${headCell('Actual', `to ${todayIsoLocal()}`)}
+                    ${headCell('Actual', `to ${ranchToday()}`)}
                     ${headCell('Projection', rates.shipDate ? 'at '+rates.shipDate : 'no ship date')}
                 </tr></thead>
                 <tbody>

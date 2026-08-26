@@ -227,6 +227,13 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
   An OPEN assignment is `moved_out is null`.
 - `pastures.name` — NOT pasture_name. `lots` has no `status` column; open means
   `closed_at is null`. Head counts live on the `lot_status` VIEW, not on `lots`.
+- **The database runs UTC; the ranch does not.** `CURRENT_DATE` becomes
+  tomorrow at 7pm Central (6pm in CST), so anything that counts days must use
+  `public.ranch_today()` instead. `lot_daily_head` shipped with `CURRENT_DATE`
+  and gained a whole extra day of head-days each evening — 441 on 36-27,
+  $882 at its rate, for a day Texas had not had. The app matches it with
+  `ranchToday()`, pinned to `America/Chicago` rather than the viewer's clock.
+  Same trap as `toISOString()` in the field app.
 - **There are TWO head-day implementations and they disagree.** The FUNCTION
   `lot_head_days(uuid, date)` anchors on `lot_weighted_arrival_date()`, which
   is built from INVOICE dates. The VIEW `lot_head_days_by_month` (over
