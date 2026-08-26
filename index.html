@@ -1677,7 +1677,9 @@
                     A group is a class of cattle that shipped at one average weight. Enter each
                     truckload with the lot and pasture it was gathered off &mdash; that is also how
                     the cattle come out of their pastures, so there is nothing else to fill in.
-                    A pot gathered off two pastures is two lines under the same load number.
+                    <strong>Pick the lot or the pasture first, whichever you know</strong>; each one
+                    narrows the other. A pasture holding more than one lot says so, and a load drawn
+                    off it takes a line per lot.
                 </p>
                 <div id="weightGroupList"></div>
                 <div id="shipmentWeightSummary" style="margin-top: 14px;"></div>
@@ -6357,18 +6359,58 @@ window.addEventListener('unhandledrejection', function(e) {
     }
 
     // ---- RENDER ----------------------------------------------------------
-    function shpLotOptions(sel) {
-        return '<option value="">— lot —</option>' + shipmentLotIndex.map(l =>
-            `<option value="${escapeHtml(l.lot_id)}"${l.lot_id === sel ? ' selected' : ''}>${escapeHtml(l.lot_number)}</option>`
+    // The two pickers narrow each other and either can be used first. Five
+    // pastures currently hold more than one lot - Steele / Front Native has
+    // 416 head across two - so a load gathered off one pasture routinely
+    // draws on several lots, and being forced to name the lot first is
+    // backwards for exactly the case that is hardest to get right by hand.
+    function shpLotOptions(selLot, selPasture) {
+        // Narrowed to the lots standing in the chosen pasture, if there is one.
+        const rows = selPasture
+            ? shipmentInventory.filter(i => i.pasture_id === selPasture)
+            : shipmentLotIndex.map(l => ({
+                lot_id: l.lot_id,
+                lot_number: l.lot_number,
+                head_count: l.pastures.reduce((a, p) => a + p.avail, 0)
+              }));
+        const seen = new Map();
+        rows.forEach(r => { if (!seen.has(r.lot_id)) seen.set(r.lot_id, r); });
+        const list = [...seen.values()].sort((a, b) => a.lot_number.localeCompare(b.lot_number));
+        return '<option value="">— lot —</option>' + list.map(r =>
+            `<option value="${escapeHtml(r.lot_id)}"${r.lot_id === selLot ? ' selected' : ''}>` +
+            `${escapeHtml(r.lot_number)} (${r.head_count} hd)</option>`
         ).join('');
     }
-    function shpPastureOptions(lotId, sel) {
-        const lot = shipmentLotIndex.find(l => l.lot_id === lotId);
-        if (!lot) return '<option value="">— pick a lot first —</option>';
-        return '<option value="">— pasture —</option>' + lot.pastures.map(p =>
-            `<option value="${escapeHtml(p.pasture_id)}"${p.pasture_id === sel ? ' selected' : ''}>` +
-            `${escapeHtml(p.label)} (${p.avail} hd)</option>`
+
+    function shpPastureOptions(selLot, selPasture) {
+        // Narrowed to the chosen lot's pastures, if there is one. With no lot
+        // picked, every pasture is offered with how many lots are standing in
+        // it, which is the cue that a load off it will need more than one line.
+        if (selLot) {
+            const lot = shipmentLotIndex.find(l => l.lot_id === selLot);
+            if (!lot) return '<option value="">— pasture —</option>';
+            return '<option value="">— pasture —</option>' + lot.pastures.map(p =>
+                `<option value="${escapeHtml(p.pasture_id)}"${p.pasture_id === selPasture ? ' selected' : ''}>` +
+                `${escapeHtml(p.label)} (${p.avail} hd)</option>`
+            ).join('');
+        }
+        const byPasture = new Map();
+        shipmentInventory.forEach(i => {
+            const cur = byPasture.get(i.pasture_id) ||
+                { pasture_id: i.pasture_id, label: i.pasture_label, avail: 0, lots: 0 };
+            cur.avail += i.head_count; cur.lots += 1;
+            byPasture.set(i.pasture_id, cur);
+        });
+        const list = [...byPasture.values()].sort((a, b) => a.label.localeCompare(b.label));
+        return '<option value="">— pasture —</option>' + list.map(p =>
+            `<option value="${escapeHtml(p.pasture_id)}"${p.pasture_id === selPasture ? ' selected' : ''}>` +
+            `${escapeHtml(p.label)} (${p.avail} hd${p.lots > 1 ? `, ${p.lots} lots` : ''})</option>`
         ).join('');
+    }
+
+    // Is this (lot, pasture) pair actually a place cattle are standing?
+    function shpPairExists(lotId, pastureId) {
+        return shipmentInventory.some(i => i.lot_id === lotId && i.pasture_id === pastureId);
     }
 
     function renderLoadLines(g, gi, load, ldi) {
@@ -6378,7 +6420,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <td style="width: 26px;"></td>
                 <td style="width: 110px;">
                     <select class="shp-line-lot" data-g="${gi}" data-ld="${ldi}" data-ln="${li}"
-                        style="padding: 4px 6px; font-size: 12px;">${shpLotOptions(ln.lot_id)}</select></td>
+                        style="padding: 4px 6px; font-size: 12px;">${shpLotOptions(ln.lot_id, ln.pasture_id)}</select></td>
                 <td>
                     <select class="shp-line-pasture" data-g="${gi}" data-ld="${ldi}" data-ln="${li}"
                         style="padding: 4px 6px; font-size: 12px;">${shpPastureOptions(ln.lot_id, ln.pasture_id)}</select></td>
@@ -6428,7 +6470,7 @@ window.addEventListener('unhandledrejection', function(e) {
                         <tbody>${renderLoadLines(g, gi, load, ldi)}</tbody>
                     </table>
                     <button type="button" class="shp-line-add" data-g="${gi}" data-ld="${ldi}"
-                        style="padding: 3px 8px; font-size: 11px; margin-top: 4px;">+ another pasture on this load</button>
+                        style="padding: 3px 8px; font-size: 11px; margin-top: 4px;">+ another lot or pasture on this load</button>
                     <span class="muted" id="shpLoadNote_${gi}_${ldi}" style="font-size: 11px; margin-left: 8px;"></span>
                 </div>`;
             }).join('');
@@ -6498,19 +6540,38 @@ window.addEventListener('unhandledrejection', function(e) {
             L(e).lines[+e.target.dataset.ln].head = e.target.value; recomputeShipment();
         }));
 
-        // Picking a lot is what narrows the pastures to where that lot
-        // actually has cattle, which is why there is no separate filter.
+        // Either picker narrows the other, and either can be used first.
+        // A still-valid choice on the far side is KEPT - clearing it
+        // unconditionally would make picking the pasture second wipe the lot
+        // you had just chosen, which is the whole workflow being asked for.
+        function rewireLinePair(g, ld, ln, line) {
+            const lotSel  = c.querySelector(`.shp-line-lot[data-g="${g}"][data-ld="${ld}"][data-ln="${ln}"]`);
+            const pastSel = c.querySelector(`.shp-line-pasture[data-g="${g}"][data-ld="${ld}"][data-ln="${ln}"]`);
+            if (lotSel)  lotSel.innerHTML  = shpLotOptions(line.lot_id, line.pasture_id);
+            if (pastSel) pastSel.innerHTML = shpPastureOptions(line.lot_id, line.pasture_id);
+        }
+
         c.querySelectorAll('.shp-line-lot').forEach(el => el.addEventListener('change', e => {
             const { g, ld, ln } = e.target.dataset;
             const line = shipmentState.groups[+g].loads[+ld].lines[+ln];
             line.lot_id = e.target.value || null;
-            line.pasture_id = null;
-            const sel = c.querySelector(`.shp-line-pasture[data-g="${g}"][data-ld="${ld}"][data-ln="${ln}"]`);
-            if (sel) sel.innerHTML = shpPastureOptions(line.lot_id, null);
+            // Only drop the pasture if this lot has no cattle standing there.
+            if (line.lot_id && line.pasture_id && !shpPairExists(line.lot_id, line.pasture_id)) {
+                line.pasture_id = null;
+            }
+            rewireLinePair(g, ld, ln, line);
             recomputeShipment();
         }));
+
         c.querySelectorAll('.shp-line-pasture').forEach(el => el.addEventListener('change', e => {
-            L(e).lines[+e.target.dataset.ln].pasture_id = e.target.value || null;
+            const { g, ld, ln } = e.target.dataset;
+            const line = shipmentState.groups[+g].loads[+ld].lines[+ln];
+            line.pasture_id = e.target.value || null;
+            // Only drop the lot if it has no cattle standing in this pasture.
+            if (line.pasture_id && line.lot_id && !shpPairExists(line.lot_id, line.pasture_id)) {
+                line.lot_id = null;
+            }
+            rewireLinePair(g, ld, ln, line);
             recomputeShipment();
         }));
 

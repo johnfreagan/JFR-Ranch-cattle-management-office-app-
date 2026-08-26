@@ -149,6 +149,15 @@ shipments ──┬── shipment_weight_groups ── shipment_loads ── sh
 - **A single-line load takes its head from the load**, so the common case
   (one pot, one pasture) is typed once. Adding a second line writes the
   implied head down first.
+- **The lot and pasture pickers narrow each other, and either can go first.**
+  Five pastures currently hold more than one lot (Garrett/Trap has three;
+  Steele/Front Native has 416 head across two), so a load gathered off one
+  pasture routinely draws on several lots — forcing the lot to be named first
+  is backwards for exactly the case that is hardest to get right by hand.
+  A still-valid choice on the far side is KEPT when the near side changes;
+  clearing it unconditionally would make picking the pasture second wipe the
+  lot just chosen. Two lines on one load may share a pasture and differ only
+  by lot.
 
 ### Multi-day sheets
 
