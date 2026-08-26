@@ -323,6 +323,14 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
   An OPEN assignment is `moved_out is null`.
 - `pastures.name` — NOT pasture_name. `lots` has no `status` column; open means
   `closed_at is null`. Head counts live on the `lot_status` VIEW, not on `lots`.
+- **`lot_status` is keyed on `lot_id`, NOT `id`.** Getting this wrong does not
+  throw in the app: PostgREST returns an error, the destructured `data` comes
+  back undefined, and the code quietly does nothing. Two live instances were
+  found 2026-08-26 — one in the shipment save and one that had been sitting in
+  the single-lot sale form, which is why its "this lot is empty, close it?"
+  prompt had apparently never fired. In SQL it throws honestly
+  (`column ls.id does not exist`), which is how the shipment reversal's
+  version was caught. Always check `error` on a `lot_status` read.
 - **The database runs UTC; the ranch does not.** `CURRENT_DATE` becomes
   tomorrow at 7pm Central (6pm in CST), so anything that counts days must use
   `public.ranch_today()` instead. `lot_daily_head` shipped with `CURRENT_DATE`

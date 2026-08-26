@@ -7077,13 +7077,24 @@ window.addEventListener('unhandledrejection', function(e) {
         }
     }
 
+    // lot_status is keyed on lot_id, NOT id. Getting that wrong does not
+    // throw here - PostgREST returns an error, `data` comes back undefined,
+    // and the filter below quietly finds nothing, so the prompt simply never
+    // appears. Surface the error rather than let it hide again.
     async function offerToCloseEmptiedLots(lotIds) {
-        const { data } = await supabase.from('lot_status')
-            .select('id, lot_number, head_current, closed_at').in('id', lotIds);
+        const { data, error } = await supabase.from('lot_status')
+            .select('lot_id, lot_number, head_current, closed_at').in('lot_id', lotIds);
+        if (error) {
+            showAlert('globalAlert',
+                'Saved, but could not check whether any lot is now empty: ' + error.message, 'error');
+            return;
+        }
         const empty = (data || []).filter(l => l.head_current === 0 && !l.closed_at);
         for (const l of empty) {
             if (confirm(`Lot ${l.lot_number} now has 0 head remaining. Close it?`)) {
-                await supabase.from('lots').update({ closed_at: new Date().toISOString() }).eq('id', l.id);
+                const { error: cErr } = await supabase.from('lots')
+                    .update({ closed_at: new Date().toISOString() }).eq('id', l.lot_id);
+                if (cErr) showAlert('globalAlert', `Could not close lot ${l.lot_number}: ` + cErr.message, 'error');
             }
         }
     }
@@ -17531,12 +17542,19 @@ ${ranchBlocks}
 
             // After saving, check if remaining head is now 0 → suggest closing lot
             if (isNew) {
-                // Need to refetch to get updated head_current
-                const { data: latest } = await supabase
+                // Need to refetch to get updated head_current.
+                // lot_status is keyed on lot_id, not id — this read `id` and
+                // so had been failing silently, which is why the prompt never
+                // showed up here.
+                const { data: latest, error: latestErr } = await supabase
                     .from('lot_status')
                     .select('head_current')
-                    .eq('id', currentLot.id)
+                    .eq('lot_id', currentLot.id)
                     .single();
+                if (latestErr) {
+                    showAlert('globalAlert',
+                        'Sale saved, but could not check whether the lot is now empty: ' + latestErr.message, 'error');
+                }
                 if (latest && latest.head_current === 0 && !currentLot.closed_at) {
                     if (confirm(`This lot now has 0 head remaining. Close lot ${currentLot.lot_number} now?`)) {
                         await supabase
