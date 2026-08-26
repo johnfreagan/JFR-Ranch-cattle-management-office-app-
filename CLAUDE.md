@@ -133,16 +133,18 @@ shipments ──┬── shipment_weight_groups ── shipment_loads
   (`net_amount − freight when ours`), it is what gets allocated to lots, and
   it is what lands in `sales.total_price`. Reconciling to the paper sheet uses
   `net_amount`; anything about margin uses `book_proceeds`.
-- **Allocation order is weight-then-money, and it is load-bearing.** Weight is
-  allocated by head *inside the line's own weight group*; dollars are then
-  allocated by the resulting weight. That ordering is what makes the eventual
-  per-pasture weight override a small change — override the weight and the
-  money re-follows on its own.
-- **Per-GROUP head must tie, not just the shipment total.** A group's pay
-  weight is divided across the head assigned to it, so 298 head of sheet
-  against 250 head of allocation makes those 250 each absorb the missing
-  animals' weight, and every lot in that group books heavy. The shipment
-  total can look perfect while this is wrong. `shpValidate()` blocks it.
+- **A LOAD names the lot and pasture it was gathered off** (2026-08-26). That
+  is the whole entry model — loading a truck is the same act as taking cattle
+  out of a pasture, so there is no second screen asking where they came from.
+  The first cut had two sections describing one event and was replaced.
+- **Allocation order is weight-then-money, and it is load-bearing.** Pay
+  weight is distributed inside a group by each load's OWN gross weight;
+  dollars then follow the allocated weight, and per-head deductions follow
+  head. Because each truck carries its own scale ticket, a load books at its
+  real average (790–842 lb across group 1 of the 8-21 sheet) instead of the
+  827 lb group blend.
+- **`load_seq` is not unique by itself.** A pot gathered off two pastures is
+  one load number and two lines; the key is `(shipment, load_seq, line_seq)`.
 - **Allocation uses largest-remainder, and the parts sum EXACTLY.** Not
   "round each and dump the residual on the last line" — that works too, but
   always parks the error on whichever lot was typed last. Verified against the
@@ -150,18 +152,36 @@ shipments ──┬── shipment_weight_groups ── shipment_loads
   gross, $1,098 checkoff, $1,426,722.80 draft, all ties exact.
 - **A saved shipment cannot be re-allocated in place.** Changing who shipped
   what would unwind head math that already happened. Delete and re-enter.
-- **Deleting a shipment does NOT return cattle to their pastures** — same wart
-  as deleting a single sale. A `delete_shipment_with_reversal` RPC is the
-  right fix and does not exist yet. Note the CLAUDE.md warning about reversals
-  that reopen a closed assignment: reopening already restores the count, so
-  adding head back on top double-counts.
+- **Deleting a shipment goes through `delete_shipment_with_reversal`** and
+  DOES put the cattle back. Owner-only, INVOKER like every other head-math
+  RPC. The reason it is an RPC and not four browser statements: a sale either
+  DECREMENTED an assignment or CLOSED it, and those reverse differently — a
+  decrement gets head added back, a close is only reopened, because closing
+  leaves `head_count` intact. Sources are aggregated per (lot, pasture) first,
+  or a pasture feeding two weight groups reopens on the first row and then
+  gets head added on the second. This is the `delete_death_event` trap.
+- **Closing an assignment leaves `head_count` intact** — set `moved_out` only.
+  The first cut of the shipment save also zeroed the count, which would have
+  made the reversal restore nothing. It now matches the single-sale path.
 - **Shrink is an input, not a display.** The buyer writes gross and a shrink
   %, and pay weight falls out. An explicit pay weight overrides. The old
   single-lot sale form takes gross and net and only shows shrink afterwards;
   it is unchanged and still works that way.
-- **`shipments` and its children are office+owner on SELECT too**, unlike
-  `sales`/`sale_sources`, whose SELECT policies include crew. That existing
-  inconsistency was left alone rather than widened or silently changed.
+- **Crew cannot read `sales` or `sale_sources` at all** (2026-08-26, John:
+  "crew can't see any dollars"). Because an RLS denial returns zero rows and
+  not an error, two UI surfaces had to be told: the lot-detail Sales sub-tab
+  carries `data-perm="office"`, and the lot activity timeline prints a line
+  saying sale events are hidden for that role. Without those, a shipped lot
+  looks like missing data instead of a permission boundary.
+- **Crew CAN still see `medications.cost_per_unit` / `cost_per_head` /
+  `bottle_cost` and `doctoring_event_meds.cost`.** Deliberately deferred, not
+  missed. These cannot be closed with a policy: all three app roles share the
+  `authenticated` DB role, so column grants cannot tell them apart, and
+  revoking `medications` outright breaks doctoring entry in the field app.
+  Closing them needs dollar-free views for crew to read instead, plus a
+  field-app test pass.
+- Test lots (`TEST_` / `TEST-`) are excluded from the shipment entry
+  inventory.
 - The buyer's own lines are TRUCKLOADS. Mapping loads to lots and pastures is
   entirely our side; `shipment_loads` exists only so the app can catch a
   transposed weight at entry instead of in closeout six months later.
@@ -169,7 +189,8 @@ shipments ──┬── shipment_weight_groups ── shipment_loads
   different question from the save-time check — it catches later edits to an
   allocated sale. Non-zero variance shows as ⚠ on the Sales list.
 
-Migration: `docs/sql/2026-08-26_shipments.sql`.
+Migrations: `docs/sql/2026-08-26_shipments.sql`, then
+`docs/sql/2026-08-26_shipments_phase2.sql`.
 
 ## Access control (RLS — read before touching auth, policies, or views)
 
