@@ -69,6 +69,48 @@ See "Access control" below and `docs/security-model.md`.
 - Tag numbers recycle across fiscal years. "Current animal for a tag" =
   the tag on an OPEN lot. Doctoring search scopes to open lots by default.
 
+## Closeout: budget, actual, projection (rebuilt 2026-08-25)
+
+The Closeout tab shows one set of economics in three columns. It is
+**office+owner only** — the sub-tab carries `data-perm="office"`.
+
+| | where it comes from |
+|---|---|
+| **Budget** | `lot_budgets`, frozen when the lot starts, immutable |
+| **Actual** | the books: invoices, processing, treatment, real head-days |
+| **Projection** | actual to date, carried forward to the ship date |
+
+- **`lot_budgets` is frozen by a trigger, not by a missing policy.** Office
+  and owner deliberately PASS the RLS check on UPDATE so `lot_budgets_frozen()`
+  fires and raises a real error. Denying at the policy layer would make
+  PostgREST return zero rows and the app would report a save that changed
+  nothing. Owner-only DELETE is the escape hatch for a budget typed wrong.
+  Working assumptions that change over the life of the lot stay on `lots.*`.
+- **Everything is computed in total dollars and divided at the end.** This is
+  what fixes the death-loss double count: the old per-head math added a death
+  loss line on top of a cattle cost that already contained the dead animals,
+  and applied the full assumed percentage to a head count already reduced by
+  the deaths that happened — 6% budgeted plus 5% already buried came out near
+  11%. In total dollars death loss needs no line; it falls out of the
+  division. The projection estimates only **deaths still to come**:
+  `clamp(0, head_current, head_in × pct − head_dead)`.
+- **Cost of gain and labor are charged against head-days, never against
+  today's head count × total days.** Cattle that shipped in June ate grass
+  until June. On 37X-1 the old math charged 75 head × 231 days = 17,325
+  head-days against a real 56,993 — about $39,700 of cost that appeared
+  nowhere.
+- A **per-head** (flat) COG or labor rate is charged once on `head_in` and
+  never carried forward again. Only **per-day** rates accrue on head-days.
+- **Interest** accrues on the cattle for the whole period and on operating
+  cost at half the period, the usual convention for a cost that builds
+  linearly. The old screen charged interest on the purchase price only.
+- Treatment carries forward at the lot's own observed $/head-day, not at the
+  budgeted med figure — once there is history, the lot's own burn rate beats
+  an assumption.
+- **`lots.target_sale_cwt` is $/lb despite the name**, and the new
+  `lot_budgets.budget_cost_per_cwt` follows it for consistency. Both are
+  multiplied by a weight in pounds. Do not "fix" one without the other.
+
 ## Access control (RLS — read before touching auth, policies, or views)
 
 The gate is `public.current_user_role()`. It reads `user_profiles.role` for
@@ -185,6 +227,18 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
   An OPEN assignment is `moved_out is null`.
 - `pastures.name` — NOT pasture_name. `lots` has no `status` column; open means
   `closed_at is null`. Head counts live on the `lot_status` VIEW, not on `lots`.
+- **There are TWO head-day implementations and they disagree.** The FUNCTION
+  `lot_head_days(uuid, date)` anchors on `lot_weighted_arrival_date()`, which
+  is built from INVOICE dates. The VIEW `lot_head_days_by_month` (over
+  `lot_daily_head`) walks arrivals by RECEIPT date. Where invoices follow
+  receipts closely they agree within ~1%; on 36-27 the function read 2,646
+  against the view's 3,424, 29% low, because the cattle landed Aug 11 and the
+  invoices weighted to Aug 19. **Use the view for anything involving cost** —
+  cattle eat from the day they hit the ground.
+- `lot_daily_head` reconciles to `lot_status.head_current` by construction and
+  is verified to do so on every lot. Head-day math must NOT be built on
+  `lot_pasture_assignments`: 37X's assignment history starts 2026-04-27
+  against a first invoice of 2025-12-04, so it would silently drop 144 days.
 - `pending_field_entries` has `reviewed_at`/`reviewed_by` and an `approved_ref`
   jsonb (`{kind, id}`) — there is no `approved_at`.
 - Supabase PostgREST caps results at 1000 rows — PAGINATE lot_tags and any

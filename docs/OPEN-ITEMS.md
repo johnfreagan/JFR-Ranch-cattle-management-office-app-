@@ -162,8 +162,63 @@ screen; short recap in the text, full PDF in the email.
 
 ---
 
+## 8. The RLS verify script does not exist
+
+**Status:** open, and it is cited as mandatory in two places.
+
+`CLAUDE.md` rule 7 says to run
+`supabase/migrations/20260821000300_rls_verify.sql` after any migration that
+adds a table, view or function, and `docs/security-model.md` describes what
+it asserts. **There is no `supabase/` directory in the repo at all.** Every
+migration since has either skipped the check or, as with
+`2026-08-25_budget_and_head_days.sql`, inlined its own assertions.
+
+Inline assertions are better than nothing but they only cover the objects
+that migration touched. Nothing sweeps the whole schema for a view missing
+`security_invoker`, a table with RLS enabled and no policy, or a fresh grant
+to `anon`.
+
+**The fix:** write it once as a standalone script that asserts rules 1–6
+across every object in `public`, and run it after each migration. Until then
+every new migration must carry its own checks.
+
+---
+
+## 9. Cost assumptions are missing or wrong on live lots
+
+**Status:** partly fixed 2026-08-25.
+
+Found while building the closeout rebuild:
+
+- **37X-1 had labor at $35.00/head/day** with mode `per_day`, so the screen
+  multiplied it by 223 days — $7,805/head against cattle that cost about
+  $900. Corrected to $0.35 by John's call
+  (`docs/sql/2026-08-25_37X-1_labor_rate.sql`).
+- **47-26 and 60X carry no cost assumptions at all** — no COG, labor, med,
+  death loss or interest. They project on purchase price only. Still open.
+- **36-27 is at $2.00/head/day COG**, double every other lot (0.75–1.00).
+  Asked; not yet answered. May well be correct for that set.
+
+Nothing validates these on entry. A rate that is off by 100× produces a
+confident, wrong projection, and the only signal is that the number looks
+strange. Worth a sanity band on the input (warn outside, say, $0.10–$5.00
+per head per day) rather than a hard limit.
+
+---
+
 ## Closed
 
+- **2026-08-25 — Closeout rebuilt as budget / actual / projection.** Roadmap
+  item 4 phase 1. `lot_budgets` (frozen, immutable by trigger),
+  `lot_daily_head` and `lot_head_days_by_month` added and verified against
+  production — the head curve lands on `head_current` for all eight lots.
+  Fixed in the rebuild: the death-loss double count, interest charged only on
+  the purchase price, cost of gain never reaching cattle that already
+  shipped, the Closeout tab being visible to crew, and the tab rendering
+  before `loadSales` so it showed the previously viewed lot's sales. The
+  "Hd-days" tile now reads the receipt-anchored view instead of the
+  invoice-anchored function. Cost ledger categories and pasture cost are
+  deliberately still out — John enters a cost of gain rate for now.
 - **2026-08-25 — Part B: the field app writes to the books.** Roadmap item 3,
   done. The field app authenticates against Supabase and writes to
   `pending_field_entries`; the office **Approvals** tab reviews and posts into

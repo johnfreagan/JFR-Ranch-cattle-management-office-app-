@@ -784,7 +784,7 @@
                         <div class="sub-tabs lot-header-subtabs" id="lotDetailSubtabs">
                             <button class="sub-tab active" data-lot-subtab="activity">Activity</button>
                             <button class="sub-tab" data-lot-subtab="sales">Sales</button>
-                            <button class="sub-tab" data-lot-subtab="closeout">Closeout</button>
+                            <button class="sub-tab" data-perm="office" data-lot-subtab="closeout">Closeout</button>
                         </div>
                         <!-- Kebab menu for admin actions -->
                         <div class="kebab-wrap">
@@ -921,11 +921,15 @@
             <div id="lotTabCloseout" class="hidden">
                 <div class="card">
                     <div class="card-header">
-                        <h3>Closeout calculator</h3>
+                        <h3>Closeout</h3>
                         <button id="saveAssumptionsBtn" data-perm="office" class="primary hidden">Save to lot</button>
                     </div>
                     <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
-                        Adjust any field to see the projection update live. Click "Save to lot" to write changes back.
+                        <strong>Budget</strong> is the plan, frozen when the lot started and never edited.
+                        <strong>Actual</strong> is what the books say it has cost and returned so far.
+                        <strong>Projection</strong> carries the actual forward to the ship date on the
+                        assumptions below. Change any assumption to re-project; "Save to lot" writes the
+                        assumptions back without touching the budget.
                     </p>
                     <div id="closeoutContent"><div class="empty">Loading…</div></div>
                 </div>
@@ -2859,6 +2863,11 @@ window.addEventListener('unhandledrejection', function(e) {
     // Phase 15: cached metrics for the current lot detail view
     let currentRealizedAdg = null;
     let currentHeadDays = null;
+    // Cost ledger phase 1: head-days from the real head curve, and the lot's
+    // frozen budget if it has one.
+    let currentHeadDaysToDate = null;
+    let currentHeadDaysByMonth = [];
+    let currentLotBudget = null;
     // Phase 17: actual medication cost roll-up for current lot
     let currentActualMedCost = null;
     const $ = id => document.getElementById(id);
@@ -3238,12 +3247,20 @@ window.addEventListener('unhandledrejection', function(e) {
         $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
         $('closeoutContent').innerHTML='<div class="empty">Loading…</div>';
 
-        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,medCostRes,procCostRes]=await Promise.all([
+        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes]=await Promise.all([
             supabase.from('lots').select('*').eq('id',lotId).single(),
             supabase.from('lot_status').select('*').eq('lot_id',lotId).single(),
             supabase.from('invoices').select('*, delivery_receipts(id, receipt_date, head_count, tag_start, tag_end, missing_tags, notes, receiving_protocol_id, load_out_destinations(*, pastures(name, ranches(name))))').eq('lot_id',lotId).order('invoice_date',{ascending:true}),
             supabase.from('lot_realized_adg').select('*').eq('lot_id',lotId).maybeSingle(),
-            supabase.rpc('lot_head_days', { p_lot_id: lotId }),
+            // Head-days from lot_daily_head, which walks arrivals by RECEIPT
+            // date. The older lot_head_days(uuid,date) rpc anchors on the
+            // invoice-weighted arrival and reads low on lots whose cattle
+            // land before their invoices - 29% low on 36-27.
+            supabase.from('lot_head_days_by_month')
+                .select('month_start, head_days, days_counted, avg_head_on_hand')
+                .eq('lot_id', lotId)
+                .order('month_start', { ascending: true }),
+            supabase.from('lot_budgets').select('*').eq('lot_id', lotId).maybeSingle(),
             // Phase 17/18: medication cost split by category (processing/treatment/other)
             supabase.from('lot_med_costs_by_category')
                 .select('*')
@@ -3264,7 +3281,17 @@ window.addEventListener('unhandledrejection', function(e) {
         currentStatus=statusRes.data;
         // Phase 15: realized ADG + head-days
         currentRealizedAdg = realizedAdgRes && realizedAdgRes.data ? realizedAdgRes.data : null;
-        currentHeadDays = (headDaysRes && headDaysRes.data != null) ? Number(headDaysRes.data) : null;
+        // A read that fails must not look like a lot with no head-days: null
+        // means "unknown" and the closeout says so, 0 would silently drop the
+        // cost of gain.
+        currentHeadDaysByMonth = (headDaysRes && !headDaysRes.error && headDaysRes.data) ? headDaysRes.data : [];
+        currentHeadDaysToDate = (headDaysRes && !headDaysRes.error && headDaysRes.data)
+            ? currentHeadDaysByMonth.reduce((sum, r) => sum + (Number(r.head_days) || 0), 0)
+            : null;
+        currentHeadDays = currentHeadDaysToDate;
+        // Crew cannot read lot_budgets at all; an empty result there is
+        // correct, not an error.
+        currentLotBudget = (budgetRes && !budgetRes.error && budgetRes.data) ? budgetRes.data : null;
         // Phase 18: med cost split. Processing $/hd over head_in (fixed cost across
         // full herd); Treatment $/hd over head_current (live head — deaths factored
         // into the true cost of carrying survivors).
@@ -3727,13 +3754,14 @@ window.addEventListener('unhandledrejection', function(e) {
         const icnt = document.getElementById('invoicesCount');
         if (icnt) icnt.textContent = `(${invoices.length})`;
 
-        renderCloseoutCalculator();
-
         // Load lot pasture assignments, move history, death log, and receipts
         await loadLotLocations(lotId);
         await loadDeathLog(lotId);
         await loadReceipts(lotId);
         await loadSales(lotId);
+        // After loadSales, not before: the closeout reads currentLotSalesCache
+        // and rendering first meant it read the PREVIOUS lot's sales.
+        renderCloseoutCalculator();
         await loadTags(lotId);
         await loadDoctoring(lotId);
         await loadAuditLog(lotId);
@@ -4167,7 +4195,221 @@ window.addEventListener('unhandledrejection', function(e) {
         });
     })();
 
-    // ---- CLOSEOUT CALCULATOR ----
+    // ---- CLOSEOUT: BUDGET vs ACTUAL vs PROJECTION ----
+    //
+    // Three columns over one set of economics:
+    //
+    //   Budget      what we said the lot would do, frozen the day it started
+    //   Actual      what it has cost and returned so far, from the books
+    //   Projection  actual to date, carried forward to the ship date on
+    //               today's assumptions
+    //
+    // Everything is computed in TOTAL DOLLARS and divided at the end. That
+    // is not a style choice - it is what fixes the death-loss double count.
+    // The old per-head math added a death-loss line on top of a cattle cost
+    // that already included the dead animals, and applied the full assumed
+    // death percentage to a head count that had already been reduced by the
+    // deaths that happened. A lot that budgeted 6% and had already buried 5%
+    // got charged about 11%. In total dollars death loss needs no line at
+    // all: you paid for 441 head and you will sell 420, so the loss falls
+    // out of the division. What the projection has to estimate is only the
+    // deaths still to come.
+    //
+    // Cost of gain and labor are charged against HEAD-DAYS, not against
+    // today's head count times total days. Cattle that shipped in June ate
+    // grass until June. See lot_daily_head / lot_head_days_by_month.
+
+    function closeoutRates(){
+        const num = id => { const el=$(id); if(!el) return null; const v=parseFloat(el.value); return isNaN(v)?null:v; };
+        return {
+            salePerLb : num('calc_cwt'),        // stored in lots.target_sale_cwt; it is $/lb, not $/cwt
+            adg       : num('calc_adg'),
+            finishWt  : num('calc_finishwt'),
+            cog       : num('calc_cog'),
+            cogMode   : $('calc_cog_mode')   ? $('calc_cog_mode').value   : 'per_day',
+            labor     : num('calc_labor'),
+            laborMode : $('calc_labor_mode') ? $('calc_labor_mode').value : 'per_day',
+            medPerHead: num('calc_med'),
+            deathPct  : num('calc_dead') != null ? num('calc_dead')/100 : null,
+            intPct    : num('calc_int')  != null ? num('calc_int')/100  : null,
+            shipDate  : $('calc_shipdate') ? ($('calc_shipdate').value || null) : null
+        };
+    }
+
+    // Interest on money that goes out at the start (the cattle) accrues over
+    // the whole period. Interest on money that trickles out (feed, labor,
+    // doctoring) is charged at half the period, the usual closeout
+    // convention for a cost that builds roughly linearly.
+    function interestOn(cattleCost, operatingCost, days, ratePct){
+        if (!ratePct || !days || days <= 0) return 0;
+        const yearFrac = days / 365;
+        return ratePct * (cattleCost * yearFrac + (operatingCost || 0) * yearFrac / 2);
+    }
+
+    function daysBetween(fromStr, toStr){
+        if (!fromStr || !toStr) return null;
+        const p = s => { const [y,m,d] = String(s).slice(0,10).split('-').map(Number); return new Date(y, m-1, d); };
+        return Math.round((p(toStr) - p(fromStr)) / 86400000);
+    }
+
+    function todayIsoLocal(){
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    // ---- ACTUAL TO DATE -------------------------------------------------
+    // Everything here comes from the books. The only inputs from the
+    // assumptions panel are the COG and labor RATES, because there is no
+    // ledger yet - those two are still estimates applied to real head-days.
+    function closeoutActual(rates){
+        const st = currentStatus, lot = currentLot;
+        const headIn      = Number(st.head_in) || 0;
+        const headCurrent = Number(st.head_current) || 0;
+        const headDead    = Number(st.head_dead) || 0;
+        const cattleCost  = Number(st.total_cost_in) || 0;
+        const headDays    = Number(currentHeadDaysToDate) || 0;
+
+        const start = st.weighted_arrival_date || lot.arrival_date || null;
+        const daysToDate = start ? Math.max(0, daysBetween(start, todayIsoLocal())) : 0;
+
+        const processing = currentActualMedCost ? (currentActualMedCost.processing || 0) : 0;
+        const treatment  = currentActualMedCost ? (currentActualMedCost.treatment  || 0) : 0;
+        const otherMed   = currentActualMedCost ? (currentActualMedCost.other      || 0) : 0;
+
+        // A per-head rate is a flat charge taken at receiving; a per-day rate
+        // is charged against head-days actually run.
+        const cog   = rates.cogMode === 'per_day'
+            ? (rates.cog   || 0) * headDays
+            : (rates.cog   || 0) * headIn;
+        const labor = rates.laborMode === 'per_day'
+            ? (rates.labor || 0) * headDays
+            : (rates.labor || 0) * headIn;
+
+        const operating = processing + treatment + otherMed + cog + labor;
+        const interest  = interestOn(cattleCost, operating, daysToDate, rates.intPct);
+
+        const sales = currentLotSalesCache || [];
+        let soldHead = 0, revenue = 0, soldWeight = 0;
+        sales.forEach(s => {
+            soldHead   += Number(s.head_count) || 0;
+            revenue    += Number(s.total_price) || 0;
+            soldWeight += Number(s.net_weight_lb) || Number(s.gross_weight_lb) || 0;
+        });
+
+        const totalCost = cattleCost + operating + interest;
+
+        return {
+            headIn, headCurrent, headDead, daysToDate, headDays,
+            cattleCost, processing, treatment, otherMed, cog, labor, interest,
+            operating, totalCost,
+            soldHead, revenue, soldWeight,
+            avgCostHead: headIn > 0 ? cattleCost / headIn : 0,
+            costPerHeadOnFeed: headCurrent > 0 ? (totalCost - revenue) / headCurrent : null,
+            // Observed treatment burn, used to carry doctoring forward.
+            treatmentPerHeadDay: headDays > 0 ? treatment / headDays : 0
+        };
+    }
+
+    // ---- PROJECTION AT CLOSE --------------------------------------------
+    function closeoutProjection(rates, actual){
+        const today = todayIsoLocal();
+        const remainingDays = rates.shipDate ? Math.max(0, daysBetween(today, rates.shipDate)) : null;
+
+        // Deaths still to come = what we assumed for the whole lot, less what
+        // has already happened. Never negative, never more than are alive.
+        // This is the double count the old screen had.
+        const assumedTotalDeaths = (rates.deathPct != null) ? actual.headIn * rates.deathPct : 0;
+        const deathsToCome = Math.max(0, Math.min(actual.headCurrent, assumedTotalDeaths - actual.headDead));
+        const survivingAtClose = Math.max(0, actual.headCurrent - deathsToCome);
+
+        // Head-days still to run. Deaths thin the herd gradually, so take the
+        // average of the head on feed now and at close.
+        const forwardHeadDays = (remainingDays != null)
+            ? remainingDays * (actual.headCurrent + survivingAtClose) / 2
+            : 0;
+
+        const cogFwd = rates.cogMode === 'per_day'
+            ? (rates.cog || 0) * forwardHeadDays
+            : 0;   // a flat per-head charge was already taken in full at receiving
+        const laborFwd = rates.laborMode === 'per_day'
+            ? (rates.labor || 0) * forwardHeadDays
+            : 0;
+
+        // Doctoring carries forward at the rate this lot has actually been
+        // burning, which beats a budget figure once there is any history.
+        const treatmentFwd = actual.treatmentPerHeadDay * forwardHeadDays;
+
+        const operatingFwd = cogFwd + laborFwd + treatmentFwd;
+        const interestFwd  = interestOn(0, actual.cattleCost + actual.operating + operatingFwd,
+                                        remainingDays || 0, rates.intPct);
+
+        const finishWt = rates.finishWt || 0;
+        const revenueFwd = (rates.salePerLb != null)
+            ? survivingAtClose * finishWt * rates.salePerLb
+            : 0;
+
+        const totalCost    = actual.totalCost + operatingFwd + interestFwd;
+        const totalRevenue = actual.revenue + revenueFwd;
+        const net          = totalRevenue - totalCost;
+
+        // What the cattle still on feed have to bring to cover everything
+        // spent on the whole lot, net of what has already been banked.
+        const remainingLb = survivingAtClose * finishWt;
+        const breakEvenPerLb = remainingLb > 0 ? (totalCost - actual.revenue) / remainingLb : null;
+
+        return {
+            remainingDays, deathsToCome, survivingAtClose, forwardHeadDays,
+            cogFwd, laborFwd, treatmentFwd, interestFwd, operatingFwd,
+            revenueFwd, totalCost, totalRevenue, net, breakEvenPerLb,
+            headSoldAtClose: actual.soldHead + survivingAtClose,
+            netPerHeadSold: (actual.soldHead + survivingAtClose) > 0
+                ? net / (actual.soldHead + survivingAtClose) : null
+        };
+    }
+
+    // ---- BUDGET ----------------------------------------------------------
+    // The frozen plan, run through the same economics so the three columns
+    // are actually comparable.
+    function closeoutBudget(b){
+        if (!b) return null;
+        const head    = Number(b.budget_head) || 0;
+        const wtIn    = Number(b.budget_avg_weight_in) || 0;
+        const perLbIn = Number(b.budget_cost_per_cwt) || 0;   // $/lb - see note on target_sale_cwt
+        const days    = Number(b.days_on_feed) || 0;
+        const adg     = Number(b.target_adg) || 0;
+        const deathPct= Number(b.death_loss_pct) || 0;
+        const intPct  = Number(b.interest_pct) || 0;
+
+        const cattleCost = head * wtIn * perLbIn;
+        const surviving  = head * (1 - deathPct);
+        const headDays   = days * (head + surviving) / 2;
+
+        const cog = b.cog_mode === 'per_day'
+            ? (Number(b.cog_value) || 0) * headDays
+            : (Number(b.cog_value) || 0) * head;
+        const labor = b.labor_mode === 'per_day'
+            ? (Number(b.labor_value) || 0) * headDays
+            : (Number(b.labor_value) || 0) * head;
+        const med = (Number(b.med_per_head) || 0) * head;
+
+        const operating = cog + labor + med;
+        const interest  = interestOn(cattleCost, operating, days, intPct);
+        const totalCost = cattleCost + operating + interest;
+
+        const finishWt = Number(b.target_ship_weight)
+            || (wtIn && adg && days ? wtIn + adg * days : 0);
+        const revenue  = surviving * finishWt * (Number(b.target_sale_cwt) || 0);
+        const net      = revenue - totalCost;
+
+        return {
+            head, wtIn, perLbIn, days, adg, finishWt, surviving, headDays,
+            cattleCost, cog, labor, med, interest, operating, totalCost,
+            revenue, net,
+            netPerHeadSold: surviving > 0 ? net / surviving : null,
+            breakEvenPerLb: (surviving * finishWt) > 0 ? totalCost / (surviving * finishWt) : null
+        };
+    }
+
     function renderCloseoutCalculator(){
         const lot=currentLot, status=currentStatus;
         const headIn=status.head_in||0;
@@ -4177,7 +4419,6 @@ window.addEventListener('unhandledrejection', function(e) {
         const targetAdg=Number(lot.target_adg)||2.5;
         const defaultFinishWt=avgWtIn?Math.round(avgWtIn+targetDays*targetAdg):'';
 
-        // Compute initial ship date from target_ship_date or arrival_date + days
         let initialShipDate = lot.target_ship_date || '';
         if (!initialShipDate && lot.target_days_on_feed && lot.arrival_date) {
             const d = new Date(lot.arrival_date);
@@ -4185,11 +4426,8 @@ window.addEventListener('unhandledrejection', function(e) {
             initialShipDate = d.toISOString().slice(0, 10);
         }
 
-        // Determine current modes (default to per_day for new lots)
         const cogMode = lot.cog_mode || 'per_day';
         const laborMode = lot.labor_mode || 'per_day';
-
-        // Initial values for cost fields based on mode
         const cogInitial = cogMode === 'per_day'
             ? (lot.assumed_cog_per_day ?? '')
             : (lot.assumed_cog_per_head ?? '');
@@ -4200,7 +4438,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('closeoutContent').innerHTML=`
             <div class="closeout-layout">
                 <div>
-                    <h4 style="margin-bottom: 10px;">Assumptions</h4>
+                    <h4 style="margin-bottom: 10px;">Working assumptions <span class="muted" style="font-weight:400; font-size:11px;">(drive the projection)</span></h4>
                     <div class="closeout-inputs">
                         <div><label>Target sale $/lb</label><input type="number" step="0.0001" id="calc_cwt" value="${lot.target_sale_cwt??''}" placeholder="e.g. 4.95"></div>
                         <div><label>Target ADG (lb/day)</label><input type="number" step="0.01" id="calc_adg" value="${lot.target_adg??''}" placeholder="e.g. 2.50"></div>
@@ -4222,31 +4460,27 @@ window.addEventListener('unhandledrejection', function(e) {
                             <input type="number" step="0.0001" id="calc_labor" value="${laborInitial}" placeholder="${laborMode==='per_day'?'e.g. 0.35':'e.g. 31.81'}">
                             <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_labor_hint"></div>
                         </div>
-                        <div><label>Med $/head <span class="muted" style="font-weight:400; font-size:11px;">(budgeted)</span></label><input type="number" step="0.01" id="calc_med" value="${lot.assumed_med_per_head??''}" placeholder="e.g. 25.00"><div class="muted" style="font-size:11px; margin-top:2px;" id="calc_med_actual_hint"></div></div>
-                        <div><label>Death loss %</label><input type="number" step="0.01" id="calc_dead" value="${lot.assumed_death_loss_pct!=null?(Number(lot.assumed_death_loss_pct)*100).toFixed(2):''}" placeholder="e.g. 6"></div>
+                        <div><label>Med $/head <span class="muted" style="font-weight:400; font-size:11px;">(budget only)</span></label><input type="number" step="0.01" id="calc_med" value="${lot.assumed_med_per_head??''}" placeholder="e.g. 25.00"><div class="muted" style="font-size:11px; margin-top:2px;" id="calc_med_actual_hint"></div></div>
+                        <div><label>Death loss % <span class="muted" style="font-weight:400; font-size:11px;">(whole lot)</span></label><input type="number" step="0.01" id="calc_dead" value="${lot.assumed_death_loss_pct!=null?(Number(lot.assumed_death_loss_pct)*100).toFixed(2):''}" placeholder="e.g. 6"><div class="muted" style="font-size:11px; margin-top:2px;" id="calc_dead_hint"></div></div>
                         <div style="grid-column: span 2;"><label>Interest %</label><input type="number" step="0.01" id="calc_int" value="${lot.assumed_interest_pct!=null?(Number(lot.assumed_interest_pct)*100).toFixed(2):''}" placeholder="e.g. 5"></div>
                     </div>
-                    <!-- Hidden field — kept for syncing logic and persistence -->
                     <input type="hidden" id="calc_days" value="${lot.target_days_on_feed??''}">
+                    <div id="calcBudgetBox" style="margin-top:14px;"></div>
                 </div>
                 <div>
-                    <h4 style="margin-bottom: 10px;">Projection</h4>
-                    <div id="calcResults" class="results-panel"><div class="muted">Enter assumptions to see projection.</div></div>
+                    <h4 style="margin-bottom: 10px;">Budget · Actual · Projection</h4>
+                    <div id="calcResults" class="results-panel"><div class="muted">Enter assumptions to see the projection.</div></div>
                 </div>
             </div>`;
 
-        // ---- Sync target_days <-> target_ship_date ----
-        // (target_days is now hidden, but still drives the math via the ship date)
         const arrivalDateStr = lot.arrival_date;
         const daysFromDate = (dateStr) => {
             if (!dateStr || !arrivalDateStr) return null;
-            const ms = new Date(dateStr) - new Date(arrivalDateStr);
-            return Math.round(ms / (1000 * 60 * 60 * 24));
+            return daysBetween(arrivalDateStr, dateStr);
         };
         $('calc_shipdate').addEventListener('input', () => {
             const d = daysFromDate($('calc_shipdate').value);
             $('calc_days').value = d != null ? d : '';
-            // Trigger finish-weight auto-update if user hasn't touched it
             if (!userTouchedFinish) {
                 const days = parseFloat($('calc_days').value)||0;
                 const adg = parseFloat($('calc_adg').value)||0;
@@ -4255,9 +4489,6 @@ window.addEventListener('unhandledrejection', function(e) {
             recalculate();
         });
 
-        // ---- Auto-update finish weight when ADG or ship date changes ----
-        // userTouchedFinish starts false on every render; only becomes true
-        // when the user actually types in the finish wt field this session.
         let userTouchedFinish = false;
         $('calc_finishwt').addEventListener('input', () => { userTouchedFinish = true; });
         $('calc_adg').addEventListener('input', () => {
@@ -4267,257 +4498,284 @@ window.addEventListener('unhandledrejection', function(e) {
             if (d>0 && a>0 && avgWtIn>0) $('calc_finishwt').value=Math.round(avgWtIn+d*a);
         });
 
-        // ---- Mode change handlers ----
         $('calc_cog_mode').addEventListener('change', () => {
             const mode = $('calc_cog_mode').value;
             $('calc_cog').placeholder = mode === 'per_day' ? 'e.g. 0.75' : 'e.g. 218.14';
-            const storedVal = mode === 'per_day' ? lot.assumed_cog_per_day : lot.assumed_cog_per_head;
-            $('calc_cog').value = storedVal ?? '';
+            $('calc_cog').value = (mode === 'per_day' ? lot.assumed_cog_per_day : lot.assumed_cog_per_head) ?? '';
             recalculate();
         });
         $('calc_labor_mode').addEventListener('change', () => {
             const mode = $('calc_labor_mode').value;
             $('calc_labor').placeholder = mode === 'per_day' ? 'e.g. 0.35' : 'e.g. 31.81';
-            const storedVal = mode === 'per_day' ? lot.assumed_labor_per_day : lot.assumed_labor_per_head;
-            $('calc_labor').value = storedVal ?? '';
+            $('calc_labor').value = (mode === 'per_day' ? lot.assumed_labor_per_day : lot.assumed_labor_per_head) ?? '';
             recalculate();
         });
 
-        const inputs=['calc_cwt','calc_adg','calc_finishwt','calc_cog','calc_labor','calc_med','calc_dead','calc_int'];
-        inputs.forEach(id=>$(id).addEventListener('input',recalculate));
+        ['calc_cwt','calc_adg','calc_finishwt','calc_cog','calc_labor','calc_med','calc_dead','calc_int']
+            .forEach(id=>$(id).addEventListener('input',recalculate));
         recalculate();
     }
 
     function recalculate(){
-        const num=id=>{const v=parseFloat($(id).value);return isNaN(v)?null:v;};
-        const v={cwt:num('calc_cwt'),days:num('calc_days'),adg:num('calc_adg'),finishWt:num('calc_finishwt'),cog:num('calc_cog'),labor:num('calc_labor'),med:num('calc_med'),deadPct:num('calc_dead'),intPct:num('calc_int')};
-        const cogMode = $('calc_cog_mode') ? $('calc_cog_mode').value : 'per_head';
-        const laborMode = $('calc_labor_mode') ? $('calc_labor_mode').value : 'per_head';
-        const status=currentStatus, lot=currentLot;
-        const headIn=status.head_in||0;
-        const headCurrent=Number(status.head_current)||0;
-        const headDead=Number(status.head_dead)||0;
-        const totalCostIn=Number(status.total_cost_in)||0;
-        const avgCostHead=headIn?totalCostIn/headIn:0;
-        const target=$('calcResults');
+        const target = $('calcResults');
+        if (!target) return;
+        const rates = closeoutRates();
+        const status = currentStatus, lot = currentLot;
+        const headIn = Number(status.head_in) || 0;
 
-        // Realized portion from sales
-        const sales = currentLotSalesCache || [];
-        let realizedHead = 0, realizedRevenue = 0, realizedNetWeight = 0, realizedGrossWeight = 0;
-        sales.forEach(s => {
-            realizedHead += Number(s.head_count) || 0;
-            realizedRevenue += Number(s.total_price) || 0;
-            realizedNetWeight += Number(s.net_weight_lb) || 0;
-            realizedGrossWeight += Number(s.gross_weight_lb) || 0;
-        });
-        const realizedRevPerHead = realizedHead > 0 ? realizedRevenue / realizedHead : 0;
-        const realizedAvgWt = realizedHead > 0 ? (realizedNetWeight || realizedGrossWeight) / realizedHead : 0;
-        const realizedCwt = (realizedNetWeight || realizedGrossWeight) > 0
-            ? realizedRevenue / (realizedNetWeight || realizedGrossWeight) * 100
-            : 0;
-        const hasSales = realizedHead > 0;
-
-        // Always re-derive days from the visible ship date so per-day calcs work
-        const shipDateStr = $('calc_shipdate') ? $('calc_shipdate').value : '';
-        if (shipDateStr && lot.arrival_date) {
-            const parseLocal = (s) => {
-                const [y, m, d] = s.split('-').map(Number);
-                return new Date(y, m - 1, d);
-            };
-            const ms = parseLocal(shipDateStr) - parseLocal(lot.arrival_date);
-            const computed = Math.round(ms / (1000 * 60 * 60 * 24));
-            if (computed >= 0) {
-                v.days = computed;
-                if ($('calc_days')) $('calc_days').value = computed;
-            }
+        // Keep target_days in step with the visible ship date.
+        if (rates.shipDate && lot.arrival_date) {
+            const computed = daysBetween(lot.arrival_date, rates.shipDate);
+            if (computed != null && computed >= 0 && $('calc_days')) $('calc_days').value = computed;
         }
 
-        if(!headIn||v.cwt==null||v.finishWt==null){
-            target.innerHTML=`<div class="muted" style="font-size: 14px;">${!headIn?'Add at least one invoice to enable closeout projections.':'Need target sale $/lb and projected finish weight.'}</div>`;
+        renderBudgetBox();
+
+        if (!headIn) {
+            target.innerHTML = `<div class="muted" style="font-size:14px;">Add at least one invoice to enable closeout projections.</div>`;
             $('saveAssumptionsBtn').classList.add('hidden');
             return;
         }
 
-        // Resolve COG and Labor to per-head amounts based on mode
-        const intDays = v.days ?? 0;
-        const cogPerHead = cogMode === 'per_day'
-            ? ((v.cog ?? 0) * intDays)
-            : (v.cog ?? 0);
-        const laborPerHead = laborMode === 'per_day'
-            ? ((v.labor ?? 0) * intDays)
-            : (v.labor ?? 0);
+        const actual = closeoutActual(rates);
+        const proj   = closeoutProjection(rates, actual);
+        const budget = closeoutBudget(currentLotBudget);
 
-        const usingPerDayWithoutDays =
-            ((cogMode === 'per_day' && v.cog) || (laborMode === 'per_day' && v.labor) || (v.intPct))
-            && (!intDays || intDays <= 0);
-        const daysWarning = usingPerDayWithoutDays
-            ? `<div class="alert" style="background: #fff8e6; border: 1px solid #d4a017; color: #6a4c0a; padding: 8px 10px; margin-bottom: 10px; border-radius: var(--radius); font-size: 13px;">Set a Target ship date — your per-day costs need days on feed to calculate.</div>`
-            : '';
-
+        // ---- input hints ----
+        const intDays = parseFloat($('calc_days') ? $('calc_days').value : '') || 0;
         if ($('calc_cog_hint')) {
-            $('calc_cog_hint').textContent = (cogMode==='per_day' && v.cog && intDays)
-                ? `× ${intDays} days = ${fmtMoney(cogPerHead)}/head`
+            $('calc_cog_hint').textContent = (rates.cogMode==='per_day' && rates.cog)
+                ? `${fmtNum(Math.round(actual.headDays))} head-days run so far = ${fmtMoney(actual.cog)}`
                 : '';
         }
         if ($('calc_labor_hint')) {
-            $('calc_labor_hint').textContent = (laborMode==='per_day' && v.labor && intDays)
-                ? `× ${intDays} days = ${fmtMoney(laborPerHead)}/head`
+            $('calc_labor_hint').textContent = (rates.laborMode==='per_day' && rates.labor)
+                ? `× ${fmtNum(Math.round(actual.headDays))} head-days = ${fmtMoney(actual.labor)}`
                 : '';
         }
-        // Phase 18: show actual med cost split next to the budgeted field.
-        // Processing over head_in; Treatment over live head_current.
+        if ($('calc_dead_hint')) {
+            $('calc_dead_hint').textContent = rates.deathPct != null
+                ? `${fmtNum(actual.headDead)} dead so far · ${fmtNum(Math.round(proj.deathsToCome))} more assumed`
+                : '';
+        }
         if ($('calc_med_actual_hint')) {
             if (currentActualMedCost && currentActualMedCost.total > 0) {
                 const parts = [];
-                if (currentActualMedCost.processing > 0) {
-                    parts.push(`Processing: <strong>${currentActualMedCost.processingPerHead != null ? '$' + currentActualMedCost.processingPerHead.toFixed(2) + '/hd' : '$' + currentActualMedCost.processing.toFixed(2)}</strong> (total $${currentActualMedCost.processing.toFixed(2)})`);
-                }
-                if (currentActualMedCost.treatment > 0) {
-                    parts.push(`Treatment: <strong>${currentActualMedCost.treatmentPerHead != null ? '$' + currentActualMedCost.treatmentPerHead.toFixed(2) + '/live hd' : '$' + currentActualMedCost.treatment.toFixed(2)}</strong> (total $${currentActualMedCost.treatment.toFixed(2)})`);
-                }
-                if (currentActualMedCost.other > 0) {
-                    parts.push(`Other: $${currentActualMedCost.other.toFixed(2)}`);
-                }
-                const unpricedMsg = currentActualMedCost.unpricedRows > 0
-                    ? ` · <span style="color:#b58900;">${currentActualMedCost.unpricedRows} row${currentActualMedCost.unpricedRows === 1 ? '' : 's'} unpriced</span>`
+                if (currentActualMedCost.processing > 0) parts.push(`Processing <strong>${fmtMoney(currentActualMedCost.processing)}</strong>`);
+                if (currentActualMedCost.treatment  > 0) parts.push(`Treatment <strong>${fmtMoney(currentActualMedCost.treatment)}</strong>`);
+                if (currentActualMedCost.other      > 0) parts.push(`Other ${fmtMoney(currentActualMedCost.other)}`);
+                const unpriced = currentActualMedCost.unpricedRows > 0
+                    ? ` · <span style="color:#b58900;">${currentActualMedCost.unpricedRows} row${currentActualMedCost.unpricedRows===1?'':'s'} unpriced</span>`
                     : '';
-                $('calc_med_actual_hint').innerHTML = parts.join(' · ') + unpricedMsg;
+                $('calc_med_actual_hint').innerHTML = 'Actual: ' + parts.join(' · ') + unpriced;
             } else {
-                $('calc_med_actual_hint').textContent = 'No actual med cost yet. Enter bottle pricing on meds to auto-track.';
+                $('calc_med_actual_hint').textContent = 'No actual med cost yet. Price the meds to track it.';
             }
         }
 
-        // Per-head economics for the projection
-        const grossSale=v.cwt*v.finishWt;
-        const med=v.med??0;
-        const deadDec=(v.deadPct??0)/100, intDec=(v.intPct??0)/100;
-        const surviving=1-deadDec;
-        const deadCostPerSurvivor=surviving>0?(avgCostHead*deadDec/surviving):0;
-        const intCostPerHead=avgCostHead*intDec*(intDays/365);
-        const totalCostPerHead=avgCostHead+cogPerHead+laborPerHead+med+deadCostPerSurvivor+intCostPerHead;
-        const netPerHead=grossSale-totalCostPerHead;
-        const netPct=totalCostPerHead>0?(netPerHead/totalCostPerHead):0;
-        const breakEven=v.finishWt>0?(totalCostPerHead/v.finishWt):0;
+        const warnings = [];
+        if (!rates.shipDate) {
+            warnings.push('Set a target ship date — without it there is nothing to project forward to.');
+        }
+        if (rates.salePerLb == null) {
+            warnings.push('Set a target sale $/lb to see projected revenue.');
+        }
+        if (currentActualMedCost && currentActualMedCost.unpricedRows > 0) {
+            warnings.push(`${currentActualMedCost.unpricedRows} medication row${currentActualMedCost.unpricedRows===1?' is':'s are'} unpriced — that cost is missing from the Actual column, not zero.`);
+        }
+        if (currentHeadDaysToDate == null) {
+            warnings.push('Head-days could not be loaded, so cost of gain to date is not being charged.');
+        }
+        const warnBlock = warnings.length ? `<div class="alert" style="background:#fff8e6; border:1px solid #d4a017; color:#6a4c0a; padding:8px 10px; margin-bottom:10px; border-radius:var(--radius); font-size:12.5px;">${warnings.map(w=>`<div>${w}</div>`).join('')}</div>` : '';
 
-        // Projected portion: remaining head, after deaths assumption applied
-        // Use the actual current head as base (already reflects deaths to date AND prior sales)
-        // Then apply the death-loss assumption to the REMAINING period only
-        const projectionBaseHead = headCurrent;
-        const projectedSurvivingHead = projectionBaseHead * surviving;
-        const projectedRevenue = projectedSurvivingHead * grossSale;
-        const projectedTotalCost = projectionBaseHead * totalCostPerHead;
-        const projectedNet = projectedRevenue - projectedTotalCost;
+        // ---- the table ----
+        const money = n => (n == null ? '—' : fmtMoney(n));
+        const signed = n => n == null ? '—' : (n >= 0 ? '' : '−') + fmtMoney(Math.abs(n));
+        const cell = (n, cls='') => `<td class="num"${cls?` style="${cls}"`:''}>${money(n)}</td>`;
+        const b = k => budget ? budget[k] : null;
 
-        // Realized cost basis: 570 head × avgCostHead = locked-in purchase cost on sold portion
-        // For partial-sale closeout, total lot net = realized net + projected net
-        // Realized net (simplified) = realized revenue - (realizedHead × avgCostHead)
-        // We DON'T attempt to allocate ongoing costs (COG, labor) between sold and remaining
-        // because that would require tracking when each sale shipped. Just report the figures.
-        const realizedPurchaseCost = realizedHead * avgCostHead;
-        const realizedSimpleNet = realizedRevenue - realizedPurchaseCost;
-        const lotTotalNet = realizedSimpleNet + projectedNet;
+        const row = (label, bv, av, pv, opts={}) => {
+            const strong = opts.strong ? 'font-weight:600;' : '';
+            const top = opts.rule ? 'border-top:2px solid var(--border);' : '';
+            const bg = opts.bg ? `background:${opts.bg};` : '';
+            const fmt = opts.fmt || money;
+            return `<tr style="${top}${bg}">
+                <td style="${strong}">${label}${opts.note?` <span class="muted" style="font-size:11px;">${opts.note}</span>`:''}</td>
+                <td class="num" style="${strong}color:var(--text-muted);">${bv==null?'—':fmt(bv)}</td>
+                <td class="num" style="${strong}">${av==null?'—':fmt(av)}</td>
+                <td class="num" style="${strong}">${pv==null?'—':fmt(pv)}</td>
+            </tr>`;
+        };
 
-        const fmtPct=n=>(n*100).toFixed(2)+'%';
-        const fmtSign=n=>(n>=0?'':'−')+fmtMoney(Math.abs(n));
-        const goodColor=netPerHead>=0?'var(--success)':'var(--danger)';
-        const lotTotalColor=lotTotalNet>=0?'var(--success)':'var(--danger)';
+        const headCell = (t, sub) => `<th class="num" style="font-size:12px; padding-bottom:6px;">${t}<div class="muted" style="font-weight:400; font-size:10.5px;">${sub}</div></th>`;
 
-        const cogLabel = cogMode === 'per_day' && v.cog ? `+ COG (${intDays} d × $${Number(v.cog).toFixed(4)}/d)` : '+ COG';
-        const laborLabel = laborMode === 'per_day' && v.labor ? `+ Labor (${intDays} d × $${Number(v.labor).toFixed(4)}/d)` : '+ Labor';
+        const netColor = proj.net >= 0 ? 'var(--success)' : 'var(--danger)';
+        const varianceVsBudget = budget ? proj.net - budget.net : null;
 
-        // Realized panel — only shown when there are sales
-        const realizedPanel = hasSales ? `
-            <div class="card" style="margin: 0 0 14px 0; padding: 10px; background: #f5f9f2; border: 1px solid #c0d8b0;">
-                <h4 style="margin: 0 0 8px 0; color: #2d4a18;">Realized (already shipped)</h4>
-                <table style="font-size: 13px;">
-                    <tr><td>Head shipped</td><td class="num"><strong>${fmtNum(realizedHead)}</strong> of ${fmtNum(headIn)}</td></tr>
-                    <tr><td>Total revenue</td><td class="num"><strong>${fmtMoney(realizedRevenue)}</strong></td></tr>
-                    <tr><td>Avg sale wt</td><td class="num">${realizedAvgWt > 0 ? fmtNum(Math.round(realizedAvgWt)) + ' lb' : '—'}</td></tr>
-                    <tr><td>Avg $/cwt achieved</td><td class="num">${realizedCwt > 0 ? '$' + realizedCwt.toFixed(2) : '—'}</td></tr>
-                    <tr><td>Avg $/head</td><td class="num">${fmtMoney(realizedRevPerHead)}</td></tr>
-                    <tr style="border-top: 1px solid #c0d8b0;"><td colspan="2" style="padding-top: 4px;"></td></tr>
-                    <tr><td>Realized purchase cost basis</td><td class="num">${fmtMoney(realizedPurchaseCost)}</td></tr>
-                    <tr><td>Simple net on sold portion <span class="muted" style="font-size: 11px;">(rev − purchase only)</span></td><td class="num" style="color: ${realizedSimpleNet >= 0 ? 'var(--success)' : 'var(--danger)'};"><strong>${fmtSign(realizedSimpleNet)}</strong></td></tr>
-                </table>
-                <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">Simple net excludes COG/labor/interest accumulated on sold cattle before shipping.</p>
-            </div>` : '';
+        target.innerHTML = warnBlock + `
+            <table style="font-size:13px; width:100%;">
+                <thead><tr>
+                    <th style="text-align:left; padding-bottom:6px;"></th>
+                    ${headCell('Budget', currentLotBudget ? 'frozen '+String(currentLotBudget.frozen_at).slice(0,10) : 'not set')}
+                    ${headCell('Actual', `to ${todayIsoLocal()}`)}
+                    ${headCell('Projection', rates.shipDate ? 'at '+rates.shipDate : 'no ship date')}
+                </tr></thead>
+                <tbody>
+                    ${row('Head', b('head'), actual.headIn, proj.headSoldAtClose, {fmt:n=>fmtNum(Math.round(n)), note:'in / sold at close'})}
+                    ${row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n))})}
+                    ${row('Days on feed', b('days'), actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n))})}
+                    ${row('Cattle in', b('cattleCost'), actual.cattleCost, actual.cattleCost, {rule:true})}
+                    ${row('Processing', budget ? b('med') : null, actual.processing, actual.processing, {note:'at receiving'})}
+                    ${row('Treatment', null, actual.treatment, actual.treatment + proj.treatmentFwd, {note:'doctoring'})}
+                    ${row('Cost of gain', b('cog'), actual.cog, actual.cog + proj.cogFwd)}
+                    ${row('Labor', b('labor'), actual.labor, actual.labor + proj.laborFwd)}
+                    ${row('Interest', b('interest'), actual.interest, actual.interest + proj.interestFwd)}
+                    ${row('Total cost', b('totalCost'), actual.totalCost, proj.totalCost, {strong:true, rule:true})}
+                    ${row('Revenue', b('revenue'), actual.revenue, proj.totalRevenue, {note: actual.soldHead>0 ? `${fmtNum(actual.soldHead)} hd shipped` : ''})}
+                    ${row('Net', b('net'), null, proj.net, {strong:true, rule:true, bg: proj.net>=0?'#eaf3dc':'#fbeaea'})}
+                    ${row('Net / head sold', b('netPerHeadSold'), null, proj.netPerHeadSold, {strong:true})}
+                    ${row('Break-even $/lb', b('breakEvenPerLb'), null, proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note:'on cattle still on feed'})}
+                </tbody>
+            </table>
+            <div class="muted" style="font-size:11px; margin-top:8px; line-height:1.5;">
+                Actual has no Net because the lot is not finished — revenue only lands as cattle ship.
+                Death loss is not a line: the cattle that died are already in Cattle in, so the loss shows up
+                in the division. Cost of gain and labor are charged on ${fmtNum(Math.round(actual.headDays))} real head-days,
+                so cattle that already shipped carry their share.
+                ${proj.deathsToCome > 0 ? `Projection assumes ${fmtNum(Math.round(proj.deathsToCome))} more death${Math.round(proj.deathsToCome)===1?'':'s'} on top of the ${fmtNum(actual.headDead)} so far.` : ''}
+            </div>
+            ${budget ? `<div style="margin-top:10px; padding:8px 10px; border-radius:var(--radius); background:${varianceVsBudget>=0?'#eaf3dc':'#fbeaea'}; font-size:13px;">
+                <strong>Projection vs budget:</strong> <span style="color:${varianceVsBudget>=0?'var(--success)':'var(--danger)'}; font-weight:600;">${signed(varianceVsBudget)}</span>
+                <span class="muted">on the lot</span>
+            </div>` : ''}`;
 
-        // Projection panel header — adapts based on whether there are sales
-        const projectionHeader = hasSales
-            ? `<h4 style="margin: 0 0 8px 0;">Projected on remaining ${fmtNum(headCurrent)} head</h4>`
-            : `<h4 style="margin: 0 0 8px 0;">Projected close</h4>`;
-
-        // Lot total panel — only when there are sales (otherwise projection IS the lot total)
-        const lotTotalPanel = hasSales ? `
-            <div class="card" style="margin: 14px 0 0 0; padding: 10px; background: ${lotTotalNet >= 0 ? '#eaf3dc' : '#fbeaea'}; border: 2px solid ${lotTotalColor};">
-                <h4 style="margin: 0 0 8px 0;">Lot total (realized + projected)</h4>
-                <table style="font-size: 14px;">
-                    <tr><td>Realized net</td><td class="num">${fmtSign(realizedSimpleNet)}</td></tr>
-                    <tr><td>Projected net</td><td class="num">${fmtSign(projectedNet)}</td></tr>
-                    <tr style="border-top: 2px solid ${lotTotalColor}; font-size: 16px;">
-                        <td><strong>Estimated lot net</strong></td>
-                        <td class="num" style="color: ${lotTotalColor};"><strong>${fmtSign(lotTotalNet)}</strong></td>
-                    </tr>
-                </table>
-            </div>` : '';
-
-        target.innerHTML=daysWarning + realizedPanel + projectionHeader + `
-            <table style="font-size: 14px;">
-                <tr><td>Avg cost in / head</td><td class="num">${fmtMoney(avgCostHead)}</td></tr>
-                <tr><td>${cogLabel}</td><td class="num">${fmtMoney(cogPerHead)}</td></tr>
-                <tr><td>${laborLabel}</td><td class="num">${fmtMoney(laborPerHead)}</td></tr>
-                <tr><td>+ Med</td><td class="num">${fmtMoney(med)}</td></tr>
-                <tr><td>+ Death loss (${fmtPct(deadDec)})</td><td class="num">${fmtMoney(deadCostPerSurvivor)}</td></tr>
-                <tr><td>+ Interest (${fmtPct(intDec)} × ${intDays} d)</td><td class="num">${fmtMoney(intCostPerHead)}</td></tr>
-                <tr style="border-top: 2px solid var(--border);">
-                    <td><strong>Total cost / head</strong></td>
-                    <td class="num"><strong>${fmtMoney(totalCostPerHead)}</strong></td>
-                </tr>
-                <tr><td>Gross sale / head (${v.finishWt} × $${v.cwt.toFixed(4)})</td><td class="num">${fmtMoney(grossSale)}</td></tr>
-                <tr style="font-size: 16px; background: ${netPerHead>=0?'#eaf3dc':'#fbeaea'};">
-                    <td><strong>Net / head</strong></td>
-                    <td class="num" style="color: ${goodColor};"><strong>${fmtSign(netPerHead)}</strong> <span style="font-size: 12px; color: var(--text-muted);">(${fmtPct(netPct)})</span></td>
-                </tr>
-                <tr><td colspan="2" style="padding-top: 12px;"></td></tr>
-                <tr><td>Break-even sale $/lb</td><td class="num">$${breakEven.toFixed(4)}</td></tr>
-                <tr><td>Surviving head at finish</td><td class="num">${fmtNum(projectedSurvivingHead,1)}</td></tr>
-                <tr><td><strong>Projected ${hasSales ? 'remaining' : 'lot'} net</strong></td><td class="num" style="color: ${goodColor};"><strong>${fmtSign(projectedNet)}</strong></td></tr>
-            </table>` + lotTotalPanel;
-
-        // Dirty check — only show save button if any value differs from stored
-        const storedShipDate = lot.target_ship_date || null;
-        const currentShipDate = $('calc_shipdate') ? ($('calc_shipdate').value || null) : null;
-        const stored={
-            cwt:lot.target_sale_cwt!=null?Number(lot.target_sale_cwt):null,
-            days:lot.target_days_on_feed,
-            adg:lot.target_adg!=null?Number(lot.target_adg):null,
-            cog:cogMode==='per_day'
+        // ---- dirty check on the working assumptions ----
+        const stored = {
+            cwt: lot.target_sale_cwt!=null?Number(lot.target_sale_cwt):null,
+            adg: lot.target_adg!=null?Number(lot.target_adg):null,
+            cog: rates.cogMode==='per_day'
                 ? (lot.assumed_cog_per_day!=null?Number(lot.assumed_cog_per_day):null)
                 : (lot.assumed_cog_per_head!=null?Number(lot.assumed_cog_per_head):null),
-            labor:laborMode==='per_day'
+            labor: rates.laborMode==='per_day'
                 ? (lot.assumed_labor_per_day!=null?Number(lot.assumed_labor_per_day):null)
                 : (lot.assumed_labor_per_head!=null?Number(lot.assumed_labor_per_head):null),
-            med:lot.assumed_med_per_head!=null?Number(lot.assumed_med_per_head):null,
-            deadPct:lot.assumed_death_loss_pct!=null?Number(lot.assumed_death_loss_pct)*100:null,
-            intPct:lot.assumed_interest_pct!=null?Number(lot.assumed_interest_pct)*100:null,
+            med: lot.assumed_med_per_head!=null?Number(lot.assumed_med_per_head):null,
+            deadPct: lot.assumed_death_loss_pct!=null?Number(lot.assumed_death_loss_pct):null,
+            intPct: lot.assumed_interest_pct!=null?Number(lot.assumed_interest_pct):null,
             cogMode: lot.cog_mode || 'per_day',
             laborMode: lot.labor_mode || 'per_day',
-            shipDate: storedShipDate
+            shipDate: lot.target_ship_date || null
         };
         const eq=(a,b)=>(a==null&&b==null)||(a!=null&&b!=null&&Math.abs(a-b)<0.0001);
-        const dirty=!(eq(v.cwt,stored.cwt)&&eq(v.days,stored.days)&&eq(v.adg,stored.adg)&&eq(v.cog,stored.cog)&&eq(v.labor,stored.labor)&&eq(v.med,stored.med)&&eq(v.deadPct,stored.deadPct)&&eq(v.intPct,stored.intPct)&&cogMode===stored.cogMode&&laborMode===stored.laborMode&&currentShipDate===stored.shipDate);
+        const dirty = !(eq(rates.salePerLb,stored.cwt) && eq(rates.adg,stored.adg)
+            && eq(rates.cog,stored.cog) && eq(rates.labor,stored.labor)
+            && eq(rates.medPerHead,stored.med) && eq(rates.deathPct,stored.deadPct)
+            && eq(rates.intPct,stored.intPct)
+            && rates.cogMode===stored.cogMode && rates.laborMode===stored.laborMode
+            && (rates.shipDate||null)===stored.shipDate);
         $('saveAssumptionsBtn').classList.toggle('hidden',!dirty);
     }
 
-    $('saveAssumptionsBtn').addEventListener('click',async()=>{
-        const num=id=>{const v=parseFloat($(id).value);return isNaN(v)?null:v;};
-        const cogMode = $('calc_cog_mode').value;
-        const laborMode = $('calc_labor_mode').value;
-        const cogVal = num('calc_cog');
-        const laborVal = num('calc_labor');
+    // ---- the frozen budget box ------------------------------------------
+    function renderBudgetBox(){
+        const box = $('calcBudgetBox');
+        if (!box) return;
+        if (currentLotBudget) {
+            const b = currentLotBudget;
+            box.innerHTML = `
+                <div style="padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-subtle,#f7f7f5);">
+                    <div style="font-size:12px; font-weight:600; margin-bottom:4px;">Budget frozen ${String(b.frozen_at).slice(0,10)}</div>
+                    <div class="muted" style="font-size:11px; line-height:1.5;">
+                        ${fmtNum(b.budget_head||0)} hd @ ${b.budget_avg_weight_in?fmtNum(b.budget_avg_weight_in)+' lb':'—'}
+                        ${b.budget_cost_per_cwt?' × $'+Number(b.budget_cost_per_cwt).toFixed(4)+'/lb':''} ·
+                        ${b.days_on_feed?fmtNum(b.days_on_feed)+' days':'—'} @ ${b.target_adg?Number(b.target_adg).toFixed(2)+' ADG':'—'} ·
+                        out at ${b.target_sale_cwt?'$'+Number(b.target_sale_cwt).toFixed(4)+'/lb':'—'}
+                    </div>
+                    <div class="muted" style="font-size:11px; margin-top:5px;">A frozen budget cannot be edited. An owner can delete it and set a new one.</div>
+                    <button id="deleteBudgetBtn" data-perm="owner" class="danger" style="margin-top:8px; font-size:12px; padding:4px 10px;">Delete budget</button>
+                </div>`;
+            const del = $('deleteBudgetBtn');
+            if (del) del.addEventListener('click', deleteLotBudget);
+        } else {
+            box.innerHTML = `
+                <div style="padding:8px 10px; border:1px dashed var(--border); border-radius:var(--radius);">
+                    <div style="font-size:12px; font-weight:600; margin-bottom:4px;">No budget frozen</div>
+                    <div class="muted" style="font-size:11px; line-height:1.5;">
+                        Freeze the assumptions above as this lot's plan. It cannot be edited afterwards,
+                        which is what makes variance mean anything. Working assumptions stay editable.
+                    </div>
+                    <button id="freezeBudgetBtn" data-perm="office" class="primary" style="margin-top:8px; font-size:12px; padding:4px 10px;">Freeze as budget</button>
+                </div>`;
+            const fz = $('freezeBudgetBtn');
+            if (fz) fz.addEventListener('click', freezeLotBudget);
+        }
+    }
 
-        // Phase 14: target_ship_date must be after arrival_date
-        const shipDate = $('calc_shipdate').value || null;
+    async function freezeLotBudget(){
+        const rates = closeoutRates();
+        const st = currentStatus;
+        const headIn = Number(st.head_in) || 0;
+        const avgWtIn = headIn ? (Number(st.total_weight_in)||0)/headIn : null;
+        const avgPerLbIn = (Number(st.total_weight_in)||0) > 0
+            ? (Number(st.total_cost_in)||0) / Number(st.total_weight_in) : null;
+        const days = rates.shipDate && (st.weighted_arrival_date || currentLot.arrival_date)
+            ? daysBetween(st.weighted_arrival_date || currentLot.arrival_date, rates.shipDate)
+            : (parseFloat($('calc_days').value) || null);
+
+        if (!headIn) { showAlert('globalAlert','Add an invoice before freezing a budget — there is nothing to budget against.'); return; }
+        if (!rates.shipDate) { showAlert('globalAlert','Set a target ship date before freezing the budget.'); return; }
+        if (rates.salePerLb == null) { showAlert('globalAlert','Set a target sale $/lb before freezing the budget.'); return; }
+
+        if (!confirm(`Freeze this lot's budget?\n\n${fmtNum(headIn)} head, ${fmtNum(days||0)} days, out at $${Number(rates.salePerLb).toFixed(4)}/lb.\n\nA frozen budget cannot be edited afterwards.`)) return;
+
+        const btn = $('freezeBudgetBtn');
+        if (btn) btn.disabled = true;
+        const { data, error } = await supabase.from('lot_budgets').insert({
+            lot_id: currentLot.id,
+            budget_head: headIn,
+            budget_avg_weight_in: avgWtIn,
+            budget_cost_per_cwt: avgPerLbIn,
+            target_adg: rates.adg,
+            days_on_feed: days,
+            target_ship_date: rates.shipDate,
+            target_ship_weight: rates.finishWt,
+            target_sale_cwt: rates.salePerLb,
+            cog_mode: rates.cogMode,
+            cog_value: rates.cog,
+            labor_mode: rates.laborMode,
+            labor_value: rates.labor,
+            med_per_head: rates.medPerHead,
+            death_loss_pct: rates.deathPct,
+            interest_pct: rates.intPct,
+            frozen_by: currentUser ? currentUser.id : null
+        }).select().single();
+        if (btn) btn.disabled = false;
+
+        if (error) { showAlert('globalAlert','Could not freeze the budget: '+friendlyDbError(error.message)); return; }
+        currentLotBudget = data;
+        showAlert('globalAlert','Budget frozen.','success');
+        recalculate();
+    }
+
+    async function deleteLotBudget(){
+        if (!currentLotBudget) return;
+        if (!confirm('Delete this lot’s frozen budget?\n\nVariance against it is lost. Only do this if it was entered wrong.')) return;
+        const { data, error } = await supabase.from('lot_budgets')
+            .delete().eq('id', currentLotBudget.id).select();
+        if (error) { showAlert('globalAlert','Could not delete the budget: '+friendlyDbError(error.message)); return; }
+        // A refused DELETE comes back as zero rows, not an error.
+        if (!data || data.length === 0) {
+            showAlert('globalAlert','The budget was not deleted — that is owner-only.');
+            return;
+        }
+        currentLotBudget = null;
+        showAlert('globalAlert','Budget deleted.','success');
+        recalculate();
+    }
+
+    $('saveAssumptionsBtn').addEventListener('click',async()=>{
+        const rates = closeoutRates();
+        const shipDate = rates.shipDate;
         if (shipDate && currentLot.arrival_date) {
             if (new Date(shipDate) <= new Date(currentLot.arrival_date)) {
                 showAlert('globalAlert', `Target ship date (${shipDate}) must be after arrival date (${currentLot.arrival_date}).`, 'error');
@@ -4526,29 +4784,29 @@ window.addEventListener('unhandledrejection', function(e) {
         }
 
         const payload={
-            target_sale_cwt:num('calc_cwt'),
-            target_days_on_feed:num('calc_days'),
-            target_ship_date: $('calc_shipdate').value || null,
-            target_adg:num('calc_adg'),
-            cog_mode: cogMode,
-            labor_mode: laborMode,
-            // Save to the column matching the current mode; clear the other
-            assumed_cog_per_day: cogMode === 'per_day' ? cogVal : null,
-            assumed_cog_per_head: cogMode === 'per_head' ? cogVal : null,
-            assumed_labor_per_day: laborMode === 'per_day' ? laborVal : null,
-            assumed_labor_per_head: laborMode === 'per_head' ? laborVal : null,
-            assumed_med_per_head:num('calc_med'),
-            assumed_death_loss_pct:num('calc_dead')!=null?num('calc_dead')/100:null,
-            assumed_interest_pct:num('calc_int')!=null?num('calc_int')/100:null
+            target_sale_cwt: rates.salePerLb,
+            target_days_on_feed: parseFloat($('calc_days').value) || null,
+            target_ship_date: shipDate,
+            target_adg: rates.adg,
+            cog_mode: rates.cogMode,
+            labor_mode: rates.laborMode,
+            assumed_cog_per_day:  rates.cogMode   === 'per_day'  ? rates.cog   : null,
+            assumed_cog_per_head: rates.cogMode   === 'per_head' ? rates.cog   : null,
+            assumed_labor_per_day:  rates.laborMode === 'per_day'  ? rates.labor : null,
+            assumed_labor_per_head: rates.laborMode === 'per_head' ? rates.labor : null,
+            assumed_med_per_head: rates.medPerHead,
+            assumed_death_loss_pct: rates.deathPct,
+            assumed_interest_pct: rates.intPct
         };
         $('saveAssumptionsBtn').disabled=true;
-        const {error}=await supabase.from('lots').update(payload).eq('id',currentLot.id);
+        const {data,error}=await supabase.from('lots').update(payload).eq('id',currentLot.id).select();
         $('saveAssumptionsBtn').disabled=false;
-        if(error){showAlert('globalAlert','Save failed: '+error.message);return;}
+        if(error){showAlert('globalAlert','Save failed: '+friendlyDbError(error.message));return;}
+        // A refused UPDATE returns zero rows rather than an error.
+        if(!data || data.length===0){showAlert('globalAlert','Nothing was saved — you may not have permission to change this lot.');return;}
         showAlert('globalAlert','Assumptions saved.','success');
         showLotDetail(currentLot.id);
     });
-
     // ---- LOT CREATE / EDIT / DUPLICATE ----
     function openLotModal(seed=null,mode='new'){
         clearAlert('lotModalAlert');
