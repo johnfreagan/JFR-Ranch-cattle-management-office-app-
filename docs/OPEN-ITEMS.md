@@ -3,7 +3,7 @@
 Things known to need attention, and deliberately not done yet. Ordered by when
 they will bite, not by size.
 
-**Last reviewed:** 2026-08-25
+**Last reviewed:** 2026-08-26
 
 Anything finished moves to the bottom under *Closed* with the date, so the
 history of what was decided survives.
@@ -203,6 +203,50 @@ Nothing validates these on entry. A rate that is off by 100× produces a
 confident, wrong projection, and the only signal is that the number looks
 strange. Worth a sanity band on the input (warn outside, say, $0.10–$5.00
 per head per day) rather than a hard limit.
+
+---
+
+## 10. Merging lots and transferring cattle between lots
+
+**Status:** wanted, not designed. Raised by John 2026-08-26.
+
+Two related operations the app cannot do at all today:
+
+- **Merge two lots** into one — e.g. a remnant of 20 head folded into the lot
+  it now runs with.
+- **Transfer cattle between lots** without them leaving the ranch.
+
+The head math is the easy half. `lot_pasture_assignments` would move, and
+`lot_movements` already models a move within a lot; the same shape extends to
+a move between lots.
+
+The accounting is the hard half, and it is why this needs a decision before
+any code:
+
+- **Cattle cost travels with the animal.** A lot's `total_cost_in` comes from
+  its invoices. Move 20 head out of a lot and some share of that cost has to go
+  with them — at what value? The lot's average cost per head is the obvious
+  answer and is wrong for a lot whose loads were bought at different prices.
+- **Head-days do not travel.** `lot_daily_head` is built from the receiving
+  and death/sale events of one lot. Cattle transferred in on day 120 did not
+  eat that lot's grass for 120 days, so their cost of gain must not be charged
+  as if they had. Either the receiving lot's head curve gains a mid-life
+  arrival, or the transfer is modelled as a sale out and a purchase in.
+- **`lot_budgets` is frozen.** A lot that gains 20 head is no longer the lot
+  the budget was written for, and the budget cannot be edited by design.
+- **Tags recycle across fiscal years** and "current animal for a tag" is
+  resolved through open lots, so a transfer has to keep `lot_tags` honest or
+  tag lookup starts pointing at the wrong animal.
+- **Closeout would need to show it.** A lot that gave up cattle mid-life has a
+  discontinuity that neither budget, actual nor projection currently models.
+
+The cleanest framing is probably to model a transfer as a **sale from one lot
+at an internal price and a receipt into the other at the same price**, which
+reuses machinery that already exists and keeps both lots' books
+self-consistent. That makes the internal price the single decision to make,
+and it is a real one — it sets which lot books the margin.
+
+Not started. Needs John's call on the valuation basis first.
 
 ---
 

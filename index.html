@@ -1218,13 +1218,13 @@
                 </div>
 
                 <div style="margin-bottom: 14px;">
-                    <label for="docEntryPasture">Pasture (shared, optional)</label>
+                    <label for="docEntryPasture">Pasture — set every row to</label>
                     <select id="docEntryPasture">
                         <option value="">— Not recorded —</option>
                     </select>
                     <div class="muted" style="font-size: 11px; margin-top: 4px;">
-                        Where these animals were worked. Applied to every tag in the batch,
-                        and feeds the field app's tag lookup.
+                        Where these animals were worked. Picking here sets every row at once;
+                        each row can then be changed on its own. Feeds the field app's tag lookup.
                     </div>
                 </div>
 
@@ -10770,6 +10770,16 @@ ${body}
 
     $('showInactiveMeds').addEventListener('change', loadMeds);
 
+    // The batch picker is a "set them all" convenience, not the stored value.
+    // Rows keep their own pasture, so this overwrites them deliberately.
+    $('docEntryPasture').addEventListener('change', () => {
+        const v = $('docEntryPasture').value || '';
+        if (docEntryRows.length && v) {
+            docEntryRows.forEach(r => { r.pasture_id = v; });
+            renderDocEntryRows();
+        }
+    });
+
     function openMedModal(med = null) {
         clearAlert('medModalAlert');
         $('medModalTitle').textContent = med ? 'Edit medication' : 'New medication';
@@ -13744,7 +13754,7 @@ ${ranchBlocks}
                 <thead><tr><th>Date</th><th>From</th><th>To</th><th class="num">Head</th><th>Notes</th><th></th></tr></thead>
                 <tbody>${histRows}</tbody>
             </table>
-            <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">Delete only removes the audit-log entry — current pasture totals are not changed. To fix actual inventory, record a corrective move.</p>
+            <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">Deleting a move reverses it: the head go back where they came from, and if the move emptied and closed the source pasture, that pasture is reopened.</p>
         `;
         const mc2 = document.getElementById('moveHistoryCount');
         if (mc2) mc2.textContent = `(${movements.length})`;
@@ -13755,14 +13765,32 @@ ${ranchBlocks}
         });
     }
 
+    // Deleting a move REVERSES it. This used to raw-delete the lot_movements
+    // row and warn that pasture counts would not change, which left the audit
+    // trail and the actual inventory saying different things - and CLAUDE.md
+    // is explicit that a move must never be raw-deleted from the app.
+    // delete_move_event has existed the whole time and was only being called
+    // by the approvals rollback.
+    //
+    // It is an RPC and not a few statements here for the same reason the
+    // shipment reversal is: the destination row may have been CREATED by this
+    // move (so it is removed, not decremented) and the source may have been
+    // emptied and closed (so it is reopened, not incremented). Getting that
+    // pair wrong double-counts the herd.
     async function deleteMovementRow(movementId) {
-        if (!confirm('Delete this move-history entry?\n\nThis only removes the audit-log entry. Current pasture head counts will NOT change. To fix actual inventory, record a corrective move.')) return;
-        const { error } = await supabase.from('lot_movements').delete().eq('id', movementId);
+        if (!confirm(
+            'Delete this move and put the cattle back?\n\n' +
+            'The head return to the pasture they came from. If this move emptied and ' +
+            'closed that pasture, it is reopened.\n\n' +
+            'If the cattle have been moved again since, this will refuse rather than guess.'
+        )) return;
+
+        const { error } = await supabase.rpc('delete_move_event', { p_movement_id: movementId });
         if (error) {
-            alert('Delete failed: ' + error.message);
+            showAlert('globalAlert', 'Move NOT reversed, nothing was changed: ' + error.message, 'error');
             return;
         }
-        showAlert('globalAlert', 'Move-log entry deleted.', 'success');
+        showAlert('globalAlert', 'Move reversed — the cattle are back where they were.', 'success');
         showLotDetail(currentLot.id);
     }
 
@@ -15984,7 +16012,40 @@ ${ranchBlocks}
     let docEntryFieldProtocols = []; // global protocols only
     let docEntryMedsCache = []; // medications with full dose-rule data
     let docEntryLotStatusCache = {}; // lot_id -> {avg_weight_in, target_adg, days_on_feed, projected_current_weight, lot_number, arrival_date}
-    let docEntryRows = []; // [{tag, lot_id, lot_number, weight, meds: [{med_id, name, dose_cc, dose_overridden, pos}]}]
+    let docEntryRows = []; // [{tag, lot_id, lot_number, weight, pasture_id, meds: [{med_id, name, dose_cc, dose_overridden, pos}]}]
+    let docEntryPasturesByLot = {};   // lot_id -> [{pasture_id, label, head}]
+    let docEntryAllPastures = [];     // every active pasture, for the "other" group
+
+    // A row starts on the batch pasture when one is chosen, otherwise on the
+    // lot's own pasture when there is exactly one - which is the common case
+    // and saves picking it on every tag. Ambiguous lots are left blank rather
+    // than guessed.
+    function defaultPastureForLot(lotId) {
+        const batch = $('docEntryPasture') ? $('docEntryPasture').value : '';
+        if (batch) return batch;
+        const list = docEntryPasturesByLot[lotId] || [];
+        return list.length === 1 ? list[0].pasture_id : '';
+    }
+
+    // The lot's own pastures first, with head, then everything else. Cattle do
+    // get worked somewhere they do not live, so this narrows without blocking.
+    function docEntryPastureOptions(lotId, selected) {
+        const own = docEntryPasturesByLot[lotId] || [];
+        const ownIds = new Set(own.map(p => p.pasture_id));
+        const sel = v => v === (selected || '') ? ' selected' : '';
+        let html = `<option value=""${sel('')}>— Not recorded —</option>`;
+        if (own.length) {
+            html += `<optgroup label="This lot">` + own.map(p =>
+                `<option value="${escapeHtml(p.pasture_id)}"${sel(p.pasture_id)}>` +
+                `${escapeHtml(p.label)} (${p.head} hd)</option>`).join('') + `</optgroup>`;
+        }
+        const others = docEntryAllPastures.filter(p => !ownIds.has(p.id));
+        if (others.length) {
+            html += `<optgroup label="Elsewhere">` + others.map(p =>
+                `<option value="${escapeHtml(p.id)}"${sel(p.id)}>${escapeHtml(p.label)}</option>`).join('') + `</optgroup>`;
+        }
+        return html;
+    }
     let docEntryCurrentAction = null; // selected action object
 
     async function initDoctoringEntry() {
@@ -16039,14 +16100,51 @@ ${ranchBlocks}
             } else {
                 const keep = pastureSel.value;
                 pastureSel.innerHTML = '<option value="">— Not recorded —</option>';
-                (pastureRows || []).forEach(pr => {
+                docEntryAllPastures = (pastureRows || []).map(pr => ({
+                    id: pr.id,
+                    label: `${pr.ranches ? pr.ranches.name + ' - ' : ''}${pr.name}`
+                }));
+                docEntryAllPastures.forEach(p => {
                     const opt = document.createElement('option');
-                    opt.value = pr.id;
-                    opt.textContent = `${pr.ranches ? pr.ranches.name + ' - ' : ''}${pr.name}`;
+                    opt.value = p.id;
+                    opt.textContent = p.label;
                     pastureSel.appendChild(opt);
                 });
                 if (keep) pastureSel.value = keep;
             }
+        }
+
+        // Where each open lot actually has cattle standing, so a row's pasture
+        // list leads with the pastures that make sense for that row's lot.
+        // Not a restriction - cattle get worked in pens and traps that are not
+        // the pasture they live in - so everything else is still offered
+        // underneath.
+        {
+            const PAGE = 1000;
+            let rows = [], from = 0;
+            for (;;) {
+                const res = await supabase
+                    .from('lot_pasture_assignments')
+                    .select('lot_id, pasture_id, head_count, pastures!inner(name, ranches(name))')
+                    .is('moved_out', null)
+                    .order('id', { ascending: true })
+                    .range(from, from + PAGE - 1);
+                if (res.error) { console.warn('per-lot pasture cache failed:', res.error); break; }
+                rows = rows.concat(res.data || []);
+                if (!res.data || res.data.length < PAGE) break;
+                from += PAGE;
+            }
+            docEntryPasturesByLot = {};
+            rows.forEach(r => {
+                if ((Number(r.head_count) || 0) <= 0) return;
+                (docEntryPasturesByLot[r.lot_id] = docEntryPasturesByLot[r.lot_id] || []).push({
+                    pasture_id: r.pasture_id,
+                    label: `${r.pastures?.ranches?.name || '?'} - ${r.pastures?.name || '?'}`,
+                    head: Number(r.head_count) || 0
+                });
+            });
+            Object.values(docEntryPasturesByLot).forEach(list =>
+                list.sort((a, b) => a.label.localeCompare(b.label)));
         }
 
         // Full medication data including dose rules
@@ -16338,6 +16436,7 @@ ${ranchBlocks}
             lot_number: match.lot_number,
             weight,
             usedFallback,
+            pasture_id: defaultPastureForLot(match.lot_id),
             meds
         });
         renderDocEntryRows();
@@ -16361,9 +16460,9 @@ ${ranchBlocks}
             return;
         }
 
-        const headers = ['Tag', 'Lot', 'Wt (lb)']
+        const headers = ['Tag', 'Lot', 'Pasture', 'Wt (lb)']
             .concat(medSlots.map(m => escapeHtml(m.name)))
-            .concat(['', '']);
+            .concat(['']);
         const headerHtml = headers.map(h => `<th>${h}</th>`).join('');
 
         const rows = docEntryRows.map((row, idx) => {
@@ -16375,9 +16474,13 @@ ${ranchBlocks}
                 const overridden = medOnRow && medOnRow.dose_overridden;
                 return `<td><input type="number" class="docEntryRowDose" data-idx="${idx}" data-medid="${m.id}" value="${doseVal !== null && doseVal !== undefined ? doseVal : ''}" step="0.5" min="0" style="width: 60px; font-size: 13px; padding: 4px 6px; ${overridden ? 'background: #fff8e6;' : ''}" placeholder="cc"></td>`;
             }).join('');
+            const pastureCell = `<select class="docEntryRowPasture" data-idx="${idx}" ` +
+                `style="font-size: 12px; padding: 3px 5px; max-width: 190px;">` +
+                `${docEntryPastureOptions(row.lot_id, row.pasture_id)}</select>`;
             return `<tr>
                 <td><strong>${row.tag}</strong></td>
                 <td>${lotCell}</td>
+                <td>${pastureCell}</td>
                 <td>${weightCell}</td>
                 ${medCells}
                 <td style="text-align: right;"><button type="button" class="docEntryRowDelete" data-idx="${idx}" style="padding: 2px 8px; color: var(--danger);">×</button></td>
@@ -16394,6 +16497,11 @@ ${ranchBlocks}
         `;
 
         // Wire events
+        container.querySelectorAll('.docEntryRowPasture').forEach(sel => {
+            sel.addEventListener('change', () => {
+                docEntryRows[parseInt(sel.dataset.idx)].pasture_id = sel.value || null;
+            });
+        });
         container.querySelectorAll('.docEntryRowDelete').forEach(btn => {
             btn.addEventListener('click', () => {
                 docEntryRows.splice(parseInt(btn.dataset.idx), 1);
@@ -16456,7 +16564,7 @@ ${ranchBlocks}
         const dateStr = $('docEntryDate').value;
         const actionId = $('docEntryAction').value;
         const notes = $('docEntryNotes').value.trim() || null;
-        const batchPastureId = $('docEntryPasture').value || null;
+        const batchPastureId = $('docEntryPasture').value || null;   // fallback only
 
         if (!dateStr) {
             showAlert('doctoringEntryAlert', 'Date is required.');
@@ -16510,7 +16618,9 @@ ${ranchBlocks}
                         no_tag: false,
                         event_datetime: eventDatetime,
                         field_action_id: actionId,
-                        pasture_id: batchPastureId,
+                        // Each row carries its own pasture now; the batch picker
+                        // only seeds them, so a row that was changed wins.
+                        pasture_id: row.pasture_id || batchPastureId,
                         notes: notes,
                         recorded_by_user_id: currentUser.id
                     })

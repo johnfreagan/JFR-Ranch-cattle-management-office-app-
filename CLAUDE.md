@@ -429,6 +429,22 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
   back with 6. Fixed 2026-08-25. Any new reversal RPC: test it against a lot
   whose assignment the event closed outright, not just a partial one.
 - Load-out saves hard-block duplicates (same lot + date + head + tag range).
+- **Deleting a move REVERSES it** through `delete_move_event` (fixed
+  2026-08-26). It used to raw-delete the `lot_movements` row and warn that
+  pasture counts would not change, which left the audit trail and the actual
+  inventory disagreeing — and is exactly what the rule above forbids. The RPC
+  had existed the whole time and was only being called by the approvals
+  rollback. It removes the destination row when the move created it (rather
+  than decrementing to zero) and reopens the source when the move closed it.
+- **Bulk doctoring entry carries a pasture PER TAG** (`doctoring_events.
+  pasture_id`, which already existed). The batch picker now seeds every row
+  rather than being the stored value; a row changed afterwards wins. A row's
+  list leads with the pastures its own lot actually occupies, then offers the
+  rest — cattle do get worked in pens they do not live in, so it narrows
+  without blocking.
+- Medication deactivation already works: `medications.is_active`, a "Show
+  inactive" toggle on the list, and every doctoring picker filters to active.
+  Deactivating hides a med everywhere without losing it or its history.
 - Historical scar tissue exists from pre-hardening eras; old lots may carry
   reconciliation notes. Read row notes before "fixing" anything.
 
