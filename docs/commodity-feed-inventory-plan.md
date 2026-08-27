@@ -10,6 +10,13 @@ costed. Usage comes out of **Performance Beef**; purchases and postings tie to
 *export* report (app hands you postings, Redwing stays the books) · cost lands
 **per lot, daily** · mineral is **the same module** with a different
 destination.
+**Added by John the same day:** some bulk feed goes into **bulk feeders
+standing in pastures**; feed is expected to be **entered weekly and charged to
+lots by commodity**; pasture-level tracking is open for debate. My answers to
+all three are in "Bulk feeders" and "Tracking by pasture" below — short
+version: charge feeders at fill, carry a period on every usage row so a weekly
+ticket spreads across the head-days it belongs to, and capture pasture
+wherever it comes free while requiring it nowhere.
 
 ---
 
@@ -18,11 +25,12 @@ destination.
 ```
 purchases  →  feed_receipts  ────────── FIFO layers (qty_remaining, unit cost)
                     │
-Performance Beef ──▶ feed_usage ──▶ feed_usage_costs   (frozen $ per layer slice)
-   (CSV import)          │
+weekly entry ───────▶ feed_usage ──▶ feed_usage_costs   (frozen $ per layer slice)
+PB import (later)        │  carries a PERIOD, not just a date
                          ├─▶ destination = LOT      → lot feed cost, $/hd/day
                          └─▶ destination = PASTURE  → split to lots by head-days
-                                                       (this is how mineral rides)
+                                                       (mineral and bulk feeders
+                                                        both ride this path)
 physical counts →  feed_counts → variance → adjustment usage rows
                                                        │
                                               feed accounting report → Redwing
@@ -83,7 +91,12 @@ Seven tables, three of them small. All `security_invoker` views, all RLS'd,
 ### `feed_storage_locations` — bays, barns, pallets
 
 `ranch_id` → `ranches`, `name`, `kind` (`bay` \| `barn` \| `pallet` \|
-`pasture_feeder`), `is_bulk`, `capacity_lb`, `is_active`.
+`bulk_feeder`), `pasture_id` (set for `bulk_feeder`, null otherwise),
+`is_bulk`, `capacity_lb`, `is_active`.
+
+A **bulk feeder standing in a pasture is a location**, and that one fact is
+what makes bulk feed and mineral behave the same way — see "Bulk feeders"
+below.
 
 Bays are locations, not items. Corn in Bay 2 and corn in Bay 5 are the same
 item at two locations and FIFO runs **per (item, location)** — see "FIFO
@@ -106,10 +119,19 @@ scope".
 
 ### `feed_usage` — the ledger. One row per feed-out, adjustment or transfer.
 
-`usage_date`, `item_id`, `from_location_id`, `destination_type`
-(`lot` \| `pasture` \| `adjustment` \| `transfer`), `lot_id`, `pasture_id`,
-`to_location_id`, `qty_lb`, `source` (`pb_import` \| `manual` \| `count` \|
-`correction`), `pb_row_key`, `reason`, `notes`, audit columns.
+`usage_date`, `period_start`, `period_end`, `item_id`, `from_location_id`,
+`destination_type` (`lot` \| `pasture` \| `adjustment` \| `transfer`),
+`lot_id`, `pasture_id`, `to_location_id`, `qty_lb`, `source`
+(`pb_import` \| `manual` \| `count` \| `correction`), `pb_row_key`, `reason`,
+`notes`, audit columns.
+
+- **`period_start` / `period_end` exist because feed is entered weekly.** A
+  ticket dated Friday for the week's corn is not a Friday cost. Charging it on
+  one date hands a lot that shipped Wednesday two days of feed it never ate,
+  and hands the lot that arrived Thursday a week of it. The cost spreads
+  across the period's head-days, which is the same reason the app writes one
+  `sales` row per lot per DAY instead of collapsing a multi-day sheet onto the
+  settlement date. A single-day entry just sets both to `usage_date`.
 
 - `pb_row_key` is **UNIQUE and is an UPSERT key, not a duplicate check** —
   same lesson as `(entry_type, client_id)` on `pending_field_entries`. Re-
@@ -180,6 +202,70 @@ feedyard does; it is worth saying out loud so nobody tries to make the layers
 
 ---
 
+## Bulk feeders: filling is not feeding
+
+Some bulk commodity goes into **self-feeders standing in pastures**. That
+breaks the tidy "bay → pen" picture in a way worth being explicit about,
+because the same wrinkle is what mineral has: the feed leaves the bay days
+before the cattle eat it.
+
+Three ways to handle it:
+
+- **A. Charge at fill.** A load out of the bay into feeder F is usage, dated
+  the fill, destination = F's pasture. Feeders hold no book inventory.
+- **B. Feeder as a stocked location.** Fill is a `transfer` (bay layers → a
+  feeder layer at the transferred cost); consumption out of the feeder is a
+  separate usage row, either estimated weekly or backed out at the next fill
+  ("topped off 1,800 lb, so 1,800 lb was eaten"). Feeders get counted like
+  bays.
+- **C. Feeder as a location, but charged at fill anyway** — fill writes the
+  transfer *and* the consumption in one action, and the feeder's book balance
+  is only ever used for a count.
+
+**My vote: A now, B later, and build the schema so the upgrade is free.**
+`feed_storage_locations.kind = 'bulk_feeder'` with a `pasture_id` exists from
+Phase 1 whichever way this goes; option A simply never leaves inventory
+sitting in one. A week's lag between filling a feeder and cattle eating it is
+real, but it is a timing error inside a single lot's own feed cost, and it
+washes out over a 200-day lot. B buys accuracy that only starts mattering if
+you want a feeder's on-hand at a fiscal-year close, or if a feeder is filled
+and then the pasture is emptied. If either of those becomes a live question,
+B is one `transfer` row away.
+
+The fill itself is a scale ticket or a counted number of augers, so the pounds
+are as good as any other number in this module.
+
+---
+
+## Tracking by pasture: worth it, and nearly free
+
+You flagged this as a debate. My read: **capture pasture on every row you can,
+require it on none.**
+
+The cost is close to zero, because in three of the four cases the pasture
+comes along for free:
+
+- Bulk feeder → the feeder's location already carries `pasture_id`.
+- Mineral → the put-out *is* a pasture event; there is no lot in the fact.
+- Bunk-fed pen → pasture is whatever the lot is standing on, already in
+  `lot_pasture_assignments`.
+- Commodity charged straight to a lot with no location in the story → pasture
+  is genuinely unknown, and the column stays null.
+
+The payoff is the one you named: **cost of gain that drills down.** Feed by
+pasture, against head-days by pasture and acres by pasture, answers questions
+COG-per-lot cannot — which pastures are carrying cattle cheaply, what a bulk
+feeder actually costs against grass alone, whether the crop ground pays. It is
+also *required*, not optional, for any usage aimed at a pasture holding more
+than one lot; five pastures are in that position today and Steele / Front
+Native has 416 head across two, so the split has to happen regardless.
+
+The one thing to avoid: making pasture **mandatory** on lot-destination rows.
+That turns a weekly entry screen into a guessing game on exactly the rows
+where the answer is unknown, and a guessed pasture is worse than a null one.
+
+---
+
 ## Going short: allowed, flagged, never blocked
 
 A bulk bay is an estimate. PB will report feeding 6,000 lb out of a bay the
@@ -236,12 +322,18 @@ All `WITH (security_invoker = true)`.
   come from **`lot_head_days_by_month`, the VIEW** — never
   `lot_head_days(uuid,date)`, which anchors on invoice dates and read 29% low
   on 36-27. Cattle eat from the day they hit the ground.
-- `lot_feed_daily` — lot × day, for the Closeout projection's burn rate.
+- `lot_feed_daily` — lot × day. **This is where a weekly row gets spread**:
+  each usage's dollars are divided over the head-days inside
+  `[period_start, period_end]` and land on the days the cattle were actually
+  there. It feeds the Closeout projection's burn rate.
 - `pasture_feed_allocation` — pasture-destination usage split to the lots
-  standing there **by head-days on the usage date**, largest-remainder so the
-  parts sum exactly. Five pastures currently hold more than one lot; Steele /
-  Front Native has 416 head across two. Mineral put out on a shared pasture is
-  the normal case, not the edge case.
+  standing there **by head-days across the usage's period**, largest-remainder
+  so the parts sum exactly. Five pastures currently hold more than one lot;
+  Steele / Front Native has 416 head across two. Mineral and a bulk feeder on
+  a shared pasture are the normal case, not the edge case.
+- `pasture_feed_costs` — feed and mineral by pasture: total $, `$/hd/day`,
+  `$/acre`, and the lots it split to. The drill-down that makes pasture-level
+  capture worth doing.
 - `pasture_mineral_costs` — mineral only, by pasture and by lot, `$/hd/day`.
 - `feed_count_variance` — book vs counted, by location and item, with `method`
   carried through.
@@ -259,6 +351,13 @@ whole extra day of head-days every evening after 7pm Central.
 **Blocked on one thing: a sample export.** I need one real file before writing
 a parser — column names, date format, whether pens repeat, and the question
 below.
+
+**Weekly entry demotes this from prerequisite to accelerator.** If feed is
+keyed once a week by commodity and lot, the manual screen in Phase 2 is the
+real workflow and it is perhaps fifteen minutes a week. The import is worth
+building when the file exists and worth skipping if PB's export fights us —
+which is a much better position than a module that cannot open until an
+integration works.
 
 ### The question the sample answers
 
@@ -398,8 +497,8 @@ Each ships on its own and is useful on its own. Nothing here is a big-bang.
 | # | what | ships | blocked on |
 |---|---|---|---|
 | **1** | Schema, RLS, `feed_items`, `feed_storage_locations`, `feed_receipts`, `feed_on_hand`. Feed tab with Items / Locations / Receipts / Inventory. | Inventory value on hand, by bay, FIFO-layered. | nothing |
-| **2** | `post_feed_usage` + `delete_feed_usage` + manual usage entry. Counts screen + `post_feed_count` + variance report (printable count sheet). | Books that move, and a count that squares them. | 1 |
-| **3** | PB import: `pb_pen_map`, parser, preview, `import_pb_usage`. Ration recipes if the export needs them. | The daily data stops being typed. | **a sample PB export** |
+| **2** | `post_feed_usage` + `delete_feed_usage` + the **weekly entry screen** (a grid: commodity × lot, pounds, one period). Counts screen + `post_feed_count` + variance report (printable count sheet). | Books that move, a week keyed in minutes, and a count that squares them. | 1 |
+| **3** | *Accelerator, not a prerequisite.* PB import: `pb_pen_map`, parser, preview, `import_pb_usage`. Ration recipes if the export needs them. | The weekly keying stops. | **a sample PB export** |
 | **4** | `lot_feed_costs`, `lot_feed_daily`, `pasture_feed_allocation`, mineral $/hd/day. Closeout integration per the decision above. | Actual cost of gain. The point of all of it. | 2, and the A/B/C call |
 | **5** | Redwing accounting report, both modes. | Postings you copy instead of key. | 2 |
 | **6** | *Optional.* Field app mineral put-out → `pending_field_entries` → Approvals. Receipt attachments. | The cowboy records the sacks. | 3, 4 |
@@ -426,6 +525,9 @@ another module.
 4. **`pb_row_key` is an upsert key, not a duplicate check.**
 5. **Head-days come from `lot_head_days_by_month`**, the view, never the
    function.
+5b. **A weekly usage row spreads over its period, it does not land on its
+   date.** A lot that shipped Wednesday must not be charged Thursday and
+   Friday's corn. Same rule as one `sales` row per lot per DAY.
 6. **`ranch_today()`, never `CURRENT_DATE`**, and `ranchToday()` in the app.
 7. **Check `error` on every read.** A `lot_status` read keyed on `id` instead
    of `lot_id` returns undefined data and the code quietly does nothing —
@@ -445,16 +547,20 @@ another module.
 
 ## What I need from you to start
 
-1. **A Performance Beef export.** Any real day or week. This is the only hard
-   blocker, and it decides whether Phase 3 is small or medium.
-2. **The COG split** — of ~$0.75/hd/day, how much is feed? (Option C above.)
-3. **The bay list**: which bays exist, at which ranch, and roughly what each
-   holds.
-4. **How a bay gets estimated** — depth and width off a known density, or an
+1. **The COG split** — of ~$0.75/hd/day, how much is feed? (Option C above.)
+   This is the only answer Phase 4 cannot be built without.
+2. **The bay and feeder list**: which bays exist and at which ranch, and which
+   pastures have bulk feeders. Typed into the app once the screen exists, so
+   it does not hold up Phase 1.
+3. **How a bay gets estimated** — depth and width off a known density, or an
    eyeball in tons? It decides whether the count screen asks for measurements
    or a number.
-5. **Whether mineral put-out is in PB at all.** If not, Phase 6 stops being
-   optional sooner than the table above suggests.
+4. **A Performance Beef export**, when convenient. No longer a blocker now
+   that weekly entry is the expected workflow — it decides whether Phase 3
+   happens at all, not whether the module opens.
+5. **Whether mineral put-out and feeder fills are in PB at all.** If not,
+   both are keyed on the weekly screen, and Phase 6 (the cowboy records the
+   sacks in the field app) stops being optional sooner than the table above
+   suggests.
 
-Phase 1 does not wait on any of it except the bay list, and that can be typed
-in the app once the screen exists.
+Phases 1 and 2 wait on none of it.
