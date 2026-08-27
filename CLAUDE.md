@@ -611,7 +611,9 @@ closes it early.
 6. Commodity feed & mineral inventory — **phases 1-2 built 2026-08-27**
    (catalog, bays, FIFO layers, on-hand, the usage ledger with atomic
    consumption and reversal RPCs, and physical counts). See the section above
-   and `docs/commodity-feed-inventory-plan.md`. Remaining: phase 3 PB import,
-   phase 4 cost-of-gain surfaces, phase 5 Redwing export.
+   and `docs/commodity-feed-inventory-plan.md`. Remaining: premix batches
+   (designed 2026-08-27, not built — many-in-one-out into the premix's own
+   bay; the ration gets no bay because it is mixed and fed the same day),
+   phase 3 PB import, phase 4 cost-of-gain surfaces, phase 5 Redwing export.
 Also parked: breakeven budget-vs-actual, bottle inventory, lot comparison
 report, weather integration.

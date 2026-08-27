@@ -563,6 +563,107 @@ and it is cheap to make impossible.
 
 ---
 
+## Premix batches (designed 2026-08-27, not built)
+
+A premix is a blend of commodities mixed into its own bay, then fed over the
+next day or several. John, 2026-08-27: *"Premixes are made and possibly fed
+that day or over several days. I would say needs its own bay. Not using
+premixes at this time but would like to build this as we finish up this
+module."*
+
+### The mechanism: many in, one out
+
+```
+inputs: N commodities, FIFO-consumed from their bays   →  frozen $ per layer
+                          ↓  sum the dollars
+output: ONE new layer for the premix item, in the premix's own bay
+                          ↓
+the premix is now an ordinary item — feeding it uses the existing path
+```
+
+This is the existing `transfer` generalised from one-in-one-out to
+many-in-one-out. **Nothing about costing changes.** Cost still freezes at
+consumption, FIFO still runs per (item, location), and the premix becomes an
+ordinary item whose cost basis happens to come from other items. There is no
+second costing path to keep in sync — which is the entire reason to shape it
+this way rather than as a special "manufacturing" concept.
+
+It is also **recursive by construction**: a batch's output is an item, so a
+batch can consume another batch's output if that ever becomes necessary.
+
+### The ration does NOT get a bay; the premix does
+
+Settled 2026-08-27. The premix is stored and drawn down over days, so it needs
+a bay and real inventory. The ration is mixed and fed the same day, so it is
+simply a **multi-line feed-out** — premix plus whatever else — which the
+Feed Out sheet already does. Building ration inventory would mean a bay that
+is filled and emptied within a day, reconciled forever, for no number anyone
+reads.
+
+This also matches what PB reports: the 2026-08-27 group invoice lists
+commodities per group with no ration name anywhere.
+
+### Recipes: stored and fixed, but they only PRE-FILL
+
+John asked for a fixed formula per premix. Implemented as: `feed_recipes` +
+`feed_recipe_lines` hold the formula, the batch screen pre-fills from it, and
+**the actual weights are what get saved and frozen onto the batch.**
+
+That is not a softening of the requirement, it is what "fixed formula" has to
+mean mechanically. A recipe consulted at read time would mean editing it next
+spring silently rewrites what every batch since January was made of — the
+protocol trap exactly, in feed form. The formula stays authoritative for what
+is about to be mixed; the batch record stays authoritative for what was mixed.
+
+### Yield: output = sum of inputs (John's call)
+
+Chosen 2026-08-27 against the recommendation to weigh the output. Simpler, and
+the batch always balances by construction.
+
+**The cost of that choice, recorded so it is not a surprise later:** real
+spillage and moisture loss inflate on-hand premix, permanently, and surface as
+mystery shrink at count time rather than as a known yield. The physical count
+on the premix bay is the backstop.
+
+`feed_batches.output_qty_lb` is therefore stored as a real column that
+*defaults* to the sum of inputs rather than being derived. The day a batch is
+weighed for real, it is a form field and not a migration.
+
+### Schema
+
+Small — one table, one enum value, two columns:
+
+- `feed_batches` — `batch_date`, `output_item_id`, `output_location_id`,
+  `output_qty_lb`, `recipe_id` (nullable), `notes`, audit columns.
+- `feed_usage.destination_type` gains `'batch'`, with `batch_id` grouping the
+  input rows.
+- `feed_receipts.from_batch_id` + `source = 'batch_out'`, mirroring the
+  `from_usage_id` that transfers already use.
+- `feed_recipes` / `feed_recipe_lines` for the pre-fill.
+
+`make_feed_batch()` and `delete_feed_batch()`, INVOKER and atomic like every
+other RPC here. The reversal is symmetric and refuses if any of the premix has
+already been fed — the same posture as `delete_feed_receipt`.
+
+### Two hazards to build against
+
+- **Double-counting.** Once premix is a real item, a feed-out must record the
+  *premix* going to cattle, never the premix **and** its ingredients. The
+  ingredients were consumed when the batch was made. Needs a guard, because
+  the money still allocates and nothing looks wrong.
+- **The batch is the missing receipt side.** RTU Silage Premix 2025 sits at
+  **−1,109,171 lb** in PB and RTU Silage Tran 1 at −29,918 — two of the four
+  negatives on the 2026-08-27 inventory screen, and both premixes. That is PB
+  feeding something it was never told was made. This mechanism is what stops
+  that recurring; it does not retroactively fix the existing hole, which is a
+  physical count.
+
+Entry is by hand for now. John is pushing PB for an API or an export; the
+importer, if it ever exists, calls `make_feed_batch()` rather than
+reimplementing it — same posture as the feed-out sheet.
+
+---
+
 ## Redwing accounting report
 
 Modelled directly on **Sales → Accounting Report**, which already works and
