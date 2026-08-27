@@ -474,6 +474,72 @@ sections; it must not assume one header row and uniform columns.
 7. Post through `import_pb_usage` in one transaction. Partial failure unwinds,
    same posture as approvals batches.
 
+### If PB opens up: what to ask for, and what each answer costs us
+
+John is calling PB (2026-08-28) to ask for an API, or failing that a CSV that
+breaks feed out **per pasture**. His own odds: a coin flip. Planning notes so
+the call is productive and so neither answer strands us.
+
+**What to actually ask for, in their words.** The useful request is narrow:
+
+> A scheduled or on-demand export of **pounds fed, per pen, per commodity,
+> per day** (or per date range), as CSV. As-fed pounds — not dry matter, and
+> we do not need your cost columns.
+
+Pen-level is the whole ask. PB already knows the pens (`Corner 1, 2, 3, 4, 7,
+9, 8` are our pastures under our own names), it simply rolls them up before
+printing. Asking for "per pasture" will not mean anything to them; asking for
+the pen breakdown they already hold might.
+
+Per-day rather than per-range is worth asking for as well — it makes the
+overlap trap above impossible and lets the cost land on the exact days the
+cattle were standing there, instead of being spread across a period.
+
+**If they give an API, the office app still cannot call it.** `index.html` is
+a static page on GitHub Pages with a publishable key in the source; that is
+fine for Supabase behind RLS and completely unfine for a third-party API
+credential, which would be readable by anyone who views source. An API
+integration therefore needs a server-side holder:
+
+- A **Supabase Edge Function** with the PB credential in project secrets,
+  called by the app or on a schedule, writing into `feed_usage` through the
+  same `import_pb_usage` RPC the file import uses.
+- That is the first server-side component this project would have. It is not
+  large, but it is a genuinely new moving part — deploy step, secret rotation,
+  a log to read when it fails quietly at 3am. Budget a couple of days, not an
+  afternoon, and note the CLI-migration reconciliation in "Migrations" would
+  finally have to happen.
+
+**Either way the ingest path is the same.** File import and API both land on
+`import_pb_usage`. Nothing above this line changes based on which one we get,
+which is the point of building the RPC first and the transport second.
+
+**If they give nothing, nothing is lost.** The weekly entry screen in Phase 2
+is the hedge and it was always the primary path — eight commodity rows per
+group, a couple of minutes a week. A coin flip on a vendor integration is
+exactly the reason this office program exists in the first place.
+
+### Can Cowork pull the reports out of PB? No.
+
+Asked 2026-08-27. Worth writing down so it does not get re-litigated.
+
+- **Cowork reaches what Claude's connectors reach** — Slack, Google Drive,
+  Microsoft 365, Notion, Salesforce, Snowflake and the like. **There is no
+  Performance Beef connector**, and a custom connector needs an API on the far
+  end, which is the very thing PB may not have. No API, no connector.
+- PB's published integrations are a short, chosen list — QuickBooks, Cattle
+  Krush, Elanco, PLT — not open API access. That matches John's coin-flip read.
+- Driving PB's logged-in web UI with browser automation is not a thing to
+  build on: credentials, MFA, terms of service, and a screen layout that
+  breaks the integration whenever PB ships a release.
+
+**What Cowork is genuinely good for here** is the same thing it already does
+for the Redwing exports on roadmap item 4: once a file exists, it can reshape,
+validate and reconcile it. But if a CSV exists, the shorter path is uploading
+it straight into the Feed tab — the parser is Phase 3 either way, and adding a
+Cowork hop in between buys nothing except another place for the file to be the
+wrong version.
+
 ### Overlapping periods, not duplicate rows, are how this gets corrupted
 
 `pb_row_key` handles re-importing *the same* invoice — it upserts, so running
