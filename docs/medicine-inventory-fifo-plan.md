@@ -15,6 +15,7 @@ Decisions taken by John:
 | Go-live | **Opening count, soft target 2026-09-01**, subject to build speed. No backfill. |
 | Invoice intake | **Cowork paste or hand entry, into the same grid** (John, 2026-08-27). The grid is the screen; paste fills it, typing fills it, and either way it must tie to the invoice total before it posts. |
 | Build | **As simple as it can be and still be right** (John, 2026-08-27). One stock pool for the ranch, no transfers, five transaction types, three RPCs. |
+| Where inventory lives | **Full inventory runs in the office app** (John, 2026-08-27). Redwing is a periodic cross-check, not the authority we defer to. |
 | Redwing | **Redwing is the GL; this is the subsidiary ledger.** Date-ranged report in the Sales accounting-report format; weekly vs monthly becomes a picker, not a schema decision. |
 
 The module lives entirely in the office app (`index.html`). The field app is
@@ -338,15 +339,43 @@ un-counted for the period, rather than printing a zero that reads as "none".
 That changes the posture, and it is worth being explicit about it because two
 sets of books over the same bottles is how both end up wrong.
 
-**Redwing is the general ledger. This module is the subsidiary ledger.** Redwing
-knows dollars in and dollars out. What it cannot know is that 1.1 cc/100 lb of
-Draxxin went into lot 36-27 on a Tuesday, that the crew is running at 82% of
-theoretical, or that Thigpen drew a case and processed 441 head with it. That
-allocation and that efficiency are the whole reason this module exists, and they
-are the only things it should claim to own.
+**The full inventory runs here; Redwing is the cross-check.** Redwing stays the
+general ledger and keeps its own inventory value for the financial statements,
+but the working inventory — what is on the shelf, what came in, what got used on
+which lot — lives in the office app, and the two get compared on a schedule
+rather than one being slaved to the other.
+
+That is the right split because Redwing knows dollars in and dollars out, and
+what it cannot know is that 1.1 cc/100 lb of Draxxin went into lot 36-27 on a
+Tuesday, that the crew is running at 82% of theoretical, or that Thigpen drew a
+case and processed 441 head with it.
+
+### Comparing the two — quantities first, then value
+
+**A quantity difference and a value difference are different diagnoses and the
+report must not blur them.**
+
+- **Quantities disagree** → something is genuinely missing on one side. An
+  invoice entered in one system and not the other, a usage never recorded, a
+  count posted here and not there. Real, and someone has to go find it.
+- **Quantities agree but values do not** → that is the costing method, and it is
+  expected, not an error. If Redwing costs at average or standard and we cost at
+  FIFO, the same bottles carry two different values *by construction*.
+
+So the comparison shows both columns side by side and labels the second one for
+what it is. A value gap presented as an exception sends somebody out to count
+bottles that are all there.
+
+**Phase 1 prints our valuation in Redwing's item order** — that is enough to
+compare by eye or in a spreadsheet, and it is nearly free. A paste box that takes
+Redwing's own export and renders the side-by-side is a small follow-on, and it
+waits until the actual Redwing report is in hand tomorrow so it is built against
+the real columns rather than a guess.
 
 So, provisionally, until the reports land:
 
+- **`med_roll_forward` carries the costing difference as its own line**, so it
+  is never mistaken for shrink.
 - **The report almost certainly does not post purchases.** If the vet-supply
   invoice already enters Redwing through AP, a purchase row set here books the
   same invoice twice. Usage allocation and inventory adjustment are what Redwing
@@ -385,6 +414,71 @@ adjustments. Four things answer everything still open:
 
 ---
 
+## The count sheet and the monthly reconcile
+
+The count is the only thing in this design that produces a shrink number, so
+it gets a real workflow rather than a form. Two halves: a sheet you carry into
+the medicine room, and a screen you key it back into.
+
+### The sheet
+
+Printed from **On hand**, one line per medication, ordered by category and name
+so you walk the shelf once. Two write-in columns, because that is how counting
+actually goes:
+
+```
+Medication            Unit    Full bottles ____   Open bottle ____
+Draxxin               500 mL  ________________    ____________ mL
+Ultrachoice 8         250 ds  ________________    ____________ ds
+```
+
+**Full bottles and the open one are counted separately.** A 500 mL bottle
+half used is 250 units of real inventory, and a sheet with one box forces the
+counter to do arithmetic on a clipboard — which is where the error gets made.
+The app does the multiplication.
+
+**My vote: the printed sheet does NOT show the expected quantity by default.**
+A number printed on the sheet is a number that gets copied down, and a count
+that agrees with the system because the system was printed on it finds no
+shrink at all — which is the entire point of counting. So: a **"show expected"
+checkbox, defaulting OFF**, for when the sheet is being used to chase a known
+discrepancy rather than to take a clean count. Expected **value** is on the
+screen and on the variance report either way; it is the expected *quantity* that
+biases the count.
+
+Overrule this if you want the expected column printed — it is a checkbox either
+way, and it is your count.
+
+### Entering it
+
+The entry screen mirrors the sheet exactly: same order, same two columns. Type
+what was written, leave untouched meds blank (blank means "not counted", which
+is not the same as zero — a blank must never post an adjustment writing the
+stock to nothing).
+
+Then, before anything posts:
+
+| | |
+|---|---|
+| **Expected** | units the ledger says should be there |
+| **Counted** | full bottles × bottle size + the open bottle |
+| **Variance** | units, and dollars at FIFO cost |
+
+**The variance is shown and has to be looked at before posting.** Posting writes
+one `adjustment` txn per non-zero line, `reason = 'count'`, and those adjustments
+are the month's shrink.
+
+### What it covers
+
+The count covers the **Ranch** location. A buyer's shelf is on his place and
+cannot be counted from here — buyer balances reconcile through
+`med_efficiency` against head processed instead, which is what that report is
+for.
+
+Cadence is monthly, and mandatory at 6/30 for the fiscal year close.
+
+---
+
 ## Reports
 
 All views `WITH (security_invoker = true)`, no exceptions.
@@ -415,11 +509,12 @@ crew never sees it. Sub-tabs:
 2. **Purchases** — attach the invoice PDF, paste from Cowork or type the lines,
    tie, post
 3. **Checkouts** — person, med, bottles, date. Four fields.
-4. **Counts** — the screen lists every med with its system quantity; type what
-   you counted, leave the rest blank, see the variance, post
+4. **Counts** — print the count sheet, walk the room, key the two columns back
+   in, look at the variance, post. Blank means not counted, never zero.
 5. **Efficiency** — crew by person, buyers by name
-6. **Reports** — the Redwing report and the roll-forward; print landscape and
-   PDF through the existing `sharePdfFile()` path
+6. **Reports** — the Redwing report, the roll-forward, and our valuation in
+   Redwing item order for the monthly comparison; print landscape and PDF
+   through the existing `sharePdfFile()` path
 
 ---
 
@@ -435,9 +530,10 @@ Note the first fiscal year of inventory is a partial one: FY 2027 runs
 2026-07-01 to 2027-06-30, so its roll-forward opens on the 9/1 count rather than
 on zero. The report should say so on its face, or the year looks short.
 
-Tables, RLS and policies, RPCs, views, the Inventory tab. Purchases with the
-paste-and-tie importer, checkouts, transfers, counts, shrink, on-hand value,
-the Redwing report, and both efficiency reports.
+Tables, RLS and policies, RPCs, views, the Inventory tab. Purchases (Cowork paste or
+hand entry), checkouts, the count sheet and the monthly reconcile, shrink,
+on-hand value, the Redwing report, the valuation in Redwing item order, and both
+efficiency reports.
 
 `doctoring_event_meds.cost` and `lot_processing_costs` are **not touched**.
 Inventory records usage in parallel and the two costings can be compared before
