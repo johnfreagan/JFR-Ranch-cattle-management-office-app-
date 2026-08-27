@@ -10,13 +10,14 @@ costed. Usage comes out of **Performance Beef**; purchases and postings tie to
 *export* report (app hands you postings, Redwing stays the books) · cost lands
 **per lot, daily** · mineral is **the same module** with a different
 destination.
-**Added by John the same day:** some bulk feed goes into **bulk feeders
-standing in pastures**; feed is expected to be **entered weekly and charged to
-lots by commodity**; pasture-level tracking is open for debate. My answers to
-all three are in "Bulk feeders" and "Tracking by pasture" below — short
-version: charge feeders at fill, carry a period on every usage row so a weekly
-ticket spreads across the head-days it belongs to, and capture pasture
-wherever it comes free while requiring it nowhere.
+**Added by John the same day:** feed is expected to be **entered weekly and
+charged to lots by commodity**; pasture-level tracking is open for debate. My
+answers are in "Tracking by pasture" below — short version: carry a period on
+every usage row so a weekly ticket spreads across the head-days it belongs to,
+and capture pasture wherever it comes free while requiring it nowhere.
+**Bulk feeders are out of scope** (John, 2026-08-27): they are not locations
+and the module does not model them. Bulk feed is charged to the lot like any
+other commodity.
 
 ---
 
@@ -29,8 +30,7 @@ weekly entry ───────▶ feed_usage ──▶ feed_usage_costs   (f
 PB import (later)        │  carries a PERIOD, not just a date
                          ├─▶ destination = LOT      → lot feed cost, $/hd/day
                          └─▶ destination = PASTURE  → split to lots by head-days
-                                                       (mineral and bulk feeders
-                                                        both ride this path)
+                                                       (this is how mineral rides)
 physical counts →  feed_counts → variance → adjustment usage rows
                                                        │
                                               feed accounting report → Redwing
@@ -90,13 +90,13 @@ Seven tables, three of them small. All `security_invoker` views, all RLS'd,
 
 ### `feed_storage_locations` — bays, barns, pallets
 
-`ranch_id` → `ranches`, `name`, `kind` (`bay` \| `barn` \| `pallet` \|
-`bulk_feeder`), `pasture_id` (set for `bulk_feeder`, null otherwise),
+`ranch_id` → `ranches`, `name`, `kind` (`bay` \| `barn` \| `pallet`),
 `is_bulk`, `capacity_lb`, `is_active`.
 
-A **bulk feeder standing in a pasture is a location**, and that one fact is
-what makes bulk feed and mineral behave the same way — see "Bulk feeders"
-below.
+A location is somewhere feed is **stored and counted**: a bay, a barn, a
+pallet of sacks. Nothing else. Bulk feeders standing in pastures are
+deliberately **not** locations (John, 2026-08-27) — feed leaving the bay for a
+feeder is simply usage, and no book inventory sits in the pasture.
 
 Bays are locations, not items. Corn in Bay 2 and corn in Bay 5 are the same
 item at two locations and FIFO runs **per (item, location)** — see "FIFO
@@ -202,50 +202,14 @@ feedyard does; it is worth saying out loud so nobody tries to make the layers
 
 ---
 
-## Bulk feeders: filling is not feeding
-
-Some bulk commodity goes into **self-feeders standing in pastures**. That
-breaks the tidy "bay → pen" picture in a way worth being explicit about,
-because the same wrinkle is what mineral has: the feed leaves the bay days
-before the cattle eat it.
-
-Three ways to handle it:
-
-- **A. Charge at fill.** A load out of the bay into feeder F is usage, dated
-  the fill, destination = F's pasture. Feeders hold no book inventory.
-- **B. Feeder as a stocked location.** Fill is a `transfer` (bay layers → a
-  feeder layer at the transferred cost); consumption out of the feeder is a
-  separate usage row, either estimated weekly or backed out at the next fill
-  ("topped off 1,800 lb, so 1,800 lb was eaten"). Feeders get counted like
-  bays.
-- **C. Feeder as a location, but charged at fill anyway** — fill writes the
-  transfer *and* the consumption in one action, and the feeder's book balance
-  is only ever used for a count.
-
-**My vote: A now, B later, and build the schema so the upgrade is free.**
-`feed_storage_locations.kind = 'bulk_feeder'` with a `pasture_id` exists from
-Phase 1 whichever way this goes; option A simply never leaves inventory
-sitting in one. A week's lag between filling a feeder and cattle eating it is
-real, but it is a timing error inside a single lot's own feed cost, and it
-washes out over a 200-day lot. B buys accuracy that only starts mattering if
-you want a feeder's on-hand at a fiscal-year close, or if a feeder is filled
-and then the pasture is emptied. If either of those becomes a live question,
-B is one `transfer` row away.
-
-The fill itself is a scale ticket or a counted number of augers, so the pounds
-are as good as any other number in this module.
-
----
-
 ## Tracking by pasture: worth it, and nearly free
 
 You flagged this as a debate. My read: **capture pasture on every row you can,
 require it on none.**
 
-The cost is close to zero, because in three of the four cases the pasture
-comes along for free:
+The cost is close to zero, because in two of the three cases the pasture comes
+along for free:
 
-- Bulk feeder → the feeder's location already carries `pasture_id`.
 - Mineral → the put-out *is* a pasture event; there is no lot in the fact.
 - Bunk-fed pen → pasture is whatever the lot is standing on, already in
   `lot_pasture_assignments`.
@@ -254,9 +218,9 @@ comes along for free:
 
 The payoff is the one you named: **cost of gain that drills down.** Feed by
 pasture, against head-days by pasture and acres by pasture, answers questions
-COG-per-lot cannot — which pastures are carrying cattle cheaply, what a bulk
-feeder actually costs against grass alone, whether the crop ground pays. It is
-also *required*, not optional, for any usage aimed at a pasture holding more
+COG-per-lot cannot — which pastures are carrying cattle cheaply, what a
+commodity actually costs against grass alone, whether the crop ground pays. It
+is also *required*, not optional, for any usage aimed at a pasture holding more
 than one lot; five pastures are in that position today and Steele / Front
 Native has 416 head across two, so the split has to happen regardless.
 
@@ -329,8 +293,8 @@ All `WITH (security_invoker = true)`.
 - `pasture_feed_allocation` — pasture-destination usage split to the lots
   standing there **by head-days across the usage's period**, largest-remainder
   so the parts sum exactly. Five pastures currently hold more than one lot;
-  Steele / Front Native has 416 head across two. Mineral and a bulk feeder on
-  a shared pasture are the normal case, not the edge case.
+  Steele / Front Native has 416 head across two. Mineral put out on a shared
+  pasture is the normal case, not the edge case.
 - `pasture_feed_costs` — feed and mineral by pasture: total $, `$/hd/day`,
   `$/acre`, and the lots it split to. The drill-down that makes pasture-level
   capture worth doing.
@@ -549,18 +513,16 @@ another module.
 
 1. **The COG split** — of ~$0.75/hd/day, how much is feed? (Option C above.)
    This is the only answer Phase 4 cannot be built without.
-2. **The bay and feeder list**: which bays exist and at which ranch, and which
-   pastures have bulk feeders. Typed into the app once the screen exists, so
-   it does not hold up Phase 1.
+2. **The bay list**: which bays exist and at which ranch. Typed into the app
+   once the screen exists, so it does not hold up Phase 1.
 3. **How a bay gets estimated** — depth and width off a known density, or an
    eyeball in tons? It decides whether the count screen asks for measurements
    or a number.
 4. **A Performance Beef export**, when convenient. No longer a blocker now
    that weekly entry is the expected workflow — it decides whether Phase 3
    happens at all, not whether the module opens.
-5. **Whether mineral put-out and feeder fills are in PB at all.** If not,
-   both are keyed on the weekly screen, and Phase 6 (the cowboy records the
-   sacks in the field app) stops being optional sooner than the table above
-   suggests.
+5. **Whether mineral put-out is in PB at all.** If not, it is keyed on the
+   weekly screen, and Phase 6 (the cowboy records the sacks in the field app)
+   stops being optional sooner than the table above suggests.
 
 Phases 1 and 2 wait on none of it.
