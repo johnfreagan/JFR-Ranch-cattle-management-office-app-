@@ -13,7 +13,7 @@ Decisions taken by John:
 | Crew usage | **One shared crew location, custody tracked per person.** Issues are checked out to a named crew member; a periodic count trues the location up. Nothing new for the field app. |
 | Buyer meds | **Each buyer is a stock location.** Supplier invoice receives into their account; expected usage comes from head processed × protocol. |
 | Go-live | **Opening count, soft target 2026-09-01**, subject to build speed. No backfill. |
-| Invoice intake | **Cowork reads the invoice and hands back a paste block** (John, 2026-08-27). The app attaches the PDF and takes the paste through a review grid that must tie to the invoice total. No straight-to-post parsing, ever. |
+| Invoice intake | **Cowork paste or hand entry, into the same grid** (John, 2026-08-27). The grid is the screen; paste fills it, typing fills it, and either way it must tie to the invoice total before it posts. |
 | Build | **As simple as it can be and still be right** (John, 2026-08-27). One stock pool for the ranch, no transfers, five transaction types, three RPCs. |
 | Redwing | **Redwing is the GL; this is the subsidiary ledger.** Date-ranged report in the Sales accounting-report format; weekly vs monthly becomes a picker, not a schema decision. |
 
@@ -253,10 +253,14 @@ Buyer efficiency is the same ratio with expected-from-protocol as the numerator.
 
 ---
 
-## Getting the invoice in — Cowork
+## Getting the invoice in — Cowork or by hand
 
-Purchases come in through Cowork (John, 2026-08-27), which is both the simplest
-build and the only approach that reads a *scan* well.
+**The review grid is the screen. Cowork fills it, or you type into it.** Both
+land in the same rows, tie against the same total, and post the same way — the
+paste box is just a faster way to fill a grid that always accepts typing. Which
+also means the module is never blocked on Cowork being handy: a two-line invoice
+is quicker typed, and one arriving as a clean emailed PDF may not be worth
+handing off at all.
 
 Why not have the app do it: this is one static HTML file on GitHub Pages, no
 build step, no server, four CDN libraries. Inside that, **pdf.js cannot read a
@@ -265,10 +269,11 @@ browser OCR (Tesseract, 2–4 MB of wasm) errs precisely on digits, which is the
 entire content of an invoice. Reading a scanned invoice properly takes a model,
 and the model is already in the room.
 
-So: hand the invoice to Cowork, it reads the scan and matches the products and
-returns one tab-separated block; paste that into the Purchases screen, check the
-grid, post. The PDF attaches to the purchase through `uploadAttachment()`, which
-already exists.
+So for a scanned or photographed invoice: hand it to Cowork, it reads the scan
+and matches the products and returns one tab-separated block; paste that into
+the Purchases screen, check the grid, post. For anything short, click **+ Line**
+and type it. The PDF attaches to the purchase either way through
+`uploadAttachment()`, which already exists.
 
 **The paste format is the contract**, so it is printed on the screen beside the
 box — the Cowork prompt stays stable, and the app never guesses at a layout.
@@ -281,12 +286,13 @@ Ultrachoice 8    4    189.87
 Valcor           6    150.71
 ```
 
-Name, bottles, unit price. Bottle size and the base-unit conversion come from
-`medications`; `mfr_lot_number` and `expires_on` stay optional and are usually
-left blank.
+Name, bottles, unit price — the same three fields a typed line asks for. Bottle
+size and the base-unit conversion come from `medications`; `mfr_lot_number` and
+`expires_on` stay optional and are usually left blank.
 
-**A name that does not match a medication stops and asks.** It never picks the
-closest row on its own — a med matched to the wrong catalog entry prices the
+**A pasted name that does not match a medication stops and asks** — with the
+same picker a typed line uses, so an unmatched paste degrades into hand entry
+rather than into an error. It never picks the closest row on its own — a med matched to the wrong catalog entry prices the
 wrong layer, and that error is invisible from the moment it posts.
 
 **Nothing posts straight from a parse.** Every pasted line lands in a review
@@ -406,7 +412,8 @@ New top-level **Inventory** tab, `data-perm="office"` — it is all dollars, so
 crew never sees it. Sub-tabs:
 
 1. **On hand** — one list, ranch and each buyer, with value and the flags
-2. **Purchases** — attach the invoice PDF, paste or type the lines, tie, post
+2. **Purchases** — attach the invoice PDF, paste from Cowork or type the lines,
+   tie, post
 3. **Checkouts** — person, med, bottles, date. Four fields.
 4. **Counts** — the screen lists every med with its system quantity; type what
    you counted, leave the rest blank, see the variance, post
