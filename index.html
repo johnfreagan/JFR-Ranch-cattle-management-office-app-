@@ -713,6 +713,7 @@
             <button class="nav-tab" id="navAnimalHealth">Animal Health</button>
             <button class="nav-tab" id="navSales" data-perm="office">Sales</button>
             <button class="nav-tab" id="navMoves" data-perm="office">Moves</button>
+            <button class="nav-tab" id="navInventory" data-perm="office">Inventory</button>
             <button class="nav-tab" id="navSettings">Settings</button>
             <button class="nav-tab" id="navReports">Reports</button>
             <button class="nav-tab" id="navApprovals" data-perm="office">Approvals <span id="navApprovalsCount" class="approvals-badge hidden">0</span></button>
@@ -745,6 +746,14 @@
         <div class="sub-tabs hidden" id="salesSubtabs" data-perm="office">
             <button class="sub-tab active" data-subtab="shipments">Shipments</button>
             <button class="sub-tab" data-subtab="accounting">Accounting Report</button>
+        </div>
+        <div class="sub-tabs hidden" id="inventorySubtabs" data-perm="office">
+            <button class="sub-tab active" data-subtab="onhand">On hand</button>
+            <button class="sub-tab" data-subtab="purchases">Purchases</button>
+            <button class="sub-tab" data-subtab="checkouts">Checkouts</button>
+            <button class="sub-tab" data-subtab="counts">Counts</button>
+            <button class="sub-tab" data-subtab="efficiency">Efficiency</button>
+            <button class="sub-tab" data-subtab="reports">Reports</button>
         </div>
         <div class="sub-tabs hidden" id="reportsSubtabs">
             <button class="sub-tab active" data-subtab="active-lots">Active Lots</button>
@@ -1818,6 +1827,294 @@
                     <button id="shipmentCancelBtn">Cancel</button>
                     <button id="shipmentDeleteBtn" class="hidden" data-perm="owner" style="margin-left: auto; background: var(--danger);">Delete shipment</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- ============================================================
+             INVENTORY: medicine on FIFO. Office + owner only - it is all
+             dollars, and unlike `medications` nothing in the field app
+             depends on any of these tables, so the boundary is real.
+             ============================================================ -->
+
+        <!-- ---- On hand ---------------------------------------------- -->
+        <div id="invOnHandView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>On hand</h2>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="invOnHandPrintBtn">Print count sheet</button>
+                        <button id="invOnHandRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <div class="form-grid" style="margin-bottom: 12px;">
+                    <div>
+                        <label for="invOnHandLocation">Location</label>
+                        <select id="invOnHandLocation"></select>
+                    </div>
+                    <div>
+                        <label for="invOnHandZero">
+                            <input type="checkbox" id="invOnHandZero"> Show meds with no stock
+                        </label>
+                    </div>
+                </div>
+                <div id="invOnHandContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- ---- Purchases -------------------------------------------- -->
+        <div id="invPurchasesView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Purchases</h2>
+                    <button class="primary" id="invNewPurchaseBtn">+ New purchase</button>
+                </div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    One row per supplier invoice. Each line becomes a FIFO layer priced at what
+                    was actually paid, so a later price change cannot rewrite what an earlier
+                    bottle cost.
+                </p>
+                <div id="invPurchaseListContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <div id="invPurchaseEntryView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="invPurchaseEntryTitle">New purchase</h2>
+                    <button id="invPurchaseBackBtn">Back</button>
+                </div>
+
+                <div class="form-grid">
+                    <div>
+                        <label for="invPurDate">Invoice date</label>
+                        <input type="date" id="invPurDate">
+                    </div>
+                    <div>
+                        <label for="invPurVendor">Vendor</label>
+                        <input type="text" id="invPurVendor" placeholder="Vet supply">
+                    </div>
+                    <div>
+                        <label for="invPurInvoiceNo">Invoice #</label>
+                        <input type="text" id="invPurInvoiceNo">
+                    </div>
+                    <div>
+                        <label for="invPurLocation">Received to</label>
+                        <select id="invPurLocation"></select>
+                    </div>
+                    <div>
+                        <label for="invPurTotal">Invoice total ($)</label>
+                        <input type="number" step="0.01" id="invPurTotal" placeholder="0.00">
+                    </div>
+                    <div>
+                        <label for="invPurFreight">Freight / handling ($)</label>
+                        <input type="number" step="0.01" id="invPurFreight" placeholder="0.00">
+                    </div>
+                </div>
+
+                <h4 style="margin: 18px 0 6px 0;">Paste from Cowork</h4>
+                <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
+                    Hand the invoice to Cowork and paste what it gives back. One header line, then
+                    one line per product: <strong>name &nbsp; bottles &nbsp; unit price</strong>,
+                    separated by tabs. Or skip this and use <strong>+ Line</strong> to type it.
+                </p>
+                <textarea id="invPurPaste" rows="5" style="width: 100%; font-family: monospace; font-size: 12px;"
+                          placeholder="Vet Supply&#9;2026-09-04&#9;INV-88213&#10;Draxxin&#9;2&#9;496.31&#10;Ultrachoice 8&#9;4&#9;189.87"></textarea>
+                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                    <button id="invPurParseBtn">Fill grid from paste</button>
+                    <button id="invPurAddLineBtn">+ Line</button>
+                </div>
+
+                <div id="invPurAlert"></div>
+
+                <h4 style="margin: 18px 0 6px 0;">Lines</h4>
+                <div id="invPurLines"><div class="empty">Nothing yet.</div></div>
+
+                <div id="invPurTie" style="margin-top: 14px;"></div>
+
+                <div style="display: flex; gap: 8px; margin-top: 16px;">
+                    <button class="primary" id="invPurSaveBtn">Post purchase</button>
+                    <button id="invPurCancelBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ---- Checkouts -------------------------------------------- -->
+        <div id="invCheckoutsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header"><h2>Checkouts</h2></div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    Who has what. A checkout does <strong>not</strong> move stock &mdash; the bottle
+                    is still ranch inventory, just in somebody's hand. Custody only.
+                </p>
+                <div class="form-grid">
+                    <div>
+                        <label for="invCoDate">Date</label>
+                        <input type="date" id="invCoDate">
+                    </div>
+                    <div>
+                        <label for="invCoPerson">Crew member</label>
+                        <select id="invCoPerson"></select>
+                    </div>
+                    <div>
+                        <label for="invCoMed">Medication</label>
+                        <select id="invCoMed"></select>
+                    </div>
+                    <div>
+                        <label for="invCoBottles">Bottles</label>
+                        <input type="number" step="0.25" id="invCoBottles" placeholder="1">
+                    </div>
+                </div>
+                <div id="invCoAlert"></div>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button class="primary" id="invCoSaveBtn">Record checkout</button>
+                    <button id="invCoReturnBtn">Record return</button>
+                </div>
+
+                <h4 style="margin: 22px 0 6px 0;">Outstanding by person</h4>
+                <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
+                    Fair over a month and unfair over a day: a bottle checked out by one man and
+                    finished by another runs one high and the other low until it washes out. The
+                    dollars still reconcile at the location level, because the count does not care
+                    whose hand the bottle was in.
+                </p>
+                <div id="invCustodyContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- ---- Counts ------------------------------------------------ -->
+        <div id="invCountsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Counts</h2>
+                    <button class="primary" id="invNewCountBtn">+ New count</button>
+                </div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    The count is the only thing here that produces a shrink number. Print the sheet,
+                    walk the room, key it back in, look at the variance, then post.
+                </p>
+                <div id="invCountListContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <div id="invCountEntryView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="invCountEntryTitle">New count</h2>
+                    <button id="invCountBackBtn">Back</button>
+                </div>
+
+                <div class="form-grid">
+                    <div>
+                        <label for="invCountDate">Count date</label>
+                        <input type="date" id="invCountDate">
+                    </div>
+                    <div>
+                        <label for="invCountLocation">Location</label>
+                        <select id="invCountLocation"></select>
+                    </div>
+                    <div>
+                        <label for="invCountBy">Counted by</label>
+                        <input type="text" id="invCountBy">
+                    </div>
+                    <div>
+                        <label for="invCountOpening">
+                            <input type="checkbox" id="invCountOpening"> Opening count (go-live)
+                        </label>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 8px; margin: 14px 0;">
+                    <button id="invCountPrintBtn">Print blank count sheet</button>
+                    <label style="display: flex; align-items: center; gap: 6px; font-size: 13px;">
+                        <input type="checkbox" id="invCountShowExpected"> Show expected quantity
+                    </label>
+                </div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    Expected quantity is hidden by default. A number printed on the sheet is a
+                    number that gets copied down, and a count that agrees with the system because
+                    the system was printed on it finds no shrink at all.
+                </p>
+
+                <div id="invCountAlert"></div>
+                <div id="invCountLines"><div class="empty">Pick a location.</div></div>
+                <div id="invCountSummary" style="margin-top: 14px;"></div>
+
+                <div style="display: flex; gap: 8px; margin-top: 16px;">
+                    <button id="invCountSaveDraftBtn">Save draft</button>
+                    <button class="primary" id="invCountPostBtn">Post count</button>
+                    <button id="invCountCancelBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ---- Efficiency -------------------------------------------- -->
+        <div id="invEfficiencyView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header"><h2>Efficiency</h2></div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    Doses that reached cattle, against everything that left the shelf. Note what
+                    the doses already include: <code>round_up_to</code> models the syringe setting
+                    <em>including</em> waste, so a 6.3 cc dose recorded at 7 cc has already counted
+                    its own spill. What is left over is broken bottles, expired product, over-drawn
+                    syringes &mdash; and treatments given but never written down.
+                </p>
+                <div class="form-grid" style="margin-bottom: 12px;">
+                    <div>
+                        <label for="invEffFrom">From</label>
+                        <input type="date" id="invEffFrom">
+                    </div>
+                    <div>
+                        <label for="invEffTo">To</label>
+                        <input type="date" id="invEffTo">
+                    </div>
+                    <div style="align-self: end;">
+                        <button id="invEffRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <div id="invEfficiencyContent"><div class="empty">Loading…</div></div>
+
+                <h4 style="margin: 22px 0 6px 0;">Buyers</h4>
+                <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
+                    What a buyer drew against what the cattle he processed should have got. In
+                    phase 1 nothing consumes a buyer's stock, so his balance is computed here
+                    rather than ledgered.
+                </p>
+                <div id="invBuyerContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- ---- Reports ------------------------------------------------ -->
+        <div id="invReportsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Reports</h2>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="invRepCopyBtn" title="Copy the rows as tab-separated text, ready to paste">Copy rows</button>
+                        <button id="invRepPrintBtn">Print</button>
+                    </div>
+                </div>
+                <div class="form-grid" style="margin-bottom: 12px;">
+                    <div>
+                        <label for="invRepWhich">Report</label>
+                        <select id="invRepWhich">
+                            <option value="rollforward">Roll-forward (beginning → ending)</option>
+                            <option value="valuation">Valuation, in Redwing item order</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="invRepFrom">From</label>
+                        <input type="date" id="invRepFrom">
+                    </div>
+                    <div>
+                        <label for="invRepTo">To</label>
+                        <input type="date" id="invRepTo">
+                    </div>
+                    <div>
+                        <label for="invRepLocation">Location</label>
+                        <select id="invRepLocation"></select>
+                    </div>
+                </div>
+                <div id="invReportsContent"><div class="empty">Pick a report.</div></div>
             </div>
         </div>
     </main>
@@ -5498,17 +5795,19 @@ window.addEventListener('unhandledrejection', function(e) {
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
-         'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView'].forEach(id => {
+         'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
+         'invOnHandView', 'invPurchasesView', 'invPurchaseEntryView', 'invCheckoutsView',
+         'invCountsView', 'invCountEntryView', 'invEfficiencyView', 'invReportsView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
         });
     }
     // Helper: clear active state on top nav and sub-tabs
     function clearAllNavActive() {
-        ['navLots', 'navAnimalHealth', 'navSales', 'navMoves', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
+        ['navLots', 'navAnimalHealth', 'navSales', 'navMoves', 'navInventory', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
             const el = $(id); if (el) el.classList.remove('active');
         });
-        ['animalHealthSubtabs', 'salesSubtabs', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
+        ['animalHealthSubtabs', 'salesSubtabs', 'inventorySubtabs', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
             const el = $(id); if (el) el.classList.add('hidden');
         });
     }
@@ -19475,6 +19774,1078 @@ ${ranchBlocks}
     function expandCardOnNextRender(id) {
         pendingExpandCardId = id;
     }
+
+
+    // =====================================================================
+    // INVENTORY - medicine on FIFO (phase 1)
+    // =====================================================================
+    // Migration: docs/sql/2026-08-27_med_inventory_phase1.sql
+    // Plan:      docs/medicine-inventory-fifo-plan.md
+    //
+    // Phase 1 records what came in, what went out and what is left. It does
+    // NOT change how anything is costed - doctoring_event_meds.cost keeps
+    // its frozen value and lot_processing_costs keeps deriving live. Usage
+    // is recorded here in PARALLEL so the two can be compared over a real
+    // month before either cost stream is switched over.
+    // ---------------------------------------------------------------------
+
+    let invLocations = [];      // med_stock_locations
+    let invMedsCache = [];      // active medications, for pickers and matching
+    let invUsers = [];          // for the checkout person picker
+    let invPurchaseLines = [];  // entry grid state
+    let invCountState = null;   // { id, lines: [...] } while a count is open
+    let invOnHandCache = [];    // last on-hand render, so the sheet can print it
+
+    function invTempId() { return 'i' + Math.random().toString(36).slice(2, 9); }
+    // Blank is NOT zero. Number('') is 0, and left unguarded that turns an
+    // uncounted line into a count of nothing - which would post an
+    // adjustment writing the stock to zero, the one thing the count screen
+    // must never do. It also makes an empty invoice-total box read as $0.00
+    // and "tie" against nothing.
+    function invNum(v) {
+        if (v === '' || v === null || v === undefined) return null;
+        if (typeof v === 'string' && v.trim() === '') return null;
+        const n = Number(v);
+        return isFinite(n) ? n : null;
+    }
+
+    // Bottles -> base units, using the size the CATALOG holds today. The
+    // purchase line snapshots its own bottle_size at post time, so a later
+    // catalog change cannot rewrite what was bought.
+    function invMedById(id) { return invMedsCache.find(m => m.id === id) || null; }
+
+    async function loadInvLookups(force) {
+        if (invLocations.length && invMedsCache.length && !force) return;
+        const [locRes, medRes] = await Promise.all([
+            supabase.from('med_stock_locations').select('*').eq('is_active', true).order('kind').order('name'),
+            supabase.from('medications')
+                .select('id, name, generic_category, bottle_size, bottle_size_unit, cost_per_unit, redwing_item_code')
+                .eq('is_active', true).order('generic_category').order('name')
+        ]);
+        // An RLS denial returns zero rows and not an error, so an empty list
+        // is ambiguous between not-authorized and genuinely empty. The tab
+        // is office-gated, but say which it is rather than showing "none".
+        if (locRes.error) throw locRes.error;
+        if (medRes.error) throw medRes.error;
+        invLocations = locRes.data || [];
+        invMedsCache = medRes.data || [];
+    }
+
+    function invFillLocationSelect(id, opts = {}) {
+        const el = $(id); if (!el) return;
+        const keep = el.value;
+        const list = opts.kind ? invLocations.filter(l => l.kind === opts.kind) : invLocations;
+        el.innerHTML = list.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
+        if (keep && list.some(l => l.id === keep)) el.value = keep;
+        else {
+            const ranch = list.find(l => l.kind === 'ranch');
+            if (ranch) el.value = ranch.id;
+        }
+    }
+
+    function invFillMedSelect(id) {
+        const el = $(id); if (!el) return;
+        const keep = el.value;
+        el.innerHTML = '<option value="">— pick —</option>' + invMedsCache.map(m =>
+            `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('');
+        if (keep) el.value = keep;
+    }
+
+    // ---- TAB -------------------------------------------------------------
+    async function showInventoryTab(subtab = 'onhand') {
+        hideAllViews();
+        clearAllNavActive();
+        $('navInventory').classList.add('active');
+        $('inventorySubtabs').classList.remove('hidden');
+        $('inventorySubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            b.classList.toggle('active', b.dataset.subtab === subtab);
+        });
+
+        try {
+            await loadInvLookups();
+        } catch (e) {
+            showAlert('globalAlert',
+                'Could not load inventory lookups: ' + (e.message || e) +
+                ' — if the tables are missing, apply docs/sql/2026-08-27_med_inventory_phase1.sql first.', 'error');
+            return;
+        }
+
+        if (subtab === 'onhand') {
+            $('invOnHandView').classList.remove('hidden');
+            invFillLocationSelect('invOnHandLocation');
+            loadInvOnHand();
+        } else if (subtab === 'purchases') {
+            $('invPurchasesView').classList.remove('hidden');
+            loadInvPurchases();
+        } else if (subtab === 'checkouts') {
+            $('invCheckoutsView').classList.remove('hidden');
+            initInvCheckouts();
+        } else if (subtab === 'counts') {
+            $('invCountsView').classList.remove('hidden');
+            loadInvCounts();
+        } else if (subtab === 'efficiency') {
+            $('invEfficiencyView').classList.remove('hidden');
+            initInvEfficiency();
+        } else if (subtab === 'reports') {
+            $('invReportsView').classList.remove('hidden');
+            initInvReports();
+        }
+    }
+
+    // ---- ON HAND ---------------------------------------------------------
+    async function loadInvOnHand() {
+        const locId = $('invOnHandLocation').value;
+        const showZero = $('invOnHandZero').checked;
+        $('invOnHandContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        const { data, error } = await supabase.from('med_on_hand')
+            .select('*').eq('location_id', locId).order('generic_category').order('medication_name');
+        if (error) { $('invOnHandContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
+
+        invOnHandCache = data || [];
+        const rows = invOnHandCache.filter(r => showZero || Number(r.qty_units) !== 0 || Number(r.uncovered_units) !== 0);
+        if (!rows.length) {
+            $('invOnHandContent').innerHTML = '<div class="empty">Nothing on hand here yet. Post a purchase, or take an opening count.</div>';
+            return;
+        }
+
+        const total = rows.reduce((s, r) => s + (Number(r.value_fifo) || 0), 0);
+        let html = `<table><thead><tr>
+            <th>Medication</th><th>Category</th><th class="num">Units</th><th>Unit</th>
+            <th class="num">Bottles</th><th class="num">Avg $/unit</th><th class="num">Value</th>
+            <th>Oldest</th><th>Flags</th></tr></thead><tbody>`;
+        rows.forEach(r => {
+            const flags = [];
+            if (Number(r.uncovered_units) > 0) flags.push(`<span style="color:#b45309">${fmtNum(r.uncovered_units, 1)} used with no stock</span>`);
+            if (Number(r.expired_layer_count) > 0) flags.push(`<span style="color:#b91c1c">${r.expired_layer_count} expired</span>`);
+            if (Number(r.expiring_soon_count) > 0) flags.push(`${r.expiring_soon_count} expiring &lt;60d`);
+            if (r.unpriced_in_catalog) flags.push('<span style="color:#b45309">unpriced in catalog</span>');
+            html += `<tr>
+                <td>${escapeHtml(r.medication_name)}</td>
+                <td class="muted">${escapeHtml(r.generic_category || '')}</td>
+                <td class="num">${fmtNum(r.qty_units, 1)}</td>
+                <td class="muted">${escapeHtml(r.unit || '')}</td>
+                <td class="num">${r.bottles_equiv == null ? '—' : fmtNum(r.bottles_equiv, 2)}</td>
+                <td class="num">${r.avg_unit_cost == null ? '—' : '$' + Number(r.avg_unit_cost).toFixed(4)}</td>
+                <td class="num">${fmtMoney(r.value_fifo)}</td>
+                <td class="muted">${r.oldest_layer_date || '—'}</td>
+                <td style="font-size:11px;">${flags.join(' · ') || ''}</td>
+            </tr>`;
+        });
+        html += `</tbody><tfoot><tr>
+            <th colspan="6">Total at FIFO</th><th class="num">${fmtMoney(total)}</th><th colspan="2"></th>
+        </tr></tfoot></table>`;
+        $('invOnHandContent').innerHTML = html;
+    }
+
+    // ---- PURCHASES -------------------------------------------------------
+    async function loadInvPurchases() {
+        $('invPurchaseListContent').innerHTML = '<div class="empty">Loading…</div>';
+        const { data, error } = await supabase.from('med_purchases')
+            .select('*, med_stock_locations(name), med_purchase_lines(id, qty_units, unit_cost)')
+            .order('purchase_date', { ascending: false }).limit(200);
+        if (error) { $('invPurchaseListContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
+        if (!(data || []).length) { $('invPurchaseListContent').innerHTML = '<div class="empty">No purchases yet.</div>'; return; }
+
+        let html = `<table><thead><tr><th>Date</th><th>Vendor</th><th>Invoice #</th><th>Received to</th>
+            <th class="num">Lines</th><th class="num">Lines total</th><th class="num">Invoice total</th><th></th></tr></thead><tbody>`;
+        (data || []).forEach(p => {
+            const lines = p.med_purchase_lines || [];
+            const linesTotal = lines.reduce((s, l) => s + (Number(l.qty_units) * Number(l.unit_cost)), 0);
+            const inv = Number(p.invoice_total);
+            // A purchase that no longer ties is worth seeing on the list, not
+            // only at entry - a later line edit can break what once tied.
+            const off = (p.invoice_total != null) && Math.abs(linesTotal - inv) > 0.02;
+            html += `<tr>
+                <td>${p.purchase_date}</td>
+                <td>${escapeHtml(p.vendor || '')}</td>
+                <td>${escapeHtml(p.invoice_number || '')}</td>
+                <td>${escapeHtml((p.med_stock_locations && p.med_stock_locations.name) || '')}</td>
+                <td class="num">${lines.length}</td>
+                <td class="num">${fmtMoney(linesTotal)}</td>
+                <td class="num">${p.invoice_total == null ? '—' : fmtMoney(inv)}${off ? ' <span style="color:#b91c1c" title="Lines no longer add up to the invoice">⚠</span>' : ''}</td>
+                <td><button data-inv-del-purchase="${p.id}" data-perm="owner">Delete</button></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        $('invPurchaseListContent').innerHTML = html;
+
+    }
+
+    function openInvPurchaseEntry() {
+        hideAllViews();
+        $('invPurchaseEntryView').classList.remove('hidden');
+        $('invPurDate').value = ranchToday();
+        ['invPurVendor', 'invPurInvoiceNo', 'invPurTotal', 'invPurFreight', 'invPurPaste'].forEach(id => $(id).value = '');
+        invFillLocationSelect('invPurLocation');
+        invPurchaseLines = [];
+        renderInvPurchaseLines();
+    }
+
+    // Paste format is the contract, so the parser is deliberately dumb:
+    // split on tabs (or runs of 2+ spaces), take the first line as the
+    // header if it does not look like a product line.
+    function parseInvPasteBlock(text) {
+        const out = { header: {}, lines: [], unmatched: [] };
+        const raw = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        raw.forEach((line, i) => {
+            const parts = line.split(/\t|\s{2,}/).map(p => p.trim()).filter(p => p !== '');
+            if (!parts.length) return;
+            const looksLikeProduct = parts.length >= 3 && invNum(parts[parts.length - 1]) != null
+                                      && invNum(parts[parts.length - 2]) != null;
+            if (i === 0 && !looksLikeProduct) {
+                out.header.vendor = parts[0] || '';
+                parts.slice(1).forEach(p => {
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(p)) out.header.date = p;
+                    else if (!out.header.invoice_number) out.header.invoice_number = p;
+                });
+                return;
+            }
+            if (!looksLikeProduct) { out.unmatched.push(line); return; }
+            const price = invNum(parts[parts.length - 1]);
+            const bottles = invNum(parts[parts.length - 2]);
+            const name = parts.slice(0, parts.length - 2).join(' ').trim();
+            out.lines.push({ name, bottles, price });
+        });
+        return out;
+    }
+
+    function invMatchMedByName(name) {
+        const n = String(name || '').trim().toLowerCase();
+        if (!n) return null;
+        let m = invMedsCache.find(x => x.name.toLowerCase() === n);
+        if (m) return m;
+        // A near match is offered, never taken: a med matched to the wrong
+        // catalog row prices the wrong layer, and that is invisible from the
+        // moment it posts.
+        return null;
+    }
+
+    function applyInvPaste() {
+        const parsed = parseInvPasteBlock($('invPurPaste').value);
+        if (parsed.header.date) $('invPurDate').value = parsed.header.date;
+        if (parsed.header.vendor && !$('invPurVendor').value) $('invPurVendor').value = parsed.header.vendor;
+        if (parsed.header.invoice_number && !$('invPurInvoiceNo').value) $('invPurInvoiceNo').value = parsed.header.invoice_number;
+
+        let matched = 0, needPick = 0;
+        parsed.lines.forEach(l => {
+            const med = invMatchMedByName(l.name);
+            if (med) matched++; else needPick++;
+            invPurchaseLines.push({
+                tempId: invTempId(),
+                medication_id: med ? med.id : '',
+                pasted_name: l.name,
+                qty_bottles: l.bottles,
+                bottle_size: med ? (med.bottle_size || '') : '',
+                unit_price: l.price
+            });
+        });
+        renderInvPurchaseLines();
+        const bits = [`${matched} matched`];
+        if (needPick) bits.push(`<strong>${needPick} need a medication picked</strong>`);
+        if (parsed.unmatched.length) bits.push(`${parsed.unmatched.length} line(s) ignored`);
+        showAlert('invPurAlert', bits.join(' · '), needPick ? 'error' : 'success');
+    }
+
+    function renderInvPurchaseLines() {
+        if (!invPurchaseLines.length) {
+            $('invPurLines').innerHTML = '<div class="empty">Nothing yet. Paste a block, or click + Line.</div>';
+            recomputeInvPurchase();
+            return;
+        }
+        let html = `<table><thead><tr>
+            <th>Medication</th><th class="num">Bottles</th><th class="num">Bottle size</th>
+            <th>Unit</th><th class="num">$ / bottle</th><th class="num">Units</th>
+            <th class="num">$ / unit</th><th class="num">Line total</th><th></th></tr></thead><tbody>`;
+        invPurchaseLines.forEach(l => {
+            const med = invMedById(l.medication_id);
+            const opts = '<option value="">— pick —</option>' + invMedsCache.map(m =>
+                `<option value="${m.id}"${m.id === l.medication_id ? ' selected' : ''}>${escapeHtml(m.name)}</option>`).join('');
+            const units = (invNum(l.qty_bottles) || 0) * (invNum(l.bottle_size) || 0);
+            const lineTotal = (invNum(l.qty_bottles) || 0) * (invNum(l.unit_price) || 0);
+            const perUnit = units > 0 ? lineTotal / units : null;
+            html += `<tr${l.medication_id ? '' : ' style="background:#fef2f2;"'}>
+                <td><select data-inv-line="${l.tempId}" data-field="medication_id" style="min-width:180px;">${opts}</select>
+                    ${l.medication_id ? '' : `<div class="muted" style="font-size:11px;">pasted: ${escapeHtml(l.pasted_name || '')}</div>`}</td>
+                <td class="num"><input type="number" step="0.25" style="width:80px;text-align:right;" value="${l.qty_bottles ?? ''}" data-inv-line="${l.tempId}" data-field="qty_bottles"></td>
+                <td class="num"><input type="number" step="0.01" style="width:90px;text-align:right;" value="${l.bottle_size ?? ''}" data-inv-line="${l.tempId}" data-field="bottle_size"></td>
+                <td class="muted">${escapeHtml(med ? (med.bottle_size_unit || 'mL') : '')}</td>
+                <td class="num"><input type="number" step="0.01" style="width:100px;text-align:right;" value="${l.unit_price ?? ''}" data-inv-line="${l.tempId}" data-field="unit_price"></td>
+                <td class="num">${units ? fmtNum(units, 1) : '—'}</td>
+                <td class="num">${perUnit == null ? '—' : '$' + perUnit.toFixed(4)}</td>
+                <td class="num">${lineTotal ? fmtMoney(lineTotal) : '—'}</td>
+                <td><button data-inv-rmline="${l.tempId}">✕</button></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        $('invPurLines').innerHTML = html;
+        recomputeInvPurchase();
+    }
+
+    // The tie-out. This is the one place the build stays deliberately
+    // un-simple: a wrong unit cost does not throw, it silently prices every
+    // future FIFO draw off that layer, and by the time it surfaces it is
+    // frozen into treatment cost on a dozen lots.
+    function recomputeInvPurchase() {
+        const linesTotal = invPurchaseLines.reduce((s, l) =>
+            s + (invNum(l.qty_bottles) || 0) * (invNum(l.unit_price) || 0), 0);
+        const freight = invNum($('invPurFreight').value) || 0;
+        const invoice = invNum($('invPurTotal').value);
+        const withFreight = linesTotal + freight;
+        const el = $('invPurTie');
+
+        if (invoice == null) {
+            el.innerHTML = `<div class="muted">Lines total <strong>${fmtMoney(linesTotal)}</strong>` +
+                (freight ? ` + freight ${fmtMoney(freight)} = <strong>${fmtMoney(withFreight)}</strong>` : '') +
+                `. Enter the invoice total to tie.</div>`;
+            return false;
+        }
+        const diff = withFreight - invoice;
+        const ok = Math.abs(diff) <= 0.02;
+        el.innerHTML = `<div style="padding:10px;border-left:3px solid ${ok ? '#15803d' : '#b91c1c'};background:${ok ? '#f0fdf4' : '#fef2f2'};">
+            Lines ${fmtMoney(linesTotal)}${freight ? ` + freight ${fmtMoney(freight)}` : ''}
+            = <strong>${fmtMoney(withFreight)}</strong> against invoice <strong>${fmtMoney(invoice)}</strong>
+            &mdash; ${ok ? 'ties.' : `<strong>off by ${fmtMoney(Math.abs(diff))}</strong>. This will not post until it ties.`}
+        </div>`;
+        return ok;
+    }
+
+    async function saveInvPurchase() {
+        if (!invPurchaseLines.length) { showAlert('invPurAlert', 'No lines to post.', 'error'); return; }
+        const bad = invPurchaseLines.filter(l => !l.medication_id
+            || !(invNum(l.qty_bottles) > 0) || !(invNum(l.bottle_size) > 0) || invNum(l.unit_price) == null);
+        if (bad.length) {
+            showAlert('invPurAlert', `${bad.length} line(s) are missing a medication, bottles, bottle size or price.`, 'error');
+            return;
+        }
+        if (!recomputeInvPurchase()) {
+            showAlert('invPurAlert', 'The lines do not add up to the invoice total. Fix that before posting.', 'error');
+            return;
+        }
+
+        const btn = $('invPurSaveBtn'); btn.disabled = true; btn.textContent = 'Posting…';
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const { data: pur, error: pErr } = await supabase.from('med_purchases').insert({
+                purchase_date: $('invPurDate').value || ranchToday(),
+                vendor: $('invPurVendor').value || null,
+                invoice_number: $('invPurInvoiceNo').value || null,
+                location_id: $('invPurLocation').value,
+                invoice_total: invNum($('invPurTotal').value),
+                created_by: user ? user.id : null
+            }).select().single();
+            if (pErr) throw pErr;
+
+            // Freight is allocated across the lines BY VALUE, so unit_cost is
+            // landed cost and FIFO carries what the bottle really cost to get
+            // here. Largest-remainder is overkill for a freight line; the
+            // rounding lands in the unit cost's sixth decimal.
+            const linesTotal = invPurchaseLines.reduce((s, l) =>
+                s + (invNum(l.qty_bottles) || 0) * (invNum(l.unit_price) || 0), 0);
+            const freight = invNum($('invPurFreight').value) || 0;
+
+            const rows = invPurchaseLines.map((l, i) => {
+                const bottles = invNum(l.qty_bottles);
+                const size = invNum(l.bottle_size);
+                const gross = bottles * invNum(l.unit_price);
+                const share = (freight > 0 && linesTotal > 0) ? freight * (gross / linesTotal) : 0;
+                const units = bottles * size;
+                const med = invMedById(l.medication_id);
+                return {
+                    purchase_id: pur.id,
+                    medication_id: l.medication_id,
+                    location_id: $('invPurLocation').value,
+                    qty_bottles: bottles,
+                    bottle_size: size,
+                    unit: (med && med.bottle_size_unit) || 'mL',
+                    unit_cost: Number(((gross + share) / units).toFixed(6)),
+                    qty_remaining: units,
+                    received_date: $('invPurDate').value || ranchToday(),
+                    sort_order: i,
+                    origin: 'purchase',
+                    created_by: user ? user.id : null
+                };
+            });
+
+            const { error: lErr } = await supabase.from('med_purchase_lines').insert(rows);
+            if (lErr) {
+                // Do not leave a header with no lines behind.
+                await supabase.from('med_purchases').delete().eq('id', pur.id);
+                throw lErr;
+            }
+
+            showAlert('globalAlert', `Purchase posted: ${rows.length} line(s), ${fmtMoney(linesTotal + freight)}.`, 'success');
+            showInventoryTab('purchases');
+        } catch (e) {
+            showAlert('invPurAlert', 'Could not post: ' + (e.message || e), 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Post purchase';
+        }
+    }
+
+    async function deleteInvPurchase(id) {
+        if (!confirm('Delete this purchase and its layers?\n\nThis is refused if any of its stock has already been used — that is deliberate.')) return;
+        const { error } = await supabase.from('med_purchases').delete().eq('id', id);
+        if (error) {
+            showAlert('globalAlert',
+                'Could not delete: ' + error.message +
+                ' — if stock from this invoice has been used, it cannot be deleted. Correct it with a count instead.', 'error');
+            return;
+        }
+        showAlert('globalAlert', 'Purchase deleted.', 'success');
+        loadInvPurchases();
+    }
+
+    // ---- CHECKOUTS -------------------------------------------------------
+    async function initInvCheckouts() {
+        $('invCoDate').value = ranchToday();
+        invFillMedSelect('invCoMed');
+        if (!invUsers.length) {
+            const { data } = await supabase.rpc('admin_list_users');
+            invUsers = data || [];
+        }
+        const sel = $('invCoPerson');
+        sel.innerHTML = '<option value="">— pick —</option>' + invUsers.map(u =>
+            `<option value="${u.id}">${escapeHtml(u.full_name || u.email || u.id)}</option>`).join('');
+        loadInvCustody();
+    }
+
+    async function saveInvCheckout(isReturn) {
+        const medId = $('invCoMed').value;
+        const person = $('invCoPerson').value;
+        const bottles = invNum($('invCoBottles').value);
+        if (!medId || !person || !(bottles > 0)) {
+            showAlert('invCoAlert', 'Pick a person, a medication and a number of bottles.', 'error');
+            return;
+        }
+        const med = invMedById(medId);
+        const size = Number(med && med.bottle_size) || 0;
+        if (!(size > 0)) {
+            showAlert('invCoAlert', `${med ? med.name : 'That medication'} has no bottle size on the Medications tab, so bottles cannot be converted to units.`, 'error');
+            return;
+        }
+        const ranch = invLocations.find(l => l.kind === 'ranch');
+        const { data: { user } } = await supabase.auth.getUser();
+        // A checkout does not move stock. direction 0: custody only.
+        const { error } = await supabase.from('med_txns').insert({
+            txn_date: $('invCoDate').value || ranchToday(),
+            txn_type: 'checkout',
+            medication_id: medId,
+            location_id: ranch.id,
+            qty_units: (isReturn ? -1 : 1) * bottles * size,
+            direction: 0,
+            crew_user_id: person,
+            notes: isReturn ? 'Return' : null,
+            created_by: user ? user.id : null
+        });
+        if (error) { showAlert('invCoAlert', error.message, 'error'); return; }
+        showAlert('invCoAlert', isReturn ? 'Return recorded.' : 'Checkout recorded.', 'success');
+        $('invCoBottles').value = '';
+        loadInvCustody();
+    }
+
+    async function loadInvCustody() {
+        $('invCustodyContent').innerHTML = '<div class="empty">Loading…</div>';
+        const { data, error } = await supabase.from('med_custody').select('*')
+            .order('period_month', { ascending: false }).limit(300);
+        if (error) { $('invCustodyContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
+        const rows = (data || []).filter(r => Number(r.checked_out_units) || Number(r.recorded_dose_units));
+        if (!rows.length) { $('invCustodyContent').innerHTML = '<div class="empty">No checkouts recorded yet.</div>'; return; }
+
+        const nameOf = id => {
+            const u = invUsers.find(x => x.id === id);
+            return u ? (u.full_name || u.email || id) : (id ? id.slice(0, 8) : '—');
+        };
+        let html = `<table><thead><tr><th>Month</th><th>Person</th><th>Medication</th>
+            <th class="num">Checked out</th><th class="num">Doses recorded</th><th class="num">Outstanding</th></tr></thead><tbody>`;
+        rows.forEach(r => {
+            const out = Number(r.outstanding_units) || 0;
+            html += `<tr>
+                <td>${String(r.period_month || '').slice(0, 7)}</td>
+                <td>${escapeHtml(nameOf(r.crew_user_id))}</td>
+                <td>${escapeHtml(r.medication_name)}</td>
+                <td class="num">${fmtNum(r.checked_out_units, 1)}</td>
+                <td class="num">${fmtNum(r.recorded_dose_units, 1)}</td>
+                <td class="num"${Math.abs(out) > 0.001 ? ' style="color:#b45309"' : ''}>${fmtNum(out, 1)}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        $('invCustodyContent').innerHTML = html;
+    }
+
+    // ---- COUNTS ----------------------------------------------------------
+    async function loadInvCounts() {
+        $('invCountListContent').innerHTML = '<div class="empty">Loading…</div>';
+        const { data, error } = await supabase.from('med_counts')
+            .select('*, med_stock_locations(name)')
+            .order('count_date', { ascending: false }).limit(100);
+        if (error) { $('invCountListContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
+        if (!(data || []).length) { $('invCountListContent').innerHTML = '<div class="empty">No counts yet.</div>'; return; }
+
+        let html = `<table><thead><tr><th>Date</th><th>Location</th><th>Counted by</th>
+            <th>Status</th><th></th></tr></thead><tbody>`;
+        (data || []).forEach(c => {
+            html += `<tr>
+                <td>${c.count_date}${c.is_opening ? ' <span class="muted">(opening)</span>' : ''}</td>
+                <td>${escapeHtml((c.med_stock_locations && c.med_stock_locations.name) || '')}</td>
+                <td>${escapeHtml(c.counted_by || '')}</td>
+                <td>${c.status === 'posted'
+                        ? '<span style="color:#15803d">posted</span>'
+                        : '<span style="color:#b45309">draft</span>'}</td>
+                <td><button data-inv-open-count="${c.id}">${c.status === 'posted' ? 'View' : 'Continue'}</button></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        $('invCountListContent').innerHTML = html;
+    }
+
+    async function openInvCountEntry(countId) {
+        hideAllViews();
+        $('invCountEntryView').classList.remove('hidden');
+        invFillLocationSelect('invCountLocation');
+        $('invCountShowExpected').checked = false;
+
+        if (countId) {
+            const { data: c, error } = await supabase.from('med_counts').select('*').eq('id', countId).single();
+            if (error) { showAlert('invCountAlert', error.message, 'error'); return; }
+            $('invCountEntryTitle').textContent = c.status === 'posted' ? `Count ${c.count_date} (posted)` : `Count ${c.count_date}`;
+            $('invCountDate').value = c.count_date;
+            $('invCountLocation').value = c.location_id;
+            $('invCountBy').value = c.counted_by || '';
+            $('invCountOpening').checked = !!c.is_opening;
+            invCountState = { id: c.id, status: c.status, lines: [] };
+        } else {
+            $('invCountEntryTitle').textContent = 'New count';
+            $('invCountDate').value = ranchToday();
+            $('invCountBy').value = '';
+            $('invCountOpening').checked = false;
+            invCountState = { id: null, status: 'draft', lines: [] };
+        }
+        await buildInvCountLines();
+    }
+
+    // The screen mirrors the sheet: same order, same two columns.
+    async function buildInvCountLines() {
+        const locId = $('invCountLocation').value;
+        $('invCountLines').innerHTML = '<div class="empty">Loading…</div>';
+
+        const [onHandRes, savedRes] = await Promise.all([
+            supabase.from('med_on_hand').select('*').eq('location_id', locId)
+                .order('generic_category').order('medication_name'),
+            invCountState && invCountState.id
+                ? supabase.from('med_count_lines').select('*').eq('count_id', invCountState.id)
+                : Promise.resolve({ data: [] })
+        ]);
+        if (onHandRes.error) { $('invCountLines').innerHTML = `<div class="empty">${escapeHtml(onHandRes.error.message)}</div>`; return; }
+
+        const saved = {};
+        (savedRes.data || []).forEach(l => { saved[l.medication_id] = l; });
+
+        invCountState.lines = (onHandRes.data || []).map(r => {
+            const s = saved[r.medication_id];
+            return {
+                medication_id: r.medication_id,
+                name: r.medication_name,
+                category: r.generic_category,
+                unit: r.unit,
+                bottle_size: r.bottle_size,
+                expected: Number(r.qty_units) || 0,
+                full_bottles: s && s.full_bottles != null ? s.full_bottles : '',
+                open_units: s && s.open_units != null ? s.open_units : '',
+                unit_cost: s && s.unit_cost != null ? s.unit_cost : '',
+                unpriced: !!r.unpriced_in_catalog && !Number(r.qty_units)
+            };
+        });
+        renderInvCountLines();
+    }
+
+    function invCountedUnits(l) {
+        const fb = invNum(l.full_bottles);
+        const ou = invNum(l.open_units);
+        if (fb == null && ou == null) return null;   // blank means NOT COUNTED
+        const size = Number(l.bottle_size) || 0;
+        return (fb || 0) * size + (ou || 0);
+    }
+
+    function renderInvCountLines() {
+        const showExp = $('invCountShowExpected').checked;
+        const posted = invCountState && invCountState.status === 'posted';
+        let html = `<table><thead><tr>
+            <th>Medication</th><th>Unit</th><th class="num">Bottle size</th>
+            <th class="num">Full bottles</th><th class="num">Open bottle</th>
+            ${showExp ? '<th class="num">Expected</th>' : ''}
+            <th class="num">Counted</th><th class="num">Variance</th></tr></thead><tbody>`;
+        invCountState.lines.forEach(l => {
+            const counted = invCountedUnits(l);
+            const variance = counted == null ? null : counted - l.expected;
+            const dis = posted ? ' disabled' : '';
+            html += `<tr>
+                <td>${escapeHtml(l.name)}${l.unpriced ? ' <span class="muted" style="font-size:11px;color:#b45309">unpriced</span>' : ''}</td>
+                <td class="muted">${escapeHtml(l.unit || '')}</td>
+                <td class="num muted">${l.bottle_size ? fmtNum(l.bottle_size, 0) : '—'}</td>
+                <td class="num"><input type="number" step="0.25" style="width:80px;text-align:right;"${dis}
+                     value="${l.full_bottles}" data-inv-count="${l.medication_id}" data-field="full_bottles"></td>
+                <td class="num"><input type="number" step="0.1" style="width:90px;text-align:right;"${dis}
+                     value="${l.open_units}" data-inv-count="${l.medication_id}" data-field="open_units"></td>
+                ${showExp ? `<td class="num muted">${fmtNum(l.expected, 1)}</td>` : ''}
+                <td class="num">${counted == null ? '<span class="muted">not counted</span>' : fmtNum(counted, 1)}</td>
+                <td class="num"${variance ? ` style="color:${variance < 0 ? '#b91c1c' : '#15803d'}"` : ''}>${
+                    variance == null ? '—' : (variance > 0 ? '+' : '') + fmtNum(variance, 1)}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        $('invCountLines').innerHTML = html;
+        renderInvCountSummary();
+    }
+
+    function renderInvCountSummary() {
+        let counted = 0, short = 0, over = 0, shortUnits = 0, overUnits = 0;
+        invCountState.lines.forEach(l => {
+            const c = invCountedUnits(l);
+            if (c == null) return;
+            counted++;
+            const v = c - l.expected;
+            if (v < 0) { short++; shortUnits += -v; }
+            else if (v > 0) { over++; overUnits += v; }
+        });
+        const skipped = invCountState.lines.length - counted;
+        $('invCountSummary').innerHTML = `<div style="padding:10px;border-left:3px solid #64748b;background:#f8fafc;">
+            <strong>${counted}</strong> counted &middot;
+            <strong>${short}</strong> short (${fmtNum(shortUnits, 1)} units) &middot;
+            <strong>${over}</strong> over (${fmtNum(overUnits, 1)} units) &middot;
+            <span class="muted">${skipped} left blank &mdash; blank means <em>not counted</em>, and posts nothing.</span>
+        </div>`;
+    }
+
+    async function saveInvCountDraft(silent) {
+        const { data: { user } } = await supabase.auth.getUser();
+        try {
+            if (!invCountState.id) {
+                const { data, error } = await supabase.from('med_counts').insert({
+                    count_date: $('invCountDate').value || ranchToday(),
+                    location_id: $('invCountLocation').value,
+                    counted_by: $('invCountBy').value || null,
+                    is_opening: $('invCountOpening').checked,
+                    created_by: user ? user.id : null
+                }).select().single();
+                if (error) throw error;
+                invCountState.id = data.id;
+            } else {
+                const { error } = await supabase.from('med_counts').update({
+                    count_date: $('invCountDate').value || ranchToday(),
+                    counted_by: $('invCountBy').value || null,
+                    is_opening: $('invCountOpening').checked
+                }).eq('id', invCountState.id).eq('status', 'draft');
+                if (error) throw error;
+            }
+
+            // Rewrite the lines rather than diffing them: there are a couple
+            // of dozen and a diff is more ways to be wrong.
+            await supabase.from('med_count_lines').delete().eq('count_id', invCountState.id);
+            const rows = invCountState.lines
+                .filter(l => invCountedUnits(l) != null)
+                .map(l => ({
+                    count_id: invCountState.id,
+                    medication_id: l.medication_id,
+                    full_bottles: invNum(l.full_bottles),
+                    open_units: invNum(l.open_units),
+                    bottle_size: Number(l.bottle_size) || null,
+                    counted_units: invCountedUnits(l),
+                    unit_cost: invNum(l.unit_cost)
+                }));
+            if (rows.length) {
+                const { error } = await supabase.from('med_count_lines').insert(rows);
+                if (error) throw error;
+            }
+            if (!silent) showAlert('invCountAlert', `Draft saved: ${rows.length} line(s).`, 'success');
+            return true;
+        } catch (e) {
+            showAlert('invCountAlert', 'Could not save: ' + (e.message || e), 'error');
+            return false;
+        }
+    }
+
+    async function postInvCount() {
+        const counted = invCountState.lines.filter(l => invCountedUnits(l) != null).length;
+        if (!counted) { showAlert('invCountAlert', 'Nothing counted yet.', 'error'); return; }
+        const skipped = invCountState.lines.length - counted;
+        if (!confirm(`Post this count?\n\n${counted} medication(s) counted, ${skipped} left blank and untouched.\n\n` +
+                     `Short lines become shrink. This cannot be posted twice.`)) return;
+
+        const btn = $('invCountPostBtn'); btn.disabled = true; btn.textContent = 'Posting…';
+        try {
+            if (!await saveInvCountDraft(true)) return;
+            const { data, error } = await supabase.rpc('med_post_count', { p_count_id: invCountState.id });
+            if (error) throw error;
+            const r = data || {};
+            showAlert('globalAlert',
+                `Count posted: ${r.lines_counted || 0} counted, ${r.lines_short || 0} short ` +
+                `(${fmtNum(r.shrink_units || 0, 1)} units, ${fmtMoney(r.shrink_value || 0)} shrink), ` +
+                `${r.lines_over || 0} over.`, 'success');
+            showInventoryTab('counts');
+        } catch (e) {
+            showAlert('invCountAlert', 'Could not post: ' + (e.message || e), 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Post count';
+        }
+    }
+
+    // The sheet. Blind by default - a number printed on it is a number that
+    // gets copied down, and a count that agrees with the system because the
+    // system was printed on it finds no shrink at all.
+    function printInvCountSheet(fromOnHand) {
+        const showExp = !fromOnHand && $('invCountShowExpected').checked;
+        const locSel = fromOnHand ? $('invOnHandLocation') : $('invCountLocation');
+        const locName = locSel.options[locSel.selectedIndex] ? locSel.options[locSel.selectedIndex].text : '';
+        const dateStr = fromOnHand ? ranchToday() : ($('invCountDate').value || ranchToday());
+
+        let lines;
+        if (fromOnHand) {
+            lines = invOnHandCache.map(r => ({
+                name: r.medication_name, category: r.generic_category,
+                unit: r.unit, bottle_size: r.bottle_size, expected: Number(r.qty_units) || 0
+            }));
+        } else {
+            lines = invCountState.lines;
+        }
+        if (!lines.length) { alert('Nothing to print yet.'); return; }
+
+        let body = `<h2>Medicine count sheet</h2>
+            <div class="meta">${escapeHtml(locName)} &middot; ${dateStr} &middot; counted by ______________________</div>
+            <p class="note">Count full bottles and the open bottle separately. A half-used 500&nbsp;mL bottle
+            is 250 units &mdash; write 250 in the open column and let the app do the multiplication.</p>
+            <table><thead><tr><th>Medication</th><th>Unit</th><th class="n">Bottle size</th>
+            ${showExp ? '<th class="n">Expected</th>' : ''}
+            <th class="w">Full bottles</th><th class="w">Open bottle</th></tr></thead><tbody>`;
+        let lastCat = null;
+        lines.forEach(l => {
+            if (l.category !== lastCat) {
+                lastCat = l.category;
+                body += `<tr class="cat"><td colspan="${showExp ? 6 : 5}">${escapeHtml(lastCat || '')}</td></tr>`;
+            }
+            body += `<tr><td>${escapeHtml(l.name)}</td><td>${escapeHtml(l.unit || '')}</td>
+                <td class="n">${l.bottle_size ? fmtNum(l.bottle_size, 0) : ''}</td>
+                ${showExp ? `<td class="n">${fmtNum(l.expected, 1)}</td>` : ''}
+                <td class="w"></td><td class="w"></td></tr>`;
+        });
+        body += '</tbody></table>';
+        if (!showExp) {
+            body += `<p class="note">Expected quantities are deliberately not printed. Counting against a
+                     printed number finds nothing.</p>`;
+        }
+
+        const w = window.open('', '_blank');
+        w.document.write(`<!DOCTYPE html><html><head><title>Count sheet ${dateStr}</title><style>
+            body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111;}
+            h2{margin:0 0 4px 0;} .meta{color:#555;font-size:13px;margin-bottom:10px;}
+            .note{color:#555;font-size:11px;margin:8px 0;}
+            table{border-collapse:collapse;width:100%;font-size:12px;}
+            th,td{border:1px solid #999;padding:5px 6px;text-align:left;}
+            th{background:#eee;} .n{text-align:right;} .w{width:110px;}
+            tr.cat td{background:#f3f4f6;font-weight:600;}
+            @media print{@page{size:portrait;margin:12mm;}}
+        </style></head><body>${body}</body></html>`);
+        w.document.close();
+        w.focus();
+        setTimeout(() => w.print(), 300);
+    }
+
+    // ---- EFFICIENCY ------------------------------------------------------
+    function initInvEfficiency() {
+        if (!$('invEffFrom').value) {
+            const d = new Date();
+            $('invEffFrom').value = new Date(d.getFullYear(), d.getMonth() - 2, 1).toISOString().slice(0, 10);
+            $('invEffTo').value = ranchToday();
+        }
+        loadInvEfficiency();
+    }
+
+    async function loadInvEfficiency() {
+        const from = $('invEffFrom').value, to = $('invEffTo').value;
+        $('invEfficiencyContent').innerHTML = '<div class="empty">Loading…</div>';
+        $('invBuyerContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        let q = supabase.from('med_efficiency').select('*');
+        if (from) q = q.gte('period_month', from);
+        if (to) q = q.lte('period_month', to);
+        const { data, error } = await q.order('period_month', { ascending: false }).order('medication_name');
+
+        if (error) {
+            $('invEfficiencyContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+        } else if (!(data || []).length) {
+            $('invEfficiencyContent').innerHTML = '<div class="empty">No movement in this range.</div>';
+        } else {
+            let html = `<table><thead><tr><th>Month</th><th>Location</th><th>Medication</th>
+                <th class="num">Into cattle</th><th class="num">Lost</th><th class="num">Off the shelf</th>
+                <th class="num">Efficiency</th><th class="num">Lost $</th></tr></thead><tbody>`;
+            (data || []).forEach(r => {
+                const pct = r.efficiency_pct == null ? null : Number(r.efficiency_pct);
+                html += `<tr>
+                    <td>${String(r.period_month || '').slice(0, 7)}</td>
+                    <td class="muted">${escapeHtml(r.location_name)}</td>
+                    <td>${escapeHtml(r.medication_name)}</td>
+                    <td class="num">${fmtNum(r.used_units, 1)}</td>
+                    <td class="num">${fmtNum(r.lost_units, 1)}</td>
+                    <td class="num">${fmtNum(r.drawn_units, 1)}</td>
+                    <td class="num"${pct != null && pct < 90 ? ' style="color:#b45309;font-weight:600"' : ''}>${
+                        pct == null ? '—' : pct.toFixed(1) + '%'}</td>
+                    <td class="num">${fmtMoney(r.lost_value)}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            $('invEfficiencyContent').innerHTML = html;
+        }
+
+        let bq = supabase.from('med_buyer_reconciliation').select('*');
+        if (from) bq = bq.gte('period_month', from);
+        if (to) bq = bq.lte('period_month', to);
+        const bRes = await bq.order('period_month', { ascending: false }).order('buyer_name');
+        if (bRes.error) {
+            $('invBuyerContent').innerHTML = `<div class="empty">${escapeHtml(bRes.error.message)}</div>`;
+        } else if (!(bRes.data || []).length) {
+            $('invBuyerContent').innerHTML =
+                '<div class="empty">Nothing yet. A buyer shows up here once there is a buyer location ' +
+                'whose source key matches the lot\'s source, and a purchase received to it.</div>';
+        } else {
+            let html = `<table><thead><tr><th>Month</th><th>Buyer</th><th>Medication</th>
+                <th class="num">Head processed</th><th class="num">Expected</th><th class="num">Drawn</th>
+                <th class="num">Variance</th><th class="num">Efficiency</th></tr></thead><tbody>`;
+            (bRes.data || []).forEach(r => {
+                const pct = r.efficiency_pct == null ? null : Number(r.efficiency_pct);
+                const v = Number(r.variance_units) || 0;
+                html += `<tr>
+                    <td>${String(r.period_month || '').slice(0, 7)}</td>
+                    <td>${escapeHtml(r.buyer_name)}</td>
+                    <td>${escapeHtml(r.medication_name)}</td>
+                    <td class="num">${fmtNum(r.head_processed, 0)}</td>
+                    <td class="num">${fmtNum(r.expected_units, 1)}</td>
+                    <td class="num">${fmtNum(r.drawn_units, 1)}</td>
+                    <td class="num"${Math.abs(v) > 0.5 ? ' style="color:#b45309"' : ''}>${(v > 0 ? '+' : '') + fmtNum(v, 1)}</td>
+                    <td class="num">${pct == null ? '—' : pct.toFixed(1) + '%'}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            $('invBuyerContent').innerHTML = html;
+        }
+    }
+
+    // ---- REPORTS ---------------------------------------------------------
+    let invReportRows = [];   // for Copy rows / print
+
+    function initInvReports() {
+        invFillLocationSelect('invRepLocation');
+        if (!$('invRepFrom').value) {
+            const d = new Date();
+            $('invRepFrom').value = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+            $('invRepTo').value = ranchToday();
+        }
+        loadInvReport();
+    }
+
+    async function loadInvReport() {
+        const which = $('invRepWhich').value;
+        const locId = $('invRepLocation').value;
+        $('invReportsContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        if (which === 'valuation') {
+            const { data, error } = await supabase.from('med_on_hand').select('*')
+                .eq('location_id', locId).order('redwing_item_code', { nullsFirst: false }).order('medication_name');
+            if (error) { $('invReportsContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
+            const rows = (data || []).filter(r => Number(r.qty_units) !== 0);
+            invReportRows = rows.map(r => [
+                r.redwing_item_code || '', r.medication_name, fmtNum(r.qty_units, 2),
+                r.unit || '', r.avg_unit_cost == null ? '' : Number(r.avg_unit_cost).toFixed(4),
+                Number(r.value_fifo).toFixed(2)
+            ]);
+            const total = rows.reduce((s, r) => s + (Number(r.value_fifo) || 0), 0);
+            let html = `<p class="muted" style="font-size:12px;">Our FIFO valuation, in Redwing item order, for
+                comparing against Redwing's own. <strong>Compare quantities first.</strong> Quantities disagreeing
+                is real &mdash; something is missing on one side. Value disagreeing while quantities agree is the
+                costing method, and is expected rather than an error.</p>
+                <table><thead><tr><th>Redwing item</th><th>Medication</th><th class="num">Qty</th>
+                <th>Unit</th><th class="num">Avg $/unit</th><th class="num">Value</th></tr></thead><tbody>`;
+            rows.forEach(r => {
+                html += `<tr><td>${escapeHtml(r.redwing_item_code || '—')}</td>
+                    <td>${escapeHtml(r.medication_name)}</td>
+                    <td class="num">${fmtNum(r.qty_units, 2)}</td>
+                    <td class="muted">${escapeHtml(r.unit || '')}</td>
+                    <td class="num">${r.avg_unit_cost == null ? '—' : '$' + Number(r.avg_unit_cost).toFixed(4)}</td>
+                    <td class="num">${fmtMoney(r.value_fifo)}</td></tr>`;
+            });
+            html += `</tbody><tfoot><tr><th colspan="5">Total</th><th class="num">${fmtMoney(total)}</th></tr></tfoot></table>`;
+            $('invReportsContent').innerHTML = html;
+            return;
+        }
+
+        // Roll-forward.
+        let q = supabase.from('med_roll_forward').select('*').eq('location_id', locId);
+        if ($('invRepFrom').value) q = q.gte('period_month', $('invRepFrom').value);
+        if ($('invRepTo').value) q = q.lte('period_month', $('invRepTo').value);
+        const { data, error } = await q.order('period_month').order('medication_name');
+        if (error) { $('invReportsContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
+        if (!(data || []).length) { $('invReportsContent').innerHTML = '<div class="empty">No movement in this range.</div>'; return; }
+
+        invReportRows = (data || []).map(r => [
+            String(r.period_month).slice(0, 7), r.medication_name,
+            fmtNum(r.beginning_units, 2), fmtNum(r.purchased_units, 2), fmtNum(r.used_units, 2),
+            fmtNum(r.adjustment_units, 2), fmtNum(r.uncovered_units, 2), fmtNum(r.ending_units, 2),
+            Number(r.ending_value).toFixed(2)
+        ]);
+
+        const anyUncovered = (data || []).some(r => Number(r.uncovered_units) !== 0);
+        let html = `<p class="muted" style="font-size:12px;">beginning + purchases + opening &minus; used
+            + adjustments + uncovered = ending. Ties by construction.</p>`;
+        if (anyUncovered) {
+            html += `<div style="padding:8px 10px;border-left:3px solid #b45309;background:#fffbeb;font-size:12px;margin-bottom:10px;">
+                <strong>Uncovered</strong> is usage the ledger had no stock behind &mdash; doses given against
+                an empty shelf. It is not shrink; it is a hole waiting for a count to explain it.</div>`;
+        }
+        html += `<table><thead><tr><th>Month</th><th>Medication</th>
+            <th class="num">Beginning</th><th class="num">Purchases</th><th class="num">Opening</th>
+            <th class="num">Used</th><th class="num">Adjustments</th><th class="num">Uncovered</th>
+            <th class="num">Ending</th><th class="num">Ending $</th></tr></thead><tbody>`;
+        (data || []).forEach(r => {
+            html += `<tr>
+                <td>${String(r.period_month).slice(0, 7)}</td>
+                <td>${escapeHtml(r.medication_name)}</td>
+                <td class="num">${fmtNum(r.beginning_units, 1)}</td>
+                <td class="num">${fmtNum(r.purchased_units, 1)}</td>
+                <td class="num">${fmtNum(r.opening_units, 1)}</td>
+                <td class="num">${fmtNum(r.used_units, 1)}</td>
+                <td class="num">${fmtNum(r.adjustment_units, 1)}</td>
+                <td class="num"${Number(r.uncovered_units) ? ' style="color:#b45309"' : ''}>${fmtNum(r.uncovered_units, 1)}</td>
+                <td class="num">${fmtNum(r.ending_units, 1)}</td>
+                <td class="num">${fmtMoney(r.ending_value)}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        $('invReportsContent').innerHTML = html;
+    }
+
+    function copyInvReportRows() {
+        if (!invReportRows.length) { alert('Nothing to copy yet.'); return; }
+        const text = invReportRows.map(r => r.join('\t')).join('\n');
+        navigator.clipboard.writeText(text).then(
+            () => showAlert('globalAlert', `${invReportRows.length} row(s) copied as tab-separated text.`, 'success'),
+            () => showAlert('globalAlert', 'Could not reach the clipboard.', 'error'));
+    }
+
+    function printInvReport() {
+        const content = $('invReportsContent').innerHTML;
+        if (!content || content.indexOf('<table') === -1) { alert('Nothing to print yet.'); return; }
+        const which = $('invRepWhich').options[$('invRepWhich').selectedIndex].text;
+        const w = window.open('', '_blank');
+        w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(which)}</title><style>
+            body{font-family:-apple-system,Segoe UI,sans-serif;margin:18px;color:#111;}
+            table{border-collapse:collapse;width:100%;font-size:11px;}
+            th,td{border:1px solid #999;padding:4px 6px;text-align:left;}
+            th{background:#eee;} .num{text-align:right;} .muted{color:#555;}
+            @media print{@page{size:landscape;margin:10mm;}}
+        </style></head><body><h2>${escapeHtml(which)}</h2>${content}</body></html>`);
+        w.document.close(); w.focus();
+        setTimeout(() => w.print(), 300);
+    }
+
+    // ---- WIRING ----------------------------------------------------------
+    $('navInventory').addEventListener('click', () => showInventoryTab('onhand'));
+    $('inventorySubtabs').addEventListener('click', (e) => {
+        const btn = e.target.closest('.sub-tab');
+        if (btn) showInventoryTab(btn.dataset.subtab);
+    });
+
+    $('invOnHandLocation').addEventListener('change', loadInvOnHand);
+    $('invOnHandZero').addEventListener('change', loadInvOnHand);
+    $('invOnHandRefreshBtn').addEventListener('click', loadInvOnHand);
+    $('invOnHandPrintBtn').addEventListener('click', () => printInvCountSheet(true));
+
+    $('invNewPurchaseBtn').addEventListener('click', openInvPurchaseEntry);
+    $('invPurchaseBackBtn').addEventListener('click', () => showInventoryTab('purchases'));
+    $('invPurCancelBtn').addEventListener('click', () => showInventoryTab('purchases'));
+    $('invPurParseBtn').addEventListener('click', applyInvPaste);
+    $('invPurAddLineBtn').addEventListener('click', () => {
+        invPurchaseLines.push({ tempId: invTempId(), medication_id: '', qty_bottles: '', bottle_size: '', unit_price: '' });
+        renderInvPurchaseLines();
+    });
+    $('invPurSaveBtn').addEventListener('click', saveInvPurchase);
+    ['invPurTotal', 'invPurFreight'].forEach(id => $(id).addEventListener('input', recomputeInvPurchase));
+
+    // Delegated so the grid can re-render without re-wiring. The medication
+    // select re-renders (it changes the bottle size and the unit); the number
+    // fields deliberately do NOT, because re-rendering eats the caret.
+    $('invPurLines').addEventListener('input', (e) => {
+        const el = e.target.closest('[data-inv-line]');
+        if (!el) return;
+        const line = invPurchaseLines.find(l => l.tempId === el.dataset.invLine);
+        if (!line) return;
+        line[el.dataset.field] = el.value;
+        recomputeInvPurchase();
+    });
+    $('invPurLines').addEventListener('change', (e) => {
+        const el = e.target.closest('[data-inv-line]');
+        if (el && el.dataset.field === 'medication_id') {
+            const line = invPurchaseLines.find(l => l.tempId === el.dataset.invLine);
+            if (line) {
+                line.medication_id = el.value;
+                const med = invMedById(el.value);
+                if (med && med.bottle_size && !line.bottle_size) line.bottle_size = med.bottle_size;
+                renderInvPurchaseLines();
+            }
+        }
+    });
+    $('invPurLines').addEventListener('click', (e) => {
+        const rm = e.target.closest('[data-inv-rmline]');
+        if (rm) {
+            invPurchaseLines = invPurchaseLines.filter(l => l.tempId !== rm.dataset.invRmline);
+            renderInvPurchaseLines();
+        }
+    });
+    $('invPurchaseListContent').addEventListener('click', (e) => {
+        const del = e.target.closest('[data-inv-del-purchase]');
+        if (del) deleteInvPurchase(del.dataset.invDelPurchase);
+    });
+
+    $('invCoSaveBtn').addEventListener('click', () => saveInvCheckout(false));
+    $('invCoReturnBtn').addEventListener('click', () => saveInvCheckout(true));
+
+    $('invNewCountBtn').addEventListener('click', () => openInvCountEntry(null));
+    $('invCountBackBtn').addEventListener('click', () => showInventoryTab('counts'));
+    $('invCountCancelBtn').addEventListener('click', () => showInventoryTab('counts'));
+    $('invCountLocation').addEventListener('change', buildInvCountLines);
+    $('invCountShowExpected').addEventListener('change', renderInvCountLines);
+    $('invCountPrintBtn').addEventListener('click', () => printInvCountSheet(false));
+    $('invCountSaveDraftBtn').addEventListener('click', () => saveInvCountDraft(false));
+    $('invCountPostBtn').addEventListener('click', postInvCount);
+    $('invCountListContent').addEventListener('click', (e) => {
+        const open = e.target.closest('[data-inv-open-count]');
+        if (open) openInvCountEntry(open.dataset.invOpenCount);
+    });
+    $('invCountLines').addEventListener('input', (e) => {
+        const el = e.target.closest('[data-inv-count]');
+        if (!el) return;
+        const line = invCountState.lines.find(l => l.medication_id === el.dataset.invCount);
+        if (!line) return;
+        line[el.dataset.field] = el.value;
+        // Only the summary is refreshed, not the grid: re-rendering the rows
+        // would eat the caret mid-number.
+        renderInvCountSummary();
+        const row = el.closest('tr');
+        if (row) {
+            const counted = invCountedUnits(line);
+            const cells = row.querySelectorAll('td');
+            const varCell = cells[cells.length - 1], cntCell = cells[cells.length - 2];
+            const variance = counted == null ? null : counted - line.expected;
+            cntCell.innerHTML = counted == null ? '<span class="muted">not counted</span>' : fmtNum(counted, 1);
+            varCell.innerHTML = variance == null ? '—' : (variance > 0 ? '+' : '') + fmtNum(variance, 1);
+            varCell.style.color = !variance ? '' : (variance < 0 ? '#b91c1c' : '#15803d');
+        }
+    });
+
+    $('invEffRefreshBtn').addEventListener('click', loadInvEfficiency);
+    $('invRepWhich').addEventListener('change', loadInvReport);
+    $('invRepLocation').addEventListener('change', loadInvReport);
+    ['invRepFrom', 'invRepTo'].forEach(id => $(id).addEventListener('change', loadInvReport));
+    $('invRepCopyBtn').addEventListener('click', copyInvReportRows);
+    $('invRepPrintBtn').addEventListener('click', printInvReport);
 
     checkSession();
 </script>
