@@ -713,6 +713,7 @@
             <button class="nav-tab" id="navAnimalHealth">Animal Health</button>
             <button class="nav-tab" id="navSales" data-perm="office">Sales</button>
             <button class="nav-tab" id="navMoves" data-perm="office">Moves</button>
+            <button class="nav-tab" id="navFeed" data-perm="office">Feed</button>
             <button class="nav-tab" id="navSettings">Settings</button>
             <button class="nav-tab" id="navReports">Reports</button>
             <button class="nav-tab" id="navApprovals" data-perm="office">Approvals <span id="navApprovalsCount" class="approvals-badge hidden">0</span></button>
@@ -745,6 +746,14 @@
         <div class="sub-tabs hidden" id="salesSubtabs" data-perm="office">
             <button class="sub-tab active" data-subtab="shipments">Shipments</button>
             <button class="sub-tab" data-subtab="accounting">Accounting Report</button>
+        </div>
+        <div class="sub-tabs hidden" id="feedSubtabs" data-perm="office">
+            <button class="sub-tab active" data-subtab="inventory">Inventory</button>
+            <button class="sub-tab" data-subtab="receipts">Loads In</button>
+            <button class="sub-tab" data-subtab="usage">Feed Out</button>
+            <button class="sub-tab" data-subtab="counts">Counts</button>
+            <button class="sub-tab" data-subtab="items">Items</button>
+            <button class="sub-tab" data-subtab="locations">Locations</button>
         </div>
         <div class="sub-tabs hidden" id="reportsSubtabs">
             <button class="sub-tab active" data-subtab="active-lots">Active Lots</button>
@@ -1649,6 +1658,178 @@
             </div>
         </div>
 
+
+        <!-- ============================================================
+             FEED: commodity & mineral inventory (phases 1-2)
+             Office + owner only. Feed is a cost surface.
+             ============================================================ -->
+
+        <!-- Inventory: what is standing in which bay, and what it is worth -->
+        <div id="feedInventoryView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Feed on hand</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="fdInvByLocation" style="width:auto; vertical-align:middle;" checked> By bay
+                        </label>
+                        <button id="fdInvRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    FIFO layers, valued at what each load actually cost delivered. Pounds sitting on a
+                    load that has not been priced yet are counted but not valued &mdash; they show in the
+                    <b>Unpriced</b> column rather than being quietly worth zero.
+                </p>
+                <div id="fdInvAlert"></div>
+                <div id="fdInvSummary"></div>
+                <div id="fdInvContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Receipts: loads in. Each row IS a FIFO layer. -->
+        <div id="feedReceiptsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Loads in</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="fdRcOnlyPending" style="width:auto; vertical-align:middle;"> Unpriced only
+                        </label>
+                        <button class="primary" id="fdNewReceiptBtn">+ Load in</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    One row per load delivered. <b>Freight belongs in the cost</b> &mdash; a delivered $/ton is
+                    the only number that means anything, and pulling freight out makes every lot's feed
+                    read low. A load cannot be deleted once any of its pounds have been fed out.
+                </p>
+                <div id="fdRcAlert"></div>
+                <div id="fdRcContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Usage: the weekly entry sheet + the ledger -->
+        <div id="feedUsageView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Feed out</h2>
+                    <div style="display:flex; gap:8px;">
+                        <button id="fdUsRefreshBtn">Refresh on hand</button>
+                        <button class="primary" id="fdUsAddRowBtn">+ Row</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 14px 0;">
+                    One row per commodity per lot for the period. The dates are the period the feed was
+                    <em>eaten</em>, not the day you key it: a Friday entry for the week's corn spreads over
+                    the week, so a lot that shipped Wednesday is not charged Thursday and Friday.
+                    Nothing is written until you save, and if any row fails the whole batch is put back.
+                </p>
+
+                <div class="form-grid">
+                    <div>
+                        <label for="fdUsPeriodStart">Period start *</label>
+                        <input type="date" id="fdUsPeriodStart">
+                    </div>
+                    <div>
+                        <label for="fdUsPeriodEnd">Period end *</label>
+                        <input type="date" id="fdUsPeriodEnd">
+                    </div>
+                    <div>
+                        <label for="fdUsNotes">Notes (applied to every row)</label>
+                        <input type="text" id="fdUsNotes" placeholder="optional">
+                    </div>
+                </div>
+                <div id="fdUsPeriodHint" class="muted" style="font-size:12px; margin-top:4px;"></div>
+
+                <div id="fdUsRowList" style="margin-top:14px;"></div>
+                <div id="fdUsDrawSummary" style="margin-top:14px;"></div>
+            </div>
+
+            <div class="card">
+                <div id="fdUsSaveAlert"></div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <button class="primary" id="fdUsSaveBtn">Save feed-out</button>
+                    <button id="fdUsClearBtn">Clear sheet</button>
+                    <span class="muted" style="font-size:12px;" id="fdUsSaveHint"></span>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Recent feed-out</h3>
+                    <div>
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="fdUsShowFlagged" style="width:auto; vertical-align:middle;"> Flagged only
+                        </label>
+                    </div>
+                </div>
+                <div id="fdUsLedgerContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Counts: bags counted, bays estimated -->
+        <div id="feedCountsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Physical counts</h2>
+                    <button class="primary" id="fdNewCountBtn">+ Count a bay</button>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Sacks are counted; bays are estimated. Which one it was is recorded on the line, because
+                    a &minus;4,000&nbsp;lb variance on an estimated bay is Tuesday and the same variance on
+                    counted sacks is a keying error or a theft. Posting a count writes real ledger rows:
+                    short of book becomes shrink, over book becomes found feed at the last known price.
+                </p>
+                <div id="fdCtAlert"></div>
+                <div id="fdCtContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Items: the catalog. No price column, deliberately. -->
+        <div id="feedItemsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Feed items</h2>
+                    <div>
+                        <label style="display:inline-block; margin-right:12px; font-size:13px;">
+                            <input type="checkbox" id="fdShowInactiveItems" style="width:auto; vertical-align:middle;"> Show inactive
+                        </label>
+                        <button class="primary" id="fdNewItemBtn">+ New item</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    There is <b>no price here on purpose.</b> Price lives on the load that brought it in and
+                    freezes when the feed is used, so editing a price can never rewrite a closed lot.
+                    That is the opposite of how medications behave, and it is deliberate.
+                </p>
+                <div id="fdItAlert"></div>
+                <div id="fdItContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Locations: bays, barns, pallets -->
+        <div id="feedLocationsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Storage locations</h2>
+                    <div>
+                        <label style="display:inline-block; margin-right:12px; font-size:13px;">
+                            <input type="checkbox" id="fdShowInactiveLocs" style="width:auto; vertical-align:middle;"> Show inactive
+                        </label>
+                        <button class="primary" id="fdNewLocBtn">+ New location</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Somewhere feed is stored and counted &mdash; a bay, a barn, a pallet of sacks. Bulk feeders
+                    standing in pastures are not locations; feed leaving a bay for a feeder is just feed-out.
+                    Deactivate rather than delete once a bay has held anything, so its history survives.
+                </p>
+                <div id="fdLcAlert"></div>
+                <div id="fdLcContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
         <!-- ============================================================
              SALES: accounting report (one shipment, lot x pasture)
              ============================================================ -->
@@ -2026,6 +2207,311 @@
                 </div>
             </div>
         </form>
+    </div>
+</div>
+
+
+<!-- ================= FEED: storage location modal ================= -->
+<div class="modal-backdrop" id="fdLocModal">
+    <div class="modal">
+        <h2 id="fdLocModalTitle">New storage location</h2>
+        <div id="fdLocModalAlert"></div>
+        <form id="fdLocForm">
+            <input type="hidden" id="fdLocId">
+            <div class="form-grid" style="margin-bottom:14px;">
+                <div>
+                    <label for="fdLocName">Name *</label>
+                    <input type="text" id="fdLocName" required placeholder="e.g. Bay 2">
+                </div>
+                <div>
+                    <label for="fdLocRanch">Ranch</label>
+                    <select id="fdLocRanch"><option value="">—</option></select>
+                </div>
+                <div>
+                    <label for="fdLocKind">Kind *</label>
+                    <select id="fdLocKind">
+                        <option value="bay">Bay</option>
+                        <option value="barn">Barn</option>
+                        <option value="pallet">Pallet</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="fdLocCapacity">Capacity (lb)</label>
+                    <input type="number" step="1" min="1" id="fdLocCapacity" placeholder="optional">
+                </div>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="fdLocIsBulk" style="width:auto; vertical-align:middle;" checked>
+                    Bulk &mdash; contents are estimated at count time, not counted in whole units
+                </label>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="fdLocActive" style="width:auto; vertical-align:middle;" checked> Active
+                </label>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label for="fdLocNotes">Notes</label>
+                <textarea id="fdLocNotes"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="fdLocDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete</button>
+                <div style="flex:1;"></div>
+                <button type="button" id="fdLocCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="fdLocSaveBtn">Save location</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ================= FEED: item modal ================= -->
+<div class="modal-backdrop" id="fdItemModal">
+    <div class="modal">
+        <h2 id="fdItemModalTitle">New feed item</h2>
+        <div id="fdItemModalAlert"></div>
+        <form id="fdItemForm">
+            <input type="hidden" id="fdItemId">
+
+            <div class="form-grid" style="margin-bottom:14px;">
+                <div>
+                    <label for="fdItemName">Name *</label>
+                    <input type="text" id="fdItemName" required placeholder="e.g. Corn hopper bin">
+                </div>
+                <div>
+                    <label for="fdItemType">Type *</label>
+                    <select id="fdItemType">
+                        <option value="bulk_commodity">Bulk commodity</option>
+                        <option value="bagged_feed">Bagged feed</option>
+                        <option value="mineral">Mineral</option>
+                        <option value="additive">Additive (feed-grade drug)</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="fdItemCategory">Category</label>
+                    <input type="text" id="fdItemCategory" placeholder="e.g. Energy" list="fdItemCategoryList">
+                    <datalist id="fdItemCategoryList">
+                        <option value="Energy">
+                        <option value="Protein">
+                        <option value="Byproduct">
+                        <option value="Roughage">
+                        <option value="Mineral">
+                        <option value="Additive">
+                        <option value="Hay">
+                        <option value="Other">
+                    </datalist>
+                </div>
+                <div>
+                    <label for="fdItemDefaultLoc">Usual location</label>
+                    <select id="fdItemDefaultLoc"><option value="">—</option></select>
+                </div>
+            </div>
+
+            <h4 style="margin-bottom:8px;">How the ticket reads</h4>
+            <p class="muted" style="font-size:11px; margin:0 0 10px 0;">
+                Everything is stored in pounds so a ton of corn and a 50&nbsp;lb sack are comparable.
+                This is just the conversion applied when you type a load in.
+            </p>
+            <div class="form-grid" style="margin-bottom:14px;">
+                <div>
+                    <label for="fdItemPurchaseUnit">Purchase unit *</label>
+                    <select id="fdItemPurchaseUnit">
+                        <option value="ton">Ton</option>
+                        <option value="bag">Bag / sack</option>
+                        <option value="lb">Pound</option>
+                        <option value="cwt">Cwt</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="fdItemLbPerUnit">Pounds per unit *</label>
+                    <input type="number" step="0.01" min="0.01" id="fdItemLbPerUnit" required value="2000">
+                    <div class="muted" style="font-size:11px; margin-top:2px;">2000 a ton, 50 a sack, 100 a cwt.</div>
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="fdItemIsCounted" style="width:auto; vertical-align:middle;">
+                    Counted in whole units (sacks) rather than estimated
+                </label>
+            </div>
+
+            <h4 style="margin-bottom:8px;">Import &amp; accounting</h4>
+            <div class="form-grid" style="margin-bottom:14px;">
+                <div>
+                    <label for="fdItemPbName">Performance Beef name</label>
+                    <input type="text" id="fdItemPbName" placeholder="exactly as PB prints it">
+                    <div class="muted" style="font-size:11px; margin-top:2px;">Used to match rows on import. Leave blank if it matches the name above.</div>
+                </div>
+                <div>
+                    <label for="fdItemAccount">Redwing account</label>
+                    <input type="text" id="fdItemAccount" placeholder="optional">
+                </div>
+                <div>
+                    <label for="fdItemProfitCenter">Profit center</label>
+                    <input type="text" id="fdItemProfitCenter" placeholder="optional">
+                </div>
+                <div>
+                    <label for="fdItemProductionCenter">Production center</label>
+                    <input type="text" id="fdItemProductionCenter" placeholder="optional">
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="fdItemActive" style="width:auto; vertical-align:middle;" checked> Active
+                </label>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label for="fdItemNotes">Notes</label>
+                <textarea id="fdItemNotes"></textarea>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="fdItemDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete</button>
+                <div style="flex:1;"></div>
+                <button type="button" id="fdItemCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="fdItemSaveBtn">Save item</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ================= FEED: receipt (load in) modal ================= -->
+<div class="modal-backdrop" id="fdReceiptModal">
+    <div class="modal">
+        <h2 id="fdReceiptModalTitle">Load in</h2>
+        <div id="fdReceiptModalAlert"></div>
+        <form id="fdReceiptForm">
+            <input type="hidden" id="fdRcId">
+
+            <div class="form-grid" style="margin-bottom:14px;">
+                <div>
+                    <label for="fdRcDate">Delivered *</label>
+                    <input type="date" id="fdRcDate" required>
+                </div>
+                <div>
+                    <label for="fdRcItem">Item *</label>
+                    <select id="fdRcItem" required><option value="">— Pick an item —</option></select>
+                </div>
+                <div>
+                    <label for="fdRcLocation">Into *</label>
+                    <select id="fdRcLocation" required><option value="">— Pick a location —</option></select>
+                </div>
+                <div>
+                    <label for="fdRcVendor">Vendor</label>
+                    <input type="text" id="fdRcVendor" placeholder="optional">
+                </div>
+                <div>
+                    <label for="fdRcTicket">Scale ticket #</label>
+                    <input type="text" id="fdRcTicket" placeholder="optional">
+                </div>
+                <div>
+                    <label for="fdRcInvoice">Invoice #</label>
+                    <input type="text" id="fdRcInvoice" placeholder="optional">
+                </div>
+            </div>
+
+            <h4 style="margin-bottom:8px;">Quantity</h4>
+            <div class="form-grid" style="margin-bottom:6px;">
+                <div>
+                    <label for="fdRcQtyUnits">Amount <span id="fdRcUnitLabel" class="muted"></span></label>
+                    <input type="number" step="0.0001" min="0" id="fdRcQtyUnits" placeholder="e.g. 24.5">
+                </div>
+                <div>
+                    <label for="fdRcQtyLb">Pounds *</label>
+                    <input type="number" step="0.01" min="0.01" id="fdRcQtyLb" required>
+                </div>
+            </div>
+            <div class="muted" style="font-size:11px; margin-bottom:14px;" id="fdRcQtyHint">
+                Type either one and the other fills in.
+            </div>
+
+            <h4 style="margin-bottom:8px;">Cost</h4>
+            <p class="muted" style="font-size:11px; margin:0 0 10px 0;">
+                Freight goes <b>in</b> the cost, not beside it. This is the price this feed carries for the
+                rest of its life &mdash; it freezes onto every pound when the feed is used.
+            </p>
+            <div class="form-grid" style="margin-bottom:6px;">
+                <div>
+                    <label for="fdRcProductCost">Product ($)</label>
+                    <input type="number" step="0.01" min="0" id="fdRcProductCost">
+                </div>
+                <div>
+                    <label for="fdRcFreightCost">Freight ($)</label>
+                    <input type="number" step="0.01" min="0" id="fdRcFreightCost">
+                </div>
+                <div>
+                    <label for="fdRcOtherCost">Other ($)</label>
+                    <input type="number" step="0.01" min="0" id="fdRcOtherCost">
+                </div>
+            </div>
+            <div id="fdRcCostDisplay" class="muted" style="font-size:12px; margin-bottom:12px;"></div>
+
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="fdRcCostPending" style="width:auto; vertical-align:middle;">
+                    Price not known yet
+                </label>
+                <div class="muted" style="font-size:11px; margin-top:2px;">
+                    Deliberate and visible, rather than saving a blank that would quietly make this feed free.
+                    Feed can still be used against it; the cost fills in when you price it.
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label for="fdRcNotes">Notes</label>
+                <textarea id="fdRcNotes"></textarea>
+            </div>
+
+            <div id="fdRcConsumedNote" class="muted hidden" style="font-size:12px; margin-bottom:10px;"></div>
+
+            <div class="modal-actions">
+                <button type="button" id="fdRcDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete load</button>
+                <div style="flex:1;"></div>
+                <button type="button" id="fdRcCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="fdRcSaveBtn">Save load</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ================= FEED: count sheet modal ================= -->
+<div class="modal-backdrop" id="fdCountModal">
+    <div class="modal" style="max-width: 760px;">
+        <h2 id="fdCountModalTitle">Count a bay</h2>
+        <div id="fdCountModalAlert"></div>
+        <input type="hidden" id="fdCtId">
+
+        <div class="form-grid" style="margin-bottom:14px;">
+            <div>
+                <label for="fdCtDate">Count date *</label>
+                <input type="date" id="fdCtDate" required>
+            </div>
+            <div>
+                <label for="fdCtLocation">Location *</label>
+                <select id="fdCtLocation" required><option value="">— Pick a location —</option></select>
+            </div>
+        </div>
+
+        <p class="muted" style="font-size:12px; margin:0 0 10px 0;">
+            Book shows what the layers say is there. Type what is actually there. Anything you leave
+            blank is skipped &mdash; not treated as zero.
+        </p>
+
+        <div id="fdCtLines"><div class="empty">Pick a location.</div></div>
+
+        <div style="margin:14px 0;">
+            <label for="fdCtNotes">Notes</label>
+            <textarea id="fdCtNotes"></textarea>
+        </div>
+
+        <div class="modal-actions">
+            <div style="flex:1;"></div>
+            <button type="button" id="fdCtCancelBtn">Cancel</button>
+            <button type="button" id="fdCtPostBtn" class="primary">Post count</button>
+        </div>
     </div>
 </div>
 
@@ -5498,17 +5984,19 @@ window.addEventListener('unhandledrejection', function(e) {
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
-         'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView'].forEach(id => {
+         'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
+         'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
+         'feedItemsView', 'feedLocationsView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
         });
     }
     // Helper: clear active state on top nav and sub-tabs
     function clearAllNavActive() {
-        ['navLots', 'navAnimalHealth', 'navSales', 'navMoves', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
+        ['navLots', 'navAnimalHealth', 'navSales', 'navMoves', 'navFeed', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
             const el = $(id); if (el) el.classList.remove('active');
         });
-        ['animalHealthSubtabs', 'salesSubtabs', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
+        ['animalHealthSubtabs', 'salesSubtabs', 'feedSubtabs', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
             const el = $(id); if (el) el.classList.add('hidden');
         });
     }
@@ -19475,6 +19963,1429 @@ ${ranchBlocks}
     function expandCardOnNextRender(id) {
         pendingExpandCardId = id;
     }
+
+    // ==========================================================
+    // FEED: commodity & mineral inventory (phases 1-2)
+    // ==========================================================
+    // Plan: docs/commodity-feed-inventory-plan.md
+    // Schema: docs/sql/2026-08-27_feed_inventory.sql
+    //
+    // The rule the whole thing is shaped by: THERE IS NO PRICE ON AN ITEM.
+    // Price lives on the load that brought the feed in, and freezes onto
+    // the pounds when they are used. That is treatment cost's behaviour,
+    // deliberately the opposite of processing cost - where editing a drug
+    // price silently rewrites closed lots and prior fiscal years.
+    //
+    // Every read here checks `error`. A lot_status read keyed on the wrong
+    // column returns undefined data and the code quietly does nothing; two
+    // live instances of exactly that were found on 2026-08-26. Every write
+    // checks the returned row count too, because an RLS refusal comes back
+    // as zero rows rather than an error.
+    // ----------------------------------------------------------
+
+    let fdItems = [];        // feed_items, active + inactive
+    let fdLocations = [];    // feed_storage_locations
+    let fdRanches = [];
+    let fdOpenLots = [];     // open, non-test lots
+    let fdPastures = [];
+    let fdOnHand = [];       // feed_on_hand rows
+    let fdRefsLoaded = false;
+    let fdUsageSheet = null; // { rows: [...] }
+    let fdCountState = null; // { location_id, lines: [...] }
+
+    const FD_ITEM_TYPES = {
+        bulk_commodity: 'Bulk commodity',
+        bagged_feed: 'Bagged feed',
+        mineral: 'Mineral',
+        additive: 'Additive'
+    };
+    const FD_DEST_TYPES = {
+        lot: 'Lot',
+        pasture: 'Pasture',
+        adjustment: 'Adjustment / shrink',
+        transfer: 'Transfer to another location'
+    };
+
+    function fdKey(itemId, locId) { return itemId + '|' + locId; }
+    function fdItem(id) { return fdItems.find(i => i.id === id); }
+    function fdLoc(id) { return fdLocations.find(l => l.id === id); }
+
+    // Pounds shown in the unit the ticket is written in, because "15.8 ton"
+    // is what a person recognises and 31,630 lb is what the database holds.
+    function fdInUnits(lb, item) {
+        if (lb == null || !item || !item.lb_per_purchase_unit) return '';
+        const u = Number(lb) / Number(item.lb_per_purchase_unit);
+        const label = item.purchase_unit === 'ton' ? 'ton'
+                    : item.purchase_unit === 'bag' ? (u === 1 ? 'bag' : 'bags')
+                    : item.purchase_unit === 'cwt' ? 'cwt' : 'lb';
+        if (item.purchase_unit === 'lb') return '';
+        return fmtNum(u, u < 10 ? 2 : 1) + ' ' + label;
+    }
+
+    // ---- REFERENCE DATA --------------------------------------------------
+    async function fdLoadRefs(force) {
+        if (fdRefsLoaded && !force) return null;
+        const [itemsRes, locsRes, ranchRes, lotsRes, pastRes] = await Promise.all([
+            supabase.from('feed_items').select('*').order('name'),
+            supabase.from('feed_storage_locations').select('*').order('name'),
+            supabase.from('ranches').select('id, name').eq('is_active', true).order('name'),
+            supabase.from('lots').select('id, lot_number, closed_at, is_test')
+                .is('closed_at', null).order('lot_number'),
+            supabase.from('pastures').select('id, name, ranch_id, ranches(name)')
+                .eq('is_active', true).order('name')
+        ]);
+        const firstErr = [itemsRes, locsRes, ranchRes, lotsRes, pastRes].find(r => r.error);
+        if (firstErr) return firstErr.error;
+
+        fdItems     = itemsRes.data || [];
+        fdLocations = locsRes.data || [];
+        fdRanches   = ranchRes.data || [];
+        // Test lots are excluded everywhere else in this app; feed is no
+        // different, and charging real feed to TEST_ would poison the
+        // cost-of-gain work in phase 4.
+        fdOpenLots  = (lotsRes.data || []).filter(l => !l.is_test &&
+                        !/^TEST[_-]/i.test(l.lot_number || ''));
+        fdPastures  = pastRes.data || [];
+        fdRefsLoaded = true;
+        return null;
+    }
+
+    async function fdLoadOnHand() {
+        const { data, error } = await supabase.from('feed_on_hand').select('*');
+        if (error) { fdOnHand = []; return error; }
+        fdOnHand = data || [];
+        return null;
+    }
+
+    function fdOnHandFor(itemId, locId) {
+        const r = fdOnHand.find(x => x.item_id === itemId && x.location_id === locId);
+        return r ? Number(r.qty_lb) || 0 : 0;
+    }
+
+    // ---- TAB SHELL -------------------------------------------------------
+    async function showFeedTab(subtab = 'inventory') {
+        hideAllViews();
+        clearAllNavActive();
+        $('navFeed').classList.add('active');
+        $('feedSubtabs').classList.remove('hidden');
+        $('feedSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            b.classList.toggle('active', b.dataset.subtab === subtab);
+        });
+
+        const refErr = await fdLoadRefs();
+        if (refErr) {
+            // The tables not existing yet is the single most likely reason
+            // this screen is blank, and "no items" would be a lie about it.
+            const missing = /relation .* does not exist|schema cache/i.test(refErr.message || '');
+            const msg = missing
+                ? 'The feed tables are not in the database yet. Apply docs/sql/2026-08-27_feed_inventory.sql in the Supabase SQL editor, then reload.'
+                : refErr.message;
+            ['fdInvContent','fdRcContent','fdItContent','fdLcContent','fdCtContent']
+                .forEach(id => { const el = $(id); if (el) el.innerHTML = `<div class="alert error">${escapeHtml(msg)}</div>`; });
+        }
+
+        if (subtab === 'inventory') {
+            $('feedInventoryView').classList.remove('hidden');
+            loadFeedInventory();
+        } else if (subtab === 'receipts') {
+            $('feedReceiptsView').classList.remove('hidden');
+            loadFeedReceipts();
+        } else if (subtab === 'usage') {
+            $('feedUsageView').classList.remove('hidden');
+            initFeedUsage();
+        } else if (subtab === 'counts') {
+            $('feedCountsView').classList.remove('hidden');
+            loadFeedCounts();
+        } else if (subtab === 'items') {
+            $('feedItemsView').classList.remove('hidden');
+            loadFeedItems();
+        } else if (subtab === 'locations') {
+            $('feedLocationsView').classList.remove('hidden');
+            loadFeedLocations();
+        }
+    }
+
+    // ==========================================================
+    // INVENTORY
+    // ==========================================================
+    async function loadFeedInventory() {
+        clearAlert('fdInvAlert');
+        $('fdInvContent').innerHTML = '<div class="empty">Loading…</div>';
+        const byLocation = $('fdInvByLocation').checked;
+
+        const { data, error } = await supabase
+            .from(byLocation ? 'feed_on_hand' : 'feed_item_on_hand')
+            .select('*');
+        if (error) {
+            $('fdInvContent').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`;
+            $('fdInvSummary').innerHTML = '';
+            return;
+        }
+        const rows = data || [];
+        if (byLocation) fdOnHand = rows;
+
+        if (!rows.length) {
+            $('fdInvSummary').innerHTML = '';
+            $('fdInvContent').innerHTML =
+                '<div class="empty">Nothing on hand. Add a load under <b>Loads in</b>.</div>';
+            return;
+        }
+
+        const totalLb    = rows.reduce((s, r) => s + (Number(r.qty_lb) || 0), 0);
+        const totalValue = rows.reduce((s, r) => s + (Number(r.value_usd) || 0), 0);
+        const pendingLb  = rows.reduce((s, r) => s + (Number(r.pending_cost_lb) || 0), 0);
+
+        $('fdInvSummary').innerHTML = `
+            <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:14px;">
+                <div><div class="muted" style="font-size:11px;">ON HAND</div>
+                     <div style="font-size:20px;">${fmtNum(totalLb)} lb</div></div>
+                <div><div class="muted" style="font-size:11px;">VALUE</div>
+                     <div style="font-size:20px;">${fmtMoney(totalValue)}</div></div>
+                ${pendingLb > 0 ? `<div><div class="muted" style="font-size:11px;">UNPRICED</div>
+                     <div style="font-size:20px; color:var(--warning, #b58900);">${fmtNum(pendingLb)} lb</div></div>` : ''}
+            </div>`;
+
+        const sorted = rows.slice().sort((a, b) =>
+            (a.item_name || '').localeCompare(b.item_name || '') ||
+            (a.location_name || '').localeCompare(b.location_name || ''));
+
+        const body = sorted.map(r => {
+            const item = fdItem(r.item_id);
+            const capPct = (byLocation && r.capacity_lb)
+                ? Math.round(100 * (Number(r.qty_lb) || 0) / Number(r.capacity_lb)) : null;
+            return `<tr>
+                <td><strong>${escapeHtml(r.item_name || '—')}</strong>
+                    <div class="muted" style="font-size:11px;">${escapeHtml(FD_ITEM_TYPES[r.item_type] || r.item_type || '')}</div></td>
+                ${byLocation ? `<td>${escapeHtml(r.location_name || '—')}
+                    ${capPct != null ? `<div class="muted" style="font-size:11px;">${capPct}% of capacity</div>` : ''}</td>` : ''}
+                <td class="num">${fmtNum(r.qty_lb)} lb
+                    ${item && item.purchase_unit !== 'lb'
+                        ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdInUnits(r.qty_lb, item))}</div>` : ''}</td>
+                <td class="num">${r.avg_cost_per_lb != null ? '$' + Number(r.avg_cost_per_lb).toFixed(4) + '/lb' : '—'}</td>
+                <td class="num">${fmtMoney(r.value_usd)}</td>
+                <td class="num">${Number(r.pending_cost_lb) > 0
+                        ? `<span style="color:#b58900;">⚠ ${fmtNum(r.pending_cost_lb)} lb</span>` : '—'}</td>
+                <td class="muted" style="font-size:12px;">${byLocation ? fmtDate(r.oldest_layer_date) : (r.location_count + ' loc')}</td>
+            </tr>`;
+        }).join('');
+
+        $('fdInvContent').innerHTML = `
+            <table>
+                <thead><tr>
+                    <th>Item</th>
+                    ${byLocation ? '<th>Location</th>' : ''}
+                    <th class="num">On hand</th>
+                    <th class="num">Avg cost</th>
+                    <th class="num">Value</th>
+                    <th class="num">Unpriced</th>
+                    <th>${byLocation ? 'Oldest layer' : 'Where'}</th>
+                </tr></thead>
+                <tbody>${body}</tbody>
+            </table>
+            ${pendingLb > 0 ? `<p class="muted" style="font-size:11px; margin-top:10px;">
+                <span style="color:#b58900;">⚠</span> = pounds on a load that has no price yet. They are counted,
+                not valued. Price the load under <b>Loads in</b> and the value fills in &mdash; including on any
+                feed already used against it.</p>` : ''}`;
+    }
+
+    // ==========================================================
+    // STORAGE LOCATIONS
+    // ==========================================================
+    async function loadFeedLocations() {
+        clearAlert('fdLcAlert');
+        $('fdLcContent').innerHTML = '<div class="empty">Loading…</div>';
+        const showInactive = $('fdShowInactiveLocs').checked;
+
+        const err = await fdLoadRefs(true);
+        if (err) { $('fdLcContent').innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`; return; }
+        await fdLoadOnHand();
+
+        const list = fdLocations.filter(l => showInactive || l.is_active);
+        if (!list.length) {
+            $('fdLcContent').innerHTML =
+                '<div class="empty">No locations yet. Click "+ New location" to add your first bay.</div>';
+            return;
+        }
+        const ranchName = id => (fdRanches.find(r => r.id === id) || {}).name || '—';
+
+        const rows = list.map(l => {
+            const lb = fdOnHand.filter(o => o.location_id === l.id)
+                               .reduce((s, o) => s + (Number(o.qty_lb) || 0), 0);
+            return `<tr class="clickable ${!l.is_active ? 'closed-row' : ''}" data-fd-loc-id="${l.id}">
+                <td><strong>${escapeHtml(l.name)}</strong></td>
+                <td>${escapeHtml(ranchName(l.ranch_id))}</td>
+                <td>${escapeHtml(l.kind)}</td>
+                <td>${l.is_bulk ? 'bulk (estimated)' : 'counted'}</td>
+                <td class="num">${l.capacity_lb ? fmtNum(l.capacity_lb) + ' lb' : '—'}</td>
+                <td class="num">${lb > 0 ? fmtNum(lb) + ' lb' : '—'}</td>
+                <td>${l.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
+            </tr>`;
+        }).join('');
+
+        $('fdLcContent').innerHTML = `
+            <table>
+                <thead><tr><th>Name</th><th>Ranch</th><th>Kind</th><th>Contents</th>
+                    <th class="num">Capacity</th><th class="num">On hand</th><th>Status</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+        $('fdLcContent').querySelectorAll('tr.clickable').forEach(r => {
+            r.addEventListener('click', () => openFdLocModal(fdLocations.find(l => l.id === r.dataset.fdLocId)));
+        });
+    }
+
+    function openFdLocModal(loc) {
+        clearAlert('fdLocModalAlert');
+        $('fdLocModalTitle').textContent = loc ? 'Edit storage location' : 'New storage location';
+        $('fdLocId').value       = loc ? loc.id : '';
+        $('fdLocName').value     = loc ? loc.name : '';
+        $('fdLocKind').value     = loc ? loc.kind : 'bay';
+        $('fdLocCapacity').value = loc && loc.capacity_lb != null ? loc.capacity_lb : '';
+        $('fdLocIsBulk').checked = loc ? !!loc.is_bulk : true;
+        $('fdLocActive').checked = loc ? !!loc.is_active : true;
+        $('fdLocNotes').value    = loc ? (loc.notes || '') : '';
+
+        $('fdLocRanch').innerHTML = '<option value="">—</option>' +
+            fdRanches.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+        $('fdLocRanch').value = loc && loc.ranch_id ? loc.ranch_id : '';
+
+        // Only offer delete on a location that has never held anything.
+        const used = loc ? fdOnHand.some(o => o.location_id === loc.id) : false;
+        $('fdLocDeleteBtn').classList.toggle('hidden', !loc || used);
+        showModal('fdLocModal');
+    }
+
+    async function saveFdLoc(e) {
+        e.preventDefault();
+        clearAlert('fdLocModalAlert');
+        const id = $('fdLocId').value;
+        const name = $('fdLocName').value.trim();
+        if (!name) { showAlert('fdLocModalAlert', 'Name is required.'); return; }
+
+        const payload = {
+            name,
+            ranch_id: $('fdLocRanch').value || null,
+            kind: $('fdLocKind').value,
+            is_bulk: $('fdLocIsBulk').checked,
+            capacity_lb: $('fdLocCapacity').value ? parseFloat($('fdLocCapacity').value) : null,
+            is_active: $('fdLocActive').checked,
+            notes: $('fdLocNotes').value.trim() || null
+        };
+
+        $('fdLocSaveBtn').disabled = true;
+        try {
+            let res;
+            if (id) {
+                res = await supabase.from('feed_storage_locations').update(payload).eq('id', id).select();
+            } else {
+                payload.created_by = currentUser ? currentUser.id : null;
+                res = await supabase.from('feed_storage_locations').insert(payload).select();
+            }
+            if (res.error) { showAlert('fdLocModalAlert', res.error.message); return; }
+            // An RLS refusal comes back as zero rows, not an error. Without
+            // this the screen would report a save that changed nothing.
+            if (!res.data || !res.data.length) {
+                showAlert('fdLocModalAlert', 'Nothing was saved — your role may not be allowed to make that change.');
+                return;
+            }
+            hideModal('fdLocModal');
+            await fdLoadRefs(true);
+            loadFeedLocations();
+        } finally {
+            $('fdLocSaveBtn').disabled = false;
+        }
+    }
+
+    async function deleteFdLoc() {
+        const id = $('fdLocId').value;
+        if (!id) return;
+        if (!confirm('Delete this location? If it has ever held feed, deactivate it instead so the history survives.')) return;
+        const { error } = await supabase.from('feed_storage_locations').delete().eq('id', id);
+        if (error) { showAlert('fdLocModalAlert', error.message); return; }
+        hideModal('fdLocModal');
+        await fdLoadRefs(true);
+        loadFeedLocations();
+    }
+
+    // ==========================================================
+    // FEED ITEMS
+    // ==========================================================
+    async function loadFeedItems() {
+        clearAlert('fdItAlert');
+        $('fdItContent').innerHTML = '<div class="empty">Loading…</div>';
+        const showInactive = $('fdShowInactiveItems').checked;
+
+        const err = await fdLoadRefs(true);
+        if (err) { $('fdItContent').innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`; return; }
+
+        const list = fdItems.filter(i => showInactive || i.is_active);
+        if (!list.length) {
+            $('fdItContent').innerHTML =
+                '<div class="empty">No items yet. Click "+ New item" to add the first commodity.</div>';
+            return;
+        }
+
+        const groups = {};
+        list.forEach(i => {
+            const t = FD_ITEM_TYPES[i.item_type] || 'Other';
+            (groups[t] = groups[t] || []).push(i);
+        });
+
+        $('fdItContent').innerHTML = Object.keys(groups).sort().map(t => {
+            const rows = groups[t].map(i => `
+                <tr class="clickable ${!i.is_active ? 'closed-row' : ''}" data-fd-item-id="${i.id}">
+                    <td><strong>${escapeHtml(i.name)}</strong>
+                        ${i.pb_name && i.pb_name !== i.name
+                            ? `<div class="muted" style="font-size:11px;">PB: ${escapeHtml(i.pb_name)}</div>` : ''}</td>
+                    <td>${escapeHtml(i.category || '—')}</td>
+                    <td>${escapeHtml(i.purchase_unit)}</td>
+                    <td class="num">${fmtNum(i.lb_per_purchase_unit, 0)} lb</td>
+                    <td>${i.is_counted ? 'counted' : 'estimated'}</td>
+                    <td>${escapeHtml(i.redwing_account || '—')}</td>
+                    <td>${i.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
+                </tr>`).join('');
+            return `<div style="margin-bottom:24px;">
+                <h4 style="margin-bottom:8px;">${escapeHtml(t)}
+                    <span class="muted" style="font-weight:400; text-transform:none; letter-spacing:0; font-size:12px;">(${groups[t].length})</span></h4>
+                <table>
+                    <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th class="num">Lb / unit</th>
+                        <th>At count</th><th>Redwing acct</th><th>Status</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+        }).join('');
+
+        $('fdItContent').querySelectorAll('tr.clickable').forEach(r => {
+            r.addEventListener('click', () => openFdItemModal(fdItems.find(i => i.id === r.dataset.fdItemId)));
+        });
+    }
+
+    function fdLocationOptions(selected, activeOnly) {
+        return '<option value="">—</option>' + fdLocations
+            .filter(l => l.is_active || !activeOnly || l.id === selected)
+            .map(l => `<option value="${l.id}"${l.id === selected ? ' selected' : ''}>${escapeHtml(l.name)}</option>`)
+            .join('');
+    }
+
+    function openFdItemModal(item) {
+        clearAlert('fdItemModalAlert');
+        $('fdItemModalTitle').textContent = item ? 'Edit feed item' : 'New feed item';
+        $('fdItemId').value               = item ? item.id : '';
+        $('fdItemName').value             = item ? item.name : '';
+        $('fdItemType').value             = item ? item.item_type : 'bulk_commodity';
+        $('fdItemCategory').value         = item ? (item.category || '') : '';
+        $('fdItemPurchaseUnit').value     = item ? item.purchase_unit : 'ton';
+        $('fdItemLbPerUnit').value        = item ? item.lb_per_purchase_unit : 2000;
+        $('fdItemIsCounted').checked      = item ? !!item.is_counted : false;
+        $('fdItemPbName').value           = item ? (item.pb_name || '') : '';
+        $('fdItemAccount').value          = item ? (item.redwing_account || '') : '';
+        $('fdItemProfitCenter').value     = item ? (item.redwing_profit_center || '') : '';
+        $('fdItemProductionCenter').value = item ? (item.redwing_production_center || '') : '';
+        $('fdItemActive').checked         = item ? !!item.is_active : true;
+        $('fdItemNotes').value            = item ? (item.notes || '') : '';
+        $('fdItemDefaultLoc').innerHTML   = fdLocationOptions(item ? item.default_location_id : '', true);
+        $('fdItemDeleteBtn').classList.toggle('hidden', !item);
+        showModal('fdItemModal');
+    }
+
+    // The unit picker sets a sane lb-per-unit, but never overwrites a number
+    // already typed for a saved item - somebody may have a 40 lb sack.
+    function fdSyncUnitDefault() {
+        const u = $('fdItemPurchaseUnit').value;
+        const defaults = { ton: 2000, bag: 50, lb: 1, cwt: 100 };
+        if (!$('fdItemId').value || !$('fdItemLbPerUnit').value) {
+            $('fdItemLbPerUnit').value = defaults[u];
+        }
+        $('fdItemIsCounted').checked = (u === 'bag');
+    }
+
+    async function saveFdItem(e) {
+        e.preventDefault();
+        clearAlert('fdItemModalAlert');
+        const id = $('fdItemId').value;
+        const name = $('fdItemName').value.trim();
+        const lbPer = parseFloat($('fdItemLbPerUnit').value);
+        if (!name) { showAlert('fdItemModalAlert', 'Name is required.'); return; }
+        if (!(lbPer > 0)) { showAlert('fdItemModalAlert', 'Pounds per unit must be greater than zero.'); return; }
+
+        const payload = {
+            name,
+            item_type: $('fdItemType').value,
+            category: $('fdItemCategory').value.trim() || null,
+            purchase_unit: $('fdItemPurchaseUnit').value,
+            lb_per_purchase_unit: lbPer,
+            is_counted: $('fdItemIsCounted').checked,
+            pb_name: $('fdItemPbName').value.trim() || null,
+            redwing_account: $('fdItemAccount').value.trim() || null,
+            redwing_profit_center: $('fdItemProfitCenter').value.trim() || null,
+            redwing_production_center: $('fdItemProductionCenter').value.trim() || null,
+            default_location_id: $('fdItemDefaultLoc').value || null,
+            is_active: $('fdItemActive').checked,
+            notes: $('fdItemNotes').value.trim() || null
+        };
+
+        $('fdItemSaveBtn').disabled = true;
+        try {
+            let res;
+            if (id) {
+                res = await supabase.from('feed_items').update(payload).eq('id', id).select();
+            } else {
+                payload.created_by = currentUser ? currentUser.id : null;
+                res = await supabase.from('feed_items').insert(payload).select();
+            }
+            if (res.error) { showAlert('fdItemModalAlert', res.error.message); return; }
+            if (!res.data || !res.data.length) {
+                showAlert('fdItemModalAlert', 'Nothing was saved — your role may not be allowed to make that change.');
+                return;
+            }
+            hideModal('fdItemModal');
+            await fdLoadRefs(true);
+            loadFeedItems();
+        } finally {
+            $('fdItemSaveBtn').disabled = false;
+        }
+    }
+
+    async function deleteFdItem() {
+        const id = $('fdItemId').value;
+        if (!id) return;
+        if (!confirm('Delete this item? If it has ever been bought or fed, deactivate it instead — deleting loses the history.')) return;
+        const { error } = await supabase.from('feed_items').delete().eq('id', id);
+        if (error) { showAlert('fdItemModalAlert', error.message); return; }
+        hideModal('fdItemModal');
+        await fdLoadRefs(true);
+        loadFeedItems();
+    }
+
+    // ==========================================================
+    // RECEIPTS - loads in. Each row IS a FIFO layer.
+    // ==========================================================
+    async function loadFeedReceipts() {
+        clearAlert('fdRcAlert');
+        $('fdRcContent').innerHTML = '<div class="empty">Loading…</div>';
+        const pendingOnly = $('fdRcOnlyPending').checked;
+
+        // PostgREST caps at 1000. This screen is "recent loads", not an
+        // archive - the number below is the cap, and it says so on screen
+        // rather than silently showing a slice.
+        const LIMIT = 300;
+        let q = supabase.from('feed_receipts')
+            .select('*, feed_items(name, purchase_unit, lb_per_purchase_unit), feed_storage_locations(name)')
+            .order('receipt_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(LIMIT);
+        if (pendingOnly) q = q.eq('cost_pending', true);
+
+        const { data, error } = await q;
+        if (error) { $('fdRcContent').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`; return; }
+        const rows = data || [];
+        if (!rows.length) {
+            $('fdRcContent').innerHTML = pendingOnly
+                ? '<div class="empty">No unpriced loads. Good.</div>'
+                : '<div class="empty">No loads yet. Click "+ Load in" to record the first delivery.</div>';
+            return;
+        }
+
+        const body = rows.map(r => {
+            const used = (Number(r.qty_lb) || 0) - (Number(r.qty_lb_remaining) || 0);
+            const item = r.feed_items || {};
+            return `<tr class="clickable" data-fd-rc-id="${r.id}">
+                <td>${fmtDate(r.receipt_date)}</td>
+                <td><strong>${escapeHtml(item.name || '—')}</strong>
+                    ${r.source !== 'purchase'
+                        ? `<div class="muted" style="font-size:11px;">${escapeHtml(r.source === 'transfer_in' ? 'transferred in' : 'count adjustment')}</div>` : ''}</td>
+                <td>${escapeHtml((r.feed_storage_locations || {}).name || '—')}</td>
+                <td class="num">${fmtNum(r.qty_lb)} lb</td>
+                <td class="num">${r.cost_pending
+                        ? '<span style="color:#b58900;">⚠ unpriced</span>'
+                        : (r.unit_cost_per_lb != null ? '$' + Number(r.unit_cost_per_lb).toFixed(4) + '/lb' : '—')}</td>
+                <td class="num">${r.cost_pending ? '—' : fmtMoney(r.total_cost)}</td>
+                <td class="num">${fmtNum(r.qty_lb_remaining)} lb
+                    ${used > 0 ? `<div class="muted" style="font-size:11px;">${fmtNum(used)} used</div>` : ''}</td>
+                <td class="muted" style="font-size:12px;">${escapeHtml(r.vendor || '')}</td>
+            </tr>`;
+        }).join('');
+
+        $('fdRcContent').innerHTML = `
+            <table>
+                <thead><tr><th>Delivered</th><th>Item</th><th>Into</th><th class="num">Amount</th>
+                    <th class="num">Cost/lb</th><th class="num">Total</th><th class="num">Left</th><th>Vendor</th></tr></thead>
+                <tbody>${body}</tbody>
+            </table>
+            ${rows.length >= LIMIT
+                ? `<p class="muted" style="font-size:11px; margin-top:8px;">Showing the most recent ${LIMIT} loads. Older ones are still in the books.</p>`
+                : ''}`;
+
+        $('fdRcContent').querySelectorAll('tr.clickable').forEach(tr => {
+            tr.addEventListener('click', () => openFdReceiptModal(rows.find(r => r.id === tr.dataset.fdRcId)));
+        });
+    }
+
+    function fdItemOptions(selected, activeOnly) {
+        return '<option value="">— Pick an item —</option>' + fdItems
+            .filter(i => i.is_active || !activeOnly || i.id === selected)
+            .map(i => `<option value="${i.id}"${i.id === selected ? ' selected' : ''}>${escapeHtml(i.name)}</option>`)
+            .join('');
+    }
+
+    function openFdReceiptModal(r) {
+        clearAlert('fdReceiptModalAlert');
+        $('fdReceiptModalTitle').textContent = r ? 'Edit load' : 'Load in';
+        $('fdRcId').value           = r ? r.id : '';
+        $('fdRcDate').value         = r ? r.receipt_date : ranchToday();
+        $('fdRcItem').innerHTML     = fdItemOptions(r ? r.item_id : '', true);
+        $('fdRcLocation').innerHTML = fdLocationOptions(r ? r.location_id : '', true);
+        $('fdRcVendor').value       = r ? (r.vendor || '') : '';
+        $('fdRcTicket').value       = r ? (r.ticket_number || '') : '';
+        $('fdRcInvoice').value      = r ? (r.invoice_number || '') : '';
+        $('fdRcQtyUnits').value     = r && r.qty_purchase_units != null ? r.qty_purchase_units : '';
+        $('fdRcQtyLb').value        = r ? r.qty_lb : '';
+        $('fdRcProductCost').value  = r && r.product_cost != null ? r.product_cost : '';
+        $('fdRcFreightCost').value  = r && r.freight_cost != null ? r.freight_cost : '';
+        $('fdRcOtherCost').value    = r && r.other_cost != null ? r.other_cost : '';
+        $('fdRcCostPending').checked = r ? !!r.cost_pending : false;
+        $('fdRcNotes').value        = r ? (r.notes || '') : '';
+
+        // The quantity of a load that has already been partly fed cannot be
+        // edited here - the layers downstream were sized against it.
+        const used = r ? (Number(r.qty_lb) - Number(r.qty_lb_remaining)) : 0;
+        $('fdRcQtyLb').disabled    = used > 0;
+        $('fdRcQtyUnits').disabled = used > 0;
+        $('fdRcConsumedNote').classList.toggle('hidden', !(used > 0));
+        if (used > 0) {
+            $('fdRcConsumedNote').innerHTML =
+                `${fmtNum(used)} lb of this load has already been fed out, so the amount is locked. ` +
+                `The price can still be corrected — doing so fills in any feed-out that was waiting on it.`;
+        }
+        $('fdRcDeleteBtn').classList.toggle('hidden', !r || used > 0);
+        fdUpdateReceiptCost();
+        showModal('fdReceiptModal');
+    }
+
+    function fdUpdateReceiptCost() {
+        const item = fdItem($('fdRcItem').value);
+        $('fdRcUnitLabel').textContent = item ? '(' + item.purchase_unit + ')' : '';
+        const lb = parseFloat($('fdRcQtyLb').value);
+        const pending = $('fdRcCostPending').checked;
+        ['fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost'].forEach(id => { $(id).disabled = pending; });
+
+        if (pending) {
+            $('fdRcCostDisplay').innerHTML =
+                '<span style="color:#b58900;">Saving unpriced.</span> This load will show on the inventory as counted but not valued.';
+            return;
+        }
+        const total = ['fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost']
+            .reduce((s, id) => s + (parseFloat($(id).value) || 0), 0);
+        if (!(lb > 0) || !(total > 0)) {
+            $('fdRcCostDisplay').textContent = 'Enter pounds and cost to see the delivered price.';
+            return;
+        }
+        const perLb = total / lb;
+        const perUnit = item ? perLb * Number(item.lb_per_purchase_unit) : null;
+        $('fdRcCostDisplay').innerHTML =
+            `Delivered: <b>$${perLb.toFixed(4)}/lb</b>` +
+            (perUnit != null && item.purchase_unit !== 'lb'
+                ? ` &middot; <b>${fmtMoney(perUnit)}/${escapeHtml(item.purchase_unit)}</b>` : '') +
+            ` &middot; total ${fmtMoney(total)}`;
+    }
+
+    // Type either the ticket unit or pounds; the other follows.
+    function fdSyncQtyFromUnits() {
+        const item = fdItem($('fdRcItem').value);
+        const u = parseFloat($('fdRcQtyUnits').value);
+        if (item && u > 0) $('fdRcQtyLb').value = +(u * Number(item.lb_per_purchase_unit)).toFixed(2);
+        fdUpdateReceiptCost();
+    }
+    function fdSyncUnitsFromQty() {
+        const item = fdItem($('fdRcItem').value);
+        const lb = parseFloat($('fdRcQtyLb').value);
+        if (item && lb > 0 && Number(item.lb_per_purchase_unit) > 0) {
+            $('fdRcQtyUnits').value = +(lb / Number(item.lb_per_purchase_unit)).toFixed(4);
+        }
+        fdUpdateReceiptCost();
+    }
+
+    async function saveFdReceipt(e) {
+        e.preventDefault();
+        clearAlert('fdReceiptModalAlert');
+        const id = $('fdRcId').value;
+        const itemId = $('fdRcItem').value;
+        const locId  = $('fdRcLocation').value;
+        const qtyLb  = parseFloat($('fdRcQtyLb').value);
+        const pending = $('fdRcCostPending').checked;
+
+        if (!itemId) { showAlert('fdReceiptModalAlert', 'Pick an item.'); return; }
+        if (!locId)  { showAlert('fdReceiptModalAlert', 'Pick a location.'); return; }
+        if (!(qtyLb > 0)) { showAlert('fdReceiptModalAlert', 'Pounds must be greater than zero.'); return; }
+
+        const product = $('fdRcProductCost').value ? parseFloat($('fdRcProductCost').value) : null;
+        const freight = $('fdRcFreightCost').value ? parseFloat($('fdRcFreightCost').value) : null;
+        const other   = $('fdRcOtherCost').value   ? parseFloat($('fdRcOtherCost').value)   : null;
+
+        // The unpriced-medication trap: a blank cost yields NULL, SUM()
+        // ignores NULL, and the feed silently becomes free. Make it a
+        // choice rather than an oversight.
+        if (!pending && !(product > 0 || freight > 0 || other > 0)) {
+            showAlert('fdReceiptModalAlert',
+                'This load has no cost. Enter one, or tick "Price not known yet" so it is flagged instead of quietly costing nothing.');
+            return;
+        }
+
+        const payload = {
+            receipt_date: $('fdRcDate').value,
+            item_id: itemId,
+            location_id: locId,
+            vendor: $('fdRcVendor').value.trim() || null,
+            ticket_number: $('fdRcTicket').value.trim() || null,
+            invoice_number: $('fdRcInvoice').value.trim() || null,
+            qty_purchase_units: $('fdRcQtyUnits').value ? parseFloat($('fdRcQtyUnits').value) : null,
+            product_cost: pending ? null : product,
+            freight_cost: pending ? null : freight,
+            other_cost:   pending ? null : other,
+            cost_pending: pending,
+            notes: $('fdRcNotes').value.trim() || null
+        };
+
+        $('fdRcSaveBtn').disabled = true;
+        try {
+            let res, wasPending = false;
+            if (id) {
+                // qty is only writable while nothing has been drawn off it,
+                // and the modal locks the field in that case.
+                if (!$('fdRcQtyLb').disabled) {
+                    payload.qty_lb = qtyLb;
+                    payload.qty_lb_remaining = qtyLb;
+                }
+                const prev = await supabase.from('feed_receipts').select('cost_pending').eq('id', id).single();
+                if (prev.error) { showAlert('fdReceiptModalAlert', prev.error.message); return; }
+                wasPending = !!(prev.data && prev.data.cost_pending);
+                res = await supabase.from('feed_receipts').update(payload).eq('id', id).select();
+            } else {
+                payload.qty_lb = qtyLb;
+                payload.qty_lb_remaining = qtyLb;
+                payload.created_by = currentUser ? currentUser.id : null;
+                res = await supabase.from('feed_receipts').insert(payload).select();
+            }
+            if (res.error) { showAlert('fdReceiptModalAlert', res.error.message); return; }
+            if (!res.data || !res.data.length) {
+                showAlert('fdReceiptModalAlert', 'Nothing was saved — your role may not be allowed to make that change.');
+                return;
+            }
+
+            // A load that was unpriced and now has a price: fill in the cost
+            // rows that were left as holes when this feed was used. This is
+            // the ONE place a frozen cost is written after the fact, and the
+            // RPC only ever touches rows whose cost is still NULL.
+            let filled = 0;
+            if (id && wasPending && !pending) {
+                const rp = await supabase.rpc('recost_pending_usage', { p_receipt_id: id });
+                if (rp.error) {
+                    showAlert('fdReceiptModalAlert',
+                        'The load saved, but back-filling the feed already used against it failed: ' + rp.error.message);
+                    return;
+                }
+                filled = rp.data || 0;
+            }
+
+            hideModal('fdReceiptModal');
+            await fdLoadOnHand();
+            loadFeedReceipts();
+            if (filled > 0) {
+                showAlert('fdRcAlert',
+                    `Priced. ${filled} feed-out line${filled === 1 ? '' : 's'} that were waiting on this load now carry a cost.`,
+                    'success');
+            }
+        } finally {
+            $('fdRcSaveBtn').disabled = false;
+        }
+    }
+
+    async function deleteFdReceipt() {
+        const id = $('fdRcId').value;
+        if (!id) return;
+        if (!confirm('Delete this load? Only possible while none of it has been fed out.')) return;
+        const { error } = await supabase.rpc('delete_feed_receipt', { p_receipt_id: id });
+        if (error) { showAlert('fdReceiptModalAlert', error.message); return; }
+        hideModal('fdReceiptModal');
+        await fdLoadOnHand();
+        loadFeedReceipts();
+    }
+
+    // ==========================================================
+    // USAGE - the weekly feed-out sheet
+    // ==========================================================
+    function fdNewUsageRow(prev) {
+        return {
+            uid: 'r' + Math.random().toString(36).slice(2, 9),
+            item_id: prev ? prev.item_id : '',
+            from_location_id: prev ? prev.from_location_id : '',
+            destination_type: prev ? prev.destination_type : 'lot',
+            lot_id: prev ? prev.lot_id : '',
+            pasture_id: '',
+            to_location_id: '',
+            qty_lb: ''
+        };
+    }
+
+    async function initFeedUsage() {
+        if (!fdUsageSheet) fdUsageSheet = { rows: [] };
+        if (!$('fdUsPeriodStart').value) {
+            // Default to the week ending today: a week is the expected
+            // rhythm, and both dates are editable.
+            const today = ranchToday();
+            const [y, m, d] = today.split('-').map(Number);
+            const start = new Date(y, m - 1, d - 6);
+            const pad = n => String(n).padStart(2, '0');
+            $('fdUsPeriodStart').value =
+                `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
+            $('fdUsPeriodEnd').value = today;
+        }
+        const err = await fdLoadOnHand();
+        if (err) showAlert('fdUsSaveAlert', 'Could not load what is on hand: ' + err.message);
+        if (!fdUsageSheet.rows.length) fdUsageSheet.rows.push(fdNewUsageRow());
+        renderFdUsageRows();
+        loadFdLedger();
+    }
+
+    // How many pounds of (item, location) the rest of the sheet already
+    // claims. The row being edited is EXCLUDED from its own count, or its
+    // pounds would count against their own ceiling and the number would
+    // fight the person typing.
+    function fdClaimedElsewhere(itemId, locId, exceptUid) {
+        return fdUsageSheet.rows.reduce((s, r) => {
+            if (r.uid === exceptUid) return s;
+            if (r.item_id !== itemId || r.from_location_id !== locId) return s;
+            return s + (parseFloat(r.qty_lb) || 0);
+        }, 0);
+    }
+
+    function fdLocationLabel(itemId, locId, exceptUid) {
+        const loc = fdLoc(locId);
+        if (!loc) return '';
+        const onHand = fdOnHandFor(itemId, locId);
+        if (!itemId) return loc.name;
+        const left = onHand - fdClaimedElsewhere(itemId, locId, exceptUid);
+        return `${loc.name} (${fmtNum(Math.max(0, left))} of ${fmtNum(onHand)} lb left)`;
+    }
+
+    function renderFdUsageRows() {
+        const rows = fdUsageSheet.rows;
+        if (!rows.length) {
+            $('fdUsRowList').innerHTML = '<div class="empty">No rows. Click "+ Row".</div>';
+            $('fdUsDrawSummary').innerHTML = '';
+            return;
+        }
+
+        $('fdUsRowList').innerHTML = rows.map((r, idx) => {
+            const item = fdItem(r.item_id);
+            const destSel = `
+                <select data-fd-us="destination_type" data-uid="${r.uid}">
+                    ${Object.keys(FD_DEST_TYPES).map(k =>
+                        `<option value="${k}"${r.destination_type === k ? ' selected' : ''}>${FD_DEST_TYPES[k]}</option>`).join('')}
+                </select>`;
+
+            let targetSel = '';
+            if (r.destination_type === 'lot') {
+                targetSel = `<select data-fd-us="lot_id" data-uid="${r.uid}">
+                    <option value="">— Pick a lot —</option>
+                    ${fdOpenLots.map(l => `<option value="${l.id}"${r.lot_id === l.id ? ' selected' : ''}>${escapeHtml(l.lot_number)}</option>`).join('')}
+                </select>`;
+            } else if (r.destination_type === 'pasture') {
+                targetSel = `<select data-fd-us="pasture_id" data-uid="${r.uid}">
+                    <option value="">— Pick a pasture —</option>
+                    ${fdPastures.map(p => `<option value="${p.id}"${r.pasture_id === p.id ? ' selected' : ''}>${escapeHtml(((p.ranches || {}).name ? p.ranches.name + ' / ' : '') + p.name)}</option>`).join('')}
+                </select>`;
+            } else if (r.destination_type === 'transfer') {
+                targetSel = `<select data-fd-us="to_location_id" data-uid="${r.uid}">
+                    <option value="">— To location —</option>
+                    ${fdLocations.filter(l => l.is_active && l.id !== r.from_location_id)
+                        .map(l => `<option value="${l.id}"${r.to_location_id === l.id ? ' selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+                </select>`;
+            } else {
+                targetSel = '<div class="muted" style="font-size:12px; padding-top:8px;">Shrink, spoilage or a correction.</div>';
+            }
+
+            const onHand = (r.item_id && r.from_location_id) ? fdOnHandFor(r.item_id, r.from_location_id) : null;
+            const claimed = (r.item_id && r.from_location_id) ? fdClaimedElsewhere(r.item_id, r.from_location_id, r.uid) : 0;
+            const want = parseFloat(r.qty_lb) || 0;
+            const over = onHand != null && (want + claimed) > onHand;
+
+            return `
+            <div class="card" style="padding:12px; margin-bottom:10px; ${over ? 'border-color:#b58900;' : ''}">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <strong style="font-size:13px;">Row ${idx + 1}</strong>
+                    <button type="button" data-fd-us-remove="${r.uid}" style="color:var(--danger);">Remove</button>
+                </div>
+                <div class="form-grid">
+                    <div>
+                        <label>Item *</label>
+                        <select data-fd-us="item_id" data-uid="${r.uid}">
+                            ${fdItemOptions(r.item_id, true)}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Out of *</label>
+                        <select data-fd-us="from_location_id" data-uid="${r.uid}">
+                            <option value="">— Pick a location —</option>
+                            ${fdLocations.filter(l => l.is_active || l.id === r.from_location_id).map(l =>
+                                `<option value="${l.id}"${r.from_location_id === l.id ? ' selected' : ''}>${escapeHtml(fdLocationLabel(r.item_id, l.id, r.uid))}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label>To *</label>
+                        ${destSel}
+                    </div>
+                    <div>
+                        <label>&nbsp;</label>
+                        ${targetSel}
+                    </div>
+                    <div>
+                        <label>Pounds fed *</label>
+                        <input type="number" step="0.01" min="0" data-fd-us-qty="${r.uid}" value="${r.qty_lb}">
+                        <div class="muted" style="font-size:11px; margin-top:2px;" data-fd-us-hint="${r.uid}">
+                            ${item && want > 0 ? escapeHtml(fdInUnits(want, item)) : ''}
+                        </div>
+                    </div>
+                </div>
+                ${over ? `<div class="muted" style="font-size:12px; margin-top:6px; color:#b58900;">
+                    ⚠ More than this location shows on hand. It will still post — the shortfall gets costed at
+                    the last known price and flagged, and the next count squares it.</div>` : ''}
+            </div>`;
+        }).join('');
+
+        fdRenderUsageSummary();
+
+        $('fdUsRowList').querySelectorAll('select[data-fd-us]').forEach(sel => {
+            sel.addEventListener('change', () => {
+                const row = fdUsageSheet.rows.find(r => r.uid === sel.dataset.uid);
+                if (!row) return;
+                row[sel.dataset.fdUs] = sel.value;
+                if (sel.dataset.fdUs === 'destination_type') {
+                    row.lot_id = ''; row.pasture_id = ''; row.to_location_id = '';
+                }
+                if (sel.dataset.fdUs === 'item_id' && row.item_id && !row.from_location_id) {
+                    const it = fdItem(row.item_id);
+                    if (it && it.default_location_id) row.from_location_id = it.default_location_id;
+                }
+                renderFdUsageRows();
+            });
+        });
+        // The pounds box deliberately does NOT re-render on input - that
+        // would eat the caret. The dependent labels are refreshed instead.
+        $('fdUsRowList').querySelectorAll('input[data-fd-us-qty]').forEach(inp => {
+            inp.addEventListener('input', () => {
+                const row = fdUsageSheet.rows.find(r => r.uid === inp.dataset.fdUsQty);
+                if (!row) return;
+                row.qty_lb = inp.value;
+                const item = fdItem(row.item_id);
+                const hint = $('fdUsRowList').querySelector(`[data-fd-us-hint="${row.uid}"]`);
+                if (hint) hint.textContent = item && parseFloat(row.qty_lb) > 0 ? fdInUnits(parseFloat(row.qty_lb), item) : '';
+                fdRefreshUsageLocationLabels(inp);
+                fdRenderUsageSummary();
+            });
+        });
+        $('fdUsRowList').querySelectorAll('[data-fd-us-remove]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                fdUsageSheet.rows = fdUsageSheet.rows.filter(r => r.uid !== btn.dataset.fdUsRemove);
+                if (!fdUsageSheet.rows.length) fdUsageSheet.rows.push(fdNewUsageRow());
+                renderFdUsageRows();
+            });
+        });
+    }
+
+    // Refresh the "(x of y left)" labels without touching whatever select
+    // the user might have open.
+    function fdRefreshUsageLocationLabels(skipEl) {
+        $('fdUsRowList').querySelectorAll('select[data-fd-us="from_location_id"]').forEach(sel => {
+            if (sel === document.activeElement || sel === skipEl) return;
+            const uid = sel.dataset.uid;
+            const row = fdUsageSheet.rows.find(r => r.uid === uid);
+            if (!row) return;
+            Array.from(sel.options).forEach(opt => {
+                if (!opt.value) return;
+                opt.textContent = fdLocationLabel(row.item_id, opt.value, uid);
+            });
+        });
+    }
+
+    function fdRenderUsageSummary() {
+        const draws = {};
+        fdUsageSheet.rows.forEach(r => {
+            const lb = parseFloat(r.qty_lb) || 0;
+            if (!r.item_id || !r.from_location_id || lb <= 0) return;
+            const k = fdKey(r.item_id, r.from_location_id);
+            draws[k] = (draws[k] || 0) + lb;
+        });
+        const keys = Object.keys(draws);
+        if (!keys.length) { $('fdUsDrawSummary').innerHTML = ''; return; }
+
+        const rows = keys.map(k => {
+            const [itemId, locId] = k.split('|');
+            const item = fdItem(itemId), loc = fdLoc(locId);
+            const onHand = fdOnHandFor(itemId, locId);
+            const draw = draws[k];
+            const after = onHand - draw;
+            return `<tr>
+                <td>${escapeHtml(item ? item.name : '—')}</td>
+                <td>${escapeHtml(loc ? loc.name : '—')}</td>
+                <td class="num">${fmtNum(onHand)} lb</td>
+                <td class="num">${fmtNum(draw)} lb</td>
+                <td class="num" ${after < 0 ? 'style="color:#b58900;"' : ''}>${fmtNum(after)} lb</td>
+            </tr>`;
+        }).join('');
+
+        $('fdUsDrawSummary').innerHTML = `
+            <h4 style="margin-bottom:8px;">What this sheet draws</h4>
+            <table>
+                <thead><tr><th>Item</th><th>Out of</th><th class="num">On hand</th>
+                    <th class="num">This sheet</th><th class="num">After</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+    }
+
+    function fdValidateUsage() {
+        const errs = [];
+        const start = $('fdUsPeriodStart').value, end = $('fdUsPeriodEnd').value;
+        if (!start || !end) errs.push('Set the period start and end.');
+        if (start && end && end < start) errs.push('Period end is before period start.');
+
+        const live = fdUsageSheet.rows.filter(r =>
+            r.item_id || r.from_location_id || parseFloat(r.qty_lb) > 0);
+        if (!live.length) errs.push('Nothing to save — every row is empty.');
+
+        live.forEach((r, i) => {
+            const n = 'Row ' + (fdUsageSheet.rows.indexOf(r) + 1);
+            if (!r.item_id) errs.push(`${n}: pick an item.`);
+            if (!r.from_location_id) errs.push(`${n}: pick where it came out of.`);
+            if (!(parseFloat(r.qty_lb) > 0)) errs.push(`${n}: pounds must be greater than zero.`);
+            if (r.destination_type === 'lot' && !r.lot_id) errs.push(`${n}: pick a lot.`);
+            if (r.destination_type === 'pasture' && !r.pasture_id) errs.push(`${n}: pick a pasture.`);
+            if (r.destination_type === 'transfer') {
+                if (!r.to_location_id) errs.push(`${n}: pick where it is going.`);
+                else if (r.to_location_id === r.from_location_id) errs.push(`${n}: a transfer to the same location does nothing.`);
+            }
+        });
+        return { errs, live };
+    }
+
+    async function saveFdUsage() {
+        clearAlert('fdUsSaveAlert');
+        const { errs, live } = fdValidateUsage();
+        if (errs.length) {
+            showAlert('fdUsSaveAlert', errs.join('\n'));
+            return;
+        }
+
+        const start = $('fdUsPeriodStart').value, end = $('fdUsPeriodEnd').value;
+        const notes = $('fdUsNotes').value.trim() || null;
+        const posted = [];
+
+        $('fdUsSaveBtn').disabled = true;
+        $('fdUsSaveHint').textContent = 'Saving…';
+        try {
+            for (const r of live) {
+                const { data, error } = await supabase.rpc('post_feed_usage', {
+                    p_item_id: r.item_id,
+                    p_from_location_id: r.from_location_id,
+                    p_qty_lb: parseFloat(r.qty_lb),
+                    p_destination_type: r.destination_type,
+                    p_period_start: start,
+                    p_period_end: end,
+                    p_lot_id: r.destination_type === 'lot' ? r.lot_id : null,
+                    p_pasture_id: r.destination_type === 'pasture' ? r.pasture_id : null,
+                    p_to_location_id: r.destination_type === 'transfer' ? r.to_location_id : null,
+                    p_usage_date: end,
+                    p_source: 'manual',
+                    p_notes: notes
+                });
+                if (error) {
+                    // All or nothing, same posture as an approvals batch:
+                    // a half-saved sheet is worse than none, because the
+                    // bay balances would be right for reasons nobody could
+                    // reconstruct later.
+                    await fdRollbackUsage(posted);
+                    showAlert('fdUsSaveAlert',
+                        `Row ${fdUsageSheet.rows.indexOf(r) + 1} failed: ${error.message}. ` +
+                        `Nothing was saved — the rows that had already posted were put back.`);
+                    return;
+                }
+                posted.push(data);
+            }
+
+            const n = posted.length;
+            fdUsageSheet = { rows: [fdNewUsageRow()] };
+            $('fdUsNotes').value = '';
+            await fdLoadOnHand();
+            renderFdUsageRows();
+            loadFdLedger();
+            showAlert('fdUsSaveAlert', `Saved ${n} feed-out row${n === 1 ? '' : 's'}.`, 'success');
+        } finally {
+            $('fdUsSaveBtn').disabled = false;
+            $('fdUsSaveHint').textContent = '';
+        }
+    }
+
+    async function fdRollbackUsage(ids) {
+        for (const id of ids) {
+            const { error } = await supabase.rpc('delete_feed_usage', { p_usage_id: id });
+            // A rollback that itself fails must not be silent - that is a
+            // half-written sheet and somebody has to know.
+            if (error) {
+                showAlert('fdUsSaveAlert',
+                    'A row could not be put back: ' + error.message +
+                    ' — check Recent feed-out before saving again.');
+            }
+        }
+    }
+
+    async function loadFdLedger() {
+        const flaggedOnly = $('fdUsShowFlagged').checked;
+        $('fdUsLedgerContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        const LIMIT = 200;
+        let q = supabase.from('feed_usage_detail').select('*')
+            .order('period_end', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(LIMIT);
+        if (flaggedOnly) q = q.or('is_short.eq.true,cost_pending.eq.true');
+
+        const { data, error } = await q;
+        if (error) { $('fdUsLedgerContent').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`; return; }
+        const rows = data || [];
+        if (!rows.length) {
+            $('fdUsLedgerContent').innerHTML = flaggedOnly
+                ? '<div class="empty">Nothing flagged.</div>'
+                : '<div class="empty">No feed-out recorded yet.</div>';
+            return;
+        }
+
+        const body = rows.map(u => {
+            const dest = u.destination_type === 'lot' ? (u.lot_number || '—')
+                       : u.destination_type === 'pasture' ? (u.pasture_name || '—')
+                       : u.destination_type === 'transfer' ? ('→ ' + (u.to_location_name || '—'))
+                       : 'adjustment';
+            const flags = [];
+            if (u.is_short) flags.push('<span style="color:#b58900;" title="More was fed than the bay showed">short</span>');
+            if (u.cost_pending) flags.push('<span style="color:#b58900;" title="Some of these pounds came off a load with no price yet">unpriced</span>');
+            const period = u.period_start === u.period_end
+                ? fmtDate(u.period_start)
+                : `${fmtDate(u.period_start)} – ${fmtDate(u.period_end)}`;
+            return `<tr>
+                <td>${escapeHtml(period)}<div class="muted" style="font-size:11px;">${u.period_days} day${u.period_days === 1 ? '' : 's'}</div></td>
+                <td><strong>${escapeHtml(u.item_name || '—')}</strong></td>
+                <td>${escapeHtml(u.from_location_name || '—')}</td>
+                <td>${escapeHtml(dest)}</td>
+                <td class="num">${fmtNum(u.qty_lb)} lb</td>
+                <td class="num">${u.cost_pending ? '—' : fmtMoney(u.cost_usd)}</td>
+                <td>${flags.join(' ') || ''}</td>
+                <td><button type="button" data-fd-us-del="${u.usage_id}" data-perm="owner" style="color:var(--danger); font-size:12px;">Reverse</button></td>
+            </tr>`;
+        }).join('');
+
+        $('fdUsLedgerContent').innerHTML = `
+            <table>
+                <thead><tr><th>Period</th><th>Item</th><th>Out of</th><th>To</th>
+                    <th class="num">Pounds</th><th class="num">Cost</th><th></th><th></th></tr></thead>
+                <tbody>${body}</tbody>
+            </table>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+                Reversing puts the pounds back on the exact loads they came off.
+                ${rows.length >= LIMIT ? `Showing the most recent ${LIMIT}.` : ''}</p>`;
+
+        $('fdUsLedgerContent').querySelectorAll('[data-fd-us-del]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!confirm('Reverse this feed-out? The pounds go back on the loads they came from.')) return;
+                const { error: e2 } = await supabase.rpc('delete_feed_usage', { p_usage_id: btn.dataset.fdUsDel });
+                if (e2) { showAlert('fdUsSaveAlert', e2.message); return; }
+                await fdLoadOnHand();
+                renderFdUsageRows();
+                loadFdLedger();
+            });
+        });
+    }
+
+    // ==========================================================
+    // COUNTS
+    // ==========================================================
+    async function loadFeedCounts() {
+        clearAlert('fdCtAlert');
+        $('fdCtContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        const { data, error } = await supabase
+            .from('feed_counts')
+            .select('*, feed_storage_locations(name), feed_count_lines(id, item_id, counted_qty_lb, book_qty_lb, variance_lb, method, feed_items(name))')
+            .order('count_date', { ascending: false })
+            .limit(100);
+        if (error) { $('fdCtContent').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`; return; }
+        const counts = data || [];
+        if (!counts.length) {
+            $('fdCtContent').innerHTML = '<div class="empty">No counts yet. Click "+ Count a bay".</div>';
+            return;
+        }
+
+        $('fdCtContent').innerHTML = counts.map(c => {
+            const lines = (c.feed_count_lines || []);
+            const body = lines.map(l => `
+                <tr>
+                    <td>${escapeHtml((l.feed_items || {}).name || '—')}</td>
+                    <td>${escapeHtml(l.method === 'counted_bags' ? 'counted' : l.method)}</td>
+                    <td class="num">${fmtNum(l.book_qty_lb)} lb</td>
+                    <td class="num">${fmtNum(l.counted_qty_lb)} lb</td>
+                    <td class="num" ${Number(l.variance_lb) ? 'style="color:#b58900;"' : ''}>
+                        ${l.variance_lb == null ? '—' : (Number(l.variance_lb) > 0 ? '+' : '') + fmtNum(l.variance_lb) + ' lb'}</td>
+                </tr>`).join('');
+            return `<div class="card" style="padding:12px; margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div><strong>${escapeHtml((c.feed_storage_locations || {}).name || '—')}</strong>
+                        <span class="muted"> &middot; ${fmtDate(c.count_date)}</span></div>
+                    <span class="muted" style="font-size:12px;">${c.status === 'posted' ? 'posted' : 'draft'}</span>
+                </div>
+                ${lines.length ? `<table>
+                    <thead><tr><th>Item</th><th>Method</th><th class="num">Book</th>
+                        <th class="num">Counted</th><th class="num">Variance</th></tr></thead>
+                    <tbody>${body}</tbody></table>` : '<div class="muted" style="font-size:12px;">No lines.</div>'}
+                ${c.notes ? `<div class="muted" style="font-size:12px; margin-top:8px;">${escapeHtml(c.notes)}</div>` : ''}
+            </div>`;
+        }).join('');
+    }
+
+    async function openFdCountModal() {
+        clearAlert('fdCountModalAlert');
+        $('fdCtId').value = '';
+        $('fdCtDate').value = ranchToday();
+        $('fdCtNotes').value = '';
+        $('fdCtLocation').innerHTML = fdLocationOptions('', true);
+        $('fdCtLines').innerHTML = '<div class="empty">Pick a location.</div>';
+        fdCountState = null;
+        showModal('fdCountModal');
+    }
+
+    async function fdRenderCountLines() {
+        const locId = $('fdCtLocation').value;
+        if (!locId) { $('fdCtLines').innerHTML = '<div class="empty">Pick a location.</div>'; fdCountState = null; return; }
+
+        await fdLoadOnHand();
+        const here = fdOnHand.filter(o => o.location_id === locId);
+        const loc = fdLoc(locId);
+
+        // Items already in this bay come first, with their book figure.
+        // Every other active item is offered too, because a count is also
+        // how feed nobody recorded gets found.
+        const onHandIds = new Set(here.map(o => o.item_id));
+        const others = fdItems.filter(i => i.is_active && !onHandIds.has(i.id));
+
+        fdCountState = {
+            location_id: locId,
+            lines: here.map(o => ({
+                item_id: o.item_id,
+                item_name: o.item_name,
+                book_qty_lb: Number(o.qty_lb) || 0,
+                counted: '',
+                method: (loc && loc.is_bulk) ? 'estimated' : 'counted_bags',
+                bags: '',
+                note: ''
+            }))
+        };
+
+        const rowHtml = l => {
+            const item = fdItem(l.item_id);
+            return `<tr>
+                <td><strong>${escapeHtml(l.item_name)}</strong>
+                    ${item && item.purchase_unit !== 'lb'
+                        ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdInUnits(l.book_qty_lb, item))} on the books</div>` : ''}</td>
+                <td class="num">${fmtNum(l.book_qty_lb)} lb</td>
+                <td><select data-fd-ct-method="${l.item_id}">
+                        <option value="estimated"${l.method === 'estimated' ? ' selected' : ''}>Estimated</option>
+                        <option value="counted_bags"${l.method === 'counted_bags' ? ' selected' : ''}>Counted (bags)</option>
+                        <option value="measured"${l.method === 'measured' ? ' selected' : ''}>Measured</option>
+                    </select></td>
+                <td><input type="number" step="0.01" min="0" data-fd-ct-qty="${l.item_id}" placeholder="lb" style="max-width:120px;"></td>
+                <td><input type="text" data-fd-ct-note="${l.item_id}" placeholder="how it was judged" style="max-width:160px;"></td>
+            </tr>`;
+        };
+
+        $('fdCtLines').innerHTML = `
+            <table>
+                <thead><tr><th>Item</th><th class="num">Book</th><th>Method</th><th>Counted (lb)</th><th>Note</th></tr></thead>
+                <tbody id="fdCtLineBody">${fdCountState.lines.map(rowHtml).join('') ||
+                    '<tr><td colspan="5" class="muted" style="font-size:12px;">Nothing on the books here yet.</td></tr>'}</tbody>
+            </table>
+            ${others.length ? `<div style="margin-top:10px;">
+                <label for="fdCtAddItem" style="font-size:13px;">Also count something not on the books here</label>
+                <select id="fdCtAddItem" style="max-width:280px;">
+                    <option value="">— Add an item —</option>
+                    ${others.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('')}
+                </select></div>` : ''}`;
+
+        const wire = () => {
+            $('fdCtLines').querySelectorAll('[data-fd-ct-qty]').forEach(inp => {
+                inp.oninput = () => {
+                    const l = fdCountState.lines.find(x => x.item_id === inp.dataset.fdCtQty);
+                    if (l) l.counted = inp.value;
+                };
+            });
+            $('fdCtLines').querySelectorAll('[data-fd-ct-method]').forEach(sel => {
+                sel.onchange = () => {
+                    const l = fdCountState.lines.find(x => x.item_id === sel.dataset.fdCtMethod);
+                    if (l) l.method = sel.value;
+                };
+            });
+            $('fdCtLines').querySelectorAll('[data-fd-ct-note]').forEach(inp => {
+                inp.oninput = () => {
+                    const l = fdCountState.lines.find(x => x.item_id === inp.dataset.fdCtNote);
+                    if (l) l.note = inp.value;
+                };
+            });
+            const add = $('fdCtAddItem');
+            if (add) add.onchange = () => {
+                const item = fdItem(add.value);
+                if (!item) return;
+                if (fdCountState.lines.some(l => l.item_id === item.id)) { add.value = ''; return; }
+                fdCountState.lines.push({
+                    item_id: item.id, item_name: item.name, book_qty_lb: 0,
+                    counted: '', method: item.is_counted ? 'counted_bags' : 'estimated', bags: '', note: ''
+                });
+                const tbody = $('fdCtLineBody');
+                if (tbody) {
+                    if (fdCountState.lines.length === 1) tbody.innerHTML = '';
+                    tbody.insertAdjacentHTML('beforeend', rowHtml(fdCountState.lines[fdCountState.lines.length - 1]));
+                }
+                add.value = '';
+                wire();
+            };
+        };
+        wire();
+    }
+
+    async function postFdCount() {
+        clearAlert('fdCountModalAlert');
+        const locId = $('fdCtLocation').value;
+        const date  = $('fdCtDate').value;
+        if (!locId) { showAlert('fdCountModalAlert', 'Pick a location.'); return; }
+        if (!date)  { showAlert('fdCountModalAlert', 'Pick a count date.'); return; }
+        if (!fdCountState) { showAlert('fdCountModalAlert', 'Nothing to count.'); return; }
+
+        // A blank is "not counted", not zero. Treating it as zero would post
+        // the entire book balance as shrink on an item nobody looked at.
+        const filled = fdCountState.lines.filter(l => l.counted !== '' && !isNaN(parseFloat(l.counted)));
+        if (!filled.length) {
+            showAlert('fdCountModalAlert', 'Type at least one counted amount. Blank lines are skipped, not treated as zero.');
+            return;
+        }
+
+        $('fdCtPostBtn').disabled = true;
+        try {
+            const ins = await supabase.from('feed_counts').insert({
+                count_date: date, location_id: locId, status: 'draft',
+                notes: $('fdCtNotes').value.trim() || null,
+                created_by: currentUser ? currentUser.id : null
+            }).select();
+            if (ins.error) { showAlert('fdCountModalAlert', ins.error.message); return; }
+            if (!ins.data || !ins.data.length) {
+                showAlert('fdCountModalAlert', 'Nothing was saved — your role may not be allowed to make that change.');
+                return;
+            }
+            const countId = ins.data[0].id;
+
+            const lineRows = filled.map(l => ({
+                count_id: countId,
+                item_id: l.item_id,
+                counted_qty_lb: parseFloat(l.counted),
+                method: l.method,
+                estimate_note: l.note || null
+            }));
+            const linesRes = await supabase.from('feed_count_lines').insert(lineRows).select();
+            if (linesRes.error) {
+                // Leave nothing half-built behind.
+                await supabase.from('feed_counts').delete().eq('id', countId);
+                showAlert('fdCountModalAlert', linesRes.error.message);
+                return;
+            }
+
+            const post = await supabase.rpc('post_feed_count', { p_count_id: countId });
+            if (post.error) {
+                showAlert('fdCountModalAlert',
+                    'The count saved but posting the adjustments failed: ' + post.error.message);
+                return;
+            }
+
+            hideModal('fdCountModal');
+            await fdLoadOnHand();
+            loadFeedCounts();
+            const n = post.data || 0;
+            showAlert('fdCtAlert',
+                n ? `Count posted. ${n} adjustment${n === 1 ? '' : 's'} written to the ledger.`
+                  : 'Count posted. Everything tied to the books exactly.', 'success');
+        } finally {
+            $('fdCtPostBtn').disabled = false;
+        }
+    }
+
+    // ---- WIRING ----------------------------------------------------------
+    $('navFeed').addEventListener('click', () => showFeedTab('inventory'));
+    $('feedSubtabs').addEventListener('click', (e) => {
+        const btn = e.target.closest('.sub-tab');
+        if (btn) showFeedTab(btn.dataset.subtab);
+    });
+
+    $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);
+    $('fdInvByLocation').addEventListener('change', loadFeedInventory);
+
+    $('fdNewLocBtn').addEventListener('click', () => openFdLocModal(null));
+    $('fdShowInactiveLocs').addEventListener('change', loadFeedLocations);
+    $('fdLocForm').addEventListener('submit', saveFdLoc);
+    $('fdLocCancelBtn').addEventListener('click', () => hideModal('fdLocModal'));
+    $('fdLocDeleteBtn').addEventListener('click', deleteFdLoc);
+
+    $('fdNewItemBtn').addEventListener('click', () => openFdItemModal(null));
+    $('fdShowInactiveItems').addEventListener('change', loadFeedItems);
+    $('fdItemForm').addEventListener('submit', saveFdItem);
+    $('fdItemCancelBtn').addEventListener('click', () => hideModal('fdItemModal'));
+    $('fdItemDeleteBtn').addEventListener('click', deleteFdItem);
+    $('fdItemPurchaseUnit').addEventListener('change', fdSyncUnitDefault);
+
+    $('fdNewReceiptBtn').addEventListener('click', () => openFdReceiptModal(null));
+    $('fdRcOnlyPending').addEventListener('change', loadFeedReceipts);
+    $('fdReceiptForm').addEventListener('submit', saveFdReceipt);
+    $('fdRcCancelBtn').addEventListener('click', () => hideModal('fdReceiptModal'));
+    $('fdRcDeleteBtn').addEventListener('click', deleteFdReceipt);
+    $('fdRcItem').addEventListener('change', () => { fdSyncQtyFromUnits(); });
+    $('fdRcQtyUnits').addEventListener('input', fdSyncQtyFromUnits);
+    $('fdRcQtyLb').addEventListener('input', fdSyncUnitsFromQty);
+    ['fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost'].forEach(id =>
+        $(id).addEventListener('input', fdUpdateReceiptCost));
+    $('fdRcCostPending').addEventListener('change', fdUpdateReceiptCost);
+
+    $('fdUsAddRowBtn').addEventListener('click', () => {
+        const prev = fdUsageSheet.rows[fdUsageSheet.rows.length - 1];
+        fdUsageSheet.rows.push(fdNewUsageRow(prev));
+        renderFdUsageRows();
+    });
+    $('fdUsClearBtn').addEventListener('click', () => {
+        if (!confirm('Clear the sheet? Nothing has been saved yet.')) return;
+        fdUsageSheet = { rows: [fdNewUsageRow()] };
+        renderFdUsageRows();
+    });
+    $('fdUsSaveBtn').addEventListener('click', saveFdUsage);
+    $('fdUsRefreshBtn').addEventListener('click', async () => {
+        await fdLoadRefs(true);
+        await fdLoadOnHand();
+        renderFdUsageRows();
+    });
+    $('fdUsShowFlagged').addEventListener('change', loadFdLedger);
+    ['fdUsPeriodStart', 'fdUsPeriodEnd'].forEach(id => $(id).addEventListener('change', () => {
+        const s = $('fdUsPeriodStart').value, e = $('fdUsPeriodEnd').value;
+        if (!s || !e) { $('fdUsPeriodHint').textContent = ''; return; }
+        const days = Math.round((new Date(e) - new Date(s)) / 86400000) + 1;
+        $('fdUsPeriodHint').textContent = days > 0
+            ? `${days} day${days === 1 ? '' : 's'}. Cost spreads across the head-days inside this window, not onto one date.`
+            : 'Period end is before period start.';
+    }));
+
+    $('fdNewCountBtn').addEventListener('click', openFdCountModal);
+    $('fdCtLocation').addEventListener('change', fdRenderCountLines);
+    $('fdCtCancelBtn').addEventListener('click', () => hideModal('fdCountModal'));
+    $('fdCtPostBtn').addEventListener('click', postFdCount);
+
 
     checkSession();
 </script>

@@ -485,6 +485,63 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
 - Historical scar tissue exists from pre-hardening eras; old lots may carry
   reconciliation notes. Read row notes before "fixing" anything.
 
+## Commodity feed & mineral inventory (phases 1-2 live 2026-08-27)
+
+Migration: `docs/sql/2026-08-27_feed_inventory.sql`. Plan and the reasoning
+behind every choice: `docs/commodity-feed-inventory-plan.md`. Office+owner
+only; the whole tab carries `data-perm="office"`.
+
+```
+feed_receipts (= the FIFO layer)  ──▶ feed_usage ──▶ feed_usage_costs (frozen $)
+feed_items · feed_storage_locations       │              ▲
+feed_counts · feed_count_lines ───────────┘   physical count → variance → ledger
+```
+
+- **`feed_items` has NO price column, and that is the point.** Price lives on
+  the receipt that brought the load in and FREEZES into `feed_usage_costs`
+  when the pounds are consumed. This is treatment cost's behaviour, chosen
+  deliberately against processing cost's — where editing a drug price silently
+  rewrites closed lots and prior fiscal years. Do not add `cost_per_lb` to
+  `feed_items`; the migration's verify block raises if anyone does.
+- **The one sanctioned after-the-fact write is `recost_pending_usage()`.**
+  Feed gets delivered, fed, and only then invoiced. Those cost rows are
+  written NULL and flagged; the RPC fills them in and is guarded
+  `WHERE cost IS NULL`, so it can fill a hole but never move a frozen number.
+  The receipt modal calls it automatically when an unpriced load gets a price.
+- **A blank cost is not allowed to be an accident.** `cost_pending` is an
+  explicit checkbox. Without it the unpriced-medication trap repeats exactly:
+  NULL cost, `SUM()` ignores it, feed silently becomes free.
+- **FIFO runs per (item, location).** Corn in Bay 2 and Bay 5 are one item in
+  two places. Global FIFO would let a count on one bay eat a layer sitting in
+  another and on-hand-by-bay would stop reconciling.
+- **Going short is allowed, flagged, never blocked.** A bulk bay is an
+  estimate; if the layers run out, the remainder costs at the item's last
+  known price and sets `is_short`. Refusing does not un-feed the cattle.
+- **`feed_usage` carries `period_start`/`period_end`, not just a date.** Feed
+  is entered weekly and PB invoices a date RANGE. Phase 4 spreads dollars over
+  the head-days inside the window — same reason the app writes one `sales` row
+  per lot per DAY.
+- **`delete_feed_usage` puts pounds back on the exact layers, with no branch
+  for a layer consumed to zero.** That branch is the `delete_death_event` trap
+  in feed form. Verified against a layer emptied outright, not just a partial.
+- `delete_feed_receipt` REFUSES once any pounds are consumed — orphaning
+  frozen costs is the disaster this module exists to prevent.
+- A transfer between bays lays a new layer at the cost it left at, linked by
+  `feed_receipts.from_usage_id`. The reversal refuses if the far bay has
+  already fed any of it.
+- **Bulk feeders in pastures are NOT locations** (John, 2026-08-27). A
+  location is where feed is stored and counted. Feed leaving a bay for a
+  feeder is just usage.
+- Bays are added and edited in the app — there is no seed list.
+- **PB supplies pounds, we own the cost.** The 2026-08-27 invoice is commodity
+  level (no rations), its group IS the lot number, it has no per-pen split,
+  and its head count and head-days tie to our books exactly. Import
+  `Amount Fed` only: never `Cost Per Ton`/`Feed Cost` (may go stale or blank),
+  never `Dry Matter Fed` (12.4% low — it would leave a phantom bay balance).
+- **Phase 3's real hazard is an OVERLAPPING import, not a duplicate one.**
+  `pb_row_key` upserts a re-run of the same invoice; running Aug 17-26 then
+  Aug 20-31 double-feeds four days under different keys.
+
 ## SQL conventions
 
 - ALL migration/correction SQL must be idempotent (IF NOT EXISTS, guarded DO
@@ -551,12 +608,10 @@ closes it early.
 4. Cost ledger (18 categories, monthly, per-head-day allocation; Redwing
    exports imported via Cowork). Note: cost data is office+owner only.
 5. Daily buy/sell dashboard: breakevens vs market data
-6. Commodity feed & mineral inventory — FIFO, bulk bays estimated / bags
-   counted, usage imported from Performance Beef, postings exported to
-   Redwing, cost landing per lot per day. **Plan agreed 2026-08-27, nothing
-   built:** `docs/commodity-feed-inventory-plan.md`. Blocked on a sample PB
-   export. Note the inverted lesson it rests on — a feed item carries **no
-   price column**; price lives on the receipt layer and freezes at
-   consumption, the opposite of processing cost.
+6. Commodity feed & mineral inventory — **phases 1-2 built 2026-08-27**
+   (catalog, bays, FIFO layers, on-hand, the usage ledger with atomic
+   consumption and reversal RPCs, and physical counts). See the section above
+   and `docs/commodity-feed-inventory-plan.md`. Remaining: phase 3 PB import,
+   phase 4 cost-of-gain surfaces, phase 5 Redwing export.
 Also parked: breakeven budget-vs-actual, bottle inventory, lot comparison
 report, weather integration.
