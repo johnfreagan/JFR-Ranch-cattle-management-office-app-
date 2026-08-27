@@ -228,6 +228,55 @@ ending inventory, because it is ours.
 
 ---
 
+## A medicine used before the app knows what it cost
+
+Rare, but it happens: something gets picked up at the supplier and given before
+anybody enters the invoice. Two things go wrong, and the second is the dangerous
+one.
+
+**1. The dose books at zero.** With no layer and no catalog price there is
+nothing to price it from. The treatment still saves — that rule does not bend —
+but it books at $0.00, and a zero looks like an answer in a way a blank does
+not. So the transaction is marked `cost_provisional`, and the on-hand screen
+says *"used but booked at $0 — no cost known"* rather than showing a tidy zero.
+
+**2. The shelf reads high, and the next count calls it shrink.** This is the
+one worth catching. Say 3 doses are given on the 12th and the invoice is entered
+on the 20th, dated the 8th. `med_consume` already ran on the 12th, found no
+layer, and recorded a shortfall. The layer now lands **full**. On-hand claims 10
+when 7 are really there, the count comes up 3 short, and those 3 post as shrink.
+
+They were not shrink. They were a treatment the ledger had not heard about yet.
+Left alone, **every late invoice quietly inflates the one number this module
+exists to produce.**
+
+### `med_settle_uncovered(medication_id, location_id)`
+
+Walks uncovered usage oldest first and lets it draw on any layer that was
+genuinely on the shelf when the treatment happened — **received on or before the
+usage date**. A bottle bought afterwards is left alone; it cannot have been in
+the syringe. Whatever is still uncovered gets re-priced to the best cost now
+known, so a zero booked in ignorance does not stay a zero.
+
+It moves no stock that is really on the shelf: the shortfall rows point at no
+layer, so converting them into real draws only spends what was already spent.
+Afterwards the usage is backed by a real layer, which means a reversal restores
+it properly too.
+
+- Runs automatically right after a purchase posts, and says in the toast how
+  many units it matched. That is the moment it matters.
+- Also a **Settle uncovered usage** button on On hand, for anything entered out
+  of order afterwards.
+- If it settles nothing, the message says why: there is no purchase dated on or
+  before the day the medication was given.
+
+A **freetext** medication — one typed by name rather than picked from the
+catalog — carries no `medication_id` and so never reaches inventory at all. That
+is not a hole in the ledger so much as a hole in the record; it is worth
+knowing, and it is why picking from the list matters.
+
+---
+
 ## Efficiency — what the number actually means
 
 Efficiency = **theoretical units ÷ units consumed**, per medication, per period,

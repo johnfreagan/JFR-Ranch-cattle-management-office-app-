@@ -278,8 +278,14 @@ CREATE TABLE IF NOT EXISTS public.med_txns (
     ref_id          uuid,
 
     -- Usage the ledger had no stock behind. Priced at last known cost and
-    -- flagged on the on-hand screen; the count is what clears it.
+    -- flagged on the on-hand screen; med_settle_uncovered is what clears it.
     shortfall_units numeric(14,4) NOT NULL DEFAULT 0,
+
+    -- TRUE when the shortfall above could not be priced AT ALL and was
+    -- booked at zero, because the medication had no layer and no catalog
+    -- price. A zero that looks like a real number is worse than a NULL that
+    -- obviously is not one, so it is marked rather than left to be believed.
+    cost_provisional boolean NOT NULL DEFAULT false,
 
     -- Frozen FIFO cost of this movement.
     total_cost      numeric(14,4),
@@ -385,6 +391,11 @@ CREATE TABLE IF NOT EXISTS public.med_count_lines (
 );
 
 CREATE INDEX IF NOT EXISTS med_count_lines_count_idx ON public.med_count_lines(count_id);
+
+-- Added after the first cut of phase 1; harmless on a fresh install.
+ALTER TABLE public.med_txns
+    ADD COLUMN IF NOT EXISTS cost_provisional boolean NOT NULL DEFAULT false;
+
 
 -- The count-born layers point back at their count. SET NULL rather than
 -- CASCADE: deleting a count must not delete the stock it found.
@@ -499,6 +510,7 @@ DECLARE
     v_take       numeric;
     v_total      numeric := 0;
     v_last_cost  numeric;
+    v_prov       boolean := false;
     row_rec      record;
 BEGIN
     IF p_qty_units IS NULL OR p_qty_units <= 0 THEN
@@ -557,6 +569,13 @@ BEGIN
         IF v_last_cost IS NULL THEN
             SELECT cost_per_unit INTO v_last_cost FROM public.medications WHERE id = p_medication_id;
         END IF;
+
+        -- No layer and no catalog price: a medication picked up and used
+        -- before anybody entered what it cost. It still books - the
+        -- treatment happened - but at zero, and zero is a number people
+        -- believe. Mark it so the on-hand screen can say "unpriced" rather
+        -- than quietly showing $0.00 as though that were the answer.
+        v_prov := (v_last_cost IS NULL);
         v_last_cost := COALESCE(v_last_cost, 0);
 
         INSERT INTO public.med_txn_layers (txn_id, purchase_line_id, qty_units, unit_cost)
@@ -564,7 +583,9 @@ BEGIN
 
         v_total := v_total + (v_need * v_last_cost);
 
-        UPDATE public.med_txns SET shortfall_units = v_need WHERE id = v_txn_id;
+        UPDATE public.med_txns
+           SET shortfall_units = v_need, cost_provisional = v_prov
+         WHERE id = v_txn_id;
     END IF;
 
     UPDATE public.med_txns SET total_cost = round(v_total, 4) WHERE id = v_txn_id;
@@ -633,6 +654,152 @@ $fn$;
 
 REVOKE ALL ON FUNCTION public.med_reverse_txn(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.med_reverse_txn(uuid) TO authenticated;
+
+
+-- ---------------------------------------------------------------------
+-- 9b. med_settle_uncovered - the invoice that shows up late
+-- ---------------------------------------------------------------------
+-- Two things go wrong when a medication is picked up and used before the
+-- app knows about it, and the second is the dangerous one.
+--
+-- 1. PRICING. No layer and no catalog price means the dose booked at zero.
+--    Once a real cost exists, the still-uncovered usage is re-priced to it.
+--
+-- 2. SEQUENCING, which is worse. Say 40 mL got used on the 12th and the
+--    invoice for that bottle is not entered until the 20th, dated the 8th.
+--    med_consume already ran and found nothing, so it recorded a shortfall.
+--    Now the layer lands FULL. On-hand overstates by 40 mL, and the next
+--    count comes up 40 short - and books it as SHRINK. It was not shrink.
+--    It was a treatment the ledger had not heard about yet. Left alone,
+--    every late invoice quietly inflates the one number this whole module
+--    exists to produce.
+--
+-- So: walk the uncovered usage oldest first and let it draw on any layer
+-- that was actually on the shelf when the treatment happened - received
+-- ON OR BEFORE the usage date. A bottle bought afterwards cannot have been
+-- used, and is left alone.
+--
+-- This changes no head math and no quantity that is really on the shelf:
+-- the shortfall rows point at no layer, so converting them into real draws
+-- moves stock that was already spent.
+CREATE OR REPLACE FUNCTION public.med_settle_uncovered(
+    p_medication_id uuid DEFAULT NULL,
+    p_location_id   uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $fn$
+DECLARE
+    v_need      numeric;
+    v_take      numeric;
+    v_covered   numeric;
+    v_cost      numeric;
+    v_txns      integer := 0;
+    v_units     numeric := 0;
+    v_repriced  integer := 0;
+    txn_rec     record;
+    lay_rec     record;
+BEGIN
+    FOR txn_rec IN
+        SELECT t.id, t.medication_id, t.location_id, t.txn_date,
+               t.shortfall_units, t.cost_provisional
+          FROM public.med_txns t
+         WHERE t.shortfall_units > 0
+           AND t.direction = -1
+           AND (p_medication_id IS NULL OR t.medication_id = p_medication_id)
+           AND (p_location_id   IS NULL OR t.location_id   = p_location_id)
+         ORDER BY t.txn_date, t.created_at
+         FOR UPDATE
+    LOOP
+        v_need    := txn_rec.shortfall_units;
+        v_covered := 0;
+
+        FOR lay_rec IN
+            SELECT id, qty_remaining, unit_cost
+              FROM public.med_purchase_lines
+             WHERE medication_id = txn_rec.medication_id
+               AND location_id   = txn_rec.location_id
+               AND qty_remaining > 0
+               -- A bottle that arrived after the treatment cannot have been
+               -- in the syringe. This is the whole guard.
+               AND received_date <= txn_rec.txn_date
+             ORDER BY received_date, sort_order, created_at, id
+             FOR UPDATE
+        LOOP
+            EXIT WHEN v_need <= 0;
+
+            v_take := LEAST(v_need, lay_rec.qty_remaining);
+
+            UPDATE public.med_purchase_lines
+               SET qty_remaining = qty_remaining - v_take
+             WHERE id = lay_rec.id;
+
+            INSERT INTO public.med_txn_layers (txn_id, purchase_line_id, qty_units, unit_cost)
+            VALUES (txn_rec.id, lay_rec.id, v_take, lay_rec.unit_cost);
+
+            v_need    := v_need - v_take;
+            v_covered := v_covered + v_take;
+        END LOOP;
+
+        IF v_covered > 0 THEN
+            -- Shrink the placeholder row by exactly what is now covered,
+            -- and drop it if the whole shortfall was made good.
+            IF v_need > 0 THEN
+                UPDATE public.med_txn_layers
+                   SET qty_units = v_need
+                 WHERE txn_id = txn_rec.id AND purchase_line_id IS NULL;
+            ELSE
+                DELETE FROM public.med_txn_layers
+                 WHERE txn_id = txn_rec.id AND purchase_line_id IS NULL;
+            END IF;
+            v_txns  := v_txns + 1;
+            v_units := v_units + v_covered;
+        END IF;
+
+        -- Whatever is still uncovered gets the best price we now know, so a
+        -- zero booked in ignorance does not stay a zero forever.
+        IF v_need > 0 AND txn_rec.cost_provisional THEN
+            SELECT unit_cost INTO v_cost
+              FROM public.med_purchase_lines
+             WHERE medication_id = txn_rec.medication_id
+             ORDER BY (location_id = txn_rec.location_id) DESC, received_date DESC, created_at DESC
+             LIMIT 1;
+            IF v_cost IS NULL THEN
+                SELECT cost_per_unit INTO v_cost
+                  FROM public.medications WHERE id = txn_rec.medication_id;
+            END IF;
+
+            IF v_cost IS NOT NULL THEN
+                UPDATE public.med_txn_layers
+                   SET unit_cost = v_cost
+                 WHERE txn_id = txn_rec.id AND purchase_line_id IS NULL;
+                v_repriced := v_repriced + 1;
+            END IF;
+        END IF;
+
+        UPDATE public.med_txns t
+           SET shortfall_units  = v_need,
+               cost_provisional = CASE WHEN v_need = 0 THEN false
+                                       ELSE t.cost_provisional AND v_cost IS NULL END,
+               total_cost = COALESCE((SELECT round(SUM(extended_cost), 4)
+                                        FROM public.med_txn_layers WHERE txn_id = t.id), 0)
+         WHERE t.id = txn_rec.id;
+
+        v_cost := NULL;
+    END LOOP;
+
+    RETURN jsonb_build_object(
+        'transactions_settled', v_txns,
+        'units_covered',        v_units,
+        'transactions_repriced', v_repriced
+    );
+END
+$fn$;
+
+REVOKE ALL ON FUNCTION public.med_settle_uncovered(uuid,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.med_settle_uncovered(uuid,uuid) TO authenticated;
 
 
 -- ---------------------------------------------------------------------
@@ -805,7 +972,10 @@ DROP VIEW IF EXISTS public.med_on_hand;
 CREATE VIEW public.med_on_hand
 WITH (security_invoker = true) AS
 WITH shortfalls AS (
-    SELECT medication_id, location_id, SUM(shortfall_units) AS uncovered_units
+    SELECT medication_id, location_id,
+           SUM(shortfall_units) AS uncovered_units,
+           -- The subset that booked at zero because nothing knew the price.
+           SUM(shortfall_units) FILTER (WHERE cost_provisional) AS unpriced_usage_units
       FROM public.med_txns
      WHERE shortfall_units > 0
      GROUP BY medication_id, location_id
@@ -842,6 +1012,7 @@ SELECT
     -- count is what explains the hole. med_roll_forward carries the same
     -- figure as its own column so the two reports tie.
     COALESCE(sf.uncovered_units, 0)                       AS uncovered_units,
+    COALESCE(sf.unpriced_usage_units, 0)                  AS unpriced_usage_units,
     (m.cost_per_unit IS NULL AND m.cost_per_head IS NULL)  AS unpriced_in_catalog
 FROM public.med_stock_locations loc
 CROSS JOIN public.medications m
@@ -852,7 +1023,7 @@ LEFT JOIN shortfalls sf
 WHERE loc.is_active AND m.is_active
 GROUP BY loc.id, loc.name, loc.kind, m.id, m.name, m.generic_category,
          m.redwing_item_code, m.bottle_size_unit, m.bottle_size,
-         m.cost_per_unit, m.cost_per_head, sf.uncovered_units;
+         m.cost_per_unit, m.cost_per_head, sf.uncovered_units, sf.unpriced_usage_units;
 
 
 -- med_activity ----------------------------------------------------------
@@ -1462,6 +1633,6 @@ BEGIN
         RAISE EXCEPTION '% table(s) have RLS disabled or no policies.', v_count;
     END IF;
 
-    RAISE NOTICE 'Medicine inventory phase 1 applied: 7 tables, 6 views, 3 functions, RLS verified.';
+    RAISE NOTICE 'Medicine inventory phase 1 applied: 7 tables, 6 views, 4 functions, RLS verified.';
 END
 $post$;

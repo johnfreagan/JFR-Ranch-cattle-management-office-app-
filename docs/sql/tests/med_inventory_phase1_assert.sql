@@ -12,6 +12,7 @@ DECLARE
     v_loc     uuid;
     v_res     jsonb;
     v_n       numeric;
+    v_ok      boolean;
     v_count   uuid := '44444444-0000-0000-0000-000000000001';
 BEGIN
     SELECT id INTO v_loc FROM public.med_stock_locations WHERE kind = 'ranch';
@@ -121,6 +122,67 @@ BEGIN
     EXCEPTION WHEN others THEN
         IF SQLERRM LIKE 'T10%' THEN RAISE; END IF;
     END;
+
+    -- 11. A medication picked up and used before anyone entered its cost.
+    --     Protivity has no layer and no catalog price. The treatment must
+    --     still book - but at zero, and marked as such, because a zero that
+    --     looks like a real number is worse than an obvious gap.
+    v_res := public.med_consume('11111111-0000-0000-0000-000000000004'::uuid, v_loc, 3,
+             'usage','treatment','doctoring_event','55555555-0000-0000-0000-000000000001'::uuid,'2026-09-12');
+    IF (v_res->>'total_cost')::numeric <> 0 THEN
+        RAISE EXCEPTION 'T11 unpriced usage cost: expected 0, got %', v_res->>'total_cost';
+    END IF;
+    SELECT cost_provisional INTO v_ok FROM public.med_txns WHERE id = (v_res->>'txn_id')::uuid;
+    IF NOT v_ok THEN RAISE EXCEPTION 'T11 unpriced usage was not marked provisional'; END IF;
+
+    -- 12. The invoice turns up late, DATED BEFORE the treatment. Left alone
+    --     the shelf overstates and the next count books real usage as
+    --     shrink. Settling converts the shortfall into a real draw.
+    INSERT INTO public.med_purchases (id, purchase_date, vendor, location_id, invoice_total)
+    VALUES ('66666666-0000-0000-0000-000000000001','2026-09-08','Vet Supply',v_loc,300.00);
+    INSERT INTO public.med_purchase_lines (purchase_id, medication_id, location_id, qty_bottles, bottle_size, unit, unit_cost, qty_remaining, received_date)
+    VALUES ('66666666-0000-0000-0000-000000000001','11111111-0000-0000-0000-000000000004',v_loc,10,1,'doses',30.00,10,'2026-09-08');
+
+    SELECT qty_units INTO v_n FROM public.med_on_hand
+     WHERE medication_name='Protivity' AND location_id = v_loc;
+    IF v_n <> 10 THEN RAISE EXCEPTION 'T12 setup: expected the shelf to claim 10, got %', v_n; END IF;
+
+    v_res := public.med_settle_uncovered('11111111-0000-0000-0000-000000000004'::uuid, v_loc);
+    IF (v_res->>'units_covered')::numeric <> 3 THEN
+        RAISE EXCEPTION 'T12 settle: expected 3 units covered, got %', v_res->>'units_covered';
+    END IF;
+
+    SELECT qty_units INTO v_n FROM public.med_on_hand
+     WHERE medication_name='Protivity' AND location_id = v_loc;
+    IF v_n <> 7 THEN RAISE EXCEPTION 'T12 after settling: shelf should be 7, got %', v_n; END IF;
+
+    SELECT total_cost INTO v_n FROM public.med_txns
+     WHERE medication_id='11111111-0000-0000-0000-000000000004' AND txn_type='usage';
+    IF v_n <> 90.00 THEN
+        RAISE EXCEPTION 'T12 re-cost: 3 doses at the real 30.00 should be 90.00, got %', v_n;
+    END IF;
+
+    SELECT count(*) INTO v_n FROM public.med_txn_layers l
+      JOIN public.med_txns t ON t.id = l.txn_id
+     WHERE t.medication_id='11111111-0000-0000-0000-000000000004' AND l.purchase_line_id IS NULL;
+    IF v_n <> 0 THEN
+        RAISE EXCEPTION 'T12 the settled usage still has % placeholder row(s); a reversal would restore nothing', v_n;
+    END IF;
+
+    -- 13. THE GUARD. A bottle that arrived after the treatment cannot have
+    --     been in the syringe, and must not be used to settle it.
+    v_res := public.med_consume('11111111-0000-0000-0000-000000000002'::uuid, v_loc, 25,
+             'usage','treatment','doctoring_event','77777777-0000-0000-0000-000000000001'::uuid,'2026-08-26');
+    INSERT INTO public.med_purchases (id, purchase_date, vendor, location_id, invoice_total)
+    VALUES ('66666666-0000-0000-0000-000000000002','2026-09-15','Vet Supply',v_loc,150.71);
+    INSERT INTO public.med_purchase_lines (purchase_id, medication_id, location_id, qty_bottles, bottle_size, unit, unit_cost, qty_remaining, received_date)
+    VALUES ('66666666-0000-0000-0000-000000000002','11111111-0000-0000-0000-000000000002',v_loc,1,500,'mL',0.30142,500,'2026-09-15');
+
+    v_res := public.med_settle_uncovered('11111111-0000-0000-0000-000000000002'::uuid, v_loc);
+    IF (v_res->>'units_covered')::numeric <> 0 THEN
+        RAISE EXCEPTION 'T13 a bottle received AFTER the treatment was used to settle it (% units)',
+            v_res->>'units_covered';
+    END IF;
 
     RAISE NOTICE 'med_inventory phase 1: behaviour assertions passed.';
 END

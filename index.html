@@ -1842,6 +1842,7 @@
                 <div class="card-header">
                     <h2>On hand</h2>
                     <div style="display: flex; gap: 8px;">
+                        <button id="invSettleBtn" class="hidden">Settle uncovered usage</button>
                         <button id="invOnHandPrintBtn">Print count sheet</button>
                         <button id="invOnHandRefreshBtn">Refresh</button>
                     </div>
@@ -19990,13 +19991,33 @@ ${ranchBlocks}
         }
 
         const total = rows.reduce((s, r) => s + (Number(r.value_fifo) || 0), 0);
-        let html = `<table><thead><tr>
+        const uncoveredTotal = rows.reduce((s, r) => s + (Number(r.uncovered_units) || 0), 0);
+        const unpricedTotal = rows.reduce((s, r) => s + (Number(r.unpriced_usage_units) || 0), 0);
+        $('invSettleBtn').classList.toggle('hidden', uncoveredTotal <= 0);
+
+        let html = '';
+        if (uncoveredTotal > 0) {
+            html += `<div style="padding:10px 12px;border-left:3px solid #b45309;background:#fffbeb;margin-bottom:12px;font-size:12px;">
+                <strong>${fmtNum(uncoveredTotal, 1)} unit(s) were used against stock this ledger did not have.</strong>
+                ${unpricedTotal > 0 ? `${fmtNum(unpricedTotal, 1)} of that booked at <strong>$0</strong> because no cost was known for the medication. ` : ''}
+                Usually this means an invoice has not been entered yet. Enter it &mdash; dated when the
+                product actually arrived &mdash; then hit <strong>Settle uncovered usage</strong>.
+                <br>Until you do, the shelf reads high, and the next count will book this as
+                <strong>shrink when it was not</strong>.</div>`;
+        }
+        html += `<table><thead><tr>
             <th>Medication</th><th>Category</th><th class="num">Units</th><th>Unit</th>
             <th class="num">Bottles</th><th class="num">Avg $/unit</th><th class="num">Value</th>
             <th>Oldest</th><th>Flags</th></tr></thead><tbody>`;
         rows.forEach(r => {
             const flags = [];
-            if (Number(r.uncovered_units) > 0) flags.push(`<span style="color:#b45309">${fmtNum(r.uncovered_units, 1)} used with no stock</span>`);
+            const unpriced = Number(r.unpriced_usage_units) || 0;
+            const uncov = Number(r.uncovered_units) || 0;
+            // Two different problems that look alike. "No stock" is a
+            // sequencing gap. "Booked at $0" is a med used before anybody
+            // entered what it cost, and that zero is a number people believe.
+            if (uncov > unpriced) flags.push(`<span style="color:#b45309">${fmtNum(uncov - unpriced, 1)} used with no stock</span>`);
+            if (unpriced > 0) flags.push(`<span style="color:#b91c1c;font-weight:600">${fmtNum(unpriced, 1)} used but booked at $0 — no cost known</span>`);
             if (Number(r.expired_layer_count) > 0) flags.push(`<span style="color:#b91c1c">${r.expired_layer_count} expired</span>`);
             if (Number(r.expiring_soon_count) > 0) flags.push(`${r.expiring_soon_count} expiring &lt;60d`);
             if (r.unpriced_in_catalog) flags.push('<span style="color:#b45309">unpriced in catalog</span>');
@@ -20254,7 +20275,22 @@ ${ranchBlocks}
                 throw lErr;
             }
 
-            showAlert('globalAlert', `Purchase posted: ${rows.length} line(s), ${fmtMoney(linesTotal + freight)}.`, 'success');
+            // The moment this matters: if any of these meds were already
+            // given against an empty shelf, this invoice may be the stock
+            // they actually came off. Offer it here rather than leaving it
+            // to be discovered as shrink at month end.
+            const probe = await settleInvUncovered($('invPurLocation').value, true);
+            let extra = '';
+            if (probe && Number(probe.units_covered) > 0) {
+                // Deliberately not "matched to THIS invoice": settling runs
+                // across the whole location, so an older layer can be what
+                // actually covered it. Say what happened, not more.
+                extra = ` ${fmtNum(probe.units_covered, 1)} unit(s) of earlier usage were matched to stock` +
+                        ` that was on the shelf at the time — that would otherwise have shown up as` +
+                        ` shrink at the next count.`;
+            }
+            showAlert('globalAlert',
+                `Purchase posted: ${rows.length} line(s), ${fmtMoney(linesTotal + freight)}.` + extra, 'success');
             showInventoryTab('purchases');
         } catch (e) {
             showAlert('invPurAlert', 'Could not post: ' + (e.message || e), 'error');
@@ -20826,6 +20862,43 @@ ${ranchBlocks}
         setTimeout(() => w.print(), 300);
     }
 
+    // ---- SETTLING USAGE THE LEDGER DID NOT KNOW ABOUT --------------------
+    // A medication picked up and used before the app heard about it leaves
+    // two marks: the dose books at $0 (no cost known anywhere), and the
+    // shelf reads high once the invoice finally lands. The second is the
+    // dangerous one - the next count finds the shortage and calls it shrink,
+    // which quietly inflates the one number this module exists to produce.
+    //
+    // Settling walks that usage and lets it draw on any layer that was
+    // actually on the shelf when the treatment happened. A bottle received
+    // afterwards is left alone; it cannot have been in the syringe.
+    async function settleInvUncovered(locationId, quiet) {
+        const { data, error } = await supabase.rpc('med_settle_uncovered', {
+            p_medication_id: null,
+            p_location_id: locationId || null
+        });
+        if (error) {
+            if (!quiet) showAlert('globalAlert', 'Could not settle: ' + error.message, 'error');
+            return null;
+        }
+        const r = data || {};
+        const covered = Number(r.units_covered) || 0;
+        const repriced = Number(r.transactions_repriced) || 0;
+        if (!quiet) {
+            if (!covered && !repriced) {
+                showAlert('globalAlert',
+                    'Nothing to settle. Any usage still showing as uncovered has no purchase ' +
+                    'dated on or before the day it was given — enter that invoice first.', 'success');
+            } else {
+                showAlert('globalAlert',
+                    `Settled: ${fmtNum(covered, 1)} unit(s) matched to stock that was on the shelf at the time` +
+                    (repriced ? `, ${repriced} transaction(s) re-priced off a $0 guess` : '') + '.', 'success');
+            }
+            loadInvOnHand();
+        }
+        return r;
+    }
+
     // ---- WIRING ----------------------------------------------------------
     $('navInventory').addEventListener('click', () => showInventoryTab('onhand'));
     $('inventorySubtabs').addEventListener('click', (e) => {
@@ -20837,6 +20910,7 @@ ${ranchBlocks}
     $('invOnHandZero').addEventListener('change', loadInvOnHand);
     $('invOnHandRefreshBtn').addEventListener('click', loadInvOnHand);
     $('invOnHandPrintBtn').addEventListener('click', () => printInvCountSheet(true));
+    $('invSettleBtn').addEventListener('click', () => settleInvUncovered($('invOnHandLocation').value, false));
 
     $('invNewPurchaseBtn').addEventListener('click', openInvPurchaseEntry);
     $('invPurchaseBackBtn').addEventListener('click', () => showInventoryTab('purchases'));

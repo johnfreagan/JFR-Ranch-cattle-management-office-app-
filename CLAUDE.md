@@ -317,6 +317,15 @@ med_counts ── med_count_lines            med_stock_locations (Ranch + 1/buye
   empty shelf takes its full amount out of `used` while only the covered part
   comes off layers; without `uncovered` stated, `med_roll_forward` and
   `med_on_hand` disagree by exactly that much forever. Asserted by the tests.
+- **A medicine used before its cost is entered** books at $0 and is marked
+  `med_txns.cost_provisional`; the on-hand screen says so rather than showing a
+  tidy zero. Worse is the sequencing: the invoice arrives later dated BEFORE the
+  usage, the layer lands full, the shelf reads high, and the next count books
+  real usage as SHRINK. **`med_settle_uncovered()` is the fix** — it lets
+  uncovered usage draw on layers `received_date <= txn_date` (a bottle bought
+  afterwards cannot have been in the syringe) and re-prices the rest. It runs
+  automatically after a purchase posts and from a button on On hand. A freetext
+  medication has no `medication_id` and never reaches inventory at all.
 - **A count that finds an unpriced medication OVER is refused, not booked at
   zero.** A zero-cost layer prices every future draw off it at nothing.
 - **Purchases will not post until the lines plus freight tie to the invoice
