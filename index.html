@@ -4787,6 +4787,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 // Same teardown order as Settings → Data Tools cleanup, scoped to one lot
                 const { data: docEvts } = await supabase.from('doctoring_events').select('id').eq('lot_id', lotId);
                 if (docEvts && docEvts.length > 0) {
+                    await invReverseDoctoringUsage(docEvts.map(d => d.id));
                     await supabase.from('doctoring_event_meds').delete().in('doctoring_event_id', docEvts.map(d => d.id));
                 }
                 await supabase.from('doctoring_events').delete().eq('lot_id', lotId);
@@ -6307,6 +6308,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 await supabase.from('doctoring_events').delete().eq('id', evt.id);
                 throw new Error(`tag ${raw.tagNumber} meds: ${medErr.message}`);
             }
+            await invRecordDoctoringUsage(evt.id, medRows, payload.event_datetime);
         }
         return { kind: 'doctoring_event', id: evt.id };
     }
@@ -6354,6 +6356,7 @@ window.addEventListener('unhandledrejection', function(e) {
         for (const p of posted.slice().reverse()) {
             try {
                 if (p.kind === 'doctoring_event') {
+                    await invReverseDoctoringUsage(p.id);
                     await supabase.from('doctoring_event_meds').delete().eq('doctoring_event_id', p.id);
                     const { error } = await supabase.from('doctoring_events').delete().eq('id', p.id);
                     if (error) throw error;
@@ -12651,6 +12654,7 @@ ${body}
             // 1. Doctoring meds (cascades from doctoring_events anyway, but explicit is safer)
             const { data: docEvts } = await supabase.from('doctoring_events').select('id').in('lot_id', ids);
             if (docEvts && docEvts.length > 0) {
+                await invReverseDoctoringUsage(docEvts.map(d => d.id));
                 const { error } = await supabase.from('doctoring_event_meds').delete().in('doctoring_event_id', docEvts.map(d => d.id));
                 if (error) errors.push('doctoring_event_meds: ' + error.message);
             }
@@ -17940,6 +17944,7 @@ ${ranchBlocks}
                         .from('doctoring_event_meds')
                         .insert(medRows);
                     if (medErr) throw medErr;
+                    await invRecordDoctoringUsage(evt.id, medRows, eventDatetime);
                 }
                 savedOk++;
             } catch (err) {
@@ -17951,6 +17956,7 @@ ${ranchBlocks}
         if (failedRow) {
             // Roll back all
             if (insertedEventIds.length > 0) {
+                await invReverseDoctoringUsage(insertedEventIds);
                 await supabase.from('doctoring_events').delete().in('id', insertedEventIds);
             }
             $('docEntrySaveBtn').disabled = false;
@@ -18671,7 +18677,9 @@ ${ranchBlocks}
                     throw updErr;
                 }
                 eventId = id;
-                // Wipe and reinsert meds
+                // Wipe and reinsert meds. Put the old doses back on the shelf
+                // first, or an edited treatment draws twice.
+                await invReverseDoctoringUsage(eventId);
                 const { error: delErr } = await supabase
                     .from('doctoring_event_meds').delete().eq('doctoring_event_id', eventId);
                 if (delErr) throw delErr;
@@ -18694,6 +18702,7 @@ ${ranchBlocks}
                 const { error: medErr } = await supabase
                     .from('doctoring_event_meds').insert(medPayload);
                 if (medErr) throw medErr;
+                await invRecordDoctoringUsage(eventId, medPayload, payload.event_datetime);
             }
 
             $('doctoringSaveBtn').disabled = false;
@@ -18712,6 +18721,7 @@ ${ranchBlocks}
         if (!id) return;
         if (!confirm('Delete this doctoring event? Cannot be undone.')) return;
         $('doctoringDeleteBtn').disabled = true;
+        await invReverseDoctoringUsage(id);
         const { error: medErr } = await supabase.from('doctoring_event_meds').delete().eq('doctoring_event_id', id);
         if (medErr) {
             $('doctoringDeleteBtn').disabled = false;
@@ -19775,6 +19785,76 @@ ${ranchBlocks}
         pendingExpandCardId = id;
     }
 
+
+    // ---------------------------------------------------------------------
+    // Doctoring -> inventory. Best effort, ALWAYS.
+    // ---------------------------------------------------------------------
+    // Usage has to reach the ledger or the count means nothing: expected
+    // on-hand would be purchases minus zero, and the first count's variance
+    // would be every dose ever given rather than the shrink.
+    //
+    // But it is recorded AFTER the treatment is safely saved, and a failure
+    // here is swallowed on purpose. This is animal health data; a missing
+    // inventory table, an unpriced med or an empty shelf must never cost us
+    // the record of a treatment that actually happened. What the ledger
+    // cannot cover it records as a shortfall and flags on the on-hand
+    // screen, and the count is what explains it.
+    //
+    // Phase 1 does NOT read these numbers back into cost. doctoring_event_meds
+    // .cost keeps its own frozen figure, so the two can be compared over a
+    // real month before phase 2 switches the source.
+    let invLedgerAvailable = null;   // null = not yet checked, false = tables absent
+    let invRanchLocationId = null;
+
+    async function invLedgerReady() {
+        if (invLedgerAvailable === false) return false;
+        if (invRanchLocationId) return true;
+        try {
+            const { data, error } = await supabase.from('med_stock_locations')
+                .select('id').eq('kind', 'ranch').eq('is_active', true).limit(1).maybeSingle();
+            if (error || !data) { invLedgerAvailable = false; return false; }
+            invRanchLocationId = data.id;
+            invLedgerAvailable = true;
+            return true;
+        } catch (e) { invLedgerAvailable = false; return false; }
+    }
+
+    async function invRecordDoctoringUsage(eventId, medRows, eventDate) {
+        if (!eventId || !medRows || !medRows.length) return;
+        if (!(await invLedgerReady())) return;
+        const when = eventDate ? String(eventDate).slice(0, 10) : ranchToday();
+        for (const m of medRows) {
+            const dose = Number(m.dose_cc);
+            if (!m.medication_id || !(dose > 0)) continue;
+            try {
+                await supabase.rpc('med_consume', {
+                    p_medication_id: m.medication_id,
+                    p_location_id: invRanchLocationId,
+                    p_qty_units: dose,
+                    p_txn_type: 'usage',
+                    p_reason: 'treatment',
+                    p_ref_kind: 'doctoring_event',
+                    p_ref_id: eventId,
+                    p_txn_date: when
+                });
+            } catch (e) { /* deliberately swallowed - see above */ }
+        }
+    }
+
+    // Deleting or re-saving a treatment puts its units back on the shelf, to
+    // the exact layers they came off. Same rule as every other reversal here.
+    async function invReverseDoctoringUsage(eventIds) {
+        const ids = (Array.isArray(eventIds) ? eventIds : [eventIds]).filter(Boolean);
+        if (!ids.length) return;
+        if (!(await invLedgerReady())) return;
+        try {
+            const { data } = await supabase.from('med_txns')
+                .select('id').eq('ref_kind', 'doctoring_event').in('ref_id', ids);
+            for (const t of (data || [])) {
+                await supabase.rpc('med_reverse_txn', { p_txn_id: t.id });
+            }
+        } catch (e) { /* deliberately swallowed */ }
+    }
 
     // =====================================================================
     // INVENTORY - medicine on FIFO (phase 1)

@@ -261,6 +261,75 @@ Production Center — the first is blank, the last carries the lot.
 Migrations, in order: `docs/sql/2026-08-26_shipments.sql`,
 `..._phase2.sql`, `..._phase3.sql`.
 
+## Medicine inventory on FIFO (phase 1 live 2026-08-27)
+
+Office-only tab. Migration `docs/sql/2026-08-27_med_inventory_phase1.sql`,
+plan `docs/medicine-inventory-fifo-plan.md`, tests
+`docs/sql/tests/med_inventory_phase1_{test,assert}.sql` and
+`scripts/test-inventory.jxa.js`.
+
+```
+med_purchases ── med_purchase_lines ──┐  the line IS the FIFO layer
+   (vet invoice)   (location_id,      │  (location + qty_remaining on it)
+                    qty_remaining)    │
+med_txns ── med_txn_layers ───────────┘  which layers it took, at what cost
+med_counts ── med_count_lines            med_stock_locations (Ranch + 1/buyer)
+```
+
+- **Phase 1 changes NO costing.** `doctoring_event_meds.cost` keeps its frozen
+  figure and `lot_processing_costs` keeps deriving live. Usage is recorded
+  against inventory in PARALLEL so the two can be compared over a real month.
+  Phase 2 switches treatment, phase 3 switches processing behind a cutover
+  date. **Phase 3 reverses the "processing cost is derived live" rule above** —
+  re-read that section and the plan's cutover procedure before starting it.
+- **Usage MUST be recorded in phase 1 even though nothing reads it.** Without
+  it, expected-on-hand is purchases minus zero and the first count's variance
+  is every dose ever given rather than the shrink.
+- **`invRecordDoctoringUsage()` is fail-soft on purpose and must stay that
+  way.** It runs after the treatment is safely saved and swallows every error.
+  A missing table, an unpriced med or an empty shelf must never cost us the
+  record of a treatment that happened. Short draws become `shortfall_units`,
+  flagged on the on-hand screen; the count explains them.
+- **Blank is not zero.** `invNum('')` returns null, not 0. A blank count line
+  means NOT COUNTED; read as zero it would post an adjustment writing that
+  medication's stock to nothing. `med_post_count` skips NULL `counted_units`
+  for the same reason. This was a live bug caught by the tests, not by reading.
+- **The count sheet prints BLIND by default.** Expected quantity is a checkbox
+  defaulting OFF — a number printed on the sheet gets copied down, and a count
+  that agrees because the system was printed on it finds no shrink. Expected
+  *value* is fine and shows on screen either way.
+- **Full bottles and the open bottle are counted separately.** A half-used
+  500 mL bottle is 250 units; one box would force arithmetic on a clipboard.
+- **Stock never moves, so there are no transfers.** Ranch meds stay at the
+  ranch; a buyer's pickup at the supplier never comes here. Barn and crew
+  boxes are ONE pool — custody is per person (`med_txns.crew_user_id`,
+  `direction 0`), not per location. A checkout does not move stock.
+- **`med_reverse_txn` restores exactly the layers named in `med_txn_layers`.**
+  Never recompute which layers "would have" been used — that goes wrong the
+  moment a later purchase arrives, and goes wrong silently. Editing or
+  deleting a doctoring event reverses first, or the edit draws twice.
+- **Count-born layers carry `bottle_size = 1` and `qty_bottles` = the whole
+  variance.** `qty_units` is GENERATED as the product, and dividing a variance
+  by a real bottle size then storing it at four decimals does not multiply
+  back: 250 units of a 3,785 mL jug round-trips to 250.18.
+- **The roll-forward identity includes `uncovered`:** beginning + purchases +
+  opening − used + adjustments + uncovered = ending. A dose given against an
+  empty shelf takes its full amount out of `used` while only the covered part
+  comes off layers; without `uncovered` stated, `med_roll_forward` and
+  `med_on_hand` disagree by exactly that much forever. Asserted by the tests.
+- **A count that finds an unpriced medication OVER is refused, not booked at
+  zero.** A zero-cost layer prices every future draw off it at nothing.
+- **Purchases will not post until the lines plus freight tie to the invoice
+  total**, and a pasted product name that matches no medication stops and asks
+  rather than taking the nearest row. A wrong unit cost does not throw — it
+  silently prices every future FIFO draw and ends up frozen into treatment
+  cost on a dozen lots. This is the one place the build is deliberately
+  un-simple.
+- **Redwing is the GL; this is the subsidiary ledger.** Redwing keeps its own
+  inventory value. When comparing, **quantities first**: quantities
+  disagreeing is real, value disagreeing while quantities agree is the costing
+  method and is expected by construction.
+
 ## Access control (RLS — read before touching auth, policies, or views)
 
 The gate is `public.current_user_role()`. It reads `user_profiles.role` for
