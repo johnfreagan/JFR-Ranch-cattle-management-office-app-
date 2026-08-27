@@ -18,6 +18,10 @@ and capture pasture wherever it comes free while requiring it nowhere.
 **Bulk feeders are out of scope** (John, 2026-08-27): they are not locations
 and the module does not model them. Bulk feed is charged to the lot like any
 other commodity.
+**Two more, 2026-08-27:** the feed share of cost of gain is **not known yet**
+and John will work on it — so Phase 4 no longer waits on it, see "Until the
+split exists" below. Bays are **added and edited in the app**, not seeded from
+a list. A sample Performance Beef report is expected **2026-08-28**.
 
 ---
 
@@ -97,6 +101,13 @@ A location is somewhere feed is **stored and counted**: a bay, a barn, a
 pallet of sacks. Nothing else. Bulk feeders standing in pastures are
 deliberately **not** locations (John, 2026-08-27) — feed leaving the bay for a
 feeder is simply usage, and no book inventory sits in the pasture.
+
+**Bays are managed in the app, not seeded.** Add, rename, re-capacity and
+deactivate, on the same screen pattern as Locations under Settings. There is
+no list to hand over up front and no migration to run when a bay changes.
+Deactivate rather than delete once a bay has ever held a layer — the same
+posture as `medications.is_active`, and for the same reason: hiding it
+everywhere without losing its history.
 
 Bays are locations, not items. Corn in Bay 2 and corn in Bay 5 are the same
 item at two locations and FIFO runs **per (item, location)** — see "FIFO
@@ -428,12 +439,30 @@ actual feed in beside it and that portion is counted twice.
   Actual column charges actual feed + non-feed COG.** One new column, no
   history rewritten, arithmetic honest.
 
-**My vote: C** — and I need one number from you to set it: of your ~$0.75/hd/
-day cost of gain, how much is feed? Whatever is left becomes the non-feed rate
-and the books stop guessing at the feed half.
+**My vote: C**, and it needs one number: of the ~$0.75/hd/day, how much is
+feed? Whatever is left becomes the non-feed rate and the books stop guessing
+at the feed half.
 
-Either way, **do not retroactively re-cost lots that closed under the assumed
-rate.** Their closeouts are what they were.
+### Until the split exists
+
+John does not have that number yet (2026-08-27) and is working on it.
+**Phase 4 does not wait for it**, because C degrades cleanly:
+
+- Add `lots.assumed_nonfeed_cog_per_day` now and leave it **null**.
+- While it is null the Actual column behaves as option **A** — real feed shows
+  on its own line, assumed COG keeps running unchanged — and the closeout
+  carries a visible note: *"COG still includes an assumed feed share; feed is
+  shown separately and the two overlap."* An overlap you can see is a
+  different thing from one you cannot.
+- The day a lot gets a non-feed rate, that lot switches to C. Per lot, not
+  global, so the number can be worked out on one lot and rolled out as
+  confidence grows.
+- Nothing is recomputed retroactively at the switch. **Do not re-cost lots
+  that closed under the assumed rate** — their closeouts are what they were.
+
+That also makes the number easier to find rather than harder: after a few
+weeks of real feed data, `lot_feed_costs.$/hd/day` **is** the feed half. The
+answer falls out of Phase 4 instead of blocking it.
 
 ---
 
@@ -460,10 +489,10 @@ Each ships on its own and is useful on its own. Nothing here is a big-bang.
 
 | # | what | ships | blocked on |
 |---|---|---|---|
-| **1** | Schema, RLS, `feed_items`, `feed_storage_locations`, `feed_receipts`, `feed_on_hand`. Feed tab with Items / Locations / Receipts / Inventory. | Inventory value on hand, by bay, FIFO-layered. | nothing |
+| **1** | Schema, RLS, `feed_items`, `feed_storage_locations` (**add / edit / deactivate bays in the app**), `feed_receipts`, `feed_on_hand`. Feed tab with Items / Locations / Receipts / Inventory. | Inventory value on hand, by bay, FIFO-layered. | nothing |
 | **2** | `post_feed_usage` + `delete_feed_usage` + the **weekly entry screen** (a grid: commodity × lot, pounds, one period). Counts screen + `post_feed_count` + variance report (printable count sheet). | Books that move, a week keyed in minutes, and a count that squares them. | 1 |
-| **3** | *Accelerator, not a prerequisite.* PB import: `pb_pen_map`, parser, preview, `import_pb_usage`. Ration recipes if the export needs them. | The weekly keying stops. | **a sample PB export** |
-| **4** | `lot_feed_costs`, `lot_feed_daily`, `pasture_feed_allocation`, mineral $/hd/day. Closeout integration per the decision above. | Actual cost of gain. The point of all of it. | 2, and the A/B/C call |
+| **3** | *Accelerator, not a prerequisite.* PB import: `pb_pen_map`, parser, preview, `import_pb_usage`. Ration recipes if the export needs them. | The weekly keying stops. | sample PB report, expected 2026-08-28 |
+| **4** | `lot_feed_costs`, `lot_feed_daily`, `pasture_feed_allocation`, mineral $/hd/day. Closeout integration, degrading to option A while the split is unknown. | Actual cost of gain. The point of all of it. | 2 |
 | **5** | Redwing accounting report, both modes. | Postings you copy instead of key. | 2 |
 | **6** | *Optional.* Field app mineral put-out → `pending_field_entries` → Approvals. Receipt attachments. | The cowboy records the sacks. | 3, 4 |
 
@@ -511,18 +540,17 @@ another module.
 
 ## What I need from you to start
 
-1. **The COG split** — of ~$0.75/hd/day, how much is feed? (Option C above.)
-   This is the only answer Phase 4 cannot be built without.
-2. **The bay list**: which bays exist and at which ranch. Typed into the app
-   once the screen exists, so it does not hold up Phase 1.
-3. **How a bay gets estimated** — depth and width off a known density, or an
+1. **A Performance Beef report** — expected 2026-08-28. The one thing that
+   changes a design decision: commodity-level rows or ration-level rows.
+2. **How a bay gets estimated** — depth and width off a known density, or an
    eyeball in tons? It decides whether the count screen asks for measurements
-   or a number.
-4. **A Performance Beef export**, when convenient. No longer a blocker now
-   that weekly entry is the expected workflow — it decides whether Phase 3
-   happens at all, not whether the module opens.
-5. **Whether mineral put-out is in PB at all.** If not, it is keyed on the
+   or a number. Answerable any time before Phase 2.
+3. **Whether mineral put-out is in PB at all.** If not, it is keyed on the
    weekly screen, and Phase 6 (the cowboy records the sacks in the field app)
    stops being optional sooner than the table above suggests.
 
-Phases 1 and 2 wait on none of it.
+**Nothing here blocks a phase.** The COG split is deferred by design (above),
+and the bays are typed in on the Locations screen whenever you want — that is
+the whole point of building them editable rather than seeded.
+
+Phases 1 and 2 wait on nothing at all.
