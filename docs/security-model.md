@@ -203,7 +203,8 @@ explicitly.
 
 1. Every public table has RLS enabled
 2. No table has RLS on with zero policies (total lockout)
-3. All four commands covered per table
+3. *(informational, not an assertion — see below)* which commands a table
+   has no policy for
 4. `anon` holds no table **or view** privileges
 5. No `SECURITY DEFINER` function is `anon`-callable
 6. No view bypasses RLS
@@ -218,9 +219,20 @@ nothing and raises an exception on a real finding.
 result grid. Read the notices in the editor's message pane, or run it through
 `psql` where they print inline.
 
+**Item 3 was downgraded to informational on 2026-08-27**, on the first run
+this file ever actually had (it was referenced everywhere but never committed
+until then). It flagged `user_profiles` for having no INSERT and no DELETE
+policy — which is correct and deliberate: profile rows are created by
+`handle_new_user()`, a DEFINER trigger, and a client able to INSERT its own
+profile row is the signup-escalation hole rule 1 exists to close. **A missing
+policy denies.** It is fail-closed. The states that are actually dangerous —
+RLS off, RLS on with no policies, `anon` holding grants — are items 1, 2 and 4
+and still fail hard. Gaps are printed so they stay visible, and nothing more.
+
 The coverage report at the end should show 4 policies for most tables. Tables
 showing 2 use one SELECT plus one `FOR ALL` write policy; that is the original
-design and is sound.
+design and is sound. `user_profiles` also shows 2 — SELECT plus UPDATE — which
+is a third shape, and correct for the reason above.
 
 `FORCE ROW LEVEL SECURITY` is deliberately **not** set. It would only affect
 connections as the table owner, and `service_role` carries `BYPASSRLS` anyway.

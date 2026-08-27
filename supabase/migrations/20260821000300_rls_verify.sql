@@ -20,8 +20,10 @@
 DO $verify$
 DECLARE
     problems  text[] := '{}';
+    notes     text[] := '{}';
     r         record;
     n         integer;
+    n_txt     text;
     total     integer;
 BEGIN
     -- ---------------------------------------------------------------
@@ -57,7 +59,19 @@ BEGIN
     END LOOP;
 
     -- ---------------------------------------------------------------
-    -- 3. All four commands covered per table.
+    -- 3. Which commands each table covers - INFORMATIONAL, not a failure.
+    --
+    -- security-model.md originally specified this as an assertion ("all
+    -- four commands covered"). That was wrong, and user_profiles proves
+    -- it: it deliberately has no INSERT policy (profiles are created by
+    -- handle_new_user(), a DEFINER trigger - a client inserting its own
+    -- profile row is the signup-escalation hole) and no DELETE policy.
+    --
+    -- A MISSING POLICY DENIES. It is fail-closed. The dangerous states
+    -- are RLS off (1), RLS on with no policies at all (2), and anon
+    -- holding grants (4) - all of which fail hard above and below.
+    -- A gap here is reported so it is visible, and nothing more.
+    --
     -- A policy with cmd 'ALL' covers everything - the original design
     -- used one SELECT plus one FOR ALL write policy and that is sound.
     -- ---------------------------------------------------------------
@@ -76,7 +90,7 @@ BEGIN
                 AND bool_or(p.cmd IN ('ALL','UPDATE')) AND bool_or(p.cmd IN ('ALL','DELETE')))
         ORDER BY c.relname
     LOOP
-        problems := problems || ('POLICY GAP on public.' || r.relname || ' - missing'
+        notes := notes || ('public.' || r.relname || ' has no policy for:'
             || CASE WHEN NOT r.has_select THEN ' SELECT' ELSE '' END
             || CASE WHEN NOT r.has_insert THEN ' INSERT' ELSE '' END
             || CASE WHEN NOT r.has_update THEN ' UPDATE' ELSE '' END
@@ -184,6 +198,13 @@ BEGIN
     -- ---------------------------------------------------------------
     -- 9. The roster. Printed whether or not anything failed.
     -- ---------------------------------------------------------------
+    IF array_length(notes, 1) IS NOT NULL THEN
+        RAISE NOTICE '--- commands with no policy (fail-closed, not findings) --';
+        FOREACH n_txt IN ARRAY notes LOOP
+            RAISE NOTICE '  %', n_txt;
+        END LOOP;
+    END IF;
+
     RAISE NOTICE '--- policy coverage -------------------------------------';
     total := 0;
     FOR r IN
@@ -247,7 +268,7 @@ BEGIN
     -- ---------------------------------------------------------------
     IF array_length(problems, 1) IS NULL THEN
         RAISE NOTICE '==========================================================';
-        RAISE NOTICE 'rls_verify: PASS - all 8 assertions hold.';
+        RAISE NOTICE 'rls_verify: PASS - all 7 assertions hold.';
         RAISE NOTICE '==========================================================';
     ELSE
         RAISE EXCEPTION E'rls_verify FAILED with % finding(s):\n  - %',
