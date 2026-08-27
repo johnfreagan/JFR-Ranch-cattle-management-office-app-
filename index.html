@@ -751,7 +751,9 @@
             <button class="sub-tab active" data-subtab="inventory">Inventory</button>
             <button class="sub-tab" data-subtab="receipts">Loads In</button>
             <button class="sub-tab" data-subtab="usage">Feed Out</button>
+            <button class="sub-tab" data-subtab="batches">Batches</button>
             <button class="sub-tab" data-subtab="counts">Counts</button>
+            <button class="sub-tab" data-subtab="cost">Cost</button>
             <button class="sub-tab" data-subtab="items">Items</button>
             <button class="sub-tab" data-subtab="locations">Locations</button>
         </div>
@@ -1773,7 +1775,11 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Physical counts</h2>
-                    <button class="primary" id="fdNewCountBtn">+ Count a bay</button>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <select id="fdCtPrintLoc" style="max-width:180px;"><option value="">— Print sheet for —</option></select>
+                        <button id="fdCtPrintBtn">🖨 Count sheet</button>
+                        <button class="primary" id="fdNewCountBtn">+ Count a bay</button>
+                    </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
                     Sacks are counted; bays are estimated. Which one it was is recorded on the line, because
@@ -1783,6 +1789,74 @@
                 </p>
                 <div id="fdCtAlert"></div>
                 <div id="fdCtContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+
+        <!-- Batches: many commodities in, one premix out -->
+        <div id="feedBatchesView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Mix a batch</h2>
+                    <div style="display:flex; gap:8px;">
+                        <button id="fdBatchRefreshBtn">Refresh on hand</button>
+                        <button class="primary" id="fdNewBatchBtn">+ Make batch</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    A premix is several commodities mixed into one, stored in its own bay and fed over the
+                    following days. The ingredients are consumed at their own FIFO prices and the dollars
+                    become the premix's price &mdash; so once it is mixed, the premix behaves like any other
+                    item. <b>Feed the premix, never the premix and its ingredients</b>, or the same feed is
+                    counted twice.
+                </p>
+                <div id="fdBatchAlert"></div>
+                <div id="fdBatchContent"><div class="empty">Loading…</div></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Recipes</h3>
+                    <button class="primary card-add-btn" id="fdNewRecipeBtn">+ Recipe</button>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 10px 0;">
+                    A recipe <b>pre-fills</b> the batch screen and nothing more. What actually goes in the
+                    mixer is what gets saved and priced, so editing a recipe never changes what a past
+                    batch was made of.
+                </p>
+                <div id="fdRecipeContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Cost: what feed is actually costing, per lot -->
+        <div id="feedCostView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Feed cost by lot</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="fdCostOpenOnly" style="width:auto; vertical-align:middle;" checked> Open lots only
+                        </label>
+                        <button id="fdCostRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Every feed-out is spread across the head-days inside its own period, so a week's corn
+                    lands on the days the cattle actually ate it. Head-days come from arrivals by receipt
+                    date &mdash; cattle eat from the day they hit the ground.
+                </p>
+                <div id="fdCostAlert"></div>
+                <div id="fdCostContent"><div class="empty">Loading…</div></div>
+            </div>
+
+            <div class="card" id="fdUnallocCard">
+                <div class="card-header"><h3>Feed that could not be charged to a day</h3></div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 10px 0;">
+                    Real dollars against a lot that had no cattle standing inside the period entered.
+                    Usually a period typed before the lot arrived, after it shipped, or running past today.
+                    Shown here rather than silently dropped.
+                </p>
+                <div id="fdUnallocContent"><div class="empty">Loading…</div></div>
             </div>
         </div>
 
@@ -2474,6 +2548,99 @@
                 <button type="submit" class="primary" id="fdRcSaveBtn">Save load</button>
             </div>
         </form>
+    </div>
+</div>
+
+
+<!-- ================= FEED: make a batch ================= -->
+<div class="modal-backdrop" id="fdBatchModal">
+    <div class="modal" style="max-width: 780px;">
+        <h2>Make a batch</h2>
+        <div id="fdBatchModalAlert"></div>
+
+        <div class="form-grid" style="margin-bottom:14px;">
+            <div>
+                <label for="fdBatchDate">Date *</label>
+                <input type="date" id="fdBatchDate" required>
+            </div>
+            <div>
+                <label for="fdBatchRecipe">Recipe (pre-fill)</label>
+                <select id="fdBatchRecipe"><option value="">— none —</option></select>
+            </div>
+            <div>
+                <label for="fdBatchOutItem">Makes *</label>
+                <select id="fdBatchOutItem"><option value="">— Pick the premix —</option></select>
+            </div>
+            <div>
+                <label for="fdBatchOutLoc">Into bay *</label>
+                <select id="fdBatchOutLoc"><option value="">— Pick a bay —</option></select>
+            </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <h4 style="margin:0;">Ingredients</h4>
+            <button type="button" id="fdBatchAddInputBtn">+ Ingredient</button>
+        </div>
+        <div id="fdBatchInputs"></div>
+        <div id="fdBatchSummary" style="margin-top:12px;"></div>
+
+        <div style="margin:14px 0;">
+            <label for="fdBatchNotes">Notes</label>
+            <textarea id="fdBatchNotes"></textarea>
+        </div>
+
+        <div class="modal-actions">
+            <div style="flex:1;"></div>
+            <button type="button" id="fdBatchCancelBtn">Cancel</button>
+            <button type="button" id="fdBatchSaveBtn" class="primary">Mix it</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= FEED: recipe ================= -->
+<div class="modal-backdrop" id="fdRecipeModal">
+    <div class="modal" style="max-width: 700px;">
+        <h2 id="fdRecipeModalTitle">New recipe</h2>
+        <div id="fdRecipeModalAlert"></div>
+        <input type="hidden" id="fdRecipeId">
+
+        <div class="form-grid" style="margin-bottom:14px;">
+            <div>
+                <label for="fdRecipeName">Name *</label>
+                <input type="text" id="fdRecipeName" placeholder="e.g. RTU Silage Premix 2025">
+            </div>
+            <div>
+                <label for="fdRecipeOutItem">Makes *</label>
+                <select id="fdRecipeOutItem"><option value="">— Pick the premix —</option></select>
+            </div>
+            <div>
+                <label for="fdRecipeBatchSize">Batch size (lb)</label>
+                <input type="number" step="0.01" min="0" id="fdRecipeBatchSize" placeholder="optional">
+            </div>
+            <div>
+                <label style="font-size:13px; display:block; margin-top:26px;">
+                    <input type="checkbox" id="fdRecipeActive" style="width:auto; vertical-align:middle;" checked> Active
+                </label>
+            </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <h4 style="margin:0;">Ingredients per batch</h4>
+            <button type="button" id="fdRecipeAddLineBtn">+ Ingredient</button>
+        </div>
+        <div id="fdRecipeLines"></div>
+
+        <div style="margin:14px 0;">
+            <label for="fdRecipeNotes">Notes</label>
+            <textarea id="fdRecipeNotes"></textarea>
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" id="fdRecipeDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete</button>
+            <div style="flex:1;"></div>
+            <button type="button" id="fdRecipeCancelBtn">Cancel</button>
+            <button type="button" id="fdRecipeSaveBtn" class="primary">Save recipe</button>
+        </div>
     </div>
 </div>
 
@@ -3679,6 +3846,10 @@ window.addEventListener('unhandledrejection', function(e) {
     let currentLotBudget = null;
     // Phase 17: actual medication cost roll-up for current lot
     let currentActualMedCost = null;
+    // Feed phase 4. null means "could not read" - which the closeout says
+    // out loud rather than charging zero feed, the same posture head-days
+    // already take.
+    let currentLotFeed = null;
     const $ = id => document.getElementById(id);
 
     // A refused write comes back as a Postgres 42501 / row-level security
@@ -4056,7 +4227,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
         $('closeoutContent').innerHTML='<div class="empty">Loading…</div>';
 
-        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes]=await Promise.all([
+        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes]=await Promise.all([
             supabase.from('lots').select('*').eq('id',lotId).single(),
             supabase.from('lot_status').select('*').eq('lot_id',lotId).single(),
             supabase.from('invoices').select('*, delivery_receipts(id, receipt_date, head_count, tag_start, tag_end, missing_tags, notes, receiving_protocol_id, load_out_destinations(*, pastures(name, ranches(name))))').eq('lot_id',lotId).order('invoice_date',{ascending:true}),
@@ -4076,6 +4247,13 @@ window.addEventListener('unhandledrejection', function(e) {
                 .eq('lot_id', lotId),
             // Phase 18b: processing cost derived from receipts x receiving protocol
             supabase.from('lot_processing_costs')
+                .select('*')
+                .eq('lot_id', lotId)
+                .maybeSingle(),
+            // Feed phase 4: actual feed cost, already spread across the
+            // head-days inside each usage's period. Absent until the feed
+            // migration is applied, which is not an error.
+            supabase.from('lot_feed_costs')
                 .select('*')
                 .eq('lot_id', lotId)
                 .maybeSingle()
@@ -4120,6 +4298,13 @@ window.addEventListener('unhandledrejection', function(e) {
         const procTotal = catTotal('processing') + procFromReceipts;
         const treatTotal = catTotal('treatment');
         const otherTotal = catTotal('other');
+        // A missing lot_feed_costs view (migration not applied) is not an
+        // error, and neither is a lot with no feed yet - both mean zero
+        // feed cost. Only a real read failure leaves this null.
+        currentLotFeed = (feedCostRes && !feedCostRes.error)
+            ? (feedCostRes.data || { feed_cost_usd: 0, feed_lb: 0, cost_per_head_day: 0, unallocated_usd: 0 })
+            : null;
+
         currentActualMedCost = {
             total: procTotal + treatTotal + otherTotal,
             processing: procTotal,
@@ -5091,16 +5276,35 @@ window.addEventListener('unhandledrejection', function(e) {
         const treatment  = currentActualMedCost ? (currentActualMedCost.treatment  || 0) : 0;
         const otherMed   = currentActualMedCost ? (currentActualMedCost.other      || 0) : 0;
 
+        // ---- FEED (phase 4) ----------------------------------------
+        // Real dollars off the feed ledger, already spread across the
+        // head-days inside each usage's period. A null read means "could
+        // not load", not "no feed" - the warning block says so rather than
+        // charging zero.
+        const feed = currentLotFeed ? (Number(currentLotFeed.feed_cost_usd) || 0) : 0;
+        const feedPerHeadDay = (currentLotFeed && Number(currentLotFeed.cost_per_head_day)) || 0;
+
+        // The COG split, per lot. While lots.assumed_nonfeed_cog_per_day is
+        // NULL the assumed rate keeps running unchanged and feed shows
+        // beside it - the two OVERLAP, and the warning block says so. Set
+        // the non-feed rate on a lot and that lot charges actual feed plus
+        // this rate instead. Nothing is recomputed retroactively.
+        const nonFeedCog = (lot && lot.assumed_nonfeed_cog_per_day != null)
+            ? Number(lot.assumed_nonfeed_cog_per_day) : null;
+        const cogSplit = nonFeedCog != null;
+        const cogRate  = cogSplit ? nonFeedCog : (rates.cog || 0);
+        const cogMode  = cogSplit ? 'per_day' : rates.cogMode;
+
         // A per-head rate is a flat charge taken at receiving; a per-day rate
         // is charged against head-days actually run.
-        const cog   = rates.cogMode === 'per_day'
-            ? (rates.cog   || 0) * headDays
-            : (rates.cog   || 0) * headIn;
+        const cog   = cogMode === 'per_day'
+            ? cogRate * headDays
+            : cogRate * headIn;
         const labor = rates.laborMode === 'per_day'
             ? (rates.labor || 0) * headDays
             : (rates.labor || 0) * headIn;
 
-        const operating = processing + treatment + otherMed + cog + labor;
+        const operating = processing + treatment + otherMed + feed + cog + labor;
         const interest  = interestOn(cattleCost, operating, daysToDate, rates.intPct);
 
         const sales = currentLotSalesCache || [];
@@ -5115,7 +5319,8 @@ window.addEventListener('unhandledrejection', function(e) {
 
         return {
             headIn, headCurrent, headDead, daysToDate, headDays,
-            cattleCost, processing, treatment, otherMed, cog, labor, interest,
+            cattleCost, processing, treatment, otherMed, feed, cog, labor, interest,
+            feedPerHeadDay, cogSplit, cogRate, cogMode,
             operating, totalCost,
             soldHead, revenue, soldWeight,
             avgCostHead: headIn > 0 ? cattleCost / headIn : 0,
@@ -5143,18 +5348,23 @@ window.addEventListener('unhandledrejection', function(e) {
             ? remainingDays * (actual.headCurrent + survivingAtClose) / 2
             : 0;
 
-        const cogFwd = rates.cogMode === 'per_day'
-            ? (rates.cog || 0) * forwardHeadDays
+        const cogFwd = actual.cogMode === 'per_day'
+            ? actual.cogRate * forwardHeadDays
             : 0;   // a flat per-head charge was already taken in full at receiving
         const laborFwd = rates.laborMode === 'per_day'
             ? (rates.labor || 0) * forwardHeadDays
             : 0;
 
+        // Feed carries forward at the rate this lot has actually been
+        // burning, for the same reason treatment does: once there is
+        // history, the lot's own number beats an assumption.
+        const feedFwd = actual.feedPerHeadDay * forwardHeadDays;
+
         // Doctoring carries forward at the rate this lot has actually been
         // burning, which beats a budget figure once there is any history.
         const treatmentFwd = actual.treatmentPerHeadDay * forwardHeadDays;
 
-        const operatingFwd = cogFwd + laborFwd + treatmentFwd;
+        const operatingFwd = cogFwd + laborFwd + treatmentFwd + feedFwd;
         const interestFwd  = interestOn(0, actual.cattleCost + actual.operating + operatingFwd,
                                         remainingDays || 0, rates.intPct);
 
@@ -5174,7 +5384,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
         return {
             remainingDays, deathsToCome, survivingAtClose, forwardHeadDays,
-            cogFwd, laborFwd, treatmentFwd, interestFwd, operatingFwd,
+            cogFwd, laborFwd, treatmentFwd, feedFwd, interestFwd, operatingFwd,
             revenueFwd, totalCost, totalRevenue, net, breakEvenPerLb,
             headSoldAtClose: actual.soldHead + survivingAtClose,
             netPerHeadSold: (actual.soldHead + survivingAtClose) > 0
@@ -5401,6 +5611,20 @@ window.addEventListener('unhandledrejection', function(e) {
         if (currentHeadDaysToDate == null) {
             warnings.push('Head-days could not be loaded, so cost of gain to date is not being charged.');
         }
+        if (currentLotFeed == null) {
+            warnings.push('Feed cost could not be loaded. It is missing from the Actual column, not zero.');
+        }
+        // The overlap is the whole point of showing it. Assumed COG covers
+        // feed, grass and yardage together; until the feed share is split
+        // out, charging both double-counts whatever part of the rate is feed.
+        if (actual.feed > 0 && !actual.cogSplit && rates.cog) {
+            warnings.push('Feed and cost of gain OVERLAP on this lot — the assumed COG rate still includes a feed share, ' +
+                'and actual feed is charged beside it. Set the lot\'s non-feed COG rate to split them.');
+        }
+        if (currentLotFeed && Number(currentLotFeed.unallocated_usd) > 0) {
+            warnings.push(fmtMoney(currentLotFeed.unallocated_usd) + ' of feed could not be charged to any day — ' +
+                'its period covers no head-days for this lot. See Feed → Cost.');
+        }
         const warnBlock = warnings.length ? `<div class="alert" style="background:#fff8e6; border:1px solid #d4a017; color:#6a4c0a; padding:8px 10px; margin-bottom:10px; border-radius:var(--radius); font-size:12.5px;">${warnings.map(w=>`<div>${w}</div>`).join('')}</div>` : '';
 
         // ---- the table ----
@@ -5442,7 +5666,8 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${row('Cattle in', b('cattleCost'), actual.cattleCost, actual.cattleCost, {rule:true})}
                     ${row('Processing', budget ? b('med') : null, actual.processing, actual.processing, {note:'at receiving'})}
                     ${row('Treatment', null, actual.treatment, actual.treatment + proj.treatmentFwd, {note:'doctoring'})}
-                    ${row('Cost of gain', b('cog'), actual.cog, actual.cog + proj.cogFwd)}
+                    ${(actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, actual.feed, actual.feed + proj.feedFwd, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day actual' : 'from the feed ledger'}) : ''}
+                    ${row('Cost of gain', b('cog'), actual.cog, actual.cog + proj.cogFwd, {note: actual.cogSplit ? 'non-feed only' : ''})}
                     ${row('Labor', b('labor'), actual.labor, actual.labor + proj.laborFwd)}
                     ${row('Interest', b('interest'), actual.interest, actual.interest + proj.interestFwd)}
                     ${row('Total cost', b('totalCost'), actual.totalCost, proj.totalCost, {strong:true, rule:true})}
@@ -5986,6 +6211,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
+         'feedBatchesView', 'feedCostView',
          'feedItemsView', 'feedLocationsView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
@@ -20096,6 +20322,12 @@ ${ranchBlocks}
         } else if (subtab === 'counts') {
             $('feedCountsView').classList.remove('hidden');
             loadFeedCounts();
+        } else if (subtab === 'batches') {
+            $('feedBatchesView').classList.remove('hidden');
+            loadFeedBatches();
+        } else if (subtab === 'cost') {
+            $('feedCostView').classList.remove('hidden');
+            loadFeedCost();
         } else if (subtab === 'items') {
             $('feedItemsView').classList.remove('hidden');
             loadFeedItems();
@@ -21109,6 +21341,10 @@ ${ranchBlocks}
     async function loadFeedCounts() {
         clearAlert('fdCtAlert');
         $('fdCtContent').innerHTML = '<div class="empty">Loading…</div>';
+        await fdLoadOnHand();
+        $('fdCtPrintLoc').innerHTML = '<option value="">— Print sheet for —</option>' +
+            fdLocations.filter(l => l.is_active)
+                .map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
 
         const { data, error } = await supabase
             .from('feed_counts')
@@ -21386,6 +21622,555 @@ ${ranchBlocks}
     $('fdCtCancelBtn').addEventListener('click', () => hideModal('fdCountModal'));
     $('fdCtPostBtn').addEventListener('click', postFdCount);
 
+
+
+    // ==========================================================
+    // FEED phase 4: batches, recipes, cost of gain, count sheet
+    // ==========================================================
+    let fdRecipes = [];
+    let fdBatchDraft = null;   // { inputs: [{uid,item_id,location_id,qty_lb}] }
+    let fdRecipeDraft = null;  // { lines: [{uid,input_item_id,qty_lb_per_batch}] }
+
+    // ---- BATCHES ---------------------------------------------------------
+    async function loadFeedBatches() {
+        clearAlert('fdBatchAlert');
+        $('fdBatchContent').innerHTML = '<div class="empty">Loading…</div>';
+        await fdLoadOnHand();
+
+        const [batchRes, recipeRes] = await Promise.all([
+            supabase.from('feed_batches')
+                .select('*, feed_items(name), feed_storage_locations(name)')
+                .order('batch_date', { ascending: false }).limit(100),
+            supabase.from('feed_recipes')
+                .select('*, feed_items(name), feed_recipe_lines(id, input_item_id, qty_lb_per_batch, sort_order)')
+                .order('name')
+        ]);
+        if (batchRes.error) {
+            const missing = /does not exist|schema cache/i.test(batchRes.error.message || '');
+            $('fdBatchContent').innerHTML = `<div class="alert error">${escapeHtml(missing
+                ? 'Batches need docs/sql/2026-08-27_feed_phase4_premix.sql applied in the SQL editor.'
+                : batchRes.error.message)}</div>`;
+            $('fdRecipeContent').innerHTML = '';
+            return;
+        }
+        fdRecipes = (recipeRes && !recipeRes.error) ? (recipeRes.data || []) : [];
+
+        const batches = batchRes.data || [];
+        $('fdBatchContent').innerHTML = !batches.length
+            ? '<div class="empty">No batches yet. Click "+ Make batch".</div>'
+            : `<table>
+                <thead><tr><th>Date</th><th>Made</th><th>Into</th><th class="num">Out</th>
+                    <th class="num">In</th><th class="num">Cost</th><th class="num">$/lb</th><th></th></tr></thead>
+                <tbody>${batches.map(bt => {
+                    const perLb = (bt.input_cost_usd != null && Number(bt.output_qty_lb) > 0)
+                        ? Number(bt.input_cost_usd) / Number(bt.output_qty_lb) : null;
+                    return `<tr>
+                        <td>${fmtDate(bt.batch_date)}</td>
+                        <td><strong>${escapeHtml((bt.feed_items || {}).name || '—')}</strong></td>
+                        <td>${escapeHtml((bt.feed_storage_locations || {}).name || '—')}</td>
+                        <td class="num">${fmtNum(bt.output_qty_lb)} lb</td>
+                        <td class="num">${fmtNum(bt.input_qty_lb)} lb</td>
+                        <td class="num">${bt.input_cost_usd == null
+                            ? '<span style="color:#b58900;">⚠ unpriced</span>' : fmtMoney(bt.input_cost_usd)}</td>
+                        <td class="num">${perLb != null ? '$' + perLb.toFixed(4) : '—'}</td>
+                        <td><button type="button" data-fd-batch-del="${bt.id}" data-perm="owner"
+                            style="color:var(--danger); font-size:12px;">Unmix</button></td>
+                    </tr>`;
+                }).join('')}</tbody>
+              </table>
+              <p class="muted" style="font-size:11px; margin-top:8px;">
+                Unmixing puts every ingredient back on the exact loads it came off. It refuses once any of
+                the premix has been fed or moved.</p>`;
+
+        $('fdBatchContent').querySelectorAll('[data-fd-batch-del]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!confirm('Unmix this batch? The ingredients go back on the loads they came from.')) return;
+                const { error } = await supabase.rpc('delete_feed_batch', { p_batch_id: btn.dataset.fdBatchDel });
+                if (error) { showAlert('fdBatchAlert', error.message); return; }
+                await fdLoadOnHand();
+                loadFeedBatches();
+            });
+        });
+
+        renderFdRecipeList();
+    }
+
+    function renderFdRecipeList() {
+        if (!fdRecipes.length) {
+            $('fdRecipeContent').innerHTML = '<div class="empty">No recipes. A batch can still be mixed without one.</div>';
+            return;
+        }
+        $('fdRecipeContent').innerHTML = `<table>
+            <thead><tr><th>Recipe</th><th>Makes</th><th class="num">Batch size</th><th class="num">Ingredients</th><th>Status</th></tr></thead>
+            <tbody>${fdRecipes.map(r => `
+                <tr class="clickable ${!r.is_active ? 'closed-row' : ''}" data-fd-recipe-id="${r.id}">
+                    <td><strong>${escapeHtml(r.name)}</strong></td>
+                    <td>${escapeHtml((r.feed_items || {}).name || '—')}</td>
+                    <td class="num">${r.batch_size_lb ? fmtNum(r.batch_size_lb) + ' lb' : '—'}</td>
+                    <td class="num">${(r.feed_recipe_lines || []).length}</td>
+                    <td>${r.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
+                </tr>`).join('')}</tbody></table>`;
+        $('fdRecipeContent').querySelectorAll('tr.clickable').forEach(tr => {
+            tr.addEventListener('click', () => openFdRecipeModal(fdRecipes.find(r => r.id === tr.dataset.fdRecipeId)));
+        });
+    }
+
+    function fdNewBatchInput(prev) {
+        return { uid: 'b' + Math.random().toString(36).slice(2, 9),
+                 item_id: '', location_id: prev ? prev.location_id : '', qty_lb: '' };
+    }
+
+    function openFdBatchModal() {
+        clearAlert('fdBatchModalAlert');
+        fdBatchDraft = { inputs: [fdNewBatchInput()] };
+        $('fdBatchDate').value = ranchToday();
+        $('fdBatchNotes').value = '';
+        $('fdBatchOutItem').innerHTML = fdItemOptions('', true);
+        $('fdBatchOutLoc').innerHTML  = fdLocationOptions('', true);
+        $('fdBatchRecipe').innerHTML = '<option value="">— none —</option>' +
+            fdRecipes.filter(r => r.is_active)
+                .map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+        renderFdBatchInputs();
+        showModal('fdBatchModal');
+    }
+
+    // A recipe pre-fills and nothing more. Whatever is standing in these
+    // boxes when you hit Mix it is what gets saved and priced.
+    function fdApplyRecipe() {
+        const r = fdRecipes.find(x => x.id === $('fdBatchRecipe').value);
+        if (!r) return;
+        $('fdBatchOutItem').value = r.output_item_id || '';
+        const lines = (r.feed_recipe_lines || []).slice()
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        fdBatchDraft.inputs = lines.map(l => {
+            const item = fdItem(l.input_item_id);
+            return { uid: 'b' + Math.random().toString(36).slice(2, 9),
+                     item_id: l.input_item_id,
+                     location_id: (item && item.default_location_id) || '',
+                     qty_lb: String(l.qty_lb_per_batch) };
+        });
+        if (!fdBatchDraft.inputs.length) fdBatchDraft.inputs = [fdNewBatchInput()];
+        renderFdBatchInputs();
+    }
+
+    function renderFdBatchInputs() {
+        const rows = fdBatchDraft.inputs;
+        $('fdBatchInputs').innerHTML = rows.map((r, i) => {
+            const onHand = (r.item_id && r.location_id) ? fdOnHandFor(r.item_id, r.location_id) : null;
+            const want = parseFloat(r.qty_lb) || 0;
+            const over = onHand != null && want > onHand;
+            return `<div class="card" style="padding:10px; margin-bottom:8px; ${over ? 'border-color:#b58900;' : ''}">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <strong style="font-size:12px;">Ingredient ${i + 1}</strong>
+                    <button type="button" data-fd-bi-remove="${r.uid}" style="color:var(--danger); font-size:12px;">Remove</button>
+                </div>
+                <div class="form-grid">
+                    <div><label>Item *</label>
+                        <select data-fd-bi="item_id" data-uid="${r.uid}">${fdItemOptions(r.item_id, true)}</select></div>
+                    <div><label>Out of *</label>
+                        <select data-fd-bi="location_id" data-uid="${r.uid}">
+                            <option value="">— Pick a location —</option>
+                            ${fdLocations.filter(l => l.is_active || l.id === r.location_id).map(l =>
+                                `<option value="${l.id}"${r.location_id === l.id ? ' selected' : ''}>${escapeHtml(fdLocationLabelPlain(r.item_id, l.id))}</option>`).join('')}
+                        </select></div>
+                    <div><label>Pounds *</label>
+                        <input type="number" step="0.01" min="0" data-fd-bi-qty="${r.uid}" value="${r.qty_lb}"></div>
+                </div>
+                ${over ? `<div class="muted" style="font-size:11px; margin-top:4px; color:#b58900;">
+                    ⚠ More than this location shows on hand — it will post short and be flagged.</div>` : ''}
+            </div>`;
+        }).join('');
+
+        renderFdBatchSummary();
+
+        $('fdBatchInputs').querySelectorAll('select[data-fd-bi]').forEach(sel => {
+            sel.addEventListener('change', () => {
+                const row = fdBatchDraft.inputs.find(r => r.uid === sel.dataset.uid);
+                if (!row) return;
+                row[sel.dataset.fdBi] = sel.value;
+                if (sel.dataset.fdBi === 'item_id' && row.item_id && !row.location_id) {
+                    const it = fdItem(row.item_id);
+                    if (it && it.default_location_id) row.location_id = it.default_location_id;
+                }
+                renderFdBatchInputs();
+            });
+        });
+        $('fdBatchInputs').querySelectorAll('input[data-fd-bi-qty]').forEach(inp => {
+            inp.addEventListener('input', () => {
+                const row = fdBatchDraft.inputs.find(r => r.uid === inp.dataset.fdBiQty);
+                if (row) { row.qty_lb = inp.value; renderFdBatchSummary(); }
+            });
+        });
+        $('fdBatchInputs').querySelectorAll('[data-fd-bi-remove]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                fdBatchDraft.inputs = fdBatchDraft.inputs.filter(r => r.uid !== btn.dataset.fdBiRemove);
+                if (!fdBatchDraft.inputs.length) fdBatchDraft.inputs.push(fdNewBatchInput());
+                renderFdBatchInputs();
+            });
+        });
+    }
+
+    function fdLocationLabelPlain(itemId, locId) {
+        const loc = fdLoc(locId);
+        if (!loc) return '';
+        if (!itemId) return loc.name;
+        return `${loc.name} (${fmtNum(fdOnHandFor(itemId, locId))} lb on hand)`;
+    }
+
+    // The estimate uses each bay's WEIGHTED AVERAGE cost, which is close but
+    // not what the batch will actually book: the RPC consumes real FIFO
+    // layers oldest-first. Labelled an estimate for exactly that reason.
+    function renderFdBatchSummary() {
+        let lb = 0, est = 0, unknown = false;
+        fdBatchDraft.inputs.forEach(r => {
+            const q = parseFloat(r.qty_lb) || 0;
+            if (!q || !r.item_id || !r.location_id) return;
+            lb += q;
+            const oh = fdOnHand.find(o => o.item_id === r.item_id && o.location_id === r.location_id);
+            if (oh && oh.avg_cost_per_lb != null) est += q * Number(oh.avg_cost_per_lb);
+            else unknown = true;
+        });
+        if (!lb) { $('fdBatchSummary').innerHTML = ''; return; }
+        $('fdBatchSummary').innerHTML = `
+            <div style="display:flex; gap:24px; flex-wrap:wrap; padding:10px; background:var(--bg, #f7f7f2); border-radius:var(--radius);">
+                <div><div class="muted" style="font-size:11px;">MAKES</div>
+                     <div style="font-size:18px;">${fmtNum(lb)} lb</div></div>
+                <div><div class="muted" style="font-size:11px;">EST. COST</div>
+                     <div style="font-size:18px;">${unknown ? '—' : fmtMoney(est)}</div></div>
+                <div><div class="muted" style="font-size:11px;">EST. $/LB</div>
+                     <div style="font-size:18px;">${unknown || !lb ? '—' : '$' + (est / lb).toFixed(4)}</div></div>
+            </div>
+            <p class="muted" style="font-size:11px; margin:6px 0 0 0;">
+                Output pounds = the sum of the ingredients. Estimate uses each bay's average cost;
+                the batch books at the real FIFO layers it consumes, oldest first.</p>`;
+    }
+
+    async function saveFdBatch() {
+        clearAlert('fdBatchModalAlert');
+        const outItem = $('fdBatchOutItem').value, outLoc = $('fdBatchOutLoc').value;
+        const date = $('fdBatchDate').value;
+        if (!outItem) { showAlert('fdBatchModalAlert', 'Pick what this batch makes.'); return; }
+        if (!outLoc)  { showAlert('fdBatchModalAlert', 'Pick the bay it goes into.'); return; }
+        if (!date)    { showAlert('fdBatchModalAlert', 'Pick a date.'); return; }
+
+        const errs = [];
+        const inputs = [];
+        fdBatchDraft.inputs.forEach((r, i) => {
+            const q = parseFloat(r.qty_lb) || 0;
+            if (!r.item_id && !r.location_id && !q) return;
+            if (!r.item_id)     errs.push(`Ingredient ${i + 1}: pick an item.`);
+            if (!r.location_id) errs.push(`Ingredient ${i + 1}: pick where it comes out of.`);
+            if (!(q > 0))       errs.push(`Ingredient ${i + 1}: pounds must be greater than zero.`);
+            if (r.item_id === outItem && r.location_id === outLoc) {
+                errs.push(`Ingredient ${i + 1}: a batch cannot be made out of itself from the same bay.`);
+            }
+            if (r.item_id && r.location_id && q > 0) {
+                inputs.push({ item_id: r.item_id, location_id: r.location_id, qty_lb: q });
+            }
+        });
+        if (!inputs.length) errs.push('Add at least one ingredient.');
+        if (errs.length) { showAlert('fdBatchModalAlert', errs.join('\n')); return; }
+
+        $('fdBatchSaveBtn').disabled = true;
+        try {
+            const { error } = await supabase.rpc('make_feed_batch', {
+                p_output_item_id: outItem,
+                p_output_location_id: outLoc,
+                p_inputs: inputs,
+                p_batch_date: date,
+                p_recipe_id: $('fdBatchRecipe').value || null,
+                p_notes: $('fdBatchNotes').value.trim() || null
+            });
+            if (error) { showAlert('fdBatchModalAlert', error.message); return; }
+            hideModal('fdBatchModal');
+            await fdLoadOnHand();
+            loadFeedBatches();
+            showAlert('fdBatchAlert', 'Batch mixed.', 'success');
+        } finally {
+            $('fdBatchSaveBtn').disabled = false;
+        }
+    }
+
+    // ---- RECIPES ---------------------------------------------------------
+    function openFdRecipeModal(r) {
+        clearAlert('fdRecipeModalAlert');
+        $('fdRecipeModalTitle').textContent = r ? 'Edit recipe' : 'New recipe';
+        $('fdRecipeId').value        = r ? r.id : '';
+        $('fdRecipeName').value      = r ? r.name : '';
+        $('fdRecipeBatchSize').value = r && r.batch_size_lb != null ? r.batch_size_lb : '';
+        $('fdRecipeActive').checked  = r ? !!r.is_active : true;
+        $('fdRecipeNotes').value     = r ? (r.notes || '') : '';
+        $('fdRecipeOutItem').innerHTML = fdItemOptions(r ? r.output_item_id : '', true);
+        $('fdRecipeDeleteBtn').classList.toggle('hidden', !r);
+        const lines = r ? (r.feed_recipe_lines || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)) : [];
+        fdRecipeDraft = { lines: lines.map(l => ({
+            uid: 'rl' + Math.random().toString(36).slice(2, 9),
+            input_item_id: l.input_item_id, qty_lb_per_batch: String(l.qty_lb_per_batch) })) };
+        if (!fdRecipeDraft.lines.length) fdRecipeDraft.lines.push({ uid: 'rl0', input_item_id: '', qty_lb_per_batch: '' });
+        renderFdRecipeLines();
+        showModal('fdRecipeModal');
+    }
+
+    function renderFdRecipeLines() {
+        $('fdRecipeLines').innerHTML = fdRecipeDraft.lines.map((l, i) => `
+            <div class="form-grid" style="margin-bottom:6px;">
+                <div><label>Item ${i + 1}</label>
+                    <select data-fd-rl="input_item_id" data-uid="${l.uid}">${fdItemOptions(l.input_item_id, true)}</select></div>
+                <div><label>Pounds per batch</label>
+                    <input type="number" step="0.01" min="0" data-fd-rl-qty="${l.uid}" value="${l.qty_lb_per_batch}"></div>
+                <div><label>&nbsp;</label>
+                    <button type="button" data-fd-rl-remove="${l.uid}" style="color:var(--danger);">Remove</button></div>
+            </div>`).join('');
+        $('fdRecipeLines').querySelectorAll('select[data-fd-rl]').forEach(sel => {
+            sel.addEventListener('change', () => {
+                const l = fdRecipeDraft.lines.find(x => x.uid === sel.dataset.uid);
+                if (l) l.input_item_id = sel.value;
+            });
+        });
+        $('fdRecipeLines').querySelectorAll('input[data-fd-rl-qty]').forEach(inp => {
+            inp.addEventListener('input', () => {
+                const l = fdRecipeDraft.lines.find(x => x.uid === inp.dataset.fdRlQty);
+                if (l) l.qty_lb_per_batch = inp.value;
+            });
+        });
+        $('fdRecipeLines').querySelectorAll('[data-fd-rl-remove]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                fdRecipeDraft.lines = fdRecipeDraft.lines.filter(x => x.uid !== btn.dataset.fdRlRemove);
+                if (!fdRecipeDraft.lines.length) fdRecipeDraft.lines.push({ uid: 'rl0', input_item_id: '', qty_lb_per_batch: '' });
+                renderFdRecipeLines();
+            });
+        });
+    }
+
+    async function saveFdRecipe() {
+        clearAlert('fdRecipeModalAlert');
+        const id = $('fdRecipeId').value;
+        const name = $('fdRecipeName').value.trim();
+        const outItem = $('fdRecipeOutItem').value;
+        if (!name)    { showAlert('fdRecipeModalAlert', 'Name is required.'); return; }
+        if (!outItem) { showAlert('fdRecipeModalAlert', 'Pick what it makes.'); return; }
+
+        const lines = fdRecipeDraft.lines
+            .filter(l => l.input_item_id && parseFloat(l.qty_lb_per_batch) > 0)
+            .map((l, i) => ({ input_item_id: l.input_item_id,
+                              qty_lb_per_batch: parseFloat(l.qty_lb_per_batch), sort_order: i }));
+        if (!lines.length) { showAlert('fdRecipeModalAlert', 'Add at least one ingredient.'); return; }
+        if (new Set(lines.map(l => l.input_item_id)).size !== lines.length) {
+            showAlert('fdRecipeModalAlert', 'The same item is listed twice.'); return;
+        }
+
+        const payload = {
+            name, output_item_id: outItem,
+            batch_size_lb: $('fdRecipeBatchSize').value ? parseFloat($('fdRecipeBatchSize').value) : null,
+            is_active: $('fdRecipeActive').checked,
+            notes: $('fdRecipeNotes').value.trim() || null
+        };
+
+        $('fdRecipeSaveBtn').disabled = true;
+        try {
+            let res;
+            if (id) res = await supabase.from('feed_recipes').update(payload).eq('id', id).select();
+            else {
+                payload.created_by = currentUser ? currentUser.id : null;
+                res = await supabase.from('feed_recipes').insert(payload).select();
+            }
+            if (res.error) { showAlert('fdRecipeModalAlert', res.error.message); return; }
+            if (!res.data || !res.data.length) {
+                showAlert('fdRecipeModalAlert', 'Nothing was saved — your role may not be allowed to make that change.');
+                return;
+            }
+            const recipeId = res.data[0].id;
+            // Rebuilt rather than diffed: there are a handful of lines and a
+            // diff is more ways to be wrong. Same call as shipment deductions.
+            const del = await supabase.from('feed_recipe_lines').delete().eq('recipe_id', recipeId);
+            if (del.error) { showAlert('fdRecipeModalAlert', del.error.message); return; }
+            const ins = await supabase.from('feed_recipe_lines')
+                .insert(lines.map(l => ({ ...l, recipe_id: recipeId }))).select();
+            if (ins.error) { showAlert('fdRecipeModalAlert', ins.error.message); return; }
+
+            hideModal('fdRecipeModal');
+            loadFeedBatches();
+        } finally {
+            $('fdRecipeSaveBtn').disabled = false;
+        }
+    }
+
+    async function deleteFdRecipe() {
+        const id = $('fdRecipeId').value;
+        if (!id) return;
+        if (!confirm('Delete this recipe? Batches already mixed keep their own ingredient records.')) return;
+        const { error } = await supabase.from('feed_recipes').delete().eq('id', id);
+        if (error) { showAlert('fdRecipeModalAlert', error.message); return; }
+        hideModal('fdRecipeModal');
+        loadFeedBatches();
+    }
+
+    // ---- COST OF GAIN ----------------------------------------------------
+    async function loadFeedCost() {
+        clearAlert('fdCostAlert');
+        $('fdCostContent').innerHTML = '<div class="empty">Loading…</div>';
+        const openOnly = $('fdCostOpenOnly').checked;
+
+        const [costRes, unallocRes] = await Promise.all([
+            supabase.from('lot_feed_costs').select('*').order('lot_number'),
+            supabase.from('feed_cost_unallocated').select('*').order('period_start', { ascending: false })
+        ]);
+        if (costRes.error) {
+            const missing = /does not exist|schema cache/i.test(costRes.error.message || '');
+            $('fdCostContent').innerHTML = `<div class="alert error">${escapeHtml(missing
+                ? 'Feed cost needs docs/sql/2026-08-27_feed_phase4_premix.sql applied in the SQL editor.'
+                : costRes.error.message)}</div>`;
+            $('fdUnallocContent').innerHTML = '';
+            return;
+        }
+
+        const openIds = new Set(fdOpenLots.map(l => l.id));
+        let rows = (costRes.data || []).filter(r => Number(r.feed_cost_usd) > 0 || Number(r.unallocated_usd) > 0);
+        if (openOnly) rows = rows.filter(r => openIds.has(r.lot_id));
+
+        if (!rows.length) {
+            $('fdCostContent').innerHTML = '<div class="empty">No feed charged to any lot yet.</div>';
+        } else {
+            const totCost = rows.reduce((s, r) => s + (Number(r.feed_cost_usd) || 0), 0);
+            const totLb   = rows.reduce((s, r) => s + (Number(r.feed_lb) || 0), 0);
+            $('fdCostContent').innerHTML = `
+                <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:12px;">
+                    <div><div class="muted" style="font-size:11px;">FED</div>
+                         <div style="font-size:20px;">${fmtNum(totLb)} lb</div></div>
+                    <div><div class="muted" style="font-size:11px;">COST</div>
+                         <div style="font-size:20px;">${fmtMoney(totCost)}</div></div>
+                </div>
+                <table>
+                    <thead><tr><th>Lot</th><th class="num">Head in</th><th class="num">Head-days</th>
+                        <th class="num">Fed</th><th class="num">Cost</th><th class="num">$/hd in</th>
+                        <th class="num">$/hd/day</th><th class="num">lb/hd/day</th></tr></thead>
+                    <tbody>${rows.map(r => `<tr>
+                        <td><strong>${escapeHtml(r.lot_number || '—')}</strong>
+                            ${Number(r.unallocated_usd) > 0
+                                ? `<div class="muted" style="font-size:11px; color:#b58900;">⚠ ${fmtMoney(r.unallocated_usd)} unallocated</div>` : ''}</td>
+                        <td class="num">${fmtNum(r.head_in)}</td>
+                        <td class="num">${fmtNum(r.head_days)}</td>
+                        <td class="num">${fmtNum(r.feed_lb)} lb</td>
+                        <td class="num">${fmtMoney(r.feed_cost_usd)}</td>
+                        <td class="num">${r.cost_per_head_in != null ? fmtMoney(r.cost_per_head_in) : '—'}</td>
+                        <td class="num"><strong>${r.cost_per_head_day != null ? '$' + Number(r.cost_per_head_day).toFixed(4) : '—'}</strong></td>
+                        <td class="num">${r.lb_per_head_day != null ? Number(r.lb_per_head_day).toFixed(2) : '—'}</td>
+                    </tr>`).join('')}</tbody>
+                </table>
+                <p class="muted" style="font-size:11px; margin-top:8px;">
+                    <b>$/hd/day is the number to compare against your assumed cost of gain.</b> It counts feed only —
+                    grass, yardage and labor are not in it.</p>`;
+        }
+
+        const un = (unallocRes && !unallocRes.error) ? (unallocRes.data || []) : [];
+        $('fdUnallocCard').classList.toggle('hidden', !un.length);
+        if (un.length) {
+            $('fdUnallocContent').innerHTML = `<table>
+                <thead><tr><th>Lot</th><th>Item</th><th>Period</th><th class="num">Pounds</th><th class="num">Cost</th><th>Why</th></tr></thead>
+                <tbody>${un.map(u => `<tr>
+                    <td><strong>${escapeHtml(u.lot_number || '—')}</strong></td>
+                    <td>${escapeHtml(u.item_name || '—')}</td>
+                    <td>${fmtDate(u.period_start)} – ${fmtDate(u.period_end)}</td>
+                    <td class="num">${fmtNum(u.qty_lb)} lb</td>
+                    <td class="num" style="color:#b58900;">${fmtMoney(u.cost_usd)}</td>
+                    <td class="muted" style="font-size:12px;">${escapeHtml(u.why || '')}</td>
+                </tr>`).join('')}</tbody></table>
+                <p class="muted" style="font-size:11px; margin-top:8px;">
+                    Fix the period on the feed-out row, or reverse and re-enter it. Nothing is lost — the dollars
+                    are still on the ledger, they just have no day to sit on.</p>`;
+        }
+    }
+
+    // ---- PRINTABLE COUNT SHEET -------------------------------------------
+    // What you carry to the bay: book quantity printed, a blank to write in.
+    // Book is printed on purpose — arguing with a number in front of you is
+    // how an estimate gets anchored, and a bay count is an estimate.
+    function printFdCountSheet(locId) {
+        const loc = fdLoc(locId);
+        if (!loc) return;
+        const here = fdOnHand.filter(o => o.location_id === locId)
+            .sort((a, b) => (a.item_name || '').localeCompare(b.item_name || ''));
+        const rows = here.map(o => {
+            const item = fdItem(o.item_id);
+            const units = item && item.purchase_unit !== 'lb' ? fdInUnits(o.qty_lb, item) : '';
+            return `<tr>
+                <td>${escapeHtml(o.item_name)}${units ? `<div class="sub">${escapeHtml(units)} on the books</div>` : ''}</td>
+                <td class="r">${fmtNum(o.qty_lb)}</td>
+                <td class="blank"></td>
+                <td class="blank"></td>
+            </tr>`;
+        }).join('');
+        const w = window.open('', '_blank');
+        if (!w) { showAlert('fdCtAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
+        w.document.write(`<!doctype html><html><head><title>Count sheet — ${escapeHtml(loc.name)}</title>
+        <style>
+            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:28px;color:#111;}
+            h1{font-size:19px;margin:0 0 2px 0;}
+            .meta{color:#666;font-size:12px;margin-bottom:16px;}
+            table{border-collapse:collapse;width:100%;font-size:13px;}
+            th,td{border:1px solid #999;padding:7px 8px;text-align:left;vertical-align:top;}
+            th{background:#eee;font-size:11px;text-transform:uppercase;letter-spacing:.06em;}
+            td.r{text-align:right;font-variant-numeric:tabular-nums;}
+            td.blank{width:110px;background:#fcfcfc;}
+            .sub{color:#777;font-size:10.5px;}
+            .foot{margin-top:16px;color:#666;font-size:11px;line-height:1.5;}
+            .sign{margin-top:26px;font-size:12px;}
+            .sign span{display:inline-block;border-bottom:1px solid #666;width:210px;margin-left:6px;}
+            @media print{ body{margin:12mm;} }
+        </style></head><body>
+        <h1>Feed count — ${escapeHtml(loc.name)}</h1>
+        <div class="meta">${escapeHtml(loc.kind)}${loc.is_bulk ? ' · bulk, estimate it' : ' · counted in whole units'}
+            &nbsp;·&nbsp; printed ${ranchToday()}</div>
+        <table>
+            <thead><tr><th>Item</th><th style="text-align:right;">Book (lb)</th><th>Counted (lb)</th><th>How judged</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4">Nothing on the books in this location.</td></tr>'}
+            <tr><td>&nbsp;</td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td></tr>
+            <tr><td>&nbsp;</td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td></tr>
+            </tbody>
+        </table>
+        <div class="foot">
+            Leave a line blank and it is skipped, not treated as zero.<br>
+            Blank rows at the bottom are for anything in the bay that is not on the books.
+        </div>
+        <div class="sign">Counted by <span></span> &nbsp;&nbsp; Date <span style="width:130px;"></span></div>
+        </body></html>`);
+        w.document.close();
+        w.focus();
+        setTimeout(() => w.print(), 250);
+    }
+
+    // ---- WIRING ----------------------------------------------------------
+    $('fdNewBatchBtn').addEventListener('click', openFdBatchModal);
+    $('fdBatchRefreshBtn').addEventListener('click', async () => {
+        await fdLoadRefs(true); await fdLoadOnHand(); loadFeedBatches();
+    });
+    $('fdBatchCancelBtn').addEventListener('click', () => hideModal('fdBatchModal'));
+    $('fdBatchSaveBtn').addEventListener('click', saveFdBatch);
+    $('fdBatchAddInputBtn').addEventListener('click', () => {
+        const prev = fdBatchDraft.inputs[fdBatchDraft.inputs.length - 1];
+        fdBatchDraft.inputs.push(fdNewBatchInput(prev));
+        renderFdBatchInputs();
+    });
+    $('fdBatchRecipe').addEventListener('change', fdApplyRecipe);
+
+    $('fdNewRecipeBtn').addEventListener('click', () => openFdRecipeModal(null));
+    $('fdRecipeCancelBtn').addEventListener('click', () => hideModal('fdRecipeModal'));
+    $('fdRecipeSaveBtn').addEventListener('click', saveFdRecipe);
+    $('fdRecipeDeleteBtn').addEventListener('click', deleteFdRecipe);
+    $('fdRecipeAddLineBtn').addEventListener('click', () => {
+        fdRecipeDraft.lines.push({ uid: 'rl' + Math.random().toString(36).slice(2, 9),
+                                   input_item_id: '', qty_lb_per_batch: '' });
+        renderFdRecipeLines();
+    });
+
+    $('fdCtPrintBtn').addEventListener('click', () => {
+        const locId = $('fdCtPrintLoc').value;
+        if (!locId) { showAlert('fdCtAlert', 'Pick which location the sheet is for.'); return; }
+        printFdCountSheet(locId);
+    });
+
+    $('fdCostRefreshBtn').addEventListener('click', loadFeedCost);
+    $('fdCostOpenOnly').addEventListener('change', loadFeedCost);
 
     checkSession();
 </script>

@@ -5,10 +5,11 @@ costed. Usage comes out of **Performance Beef**; purchases and postings tie to
 **Redwing**. Feed cost lands on the lot, per day, and turns the Closeout
 *Actual* column's cost of gain from an assumption into a number.
 
-**Status:** **phases 1 and 2 BUILT 2026-08-27.** Migration
+**Status:** **phases 1, 2 and 4 plus premix batches BUILT 2026-08-27.** Migration
 `docs/sql/2026-08-27_feed_inventory.sql` (apply it in the SQL editor before
 the Feed tab will do anything); app code in `index.html` under the **Feed**
-tab. Phases 3-6 below are still plan. Everything else in this file is the
+tab, plus `docs/sql/2026-08-27_feed_phase4_premix.sql` for cost of gain and
+premixes. Phase 3 (PB import) and phase 5 (Redwing export) are still plan. Everything else in this file is the
 reasoning the build followed; where the build settled a question, it says so.
 **Decisions taken by John, 2026-08-27:** PB export file import · Redwing
 *export* report (app hands you postings, Redwing stays the books) · cost lands
@@ -563,7 +564,7 @@ and it is cheap to make impossible.
 
 ---
 
-## Premix batches (designed 2026-08-27, not built)
+## Premix batches (BUILT 2026-08-27)
 
 A premix is a blend of commodities mixed into its own bay, then fed over the
 next day or several. John, 2026-08-27: *"Premixes are made and possibly fed
@@ -785,7 +786,7 @@ Each ships on its own and is useful on its own. Nothing here is a big-bang.
 | **1 ✅** | Schema, RLS, `feed_items`, `feed_storage_locations` (**add / edit / deactivate bays in the app**), `feed_receipts`, `feed_on_hand`. Feed tab with Items / Locations / Receipts / Inventory. | Inventory value on hand, by bay, FIFO-layered. | nothing |
 | **2 ✅** | `post_feed_usage` + `delete_feed_usage` + the **weekly entry screen** (a grid: commodity × lot, pounds, one period). Counts screen + `post_feed_count` + variance report (printable count sheet). | Books that move, a week keyed in minutes, and a count that squares them. | 1 |
 | **3** | *Accelerator, not a prerequisite.* PB import: `pb_group_map`, `pb_name` aliases, section-aware CSV parser, overlap guard, preview with the head-day tie-out, `import_pb_usage`. **No ration recipes — the export is commodity level.** | The weekly keying stops. | nothing (one CSV export to build against) |
-| **4** | `lot_feed_costs`, `lot_feed_daily`, `pasture_feed_allocation`, mineral $/hd/day. Closeout integration, degrading to option A while the split is unknown. | Actual cost of gain. The point of all of it. | 2 |
+| **4 ✅** | `lot_feed_costs`, `lot_feed_daily`, `pasture_feed_allocation`, mineral $/hd/day. Closeout integration, degrading to option A while the split is unknown. | Actual cost of gain. The point of all of it. | 2 |
 | **5** | Redwing accounting report, both modes. | Postings you copy instead of key. | 2 |
 | **6** | *Optional.* Field app mineral put-out → `pending_field_entries` → Approvals. Receipt attachments. | The cowboy records the sacks. | 3, 4 |
 

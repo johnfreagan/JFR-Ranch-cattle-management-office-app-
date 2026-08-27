@@ -542,6 +542,38 @@ feed_counts · feed_count_lines ───────────┘   physical 
   `pb_row_key` upserts a re-run of the same invoice; running Aug 17-26 then
   Aug 20-31 double-feeds four days under different keys.
 
+### Cost of gain and premixes (phase 4, live 2026-08-27)
+
+- **Feed cost spreads over head-days INSIDE each usage's period**, never onto
+  one date. `lot_feed_daily` divides a usage across the days in
+  `[period_start, period_end]` in proportion to `lot_daily_head.head_on_hand`.
+  Verified on 36-27's real curve: 31,630 lb over Aug 17-26 spreads to the
+  penny and sums back to $2,501.14.
+- **`feed_cost_unallocated` exists because a JOIN would drop it silently.** A
+  usage whose period holds no head-days for its lot cannot spread; rather than
+  vanish, it surfaces there and on `lot_feed_costs.unallocated_usd`, and the
+  Closeout warns.
+- **`lots.assumed_nonfeed_cog_per_day` is the COG split, per lot, NULL until
+  known.** While NULL the Closeout charges assumed COG unchanged, shows feed
+  beside it, and says the two OVERLAP. Set it and that lot charges actual feed
+  plus the non-feed rate. Nothing recomputes retroactively.
+- Feed carries forward in the Projection at the lot's own observed $/hd/day,
+  the same treatment cost already gets.
+- **A premix is many-in-one-out**: `make_feed_batch` consumes N commodities
+  FIFO, sums the frozen dollars, and creates ONE layer for the premix in its
+  own bay. No second costing path — the premix is then an ordinary item.
+  `delete_feed_batch` refuses once any of it has been fed.
+- **Recipes only PRE-FILL.** Actual weights freeze onto the batch. A recipe
+  read at cost time would rewrite what every past batch was made of.
+- **Feed the premix, never the premix AND its ingredients** — the ingredients
+  were consumed when the batch was mixed. Double-counting still allocates
+  cleanly, so nothing looks wrong.
+- Yield: output pounds = sum of inputs (John's call). `output_qty_lb` is
+  stored, not derived, so weighing a batch later is a form field.
+- **`post_feed_usage` gained `p_batch_id` and was DROPped and recreated**, not
+  overloaded — PostgREST resolves an RPC by argument names and two overloads
+  make that ambiguous. The verify block asserts exactly one exists.
+
 ## SQL conventions
 
 - ALL migration/correction SQL must be idempotent (IF NOT EXISTS, guarded DO
@@ -611,9 +643,9 @@ closes it early.
 6. Commodity feed & mineral inventory — **phases 1-2 built 2026-08-27**
    (catalog, bays, FIFO layers, on-hand, the usage ledger with atomic
    consumption and reversal RPCs, and physical counts). See the section above
-   and `docs/commodity-feed-inventory-plan.md`. Remaining: premix batches
-   (designed 2026-08-27, not built — many-in-one-out into the premix's own
-   bay; the ration gets no bay because it is mixed and fed the same day),
-   phase 3 PB import, phase 4 cost-of-gain surfaces, phase 5 Redwing export.
+   and `docs/commodity-feed-inventory-plan.md`. **Phase 4 (cost of gain) and
+   premix batches added the same day** —
+   `docs/sql/2026-08-27_feed_phase4_premix.sql`. Remaining: phase 3 PB
+   import, phase 5 Redwing export.
 Also parked: breakeven budget-vs-actual, bottle inventory, lot comparison
 report, weather integration.
