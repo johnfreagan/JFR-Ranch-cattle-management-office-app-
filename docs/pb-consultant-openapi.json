@@ -1,0 +1,1623 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Performance Beef Consultant API",
+    "version": "1.0.0",
+    "description": "Authenticate via POST /api/consultant/tokens/ using OAuth 2.0 client credentials to obtain a Bearer token. Attach the token as Authorization: Bearer {access_token} on all data requests. Tokens expire after 1 hour."
+  },
+  "servers": [
+    {
+      "url": "https://performancebeef.com"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Authentication",
+      "description": "Obtain and manage API tokens."
+    },
+    {
+      "name": "Consultant Data",
+      "description": "Feedyard performance data endpoints."
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/consultant/tokens/": {
+      "post": {
+        "operationId": "getToken",
+        "summary": "Obtain a Bearer token",
+        "tags": [
+          "Authentication"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "client_id",
+                  "client_secret"
+                ],
+                "properties": {
+                  "client_id": {
+                    "type": "string"
+                  },
+                  "client_secret": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token issued successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "access_token": {
+                      "type": "string"
+                    },
+                    "expires_in": {
+                      "type": "integer",
+                      "description": "Token lifetime in seconds (3600)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid client credentials."
+          }
+        }
+      }
+    },
+    "/api/consultant/users/": {
+      "get": {
+        "operationId": "getUsers",
+        "summary": "List all feedyards you have access to",
+        "tags": [
+          "Consultant Data"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "users",
+            "in": "query",
+            "required": false,
+            "description": "Filter results to specific feedyards. Omit to return all accessible feedyards.",
+            "schema": {
+              "type": "string",
+              "example": "feedyard_id_1,feedyard_id_2"
+            }
+          },
+          {
+            "name": "users_filter_by",
+            "in": "query",
+            "required": false,
+            "description": "Whether the values in Users are feedyard IDs or email addresses.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "feedyard_id",
+                "email"
+              ],
+              "default": "feedyard_id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "feedyard_id": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "errors": {
+                      "type": "array",
+                      "description": "Partial errors present alongside data on 200 responses when some feedyards could not be accessed.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "error_type": {
+                                "type": "string"
+                              },
+                              "error_message": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - parameter validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "error_type": {
+                          "type": "string"
+                        },
+                        "error_message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - missing, malformed, or expired token. Obtain a new token and retry."
+          },
+          "429": {
+            "description": "Too Many Requests - includes a Retry-After header indicating seconds to wait."
+          },
+          "500": {
+            "description": "Internal Server Error - retry after a brief delay."
+          }
+        }
+      }
+    },
+    "/api/consultant/deliveries/": {
+      "get": {
+        "operationId": "getDeliveries",
+        "summary": "Feed delivery records by date range",
+        "tags": [
+          "Consultant Data"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "description": "Beginning of the date range (inclusive). Defaults to 10 days before end_date.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "description": "End of the date range (inclusive). Defaults to today.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "users",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated feedyard IDs or emails to filter by. Tip: use the Users endpoint to retrieve your feedyard IDs.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "users_filter_by",
+            "in": "query",
+            "required": false,
+            "description": "Whether the values in Users are feedyard IDs or email addresses.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "feedyard_id",
+                "email"
+              ],
+              "default": "feedyard_id"
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated list of fields to include or exclude. See Field Filtering reference for dot-notation support.",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "delivery_time",
+                  "delivered_pounds",
+                  "called_pounds",
+                  "feeding_round",
+                  "groups",
+                  "pen._id",
+                  "pen.name",
+                  "pen.head_count",
+                  "ration.name",
+                  "ration.dm_percent",
+                  "days_on_feed",
+                  "days_on_ration"
+                ]
+              }
+            }
+          },
+          {
+            "name": "field_filter_mode",
+            "in": "query",
+            "required": false,
+            "description": "Whether the Fields list is an allowlist (include) or blocklist (exclude).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "include",
+                "exclude"
+              ],
+              "default": "include"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "feedyard_id": {
+                            "type": "string"
+                          },
+                          "feedyard_email": {
+                            "type": "string"
+                          },
+                          "start_date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "end_date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "feed_deliveries": {
+                            "type": "object",
+                            "description": "Date-keyed dictionary - keys are ISO dates (YYYY-MM-DD), values are arrays of delivery objects for that date.",
+                            "additionalProperties": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "description": "Field filtering applies only to fields within these delivery objects.",
+                                "properties": {
+                                  "delivery_time": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "delivered_pounds": {
+                                    "type": "number"
+                                  },
+                                  "called_pounds": {
+                                    "type": "number"
+                                  },
+                                  "feeding_round": {
+                                    "type": "integer"
+                                  },
+                                  "groups": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "pen": {
+                                    "type": "object",
+                                    "properties": {
+                                      "_id": {
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "head_count": {
+                                        "type": "integer"
+                                      }
+                                    }
+                                  },
+                                  "ration": {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "dm_percent": {
+                                        "type": "number"
+                                      }
+                                    }
+                                  },
+                                  "days_on_feed": {
+                                    "type": "integer"
+                                  },
+                                  "days_on_ration": {
+                                    "type": "integer"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "errors": {
+                      "type": "array",
+                      "description": "Partial errors present alongside data on 200 responses when some feedyards could not be accessed.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "error_type": {
+                                "type": "string"
+                              },
+                              "error_message": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - parameter validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "error_type": {
+                          "type": "string"
+                        },
+                        "error_message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - missing, malformed, or expired token. Obtain a new token and retry."
+          },
+          "429": {
+            "description": "Too Many Requests - includes a Retry-After header indicating seconds to wait."
+          },
+          "500": {
+            "description": "Internal Server Error - retry after a brief delay."
+          }
+        }
+      }
+    },
+    "/api/consultant/yardsheets/": {
+      "get": {
+        "operationId": "getYardSheets",
+        "summary": "Group and closeout performance per feedyard",
+        "tags": [
+          "Consultant Data"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "users",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated feedyard IDs or emails to filter by. Tip: use the Users endpoint to retrieve your feedyard IDs.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "users_filter_by",
+            "in": "query",
+            "required": false,
+            "description": "Whether the values in Users are feedyard IDs or email addresses.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "feedyard_id",
+                "email"
+              ],
+              "default": "feedyard_id"
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated list of fields to include or exclude. See Field Filtering reference for dot-notation support.",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "group_name",
+                  "group_status",
+                  "owners",
+                  "owner_pct",
+                  "pens",
+                  "genders",
+                  "w_purchase_per_head",
+                  "avg_daily_gain",
+                  "w_projected_per_head",
+                  "h_avg_days_onfeed",
+                  "d_avg_indate",
+                  "a_head",
+                  "d_head_report",
+                  "s_head",
+                  "onfeed",
+                  "r_percent_report",
+                  "ration",
+                  "days_on_ration",
+                  "5_days_dmi",
+                  "5_days_as_fed",
+                  "ytd_dm_per_bw",
+                  "w_dry_matter_per_headday",
+                  "w_feed_per_headday",
+                  "feed_cost_per_gain",
+                  "cost_per_gain",
+                  "d_start",
+                  "breakeven_profit_loss",
+                  "breakeven_per_head_alive",
+                  "breakeven_per_cwt",
+                  "w_projected_weight",
+                  "w_dry_matter",
+                  "w_gain",
+                  "h_headdays",
+                  "drymatterfeed_per_gain",
+                  "feed_per_gain",
+                  "w_fed",
+                  "t_feed_expenses",
+                  "c_maintenance_per_head_per_day",
+                  "w_feed_per_head",
+                  "cattle_condition",
+                  "risk_level",
+                  "origin",
+                  "source",
+                  "breeds",
+                  "d_feeding_period",
+                  "a_weight",
+                  "purchase_cost_per_cwt",
+                  "s_weight",
+                  "w_sold_per_head",
+                  "d_avg_solddate",
+                  "d_closeout",
+                  "s_price",
+                  "s_price_per_head",
+                  "s_expense",
+                  "s_expense_per_head",
+                  "c_hedges",
+                  "c_hedges_per_head",
+                  "c_yardage",
+                  "c_yardage_per_head",
+                  "t_costs",
+                  "t_costs_per_head",
+                  "c_cost_of_cattle",
+                  "c_cost_of_cattle_per_head",
+                  "c_delivery",
+                  "c_delivery_per_head",
+                  "c_feed",
+                  "avg_feed_cost_per_head",
+                  "avg_feed_cost_per_ton",
+                  "avg_dmc_per_wght",
+                  "c_vet_and_med",
+                  "c_vet_and_med_per_head",
+                  "c_processing",
+                  "c_processing_per_head",
+                  "c_feed_interest",
+                  "c_feed_interest_per_head",
+                  "c_cattle_feed_interest",
+                  "c_cattle_interest",
+                  "c_cattle_interest_per_head",
+                  "c_bedding",
+                  "c_bedding_per_head",
+                  "c_interest",
+                  "c_interest_per_head",
+                  "c_insurance",
+                  "c_insurance_per_head",
+                  "c_profit",
+                  "c_profit_per_head",
+                  "c_salestax",
+                  "c_salestax_per_head",
+                  "c_other",
+                  "c_other_per_head",
+                  "c_trucking",
+                  "c_trucking_per_head",
+                  "c_misc",
+                  "c_misc_per_head",
+                  "c_management",
+                  "c_management_per_head",
+                  "target_sell_weight",
+                  "target_sell_date",
+                  "projected_death_loss",
+                  "projected_cost_per_gain",
+                  "d_avg_indate_year",
+                  "d_avg_indate_month",
+                  "d_avg_indate_month_year",
+                  "d_start_year",
+                  "d_start_month",
+                  "d_start_month_year"
+                ]
+              }
+            }
+          },
+          {
+            "name": "field_filter_mode",
+            "in": "query",
+            "required": false,
+            "description": "Whether the Fields list is an allowlist (include) or blocklist (exclude).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "include",
+                "exclude"
+              ],
+              "default": "include"
+            }
+          },
+          {
+            "name": "closeout_grouping",
+            "in": "query",
+            "required": false,
+            "description": "Controls how closed-out groups are counted - whole closeout, only onfeed days, or only sold days.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "whole",
+                "onfeed",
+                "sold"
+              ],
+              "default": "whole"
+            }
+          },
+          {
+            "name": "group_status",
+            "in": "query",
+            "required": false,
+            "description": "Filter groups by their current status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "closed",
+                "archived"
+              ],
+              "default": "active"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "feedyard": {
+                            "type": "object",
+                            "properties": {
+                              "_id": {
+                                "type": "string"
+                              },
+                              "email": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "groups": {
+                            "type": "array",
+                            "description": "Field filtering applies only to fields within this array. Each element is a group object whose properties are { label, value } objects - not raw scalars. Access the display label via .label and the raw value via .value.",
+                            "items": {
+                              "type": "object",
+                              "description": "Every property on this object follows the shape { label: string, value: string }.",
+                              "additionalProperties": {
+                                "type": "object",
+                                "properties": {
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "value": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "label",
+                                  "value"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "errors": {
+                      "type": "array",
+                      "description": "Partial errors present alongside data on 200 responses when some feedyards could not be accessed.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "error_type": {
+                                "type": "string"
+                              },
+                              "error_message": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - parameter validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "error_type": {
+                          "type": "string"
+                        },
+                        "error_message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - missing, malformed, or expired token. Obtain a new token and retry."
+          },
+          "429": {
+            "description": "Too Many Requests - includes a Retry-After header indicating seconds to wait."
+          },
+          "500": {
+            "description": "Internal Server Error - retry after a brief delay."
+          }
+        }
+      }
+    },
+    "/api/consultant/pen_history/": {
+      "get": {
+        "operationId": "getPenHistory",
+        "summary": "Daily pen-level records over a date range",
+        "tags": [
+          "Consultant Data"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "description": "Beginning of the date range (inclusive). Required.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "description": "End of the date range (inclusive). Defaults to today.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "users",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated feedyard IDs or emails to filter by. Tip: use the Users endpoint to retrieve your feedyard IDs.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "users_filter_by",
+            "in": "query",
+            "required": false,
+            "description": "Whether the values in Users are feedyard IDs or email addresses.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "feedyard_id",
+                "email"
+              ],
+              "default": "feedyard_id"
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated list of fields to include or exclude. See Field Filtering reference for dot-notation support.",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "date",
+                  "pen",
+                  "ration",
+                  "head_count",
+                  "weight_unit",
+                  "total_weight",
+                  "dry_weight.actual",
+                  "dry_weight.target",
+                  "bunk_score",
+                  "days_on_feed",
+                  "groups",
+                  "feed.name",
+                  "feed.weight",
+                  "projected_weight"
+                ]
+              }
+            }
+          },
+          {
+            "name": "field_filter_mode",
+            "in": "query",
+            "required": false,
+            "description": "Whether the Fields list is an allowlist (include) or blocklist (exclude).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "include",
+                "exclude"
+              ],
+              "default": "include"
+            }
+          },
+          {
+            "name": "projected_weight",
+            "in": "query",
+            "required": false,
+            "description": "Include projected weight calculations. Note: significantly increases response time.",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "feedyard_id": {
+                            "type": "string"
+                          },
+                          "feedyard_email": {
+                            "type": "string"
+                          },
+                          "start_date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "end_date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "pen_history": {
+                            "type": "array",
+                            "description": "Field filtering applies only to fields within this array.",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "date": {
+                                  "type": "string",
+                                  "format": "date"
+                                },
+                                "pen": {
+                                  "type": "string"
+                                },
+                                "ration": {
+                                  "type": "string"
+                                },
+                                "head_count": {
+                                  "type": "integer"
+                                },
+                                "weight_unit": {
+                                  "type": "string"
+                                },
+                                "total_weight": {
+                                  "type": "number"
+                                },
+                                "dry_weight": {
+                                  "type": "object",
+                                  "properties": {
+                                    "actual": {
+                                      "type": "number"
+                                    },
+                                    "target": {
+                                      "type": "number"
+                                    }
+                                  }
+                                },
+                                "bunk_score": {
+                                  "description": "Shape depends on the feedyard's bunk-scoring configuration. When the feedyard is configured for one bunk score per pen, returns a scalar (string or null). When configured for per-meal scoring (the default), returns an array of one entry per meal slot.",
+                                  "oneOf": [
+                                    {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "meal": {
+                                            "type": "integer"
+                                          },
+                                          "score": {
+                                            "type": "string",
+                                            "nullable": true
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                },
+                                "days_on_feed": {
+                                  "type": "number"
+                                },
+                                "groups": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "feed": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "weight": {
+                                        "type": "number"
+                                      }
+                                    }
+                                  }
+                                },
+                                "projected_weight": {
+                                  "type": "number",
+                                  "nullable": true,
+                                  "description": "Only present when the projected_weight request parameter is true. Float when a value is determined, null otherwise."
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "errors": {
+                      "type": "array",
+                      "description": "Partial errors present alongside data on 200 responses when some feedyards could not be accessed.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "error_type": {
+                                "type": "string"
+                              },
+                              "error_message": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - parameter validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "error_type": {
+                          "type": "string"
+                        },
+                        "error_message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - missing, malformed, or expired token. Obtain a new token and retry."
+          },
+          "429": {
+            "description": "Too Many Requests - includes a Retry-After header indicating seconds to wait."
+          },
+          "500": {
+            "description": "Internal Server Error - retry after a brief delay."
+          }
+        }
+      }
+    },
+    "/api/consultant/loads_summary/": {
+      "get": {
+        "operationId": "getLoadsSummary",
+        "summary": "Aggregated feed load and ingredient breakdown",
+        "tags": [
+          "Consultant Data"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "description": "Beginning of the date range (inclusive). Defaults to 10 days before end_date.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "description": "End of the date range (inclusive). Defaults to today.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "users",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated feedyard IDs or emails to filter by. Tip: use the Users endpoint to retrieve your feedyard IDs.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "users_filter_by",
+            "in": "query",
+            "required": false,
+            "description": "Whether the values in Users are feedyard IDs or email addresses.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "feedyard_id",
+                "email"
+              ],
+              "default": "feedyard_id"
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated list of fields to include or exclude. See Field Filtering reference for dot-notation support.",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "load_number",
+                  "ration_name",
+                  "drops",
+                  "drops.pen",
+                  "drops.pen._id",
+                  "drops.pen.name",
+                  "drops.head_count",
+                  "drops.af_target",
+                  "drops.af_actual",
+                  "drops.dmi_target",
+                  "drops.dmi_actual",
+                  "drops.af_target_per_head",
+                  "drops.af_actual_per_head",
+                  "drops.dmi_target_per_head",
+                  "drops.dmi_actual_per_head",
+                  "delivered_total",
+                  "delivered_total.af_target",
+                  "delivered_total.af_actual",
+                  "delivered_total.dmi_target",
+                  "delivered_total.dmi_actual",
+                  "ingredients",
+                  "ingredients.ingredient",
+                  "ingredients.af_target",
+                  "ingredients.af_actual",
+                  "ingredients.dmi_target",
+                  "ingredients.dmi_actual",
+                  "loaded_total",
+                  "loaded_total.af_target",
+                  "loaded_total.af_actual",
+                  "loaded_total.dmi_target",
+                  "loaded_total.dmi_actual"
+                ]
+              }
+            }
+          },
+          {
+            "name": "field_filter_mode",
+            "in": "query",
+            "required": false,
+            "description": "Whether the Fields list is an allowlist (include) or blocklist (exclude).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "include",
+                "exclude"
+              ],
+              "default": "include"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "feedyard_id": {
+                            "type": "string"
+                          },
+                          "feedyard_email": {
+                            "type": "string"
+                          },
+                          "start_date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "end_date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "loads_summary": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "work_date": {
+                                  "type": "string",
+                                  "format": "date",
+                                  "description": "Always returned. Not subject to field filtering."
+                                },
+                                "loads": {
+                                  "type": "array",
+                                  "description": "Field filtering applies only to fields within this array.",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "load_number": {
+                                        "type": "integer"
+                                      },
+                                      "ration_name": {
+                                        "type": "string"
+                                      },
+                                      "drops": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "pen": {
+                                              "type": "object",
+                                              "properties": {
+                                                "_id": {
+                                                  "type": "string"
+                                                },
+                                                "name": {
+                                                  "type": "string"
+                                                }
+                                              }
+                                            },
+                                            "head_count": {
+                                              "type": "integer"
+                                            },
+                                            "af_target": {
+                                              "type": "number"
+                                            },
+                                            "af_actual": {
+                                              "type": "number"
+                                            },
+                                            "dmi_target": {
+                                              "type": "number"
+                                            },
+                                            "dmi_actual": {
+                                              "type": "number"
+                                            },
+                                            "af_target_per_head": {
+                                              "type": "number"
+                                            },
+                                            "af_actual_per_head": {
+                                              "type": "number"
+                                            },
+                                            "dmi_target_per_head": {
+                                              "type": "number"
+                                            },
+                                            "dmi_actual_per_head": {
+                                              "type": "number"
+                                            }
+                                          }
+                                        }
+                                      },
+                                      "delivered_total": {
+                                        "type": "object",
+                                        "properties": {
+                                          "af_target": {
+                                            "type": "number"
+                                          },
+                                          "af_actual": {
+                                            "type": "number"
+                                          },
+                                          "dmi_target": {
+                                            "type": "number"
+                                          },
+                                          "dmi_actual": {
+                                            "type": "number"
+                                          }
+                                        }
+                                      },
+                                      "ingredients": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "ingredient": {
+                                              "type": "string"
+                                            },
+                                            "af_target": {
+                                              "type": "number"
+                                            },
+                                            "af_actual": {
+                                              "type": "number"
+                                            },
+                                            "dmi_target": {
+                                              "type": "number"
+                                            },
+                                            "dmi_actual": {
+                                              "type": "number"
+                                            }
+                                          }
+                                        }
+                                      },
+                                      "loaded_total": {
+                                        "type": "object",
+                                        "properties": {
+                                          "af_target": {
+                                            "type": "number"
+                                          },
+                                          "af_actual": {
+                                            "type": "number"
+                                          },
+                                          "dmi_target": {
+                                            "type": "number"
+                                          },
+                                          "dmi_actual": {
+                                            "type": "number"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "errors": {
+                      "type": "array",
+                      "description": "Partial errors present alongside data on 200 responses when some feedyards could not be accessed.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "error_type": {
+                                "type": "string"
+                              },
+                              "error_message": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - parameter validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "error_type": {
+                          "type": "string"
+                        },
+                        "error_message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - missing, malformed, or expired token. Obtain a new token and retry."
+          },
+          "429": {
+            "description": "Too Many Requests - includes a Retry-After header indicating seconds to wait."
+          },
+          "500": {
+            "description": "Internal Server Error - retry after a brief delay."
+          }
+        }
+      }
+    },
+    "/api/consultant/pens/": {
+      "get": {
+        "operationId": "getPens",
+        "summary": "Pen configuration data per feedyard",
+        "tags": [
+          "Consultant Data"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "users",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated feedyard IDs or emails to filter by. Tip: use the Users endpoint to retrieve your feedyard IDs.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "users_filter_by",
+            "in": "query",
+            "required": false,
+            "description": "Whether the values in Users are feedyard IDs or email addresses.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "feedyard_id",
+                "email"
+              ],
+              "default": "feedyard_id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter pens by status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived",
+                "all"
+              ],
+              "default": "active"
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated list of fields to include or exclude. See Field Filtering reference for dot-notation support.",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "pen_id",
+                  "name",
+                  "status",
+                  "style",
+                  "capacity",
+                  "num_head",
+                  "bunk_length",
+                  "bunk_unit",
+                  "area",
+                  "area_unit"
+                ]
+              }
+            }
+          },
+          {
+            "name": "field_filter_mode",
+            "in": "query",
+            "required": false,
+            "description": "Whether the Fields list is an allowlist (include) or blocklist (exclude).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "include",
+                "exclude"
+              ],
+              "default": "include"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "feedyard_id": {
+                            "type": "string"
+                          },
+                          "feedyard_email": {
+                            "type": "string"
+                          },
+                          "pens": {
+                            "type": "array",
+                            "description": "Field filtering applies only to fields within this array.",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "pen_id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "type": "string"
+                                },
+                                "style": {
+                                  "type": "string"
+                                },
+                                "capacity": {
+                                  "type": "integer"
+                                },
+                                "num_head": {
+                                  "type": "integer"
+                                },
+                                "bunk_length": {
+                                  "type": "number"
+                                },
+                                "bunk_unit": {
+                                  "type": "string"
+                                },
+                                "area": {
+                                  "type": "number"
+                                },
+                                "area_unit": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "errors": {
+                      "type": "array",
+                      "description": "Partial errors present alongside data on 200 responses when some feedyards could not be accessed.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "error_type": {
+                                "type": "string"
+                              },
+                              "error_message": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - parameter validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "error_type": {
+                          "type": "string"
+                        },
+                        "error_message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - missing, malformed, or expired token. Obtain a new token and retry."
+          },
+          "429": {
+            "description": "Too Many Requests - includes a Retry-After header indicating seconds to wait."
+          },
+          "500": {
+            "description": "Internal Server Error - retry after a brief delay."
+          }
+        }
+      }
+    }
+  }
+}
