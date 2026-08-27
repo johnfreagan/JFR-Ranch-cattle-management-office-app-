@@ -3,7 +3,7 @@
 Things known to need attention, and deliberately not done yet. Ordered by when
 they will bite, not by size.
 
-**Last reviewed:** 2026-08-26
+**Last reviewed:** 2026-08-27
 
 Anything finished moves to the bottom under *Closed* with the date, so the
 history of what was decided survives.
@@ -162,29 +162,7 @@ screen; short recap in the text, full PDF in the email.
 
 ---
 
-## 8. The RLS verify script does not exist
-
-**Status:** open, and it is cited as mandatory in two places.
-
-`CLAUDE.md` rule 7 says to run
-`supabase/migrations/20260821000300_rls_verify.sql` after any migration that
-adds a table, view or function, and `docs/security-model.md` describes what
-it asserts. **There is no `supabase/` directory in the repo at all.** Every
-migration since has either skipped the check or, as with
-`2026-08-25_budget_and_head_days.sql`, inlined its own assertions.
-
-Inline assertions are better than nothing but they only cover the objects
-that migration touched. Nothing sweeps the whole schema for a view missing
-`security_invoker`, a table with RLS enabled and no policy, or a fresh grant
-to `anon`.
-
-**The fix:** write it once as a standalone script that asserts rules 1–6
-across every object in `public`, and run it after each migration. Until then
-every new migration must carry its own checks.
-
----
-
-## 9. Cost assumptions are missing or wrong on live lots
+## 8. Cost assumptions are missing or wrong on live lots
 
 **Status:** partly fixed 2026-08-25.
 
@@ -206,7 +184,7 @@ per head per day) rather than a hard limit.
 
 ---
 
-## 10. Merging lots and transferring cattle between lots
+## 9. Merging lots and transferring cattle between lots
 
 **Status:** wanted, not designed. Raised by John 2026-08-26.
 
@@ -250,7 +228,88 @@ Not started. Needs John's call on the valuation basis first.
 
 ---
 
+## 10. Commodity feed inventory — data still to settle
+
+**Status:** open, raised 2026-08-27 the day phases 1, 2 and 4 went live.
+
+The module works; these are the numbers and decisions that have to land
+before next week's office process means anything. All of them are cheap
+today because `feed_usage` is still empty — nothing has consumed a layer, so
+no cost has frozen yet.
+
+**Fix before feed is entered:**
+
+- **The opening balance is dated 2026-08-27, not backdated.** John's intent
+  was to back-date to the start of 36-27, whose cattle hit the ground
+  2026-08-11. Feed entered for a period starting before the layer's date
+  finds nothing to draw on, goes short, costs at the item's last known price
+  and flags itself — correct behaviour, wrong answer.
+- **"Corn hopper bin" and "Corn" are separate items.** If it is the same corn
+  in two places it should be one item in two locations. FIFO is scoped per
+  (item, location), so merging loses nothing and different crop years still
+  stay separate by bay.
+- **The four PB negatives have no real number.** Corn −1,393, Deccox −756,
+  RTU Silage Tran 1 −29,918, RTU Silage Premix 2025 −1,109,171 lb. A negative
+  opening balance is PB saying it fed something it was never told existed,
+  not a quantity to seed. Each needs a physical count. The large one is PB
+  feeding a premix never recorded as made — the hole `make_feed_batch` fills.
+- **Corner Silage Pile holds 0 lb** and no bay carries a ranch.
+
+**Decisions:**
+
+- **`lots.assumed_nonfeed_cog_per_day` is NULL on all 9 open lots.** That is
+  the designed default: while NULL the Closeout charges assumed COG unchanged,
+  shows feed beside it and says the two OVERLAP. Set it per lot when the split
+  is known. Nothing recomputes retroactively. Overlaps item 8 above.
+- **Redwing coding is blank on all 17 items** — account, profit center,
+  production center. Phase 5 cannot post without it.
+- **Batch yield is the sum of the inputs** (John's call, against the
+  recommendation to weigh the output). `output_qty_lb` is stored rather than
+  derived, so weighing later is a form field, not a migration. Shrink lands
+  as a bay variance rather than a yield loss.
+
+**Built but unguarded:**
+
+- **Nothing stops a lot being fed a premix AND its own ingredients.** The
+  ingredients were consumed when the batch was mixed; feeding both
+  double-counts, and the dollars still allocate cleanly so no screen looks
+  wrong. Only UI guidance text defends against it today. A guard would flag a
+  lot fed both a premix and one of its inputs over overlapping periods.
+- **`pasture_feed_allocation` weights by `lot_pasture_assignments`**, which
+  this app already treats as unreliable for whole-life head-day math (37X's
+  history starts 2026-04-27 against a first invoice of 2025-12-04). Lot-level
+  allocation is unaffected — it goes through `lot_daily_head`. Only bites once
+  mineral is put out by pasture.
+
+**Not built:** phase 3 (PB import — designed, waiting on a CSV; its real
+hazard is an OVERLAPPING import, not a duplicate one, since `pb_row_key`
+upserts a re-run but Aug 17-26 then Aug 20-31 double-feeds four days under
+different keys), phase 5 (Redwing export), phase 6 (field-app mineral
+put-out).
+
+---
+
 ## Closed
+
+- **2026-08-27 — The RLS verify script now exists.** `CLAUDE.md` rule 7 and
+  `docs/security-model.md` had cited
+  `supabase/migrations/20260821000300_rls_verify.sql` as mandatory since
+  August while no `supabase/` directory existed at all, so every migration
+  since had either skipped the sweep or inlined its own partial checks. Written
+  to the documented contract and run against production: it asserts no grant to
+  `anon` or `PUBLIC`, `security_invoker` on every view, RLS enabled with real
+  policies on every table, and a pinned `search_path` on every
+  `SECURITY DEFINER` function. It found one live hole on the first run —
+  `anon` could EXECUTE `SECURITY DEFINER public.guard_last_owner()`, the exact
+  rule-4 PUBLIC-grant trap, since Postgres grants function EXECUTE to PUBLIC by
+  default and `revoke ... from anon` alone does nothing. Revoked from `PUBLIC`;
+  proved first on a scratch database that this is safe, because Postgres checks
+  EXECUTE at CREATE TRIGGER time and not at fire time. The script's own
+  assertion that every table carries all four commands was downgraded to
+  informational: it flagged `user_profiles` for missing INSERT and DELETE
+  policies, which are deliberately absent — profiles are created by
+  `handle_new_user()`, and a client INSERT is the signup-escalation hole. A
+  missing policy denies, so the gap is fail-closed.
 
 - **2026-08-25 — Closeout rebuilt as budget / actual / projection.** Roadmap
   item 4 phase 1. `lot_budgets` (frozen, immutable by trigger),
