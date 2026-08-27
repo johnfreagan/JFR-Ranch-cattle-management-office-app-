@@ -550,6 +550,12 @@ closes it early.
    into the books. See "Field → books approval path" above.
 4. Cost ledger (18 categories, monthly, per-head-day allocation; Redwing
    exports imported via Cowork). Note: cost data is office+owner only.
-5. Daily buy/sell dashboard: breakevens vs market data
+5. Medicine inventory on FIFO — purchases, usage, shrink, ending inventory,
+   and an efficiency number for the crew and for the buyers who process our
+   cattle. Agreed 2026-08-27; plan in `docs/medicine-inventory-fifo-plan.md`.
+   Office app only. Phase 3 makes FIFO the source of processing cost, which
+   REVERSES the "processing cost is derived live" rule above — do not start it
+   without re-reading that section and the plan's cutover procedure.
+6. Daily buy/sell dashboard: breakevens vs market data
 Also parked: breakeven budget-vs-actual, bottle inventory, lot comparison
 report, weather integration.
