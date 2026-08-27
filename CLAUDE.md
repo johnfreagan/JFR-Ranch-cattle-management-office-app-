@@ -551,5 +551,12 @@ closes it early.
 4. Cost ledger (18 categories, monthly, per-head-day allocation; Redwing
    exports imported via Cowork). Note: cost data is office+owner only.
 5. Daily buy/sell dashboard: breakevens vs market data
+6. Commodity feed & mineral inventory — FIFO, bulk bays estimated / bags
+   counted, usage imported from Performance Beef, postings exported to
+   Redwing, cost landing per lot per day. **Plan agreed 2026-08-27, nothing
+   built:** `docs/commodity-feed-inventory-plan.md`. Blocked on a sample PB
+   export. Note the inverted lesson it rests on — a feed item carries **no
+   price column**; price lives on the receipt layer and freezes at
+   consumption, the opposite of processing cost.
 Also parked: breakeven budget-vs-actual, bottle inventory, lot comparison
 report, weather integration.
