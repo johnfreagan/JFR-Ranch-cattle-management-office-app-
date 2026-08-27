@@ -21,7 +21,12 @@ other commodity.
 **Two more, 2026-08-27:** the feed share of cost of gain is **not known yet**
 and John will work on it — so Phase 4 no longer waits on it, see "Until the
 split exists" below. Bays are **added and edited in the app**, not seeded from
-a list. A sample Performance Beef report is expected **2026-08-28**.
+a list.
+**A real PB invoice arrived 2026-08-27** (36-27, Aug 17–26). It is **commodity
+level**, so ration recipes are cut from the plan; its group is our lot and it
+carries **no per-pen breakdown**, so commodity feed is lot-level; and its head
+count and head-days **tie to our books exactly**. PB supplies pounds only —
+our app owns cost. Details in "Performance Beef" below.
 
 ---
 
@@ -89,6 +94,7 @@ Seven tables, three of them small. All `security_invoker` views, all RLS'd,
 | `is_counted` | true = counted in whole units (bags). false = estimated (bays). |
 | `redwing_account`, `redwing_profit_center`, `redwing_production_center` | coding, carried onto the export |
 | `default_location_id` | the bay or barn it normally lands in |
+| `pb_name` | PB's own name for it, for import matching — e.g. `Corn hopper bin` |
 
 **No price. Deliberately.** See above.
 
@@ -173,12 +179,14 @@ lb variance on an *estimated* bay is Tuesday and a −4,000 lb variance on
 *counted* bags is a theft or a keying error, and the variance report must not
 present them as the same fact.
 
-### `pb_pen_map` — Performance Beef pen → JFR
+### `pb_group_map` — Performance Beef group → lot
 
-`pb_pen_name` (unique), `pasture_id`, `lot_id`, `is_ignored`, `notes`.
+`pb_group_name` (unique), `lot_id`, `is_ignored`, `notes`.
 
-PB's pen names are PB's. Mapping them is our side, exactly like mapping the
-buyer's truckloads to lots on a shipment.
+PB's group on the 2026-08-27 invoice is literally `36-27`, our own lot number,
+so this defaults to matching on `lots.lot_number` and exists for the cases that
+do not match cleanly. **Group, not pen** — the invoice lists pens only as a
+header string with no pounds against them, so there is nothing per-pen to map.
 
 ---
 
@@ -306,6 +314,8 @@ All `WITH (security_invoker = true)`.
   so the parts sum exactly. Five pastures currently hold more than one lot;
   Steele / Front Native has 416 head across two. Mineral put out on a shared
   pasture is the normal case, not the edge case.
+  **In practice this serves mineral and hand-entered pasture rows only** —
+  imported commodity feed arrives at lot level and never touches it.
 - `pasture_feed_costs` — feed and mineral by pasture: total $, `$/hd/day`,
   `$/acre`, and the lots it split to. The drill-down that makes pasture-level
   capture worth doing.
@@ -321,53 +331,165 @@ whole extra day of head-days every evening after 7pm Central.
 
 ---
 
-## Performance Beef import
+## Performance Beef: what the 2026-08-26 invoice settles
 
-**Blocked on one thing: a sample export.** I need one real file before writing
-a parser — column names, date format, whether pens repeat, and the question
-below.
+John sent one real report (36-27, Group Invoice, Aug 17 – Aug 26 2026, ten
+days). It answers more than it was asked to, and two of its numbers tie to our
+books exactly.
 
-**Weekly entry demotes this from prerequisite to accelerator.** If feed is
-keyed once a week by commodity and lot, the manual screen in Phase 2 is the
-real workflow and it is perhaps fifteen minutes a week. The import is worth
-building when the file exists and worth skipping if PB's export fights us —
-which is a much better position than a module that cannot open until an
-integration works.
+### It ties. Both numbers, on the nose.
 
-### The question the sample answers
+| | Performance Beef | our books | |
+|---|---|---|---|
+| Current head count | 537 | `lot_status.head_current` = **537** | ✅ |
+| Total head days | 3,756 | receipts walked day by day, Aug 17–26 = **3,756** | ✅ |
 
-**Does PB export at commodity level or at ration level?**
+That second one is not a coincidence anyone should take for granted — it means
+PB is being kept in step with arrivals as they land, and that **our head-days
+and PB's are the same head-days**. Since head-days are the allocation basis for
+everything in Phase 4, the two systems will agree on `$/hd/day` by
+construction rather than by luck.
 
-- *Commodity/ingredient level* (each row names corn, DDG, hay): imports
-  straight into `feed_usage`, one row per (date, pen, ingredient). Nothing
-  more is needed.
-- *Ration level* (rows name "Grower 12%" and pounds fed): the app must hold
-  the recipe to relieve inventory. That adds `feed_rations` and
-  `ration_components` (item, inclusion %, effective_from), and it brings back
-  the versioning problem in full: **change a recipe and you rewrite what every
-  past load was made of** — unless component percentages are frozen onto the
-  usage rows at import, which is what I would do. Same lesson as protocols,
-  same fix, one more table and about a day of work.
+It also means the tie-out is worth *checking on every import*, because the day
+it stops being true is the day the cost per head quietly stops meaning
+anything. See the import mechanics below.
 
-Assume ration level until the file says otherwise; PB's whole model is rations
-and most exports follow it.
+### It is commodity level. Rations are dead.
+
+Eight rows, each naming a commodity — Corn hopper bin, Molasses, DDG, Peanut
+Hulls, SoyHull Pellets, Whole Cottonseed, Deccox-Corrid Crumbles, Pennchlor
+50G. No ration name anywhere on the sheet.
+
+**So `feed_rations` and `ration_components` are cut from the plan entirely.**
+That was the contingency that would have added a table and brought protocol-
+style recipe versioning back with it. It is gone, and Phase 3 gets simpler
+rather than harder.
+
+### Import the pounds. Never the dollars.
+
+John, 2026-08-27: *"PB doesn't have a very good inventory system. I want to
+build a great inventory system. May not even keep cost in PB, just usage."*
+
+That settles the division of labor, and it is the right one:
+
+- **`Amount Fed` is the only column that posts.** It relieves the bay and our
+  own FIFO layers price it.
+- **`Cost Per Ton` and `Feed Cost` are read for cross-check only** and never
+  written. They may go stale, or blank, the moment John stops maintaining
+  prices in PB — an importer that depended on them would break silently and
+  cost a lot of feed at $0.
+- **`Dry Matter Cost Per Ton` and `Dry Matter Fed` are ignored outright.**
+  Inventory is bought, stored and counted **as fed**. On this sheet as-fed is
+  69,510 lb against 60,881 lb of dry matter — relieving the bay by the dry
+  matter figure would leave **12.4% of every load sitting in inventory that
+  isn't there.** Dry matter is a nutrition number; it has no business in a
+  stock ledger.
+
+The cross-check still earns its place on the preview: our FIFO cost against
+PB's, per item, with the variance shown. Divergence is not an error — it is
+the difference between what John typed into PB months ago and what the feed
+actually cost — but a large one is worth seeing.
+
+### Group = lot. There is no pen breakdown.
+
+The group *is* `36-27`, our lot number. The pens appear once, as a header
+string — *In Pens: Corner 1, 2, 3, 4, 7, 9, 8* — with **no pounds broken out
+per pen**. So:
+
+- `pb_pen_map` becomes **`pb_group_map`** (PB group name → `lot_id`), and it
+  can default to matching on `lots.lot_number` with a manual override for
+  anything that doesn't match cleanly.
+- **Commodity feed lands at lot level. Full stop.** The per-pasture drill-down
+  is not reachable from this report, because the number does not exist in it.
+  Pasture allocation stays in the plan for **mineral and hand-entered pasture
+  rows only**, which is where it was always load-bearing anyway.
+
+If PB turns out to have a per-pen version of this report, that changes and it
+is worth a look — but nothing waits on it.
+
+### Skip the bottom third of the sheet
+
+Yardage ($0.50/hd/day) and the Management Fee ($0.20/hd/day) are John's own
+estimates, typed into PB the same way `assumed_labor_per_day` is typed into
+the office app. **The importer reads the feed rows and stops.** Pulling in
+Yardage or the Management Fee would double-charge against the office app's own
+labor and COG lines, which is precisely the double-count this module exists to
+stop making.
+
+### The number that matters, with the caveat it needs
+
+Against 3,756 head-days, this invoice runs:
+
+| | total | per head-day |
+|---|---|---|
+| Feed | $9,643.73 | **$2.57** |
+| Yardage | $1,878.00 | $0.50 |
+| Management fee | $751.20 | $0.20 |
+| **Invoice total** | **$12,272.93** | **$3.27** |
+
+The office app's `assumed_cog_per_day` is about **$0.75**. Feed alone here is
+three and a half times that.
+
+**The caveat, stated plainly: this is the worst window in the lot's life to
+judge that from.** These are fresh receiving cattle in the Corner pens,
+averaging seven days on feed, eating 18.5 lb/hd/day as fed. And $2,860.93 of
+the $9,643.73 — **30% of it** — is two medicated additives, Deccox-Corrid
+Crumbles at $2,800/ton and Pennchlor 50G at $5,200/ton, which are a receiving
+cost and not a grazing one. A month on grass will not look remotely like this.
+
+So: not proof that $0.75 is wrong, but a strong reason to stop guessing. This
+is exactly the number Phase 4 produces from real data, which is the argument
+for building it rather than deciding it.
+
+One flag for Redwing: **the two additives should almost certainly code to
+animal health, not commodity feed.** They are feed-grade drugs. `item_type =
+'additive'` already exists to carry that split, and the coding columns on
+`feed_items` will do the rest.
 
 ### Import mechanics
 
+The export is CSV/Excel — John confirmed one exists. Note it is a *report-
+shaped* file, not a flat table: group headers, a feed block, an added-cost
+block, a yardage block and a totals block, and "Combined Invoice" / "Select
+Groups" means **several groups can sit in one file**. The parser walks
+sections; it must not assume one header row and uniform columns.
+
 1. Office picks a file on **Feed → Usage → Import from Performance Beef**.
-   Parse client-side (no upload; the file never leaves the browser except as
-   parsed rows).
+   Parse client-side — the file never leaves the browser except as parsed rows.
 2. Column mapping is confirmed on screen the first time and remembered in
-   `localStorage`, wrapped in try/catch — storage *throws* in a private
-   window rather than returning empty.
-3. Every row resolves its pen through `pb_pen_map`. **Unmatched pens block the
-   whole import** and are listed with a picker to map them. A silently skipped
-   pen is a lot that quietly stops eating.
-4. Preview shows: rows, pounds by item, destinations, which layers they will
-   consume, which will go short, and total dollars. Nothing posts until the
-   preview is accepted.
-5. Post through `import_pb_usage` in one transaction. Partial failure unwinds,
+   `localStorage`, wrapped in try/catch — storage *throws* in a private window
+   rather than returning empty.
+3. Every group resolves through `pb_group_map`. **An unmatched group blocks
+   the whole import** and is listed with a picker. A silently skipped group is
+   a lot that quietly stops eating.
+4. Every feed row resolves through `feed_items.pb_name` — PB's names are PB's
+   ("Corn hopper bin" is a commodity and a bin in one string). Unmatched item
+   blocks too, with a picker that offers to remember the alias.
+5. **Overlap check — the one that matters most.** See below.
+6. Preview shows, per group: pounds by item, **lb/hd/day** (18.5 on this
+   sheet — a transposed weight shows up here immediately), PB head count and
+   head-days against ours, which layers the pounds will consume, which will go
+   short, our FIFO dollars, and PB's dollars beside them for comparison.
+   Nothing posts until the preview is accepted.
+7. Post through `import_pb_usage` in one transaction. Partial failure unwinds,
    same posture as approvals batches.
+
+### Overlapping periods, not duplicate rows, are how this gets corrupted
+
+`pb_row_key` handles re-importing *the same* invoice — it upserts, so running
+Aug 17–26 twice is harmless.
+
+**It does not handle an overlapping one.** The date range on that report is
+whatever John picks. Run Aug 17–26, then later run Aug 20–31, and the four
+overlapping days post twice under *different* keys. The pounds double, the bay
+draws down twice, and every $/hd/day on that lot inflates — silently, because
+nothing about either import is individually wrong.
+
+So: **`import_pb_usage` refuses any import whose `[period_start, period_end]`
+overlaps an already-posted PB period for the same lot**, and names the
+conflicting import. Reversing the earlier one first is the deliberate way
+through. This is the single most likely way to corrupt this module's books,
+and it is cheap to make impossible.
 
 ---
 
@@ -491,7 +613,7 @@ Each ships on its own and is useful on its own. Nothing here is a big-bang.
 |---|---|---|---|
 | **1** | Schema, RLS, `feed_items`, `feed_storage_locations` (**add / edit / deactivate bays in the app**), `feed_receipts`, `feed_on_hand`. Feed tab with Items / Locations / Receipts / Inventory. | Inventory value on hand, by bay, FIFO-layered. | nothing |
 | **2** | `post_feed_usage` + `delete_feed_usage` + the **weekly entry screen** (a grid: commodity × lot, pounds, one period). Counts screen + `post_feed_count` + variance report (printable count sheet). | Books that move, a week keyed in minutes, and a count that squares them. | 1 |
-| **3** | *Accelerator, not a prerequisite.* PB import: `pb_pen_map`, parser, preview, `import_pb_usage`. Ration recipes if the export needs them. | The weekly keying stops. | sample PB report, expected 2026-08-28 |
+| **3** | *Accelerator, not a prerequisite.* PB import: `pb_group_map`, `pb_name` aliases, section-aware CSV parser, overlap guard, preview with the head-day tie-out, `import_pb_usage`. **No ration recipes — the export is commodity level.** | The weekly keying stops. | nothing (one CSV export to build against) |
 | **4** | `lot_feed_costs`, `lot_feed_daily`, `pasture_feed_allocation`, mineral $/hd/day. Closeout integration, degrading to option A while the split is unknown. | Actual cost of gain. The point of all of it. | 2 |
 | **5** | Redwing accounting report, both modes. | Postings you copy instead of key. | 2 |
 | **6** | *Optional.* Field app mineral put-out → `pending_field_entries` → Approvals. Receipt attachments. | The cowboy records the sacks. | 3, 4 |
@@ -515,39 +637,52 @@ another module.
    blocked.
 3. **A reversal restores the layer and nothing else.** No branch for a layer
    consumed to exactly zero. Test that case first, not last.
-4. **`pb_row_key` is an upsert key, not a duplicate check.**
-5. **Head-days come from `lot_head_days_by_month`**, the view, never the
+4. **`pb_row_key` is an upsert key, not a duplicate check** — and it does
+   **not** stop an *overlapping* import. Re-running Aug 17–26 is harmless;
+   running Aug 20–31 after it double-feeds four days under different keys.
+   `import_pb_usage` refuses overlapping periods per lot.
+5. **Relieve inventory with `Amount Fed`, never `Dry Matter Fed`.** On the
+   2026-08-27 invoice that is 69,510 lb against 60,881 — a 12.4% phantom
+   balance in every bay if the wrong column is read.
+6. **Import pounds, never PB's dollars.** John may stop maintaining prices in
+   PB entirely; a cost column read from it would go stale or blank in silence.
+7. **Head-days come from `lot_head_days_by_month`**, the view, never the
    function.
-5b. **A weekly usage row spreads over its period, it does not land on its
+8. **A weekly usage row spreads over its period, it does not land on its
    date.** A lot that shipped Wednesday must not be charged Thursday and
    Friday's corn. Same rule as one `sales` row per lot per DAY.
-6. **`ranch_today()`, never `CURRENT_DATE`**, and `ranchToday()` in the app.
-7. **Check `error` on every read.** A `lot_status` read keyed on `id` instead
+9. **`ranch_today()`, never `CURRENT_DATE`**, and `ranchToday()` in the app.
+10. **Check `error` on every read.** A `lot_status` read keyed on `id` instead
    of `lot_id` returns undefined data and the code quietly does nothing —
    two live instances were found on 2026-08-26.
-8. **Paginate.** PostgREST caps at 1000 rows; a year of daily feed rows across
+11. **Paginate.** PostgREST caps at 1000 rows; a year of daily feed rows across
    60 pastures clears that in a quarter. And a pager takes a builder
    *function* — PostgREST query builders are single-use.
-9. **All views `security_invoker = true`**, then run
+12. **All views `security_invoker = true`**, then run
    `20260821000300_rls_verify.sql`.
-10. **Idempotent migration SQL**, `begin;`/`commit;` in the file, stripped only
+13. **Idempotent migration SQL**, `begin;`/`commit;` in the file, stripped only
     if it ever goes through the CLI. Applied by paste into the SQL editor —
     the MCP connector is read-only.
-11. **Validate after every `index.html` edit:**
+14. **Validate after every `index.html` edit:**
     `osascript -l JavaScript scripts/validate.jxa.js index.html`.
 
 ---
 
 ## What I need from you to start
 
-1. **A Performance Beef report** — expected 2026-08-28. The one thing that
-   changes a design decision: commodity-level rows or ration-level rows.
+1. **One CSV/Excel export of that same invoice** — the screenshot answered
+   every design question; the file is only so the parser is built against real
+   column headers and real section breaks rather than a guess at them.
+   Phase 3 work, not Phase 1.
 2. **How a bay gets estimated** — depth and width off a known density, or an
    eyeball in tons? It decides whether the count screen asks for measurements
    or a number. Answerable any time before Phase 2.
 3. **Whether mineral put-out is in PB at all.** If not, it is keyed on the
    weekly screen, and Phase 6 (the cowboy records the sacks in the field app)
    stops being optional sooner than the table above suggests.
+4. **A view on the two medicated additives** — Deccox-Corrid Crumbles and
+   Pennchlor 50G. My read is they code to animal health rather than commodity
+   feed in Redwing. Not urgent; it changes two rows on `feed_items`.
 
 **Nothing here blocks a phase.** The COG split is deferred by design (above),
 and the bays are typed in on the Locations screen whenever you want — that is
