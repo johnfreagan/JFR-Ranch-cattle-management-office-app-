@@ -13,6 +13,7 @@ DECLARE
     v_res     jsonb;
     v_n       numeric;
     v_ok      boolean;
+    v_n2      numeric;
     v_count   uuid := '44444444-0000-0000-0000-000000000001';
 BEGIN
     SELECT id INTO v_loc FROM public.med_stock_locations WHERE kind = 'ranch';
@@ -183,6 +184,46 @@ BEGIN
         RAISE EXCEPTION 'T13 a bottle received AFTER the treatment was used to settle it (% units)',
             v_res->>'units_covered';
     END IF;
+
+    -- 14. A rehearsal in a test location must not move real stock, and must
+    --     erase without a trace afterwards - otherwise it is not a rehearsal,
+    --     it is a mess someone has to clean up by hand.
+    SELECT qty_units INTO v_n FROM public.med_on_hand
+     WHERE medication_name = 'Draxxin' AND location_id = v_loc;
+
+    INSERT INTO public.med_stock_locations (id, name, kind, is_test)
+    VALUES ('99999999-0000-0000-0000-000000000001','TEST sandbox','ranch',true);
+    INSERT INTO public.med_purchases (id, purchase_date, vendor, location_id, invoice_total)
+    VALUES ('aaaaaaaa-0000-0000-0000-000000000001','2026-09-01','Practice','99999999-0000-0000-0000-000000000001',450.00);
+    INSERT INTO public.med_purchase_lines (purchase_id, medication_id, location_id, qty_bottles, bottle_size, unit, unit_cost, qty_remaining, received_date)
+    VALUES ('aaaaaaaa-0000-0000-0000-000000000001','11111111-0000-0000-0000-000000000001','99999999-0000-0000-0000-000000000001',1,500,'mL',0.90,500,'2026-09-01');
+    PERFORM public.med_consume('11111111-0000-0000-0000-000000000001'::uuid,
+            '99999999-0000-0000-0000-000000000001'::uuid, 120,
+            'usage','treatment','doctoring_event',NULL,'2026-09-03');
+
+    SELECT qty_units INTO v_n2 FROM public.med_on_hand
+     WHERE medication_name = 'Draxxin' AND location_id = v_loc;
+    IF v_n2 <> v_n THEN
+        RAISE EXCEPTION 'T14 a test location moved real stock: Ranch went % -> %', v_n, v_n2;
+    END IF;
+
+    -- 15. THE GUARD. Without this the purge is just a delete statement aimed
+    --     at the inventory, and one wrong id erases the real books.
+    BEGIN
+        PERFORM public.med_purge_location(v_loc, false);
+        RAISE EXCEPTION 'T15 purging a REAL location was allowed';
+    EXCEPTION WHEN others THEN
+        IF SQLERRM LIKE 'T15%' THEN RAISE; END IF;
+    END;
+
+    -- ...and the test location erases completely.
+    PERFORM public.med_purge_location('99999999-0000-0000-0000-000000000001'::uuid, true);
+    SELECT count(*) INTO v_n FROM public.med_txns
+     WHERE location_id = '99999999-0000-0000-0000-000000000001';
+    IF v_n <> 0 THEN RAISE EXCEPTION 'T15 purge left % transaction(s) behind', v_n; END IF;
+    SELECT count(*) INTO v_n FROM public.med_txn_layers l
+      LEFT JOIN public.med_txns t ON t.id = l.txn_id WHERE t.id IS NULL;
+    IF v_n <> 0 THEN RAISE EXCEPTION 'T15 purge orphaned % layer allocation row(s)', v_n; END IF;
 
     RAISE NOTICE 'med_inventory phase 1: behaviour assertions passed.';
 END

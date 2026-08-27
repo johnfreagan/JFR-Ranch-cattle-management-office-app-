@@ -135,9 +135,30 @@ CREATE TABLE IF NOT EXISTS public.med_stock_locations (
     source_key  text,
 
     is_active   boolean     NOT NULL DEFAULT true,
+
+    -- A sandbox to try the screens on. Test locations hold ordinary rows
+    -- through ordinary code paths - the only way to trust a rehearsal - but
+    -- they are labelled everywhere and med_purge_location() will erase one
+    -- outright, which it flatly refuses to do to a real location.
+    is_test     boolean     NOT NULL DEFAULT false,
+
+    -- GO-LIVE SWITCH. Until this is set, the app records NO doctoring usage
+    -- against this location. That is what makes the migration safe to apply
+    -- before anybody has decided to start: the tables exist, the screens
+    -- work, and real treatments carry on without quietly accruing against an
+    -- inventory nobody has counted yet. Set it to the day the opening count
+    -- is taken and usage starts flowing from there.
+    usage_from  date,
+
     notes       text,
     created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Added after the first cut; harmless on a fresh install.
+ALTER TABLE public.med_stock_locations
+    ADD COLUMN IF NOT EXISTS is_test    boolean NOT NULL DEFAULT false;
+ALTER TABLE public.med_stock_locations
+    ADD COLUMN IF NOT EXISTS usage_from date;
 
 -- Seed the ranch row. Buyer rows are added from the app as they appear.
 INSERT INTO public.med_stock_locations (name, kind, notes)
@@ -959,6 +980,82 @@ GRANT EXECUTE ON FUNCTION public.med_post_count(uuid) TO authenticated;
 
 
 -- ---------------------------------------------------------------------
+-- 10b. med_purge_location - erase a rehearsal
+-- ---------------------------------------------------------------------
+-- A dry run is only worth doing if the practice data can be removed
+-- afterwards without a trace, and only worth trusting if it went through
+-- exactly the same code as the real thing. So: rehearse in a location
+-- marked is_test, then erase it here.
+--
+-- It REFUSES on a location that is not marked as a test. That check is the
+-- whole point of the function; without it this is just a delete statement
+-- pointed at the inventory, and one wrong id erases the real books.
+--
+-- Owner-only in practice: it is INVOKER, and DELETE on these tables is
+-- owner-only by policy.
+CREATE OR REPLACE FUNCTION public.med_purge_location(
+    p_location_id   uuid,
+    p_drop_location boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $fn$
+DECLARE
+    v_is_test boolean;
+    v_name    text;
+    v_txns    integer;
+    v_lines   integer;
+    v_pur     integer;
+    v_counts  integer;
+BEGIN
+    SELECT is_test, name INTO v_is_test, v_name
+      FROM public.med_stock_locations WHERE id = p_location_id;
+
+    IF v_name IS NULL THEN
+        RAISE EXCEPTION 'med_purge_location: no such location %', p_location_id;
+    END IF;
+    IF NOT v_is_test THEN
+        RAISE EXCEPTION
+            'med_purge_location: "%" is not marked as a test location. Refusing to erase real inventory.',
+            v_name;
+    END IF;
+
+    -- Transactions first: med_txn_layers points at purchase lines with no
+    -- cascade, so the lines cannot go until nothing references them.
+    DELETE FROM public.med_txns WHERE location_id = p_location_id;
+    GET DIAGNOSTICS v_txns = ROW_COUNT;
+
+    DELETE FROM public.med_counts WHERE location_id = p_location_id;
+    GET DIAGNOSTICS v_counts = ROW_COUNT;
+
+    DELETE FROM public.med_purchase_lines WHERE location_id = p_location_id;
+    GET DIAGNOSTICS v_lines = ROW_COUNT;
+
+    DELETE FROM public.med_purchases WHERE location_id = p_location_id;
+    GET DIAGNOSTICS v_pur = ROW_COUNT;
+
+    IF p_drop_location THEN
+        DELETE FROM public.med_stock_locations WHERE id = p_location_id;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'location',        v_name,
+        'txns_deleted',    v_txns,
+        'counts_deleted',  v_counts,
+        'layers_deleted',  v_lines,
+        'purchases_deleted', v_pur,
+        'location_dropped', p_drop_location
+    );
+END
+$fn$;
+
+REVOKE ALL ON FUNCTION public.med_purge_location(uuid, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.med_purge_location(uuid, boolean) TO authenticated;
+
+
+-- ---------------------------------------------------------------------
 -- 11. Views. Every one WITH (security_invoker = true) - no exceptions.
 -- ---------------------------------------------------------------------
 -- Without it a view runs as its owner and bypasses RLS entirely no matter
@@ -984,6 +1081,8 @@ SELECT
     loc.id                              AS location_id,
     loc.name                            AS location_name,
     loc.kind                            AS location_kind,
+    loc.is_test                         AS location_is_test,
+    loc.usage_from                      AS location_usage_from,
     m.id                                AS medication_id,
     m.name                              AS medication_name,
     m.generic_category,
@@ -1021,7 +1120,8 @@ LEFT JOIN public.med_purchase_lines l
 LEFT JOIN shortfalls sf
        ON sf.medication_id = m.id AND sf.location_id = loc.id
 WHERE loc.is_active AND m.is_active
-GROUP BY loc.id, loc.name, loc.kind, m.id, m.name, m.generic_category,
+GROUP BY loc.id, loc.name, loc.kind, loc.is_test, loc.usage_from,
+         m.id, m.name, m.generic_category,
          m.redwing_item_code, m.bottle_size_unit, m.bottle_size,
          m.cost_per_unit, m.cost_per_head, sf.uncovered_units, sf.unpriced_usage_units;
 
@@ -1633,6 +1733,6 @@ BEGIN
         RAISE EXCEPTION '% table(s) have RLS disabled or no policies.', v_count;
     END IF;
 
-    RAISE NOTICE 'Medicine inventory phase 1 applied: 7 tables, 6 views, 4 functions, RLS verified.';
+    RAISE NOTICE 'Medicine inventory phase 1 applied: 7 tables, 6 views, 5 functions, RLS verified.';
 END
 $post$;

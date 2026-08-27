@@ -754,6 +754,7 @@
             <button class="sub-tab" data-subtab="counts">Counts</button>
             <button class="sub-tab" data-subtab="efficiency">Efficiency</button>
             <button class="sub-tab" data-subtab="reports">Reports</button>
+            <button class="sub-tab" data-subtab="setup">Setup</button>
         </div>
         <div class="sub-tabs hidden" id="reportsSubtabs">
             <button class="sub-tab active" data-subtab="active-lots">Active Lots</button>
@@ -2081,6 +2082,29 @@
                     rather than ledgered.
                 </p>
                 <div id="invBuyerContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- ---- Setup: locations and the go-live switch ---------------- -->
+        <div id="invSetupView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header"><h2>Go live</h2></div>
+                <div id="invGoLiveContent"><div class="empty">Loading…</div></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>Locations</h2>
+                    <button class="primary" id="invAddLocBtn">+ Location</button>
+                </div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    One row for the ranch, one per buyer who processes our cattle, and as many
+                    <strong>test</strong> locations as you want to practise on. A buyer's
+                    <em>source key</em> must match what the lot carries in its Source field
+                    (&ldquo;Thigpen&rdquo;, &ldquo;Jake Taylor&rdquo;) or his cattle will not find his account.
+                </p>
+                <div id="invLocAlert"></div>
+                <div id="invLocContent"><div class="empty">Loading…</div></div>
             </div>
         </div>
 
@@ -5799,7 +5823,8 @@ window.addEventListener('unhandledrejection', function(e) {
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
          'invOnHandView', 'invPurchasesView', 'invPurchaseEntryView', 'invCheckoutsView',
-         'invCountsView', 'invCountEntryView', 'invEfficiencyView', 'invReportsView'].forEach(id => {
+         'invCountsView', 'invCountEntryView', 'invEfficiencyView', 'invReportsView',
+         'invSetupView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
         });
@@ -19806,15 +19831,18 @@ ${ranchBlocks}
     // real month before phase 2 switches the source.
     let invLedgerAvailable = null;   // null = not yet checked, false = tables absent
     let invRanchLocationId = null;
+    let invUsageFrom = null;         // go-live date; null means not live yet
 
     async function invLedgerReady() {
         if (invLedgerAvailable === false) return false;
         if (invRanchLocationId) return true;
         try {
             const { data, error } = await supabase.from('med_stock_locations')
-                .select('id').eq('kind', 'ranch').eq('is_active', true).limit(1).maybeSingle();
+                .select('id, usage_from').eq('kind', 'ranch').eq('is_active', true)
+                .limit(1).maybeSingle();
             if (error || !data) { invLedgerAvailable = false; return false; }
             invRanchLocationId = data.id;
+            invUsageFrom = data.usage_from || null;
             invLedgerAvailable = true;
             return true;
         } catch (e) { invLedgerAvailable = false; return false; }
@@ -19823,6 +19851,14 @@ ${ranchBlocks}
     async function invRecordDoctoringUsage(eventId, medRows, eventDate) {
         if (!eventId || !medRows || !medRows.length) return;
         if (!(await invLedgerReady())) return;
+
+        // THE GO-LIVE GATE. Until a start date is set on the ranch location,
+        // no treatment is recorded against inventory at all. That is what
+        // lets the tables exist - and the screens be tried out - while the
+        // books carry on untouched. Doses given before the opening count are
+        // not the opening count's business.
+        const when0 = eventDate ? String(eventDate).slice(0, 10) : ranchToday();
+        if (!invUsageFrom || when0 < invUsageFrom) return;
         const when = eventDate ? String(eventDate).slice(0, 10) : ranchToday();
         for (const m of medRows) {
             const dose = Number(m.dose_cc);
@@ -19898,7 +19934,8 @@ ${ranchBlocks}
     async function loadInvLookups(force) {
         if (invLocations.length && invMedsCache.length && !force) return;
         const [locRes, medRes] = await Promise.all([
-            supabase.from('med_stock_locations').select('*').eq('is_active', true).order('kind').order('name'),
+            supabase.from('med_stock_locations').select('*').eq('is_active', true)
+                .order('is_test').order('kind').order('name'),
             supabase.from('medications')
                 .select('id, name, generic_category, bottle_size, bottle_size_unit, cost_per_unit, redwing_item_code')
                 .eq('is_active', true).order('generic_category').order('name')
@@ -19916,7 +19953,8 @@ ${ranchBlocks}
         const el = $(id); if (!el) return;
         const keep = el.value;
         const list = opts.kind ? invLocations.filter(l => l.kind === opts.kind) : invLocations;
-        el.innerHTML = list.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
+        el.innerHTML = list.map(l =>
+            `<option value="${l.id}">${escapeHtml(l.name)}${l.is_test ? '  (TEST)' : ''}</option>`).join('');
         if (keep && list.some(l => l.id === keep)) el.value = keep;
         else {
             const ranch = list.find(l => l.kind === 'ranch');
@@ -19970,6 +20008,9 @@ ${ranchBlocks}
         } else if (subtab === 'reports') {
             $('invReportsView').classList.remove('hidden');
             initInvReports();
+        } else if (subtab === 'setup') {
+            $('invSetupView').classList.remove('hidden');
+            loadInvSetup();
         }
     }
 
@@ -20862,6 +20903,128 @@ ${ranchBlocks}
         setTimeout(() => w.print(), 300);
     }
 
+    // ---- SETUP: locations, and the switch that starts the whole thing ----
+    async function loadInvSetup() {
+        await loadInvLookups(true);
+        renderInvGoLive();
+        renderInvLocations();
+    }
+
+    function renderInvGoLive() {
+        const ranch = invLocations.find(l => l.kind === 'ranch' && !l.is_test);
+        if (!ranch) {
+            $('invGoLiveContent').innerHTML =
+                '<div class="empty">No ranch location. Apply the migration first — it seeds one.</div>';
+            return;
+        }
+        const live = !!ranch.usage_from;
+        $('invGoLiveContent').innerHTML =
+            '<div style="padding:12px 14px;border-left:3px solid ' + (live ? '#15803d' : '#b45309') +
+            ';background:' + (live ? '#f0fdf4' : '#fffbeb') + ';margin-bottom:14px;">' +
+            '<strong>' + (live
+                ? 'Live since ' + ranch.usage_from + '.'
+                : 'Not live yet — no treatment is being recorded against inventory.') + '</strong>' +
+            '<div style="font-size:12px;margin-top:6px;">' + (live
+                ? 'Every doctoring entry dated on or after that day draws its doses out of stock, oldest layer first.'
+                : 'The tables exist and every screen works, but the doctoring save path writes nothing here. ' +
+                  'Try it out on a <strong>test</strong> location below, erase it when you have seen enough, ' +
+                  'take the real opening count on the Ranch, then set the date.') +
+            '</div></div>' +
+            '<div class="form-grid"><div>' +
+            '<label for="invGoLiveDate">Start recording usage from</label>' +
+            '<input type="date" id="invGoLiveDate" value="' + (ranch.usage_from || '') + '">' +
+            '</div><div style="align-self:end;display:flex;gap:8px;">' +
+            '<button class="primary" id="invGoLiveSetBtn">' + (live ? 'Change date' : 'Go live') + '</button>' +
+            (live ? '<button id="invGoLiveClearBtn">Turn back off</button>' : '') +
+            '</div></div>' +
+            '<p class="muted" style="font-size:12px;margin-top:8px;">Set this to the day of the opening count. ' +
+            'Doses given before it are not the opening count\'s business, and are deliberately ignored.</p>';
+
+        $('invGoLiveSetBtn').addEventListener('click', () => setInvGoLive($('invGoLiveDate').value || null));
+        if ($('invGoLiveClearBtn')) {
+            $('invGoLiveClearBtn').addEventListener('click', () => {
+                if (confirm('Stop recording doctoring usage against inventory?\n\nNothing already recorded is removed — this only stops new treatments from drawing stock.')) {
+                    setInvGoLive(null);
+                }
+            });
+        }
+    }
+
+    async function setInvGoLive(date) {
+        const ranch = invLocations.find(l => l.kind === 'ranch' && !l.is_test);
+        if (!ranch) return;
+        if (date) {
+            // Going live against an empty shelf is legal but it is almost
+            // never what somebody means, and every dose would come out as
+            // "used with no stock" until a count or a purchase lands.
+            const onHand = await supabase.from('med_on_hand').select('qty_units')
+                .eq('location_id', ranch.id).neq('qty_units', 0).limit(1);
+            if (!(onHand.data || []).length &&
+                !confirm('There is no stock on the Ranch yet.\n\nGoing live now means every dose draws against an empty shelf and shows as "used with no stock" until an opening count or a purchase is entered.\n\nGo live anyway?')) return;
+        }
+        const { error } = await supabase.from('med_stock_locations')
+            .update({ usage_from: date }).eq('id', ranch.id);
+        if (error) { showAlert('globalAlert', error.message, 'error'); return; }
+        invUsageFrom = date;   // the doctoring hook reads this without a reload
+        showAlert('globalAlert', date
+            ? 'Inventory is live from ' + date + '. Doctoring now draws stock.'
+            : 'Inventory usage recording is off again.', 'success');
+        loadInvSetup();
+    }
+
+    function renderInvLocations() {
+        if (!invLocations.length) { $('invLocContent').innerHTML = '<div class="empty">None.</div>'; return; }
+        let html = '<table><thead><tr><th>Name</th><th>Kind</th><th>Source key (buyers)</th>' +
+                   '<th>Test</th><th></th></tr></thead><tbody>';
+        invLocations.forEach(l => {
+            html += '<tr' + (l.is_test ? ' style="background:#f8fafc;"' : '') + '>' +
+                '<td>' + escapeHtml(l.name) + '</td>' +
+                '<td class="muted">' + escapeHtml(l.kind) + '</td>' +
+                '<td class="muted">' + escapeHtml(l.source_key || '') + '</td>' +
+                '<td>' + (l.is_test ? '<strong>TEST</strong>' : '') + '</td>' +
+                '<td>' + (l.is_test
+                    ? '<button data-inv-purge="' + l.id + '" data-perm="owner">Erase &amp; delete</button>'
+                    : '') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        $('invLocContent').innerHTML = html;
+    }
+
+    async function addInvLocation() {
+        const name = prompt('Location name — e.g. "Buyer — Thigpen", or "TEST sandbox" to practise on:');
+        if (!name) return;
+        const isTest = confirm('Is this a TEST location?\n\nOK = test (labelled everywhere, and can be erased in one click).\nCancel = a real location.');
+        let kind = 'buyer', sourceKey = null;
+        if (!isTest) {
+            sourceKey = prompt('Source key — must match the lot\'s Source field exactly (e.g. "Thigpen"). Leave blank if this is not a buyer:') || null;
+            if (!sourceKey) kind = 'ranch';
+        }
+        const { error } = await supabase.from('med_stock_locations').insert({
+            name: name.trim(),
+            kind: isTest ? 'ranch' : kind,
+            source_key: sourceKey,
+            is_test: isTest
+        });
+        if (error) { showAlert('invLocAlert', error.message, 'error'); return; }
+        showAlert('invLocAlert', 'Added ' + escapeHtml(name) + '.', 'success');
+        loadInvSetup();
+    }
+
+    async function purgeInvLocation(id) {
+        const loc = invLocations.find(l => l.id === id);
+        if (!loc) return;
+        if (!confirm('Erase everything in "' + loc.name + '" and delete it?\n\nPurchases, layers, counts and transactions for this location are removed. It refuses outright on anything not marked as a test location.')) return;
+        const { data, error } = await supabase.rpc('med_purge_location',
+            { p_location_id: id, p_drop_location: true });
+        if (error) { showAlert('invLocAlert', error.message, 'error'); return; }
+        const r = data || {};
+        showAlert('invLocAlert',
+            'Erased ' + escapeHtml(r.location || '') + ': ' + (r.purchases_deleted || 0) + ' purchase(s), ' +
+            (r.layers_deleted || 0) + ' layer(s), ' + (r.counts_deleted || 0) + ' count(s), ' +
+            (r.txns_deleted || 0) + ' transaction(s).', 'success');
+        loadInvSetup();
+    }
+
     // ---- SETTLING USAGE THE LEDGER DID NOT KNOW ABOUT --------------------
     // A medication picked up and used before the app heard about it leaves
     // two marks: the dose books at $0 (no cost known anywhere), and the
@@ -20994,6 +21157,11 @@ ${ranchBlocks}
         }
     });
 
+    $('invAddLocBtn').addEventListener('click', addInvLocation);
+    $('invLocContent').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-inv-purge]');
+        if (b) purgeInvLocation(b.dataset.invPurge);
+    });
     $('invEffRefreshBtn').addEventListener('click', loadInvEfficiency);
     $('invRepWhich').addEventListener('change', loadInvReport);
     $('invRepLocation').addEventListener('change', loadInvReport);

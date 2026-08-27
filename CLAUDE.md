@@ -334,6 +334,19 @@ med_counts ── med_count_lines            med_stock_locations (Ranch + 1/buye
   silently prices every future FIFO draw and ends up frozen into treatment
   cost on a dozen lots. This is the one place the build is deliberately
   un-simple.
+- **The module writes to NOTHING that already existed.** Every write goes to a
+  `med_*` table; `medications`, `doctoring_events`, `lots`, `invoices` and
+  `protocol_meds` are read-only to it. The only change to a pre-existing table
+  is the nullable `medications.redwing_item_code` column. Keep it that way.
+- **`med_stock_locations.usage_from` is the go-live switch.** Until it is set,
+  the doctoring save path records NO usage against inventory. That is what
+  makes the migration safe to apply before anyone has committed — do not
+  "helpfully" default it to a date.
+- **Rehearse in a location with `is_test`, then `med_purge_location()`.** It
+  refuses outright on a location not marked as a test; without that check it is
+  a delete statement pointed at the real inventory. Test locations run through
+  the same code paths as real ones on purpose — a rehearsal on a special path
+  proves nothing.
 - **Redwing is the GL; this is the subsidiary ledger.** Redwing keeps its own
   inventory value. When comparing, **quantities first**: quantities
   disagreeing is real, value disagreeing while quantities agree is the costing

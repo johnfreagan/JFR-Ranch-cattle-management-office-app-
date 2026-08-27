@@ -567,6 +567,54 @@ crew never sees it. Sub-tabs:
 
 ---
 
+## Trying it out without touching anything
+
+The whole module can be run for real, in the live app, against the live
+database, without a single row of the books moving. Three facts make that true
+rather than hopeful.
+
+**1. It writes to nothing that exists.** Every write in the Inventory tab goes
+to a `med_*` table. `medications`, `doctoring_events`, `lots`, `invoices`,
+`delivery_receipts` and `protocol_meds` are read-only to it. This is checkable,
+not a promise: grep the module for `.insert(`, `.update(`, `.delete(`.
+
+**2. Doctoring does not draw stock until you say so.**
+`med_stock_locations.usage_from` is the go-live switch. Until it is set, the
+doctoring save path records nothing against inventory, so treatments carry on
+exactly as they do today while the tables sit there empty. Set it on **Inventory
+→ Setup**, and it takes effect for entries dated on or after that day.
+
+**3. A rehearsal happens in a test location and erases without a trace.** Make a
+location with `is_test`, post practice purchases to it, count it, print sheets,
+run every report — all through **the same code paths as the real thing**, which
+is the only kind of rehearsal worth doing. Then erase it in one click.
+`med_purge_location()` **refuses outright on a location not marked as a test**;
+without that check it is a delete statement pointed at the inventory and one
+wrong id takes the real books with it.
+
+### The order
+
+1. **Apply the migration.** Safe before any decision is made: it creates the
+   `med_*` tables, seeds one *Ranch* location with `usage_from` unset, and adds
+   one nullable column (`medications.redwing_item_code`) to a live table. That
+   column is the only change to anything that already existed.
+2. **Deploy `index.html`.** The tab appears for office and owner. It reads live
+   `medications` so the pickers are real, and writes only to its own tables.
+3. **Rehearse.** Setup → + Location → answer *yes* to "is this a test
+   location". Post a purchase against it, take a count on it, break the tie-out
+   on purpose and watch it refuse, print the blind sheet, run the roll-forward.
+4. **Erase it.** Setup → Erase & delete. Verified to leave zero rows and zero
+   orphaned allocations.
+5. **Go live.** Add the real buyer locations, take the opening count on *Ranch*,
+   then Setup → Go live and set the date to the count date.
+
+Nothing in steps 1–4 can move a lot, a receipt, a treatment or a dollar of
+existing cost, and step 5 is a single date on a single row — reversible with
+*Turn back off*, which stops new usage without removing anything already
+recorded.
+
+---
+
 ## Phases
 
 ### Phase 1 — the ledger (no effect on the books)
