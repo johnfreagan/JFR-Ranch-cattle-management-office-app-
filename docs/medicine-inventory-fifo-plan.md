@@ -13,7 +13,8 @@ Decisions taken by John:
 | Crew usage | **One shared crew location, custody tracked per person.** Issues are checked out to a named crew member; a periodic count trues the location up. Nothing new for the field app. |
 | Buyer meds | **Each buyer is a stock location.** Supplier invoice receives into their account; expected usage comes from head processed × protocol. |
 | Go-live | **Opening count, soft target 2026-09-01**, subject to build speed. No backfill. |
-| Invoice intake | **Attach the PDF and paste the rows**, through a review grid that must tie to the invoice total. No straight-to-post parsing. |
+| Invoice intake | **Cowork reads the invoice and hands back a paste block** (John, 2026-08-27). The app attaches the PDF and takes the paste through a review grid that must tie to the invoice total. No straight-to-post parsing, ever. |
+| Build | **As simple as it can be and still be right** (John, 2026-08-27). One stock pool for the ranch, no transfers, five transaction types, three RPCs. |
 | Redwing | **Redwing is the GL; this is the subsidiary ledger.** Date-ranged report in the Sales accounting-report format; weekly vs monthly becomes a picker, not a schema decision. |
 
 The module lives entirely in the office app (`index.html`). The field app is
@@ -54,10 +55,10 @@ processed.
 ## Model
 
 ```
-med_purchases ── med_purchase_lines ──┬── med_layers (on hand, per location)
-   (vet invoice)   (immutable origin: │      qty_remaining, location
-                    qty, unit cost,   │
-                    mfr lot, expiry)  │
+med_purchases ── med_purchase_lines ──┐   the line IS the FIFO layer:
+   (vet invoice)   (location, qty,    │   location + qty_remaining live on it
+                    unit cost,        │
+                    qty_remaining)    │
                                       │
 med_txns ── med_txn_layers ───────────┘
  (every movement)  (which layers it took, at what cost — frozen)
@@ -66,20 +67,38 @@ med_counts ── med_count_lines        med_stock_locations
  (physical count → variance → adjustment txn)
 ```
 
-Six tables and one lookup. The shape is the shipment allocation shape — a
+Five tables and one lookup. The shape is the shipment allocation shape — a
 header, lines, and an allocation table that records exactly which units at
 exactly which cost — for the same reason: a movement that cannot say what it
 took cannot be reversed.
 
+**What got cut to keep this simple.** The first draft had a separate
+`med_layers` table so one purchase could sit in several places at once, plus a
+transfer RPC that split layers and mirrored them at the destination preserving
+received dates. All of that existed to move stock between locations — and in
+practice stock never moves. Meds bought for the ranch stay at the ranch; meds a
+buyer picks up at the supplier never come here. So **a purchase line is received
+to one location and stays there**, `location_id` and `qty_remaining` sit on the
+line itself, and the fiddliest machinery in the design disappears. If stock ever
+genuinely does move, it is an adjustment out and an adjustment in — which the
+count screen already writes.
+
 ### `med_stock_locations`
 
-`name`, `kind` (`barn` | `crew` | `buyer` | `vet`), `is_active`, `notes`.
+`name`, `kind` (`ranch` | `buyer`), `is_active`, `notes`.
 
-Barn, **one shared crew location**, and one row per buyer — *Buyer — Thigpen*,
-*Buyer — Jake Taylor*. Buyer locations are what make the buyer story fall out of
-the same machinery as everything else: meds picked up at the supplier never
-touch the ranch, so they are received straight into the buyer's location and
-consumed from there.
+**One row for the ranch, one per buyer** — *Ranch*, *Buyer — Thigpen*,
+*Buyer — Jake Taylor*. That is the whole list.
+
+The barn and the crew boxes are **one pool**, not two. A bottle in a truck has
+not left the ranch; it is the same inventory in a different hand, and who has it
+is custody, tracked on the person and not on the stock. That also makes the
+monthly count simpler in the pen: count the barn and the trucks and enter one
+number per med.
+
+Buyer locations are what make the buyer story fall out of the same machinery:
+meds picked up at the supplier never touch the ranch, so they are received
+straight into the buyer's row and consumed from there.
 
 `lots.source` already carries the buyer as free text (`Thigpen`, `Jake Taylor`).
 A nullable `source_key` on the location maps to it, so a lot's processing draw
@@ -92,42 +111,37 @@ Header is the supplier invoice: date, vendor, invoice number, total, notes,
 Attachments follow the `invoice_attachments` pattern — `uploadAttachment()` and
 the storage bucket already exist.
 
-Each **line is a FIFO layer's origin** and is immutable once posted:
+**Each line IS a FIFO layer.** `location_id` and `qty_remaining` live on the
+line; everything else about it is immutable once posted:
 
-- `medication_id`, `qty_bottles`, `bottle_size`, `unit` (`mL` | `doses`)
+- `medication_id`, `location_id`, `qty_bottles`, `bottle_size`, `unit`
 - `qty_units` = bottles × size — **the base unit is the unit of account**, not
   the bottle. A 500 mL bottle against a 6 cc dose is not a whole number of
   anything; tracking bottles alone cannot answer "what is on hand".
 - `unit_cost` = landed cost ÷ `qty_units`. Freight and handling on the invoice
   allocate across lines by value, so unit cost is landed cost.
-- `mfr_lot_number`, `expires_on`, `received_date`
+- `qty_remaining` — what is left of this layer
+- `received_date`; `mfr_lot_number` and `expires_on` **optional**, typed only
+  when somebody cares. FIFO needs neither.
 
 `bottle_size` is **snapshotted on the line**, not read from `medications`.
 Bottle sizes change; a layer bought at 500 mL must stay 500 mL after the
 catalog says 1000.
 
-### `med_layers`
-
-`purchase_line_id`, `location_id`, `qty_remaining`, `unit_cost`,
-`received_date`.
-
-One purchase line can sit in several places at once — half the case in the
-barn, two bottles with the crew — so on-hand is its own row per location. A
-transfer decrements one layer and creates or increments a layer at the
-destination carrying **the same `unit_cost` and the same `received_date`**, so
-moving a bottle to the crew does not make it younger and jump the FIFO queue.
-
-FIFO order is `received_date`, then purchase line sequence.
+FIFO order is `received_date`, then purchase line sequence, within a location.
 
 ### `med_txns` / `med_txn_layers`
 
 Every movement, one row: `txn_date`, `txn_type`, `medication_id`,
-`from_location_id`, `to_location_id`, `qty_units`, `crew_user_id`,
-`ref_kind`/`ref_id`, notes, `created_by`, `fiscal_year`.
+`location_id`, `qty_units`, `crew_user_id`, `reason`, `ref_kind`/`ref_id`,
+notes, `created_by`, `fiscal_year`.
 
-Types: `opening`, `purchase`, `issue`, `transfer`, `return`,
-`usage_treatment`, `usage_processing`, `adjustment` (from a count), `waste`,
-`expired`.
+**Five types, not ten:** `opening`, `purchase`, `checkout`, `usage`,
+`adjustment`. Treatment and processing are both `usage`, told apart by
+`ref_kind`. Waste, expiry, a count variance and a plain correction are all
+`adjustment`, told apart by `reason` — one code path, four labels, instead of
+four near-identical types that each need their own handling. A return is a
+negative `checkout`.
 
 Anything that **consumes** writes `med_txn_layers` rows — `layer_id`,
 `qty_units`, `unit_cost`, `extended_cost`. That is where the FIFO cost freezes,
@@ -159,14 +173,15 @@ also move between hands freely, so **the stock location is shared and the
 custody is per person** — a location per cowboy would only manufacture variance
 every time somebody handed a bottle across a chute.
 
-- **Checkout** is an `issue` txn: barn → crew location, carrying
-  `crew_user_id`. Custody, not consumption.
+- **Checkout** is a `checkout` txn carrying `crew_user_id`. **It does not move
+  stock** — the bottle is still ranch inventory, just in somebody's hand. Four
+  fields to enter: person, med, bottles, date.
 - **Usage** is consumed per doctoring med line at approval — `dose_cc` units out
-  of the crew location, FIFO, cost frozen onto `doctoring_event_meds.cost`.
+  of the ranch pool, FIFO, cost frozen onto `doctoring_event_meds.cost`.
   `doctoring_events.recorded_by_user_id` already says who gave it.
-- **The count trues the location up.** What the crew should hold is checkouts
-  minus recorded doses; what they actually hold is the count. The difference is
-  shrink.
+- **The count trues the pool up.** What the ranch should hold is purchases minus
+  recorded doses; what it actually holds is the count, barn and trucks together.
+  The difference is shrink.
 
 `med_custody` (view) is the per-person sub-ledger: checked out − returned −
 doses recorded by that person = outstanding. **That number is fair over a
@@ -178,15 +193,15 @@ number nobody trusts is worse than none.
 
 **Never block a doctoring entry on inventory.** If the stock is not there the
 entry saves anyway, costs at the most recent layer's unit cost, and the
-location goes negative with a flag on the exceptions report. This is animal
+location goes negative with a flag on the on-hand screen. This is animal
 health data and a bookkeeping gap is not a reason to lose it. The same rule the
 offline queue follows: never a silent drop, never a hard stop on a field record.
 
 ### Processing — the buyer's draw
 
 Meds for processing are picked up by the buyer at the supplier and used on our
-cattle before they ship. So the pickup is a purchase into that buyer's location,
-and the processing of a receipt consumes from it.
+cattle before they ship. So the pickup is a purchase received to that buyer's
+location, and the processing of a receipt consumes from it. Nothing transfers.
 
 Expected units for a receipt are exactly what `lot_processing_costs` already
 computes — protocol dose per head at the receipt's weight, rounded by
@@ -238,31 +253,53 @@ Buyer efficiency is the same ratio with expected-from-protocol as the numerator.
 
 ---
 
-## Getting the invoice in
+## Getting the invoice in — Cowork
 
-The app is one static HTML file on GitHub Pages. No build step, no server, and
-the only libraries are the four already on CDN. That is what bounds this
-answer.
+Purchases come in through Cowork (John, 2026-08-27), which is both the simplest
+build and the only approach that reads a *scan* well.
 
-| approach | reads a **scan**? | cost |
-|---|---|---|
-| **Attach the PDF, type the lines** | n/a | already built — `uploadAttachment()`, storage bucket, `invoice_attachments` pattern |
-| **Paste rows** — Claude/Cowork reads the PDF, hands back tab-separated rows, paste into a review grid | **yes**, and well | small; it is the accounting report's "Copy rows" run backwards |
-| pdf.js text extraction, parsed per vendor | **no** — a scan is an image and pdf.js finds no text in it | medium, and only ever helps invoices that arrive by email |
-| Tesseract.js OCR in the browser | yes, poorly | 2–4 MB of wasm, slow per page, and it errs precisely on digits |
-| Supabase Edge Function → Claude → structured lines | **yes**, best | real infrastructure: a function, a stored secret, and a deploy path this repo does not have yet |
+Why not have the app do it: this is one static HTML file on GitHub Pages, no
+build step, no server, four CDN libraries. Inside that, **pdf.js cannot read a
+scan at all** — a scan is an image and there is no text in it to find — and
+browser OCR (Tesseract, 2–4 MB of wasm) errs precisely on digits, which is the
+entire content of an invoice. Reading a scanned invoice properly takes a model,
+and the model is already in the room.
 
-**Recommended: attach + paste rows now, Edge Function later if the volume
-justifies it.** The Cowork habit already exists for Redwing exports (roadmap
-item 4) and this is the same motion — and unlike the browser options it reads a
-photographed or faxed invoice as well as a clean one.
+So: hand the invoice to Cowork, it reads the scan and matches the products and
+returns one tab-separated block; paste that into the Purchases screen, check the
+grid, post. The PDF attaches to the purchase through `uploadAttachment()`, which
+already exists.
 
-**One rule holds regardless of method: nothing posts straight from a parse.**
-Every extracted line lands in a review grid showing quantity, unit cost and
-extended cost with a running total against the invoice, and it **cannot post
-until that total ties**. A wrong unit cost does not throw. It silently prices
-every future FIFO draw off that layer, and by the time it surfaces it is frozen
-into treatment cost on a dozen lots.
+**The paste format is the contract**, so it is printed on the screen beside the
+box — the Cowork prompt stays stable, and the app never guesses at a layout.
+One header line, then one line per product:
+
+```
+Vendor           2026-09-04    INV-88213
+Draxxin          2    496.31
+Ultrachoice 8    4    189.87
+Valcor           6    150.71
+```
+
+Name, bottles, unit price. Bottle size and the base-unit conversion come from
+`medications`; `mfr_lot_number` and `expires_on` stay optional and are usually
+left blank.
+
+**A name that does not match a medication stops and asks.** It never picks the
+closest row on its own — a med matched to the wrong catalog entry prices the
+wrong layer, and that error is invisible from the moment it posts.
+
+**Nothing posts straight from a parse.** Every pasted line lands in a review
+grid showing quantity, unit cost and extended cost with a running total against
+the invoice, and it cannot post until that total ties. A wrong unit cost does
+not throw — it silently prices every future FIFO draw off that layer, and by the
+time it surfaces it is frozen into treatment cost on a dozen lots. **This is the
+one place the build stays deliberately un-simple.**
+
+If the typing ever becomes the bottleneck, the next step is a Supabase Edge
+Function that takes the PDF and returns the same block — same format, same grid,
+no paste. That is real infrastructure (a function, a stored secret, a deploy path
+this repo does not have yet), so it waits until volume asks for it.
 
 ---
 
@@ -346,16 +383,17 @@ adjustments. Four things answer everything still open:
 
 All views `WITH (security_invoker = true)`, no exceptions.
 
+Five views, down from eight — valuation is a total row on `med_on_hand`,
+exceptions are flags on it, and buyer reconciliation is `med_efficiency` grouped
+by buyer instead of by person.
+
 | view | answers |
 |---|---|
-| `med_on_hand` | units, bottle equivalent, FIFO value, oldest layer, expiring within N days — by med and location |
-| `med_inventory_value` | totals by category and location; the number for the balance sheet |
+| `med_on_hand` | units, bottle equivalent, FIFO value, oldest layer, and flags: negative, unpriced, expired, stale |
 | `med_activity` | the ledger, filterable by med, location, date, type |
-| `med_roll_forward` | beginning + purchases − usage − shrink = ending, by month and by fiscal year. Ties by construction. |
-| `med_efficiency` | theoretical vs consumed, units and dollars, by med and location and period |
-| `med_custody` | per crew member: checked out, returned, doses recorded, outstanding |
-| `med_buyer_reconciliation` | per buyer: drawn, expected from head processed, variance, balance still on their account |
-| `med_exceptions` | negative on-hand, unpriced purchase lines, expired stock still on hand, layers older than a year |
+| `med_roll_forward` | beginning + purchases − usage − shrink = ending, by month and by fiscal year, with the Redwing costing-difference line. Ties by construction. |
+| `med_efficiency` | theoretical vs consumed, units and dollars — grouped by crew member, or by buyer against head processed |
+| `med_custody` | per crew member: checked out, doses recorded, outstanding |
 
 Dates use `public.ranch_today()`, never `CURRENT_DATE`. The database runs UTC
 and the ranch does not; `lot_daily_head` already lost a day to this once.
@@ -367,13 +405,13 @@ and the ranch does not; `lot_daily_head` already lost a day to this once.
 New top-level **Inventory** tab, `data-perm="office"` — it is all dollars, so
 crew never sees it. Sub-tabs:
 
-1. **On hand** — by location, with value, expiring soon, and negatives flagged
+1. **On hand** — one list, ranch and each buyer, with value and the flags
 2. **Purchases** — attach the invoice PDF, paste or type the lines, tie, post
-3. **Checkouts & transfers** — barn → crew (to a named person), supplier →
-   buyer, returns
-4. **Counts** — enter a count, see the variance, then post it
-5. **Efficiency** — crew by person, buyers by name, with the period roll-forward
-6. **Reports** — Redwing report, roll-forward and valuation; print landscape and
+3. **Checkouts** — person, med, bottles, date. Four fields.
+4. **Counts** — the screen lists every med with its system quantity; type what
+   you counted, leave the rest blank, see the variance, post
+5. **Efficiency** — crew by person, buyers by name
+6. **Reports** — the Redwing report and the roll-forward; print landscape and
    PDF through the existing `sharePdfFile()` path
 
 ---
@@ -400,12 +438,12 @@ anything is trusted.
 
 RPCs, all INVOKER with a pinned `search_path`:
 
-- `med_consume(medication_id, location_id, qty_units, txn_type, ref_kind, ref_id, txn_date)`
+- `med_consume(medication_id, location_id, qty_units, txn_type, reason, ref_kind, ref_id, txn_date)`
   → allocates FIFO, writes the txn and its layer rows, returns cost
 - `med_reverse_txn(txn_id)` → restores exactly the layers named in `med_txn_layers`
-- `med_transfer(...)` → consume at source, mirror the layer at the destination
-  preserving unit cost and received date
 - `med_post_count(count_id)` → variance → adjustment txns, all or nothing
+
+Three, not four. There is no transfer RPC because there are no transfers.
 
 Run `supabase/migrations/20260821000300_rls_verify.sql` after the migration.
 
