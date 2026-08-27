@@ -14,7 +14,7 @@ Decisions taken by John:
 | Buyer meds | **Each buyer is a stock location.** Supplier invoice receives into their account; expected usage comes from head processed × protocol. |
 | Go-live | **Opening count, soft target 2026-09-01**, subject to build speed. No backfill. |
 | Invoice intake | **Attach the PDF and paste the rows**, through a review grid that must tie to the invoice total. No straight-to-post parsing. |
-| Redwing | **Date-ranged report in the Sales accounting-report format.** Weekly vs monthly becomes a picker, not a schema decision. |
+| Redwing | **Redwing is the GL; this is the subsidiary ledger.** Date-ranged report in the Sales accounting-report format; weekly vs monthly becomes a picker, not a schema decision. |
 
 The module lives entirely in the office app (`index.html`). The field app is
 not touched.
@@ -290,11 +290,55 @@ cannot, because it only exists once a count is posted.** For a range that does
 not end on a count date the report states usage and says plainly that shrink is
 un-counted for the period, rather than printing a zero that reads as "none".
 
-**Open question — does Redwing already receive the vet-supply invoice through
-AP?** If it does, this report posts only the usage allocation and the inventory
-adjustment; adding purchase rows would double-count the same invoice. If it does
-not, purchases get a row set of their own. A sample of what gets handed to
-Redwing for meds today settles it in one look.
+### Redwing already carries inventory (John, 2026-08-27)
+
+That changes the posture, and it is worth being explicit about it because two
+sets of books over the same bottles is how both end up wrong.
+
+**Redwing is the general ledger. This module is the subsidiary ledger.** Redwing
+knows dollars in and dollars out. What it cannot know is that 1.1 cc/100 lb of
+Draxxin went into lot 36-27 on a Tuesday, that the crew is running at 82% of
+theoretical, or that Thigpen drew a case and processed 441 head with it. That
+allocation and that efficiency are the whole reason this module exists, and they
+are the only things it should claim to own.
+
+So, provisionally, until the reports land:
+
+- **The report almost certainly does not post purchases.** If the vet-supply
+  invoice already enters Redwing through AP, a purchase row set here books the
+  same invoice twice. Usage allocation and inventory adjustment are what Redwing
+  cannot derive on its own.
+- **We still have to value inventory ourselves.** Not to compete with Redwing's
+  balance sheet, but because FIFO layer cost is what phases 2 and 3 freeze into
+  treatment and processing cost per lot. Redwing cannot supply that number at
+  lot grain.
+- **Which means the two valuations will differ, and that has to be expected
+  rather than discovered.** If Redwing costs at average or standard and we cost
+  at FIFO, the ending values differ *by construction*, not by error. My vote:
+  **Redwing owns the balance-sheet number, this module owns the per-lot
+  allocation, and `med_roll_forward` is the reconciliation between them** —
+  built to show the costing-method difference as its own line rather than
+  burying it in shrink. Shrink that is really a costing difference is a number
+  that will send somebody out to count bottles that are all there.
+
+**Add `redwing_item_code` to `medications`.** The sales accounting report prints
+lot numbers as the app holds them because we refused to guess Redwing's mapping.
+Here there is no guessing to do: Redwing has an item master, so the mapping gets
+stored once and the report emits Redwing's own item codes.
+
+### What settles the rest (arriving 2026-08-28)
+
+John is sending the Redwing reports and the shape he wants for usage and
+adjustments. Four things answer everything still open:
+
+1. **The inventory valuation report** — reveals Redwing's costing method (FIFO,
+   average or standard) and its item numbering. This is the one that decides how
+   the reconciliation line is built.
+2. **The item master / item list** — the mapping for `redwing_item_code`.
+3. **A recent vet-supply invoice as Redwing received it** — confirms purchases
+   already land through AP, and settles the purchases-row question outright.
+4. **Whatever usage / adjustment entry gets made today** — the format this
+   report has to match.
 
 ---
 
@@ -434,7 +478,10 @@ not deletions.
 
 ## Still open
 
-- **Does Redwing already get the vet-supply invoice through AP?** Decides
-  whether the report posts purchases or only usage and adjustments.
+- **Redwing's costing method**, from the valuation report — decides how the
+  reconciliation line between our FIFO value and Redwing's is built.
+- **Does the vet-supply invoice already reach Redwing through AP?** Near-certain
+  now that Redwing carries inventory, but confirm before deciding the report
+  emits no purchase rows.
 - **Report cadence** — weekly or monthly. Deliberately deferred: the report is
   date-ranged, so this is a habit rather than a build decision.
