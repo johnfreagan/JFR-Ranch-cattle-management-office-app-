@@ -68,7 +68,7 @@ med_counts ── med_count_lines        med_stock_locations
  (physical count → variance → adjustment txn)
 ```
 
-Five tables and one lookup. The shape is the shipment allocation shape — a
+Six tables and one lookup. The shape is the shipment allocation shape — a
 header, lines, and an allocation table that records exactly which units at
 exactly which cost — for the same reason: a movement that cannot say what it
 took cannot be reversed.
@@ -483,17 +483,17 @@ Cadence is monthly, and mandatory at 6/30 for the fiscal year close.
 
 All views `WITH (security_invoker = true)`, no exceptions.
 
-Five views, down from eight — valuation is a total row on `med_on_hand`,
-exceptions are flags on it, and buyer reconciliation is `med_efficiency` grouped
-by buyer instead of by person.
+Six views. Valuation is a total row on `med_on_hand` and exceptions are flags on
+it, rather than views of their own.
 
 | view | answers |
 |---|---|
 | `med_on_hand` | units, bottle equivalent, FIFO value, oldest layer, and flags: negative, unpriced, expired, stale |
 | `med_activity` | the ledger, filterable by med, location, date, type |
-| `med_roll_forward` | beginning + purchases − usage − shrink = ending, by month and by fiscal year, with the Redwing costing-difference line. Ties by construction. |
+| `med_roll_forward` | beginning + purchases + opening − used + adjustments + uncovered = ending, by month and by fiscal year. Ties by construction, and verified to tie to `med_on_hand`. |
 | `med_efficiency` | theoretical vs consumed, units and dollars — grouped by crew member, or by buyer against head processed |
 | `med_custody` | per crew member: checked out, doses recorded, outstanding |
+| `med_buyer_reconciliation` | per buyer: drawn, expected from head processed, variance |
 
 Dates use `public.ranch_today()`, never `CURRENT_DATE`. The database runs UTC
 and the ranch does not; `lot_daily_head` already lost a day to this once.
