@@ -542,6 +542,52 @@ feed_counts · feed_count_lines ───────────┘   physical 
   `pb_row_key` upserts a re-run of the same invoice; running Aug 17-26 then
   Aug 20-31 double-feeds four days under different keys.
 
+### Design decisions taken 2026-08-28 — read `docs/feed-design-decisions.md`
+
+Twenty-five decisions, DECIDED NOT YET BUILT. The full record with the reasoning
+for each is in `docs/feed-design-decisions.md`. The ones that change existing
+rules:
+
+- **The app is the system of record for feed on hand.** Counts are truth. PB
+  supplies usage pounds; Redwing receives our dollars. PB carries four negative
+  balances and Redwing carries Salt at −5,457 lb with +$1,999.18 of value —
+  neither can be trusted for custody.
+- **Cut-over is 2026-09-01, BARN ONLY.** August and prior stay on the cost
+  allocation; from 9/1 every lot charges actual feed. Silage is not being fed and
+  is carried as a named reconciling item ($225,155). No backdating.
+- **`feed_direct_from` must be a RANCH-LEVEL DATE, not the per-lot flag phase 4
+  shipped.** That flag has no date and rewrites a lot's whole life: setting it on
+  36-27 on 9/1 would re-price August from $2.00 to ~$1.00/hd/day with no actual
+  feed to replace it — about $6,400 evaporating. The closeout must SPLIT
+  head-days on the date.
+- **Several app items may map to ONE Redwing template box.** Do NOT merge "Corn"
+  and "Corn hopper bin" — PB encodes the bay in the commodity name, and that is
+  the only signal telling an import which pile was fed. This reverses earlier
+  advice in OPEN-ITEMS.
+- **Silage shrink is haircut at ENTRY** (gross × (1 − allowance), full harvest
+  cost held), so no revaluation mechanic is needed. Store gross, allowance and
+  booked separately — actual shrink calibrates on GROSS, never on booked, or each
+  year's estimate error compounds into the next.
+- **Barn shrink goes to a two-sided variance account, never to a lot.** Its
+  balance is the accuracy of the allowances, so found feed must credit the same
+  account. Do not build allowance machinery for purchased commodities yet —
+  haircutting a scale-ticketed load breaks the invoice and Redwing tie.
+- **A count variance means different things per item.** Barn commodities: we know
+  what was fed, so it is SHRINK. Mineral: no feeding record exists, so it is
+  CONSUMPTION, allocated by head-days across every open lot. One per-item setting.
+- **Per-pound cost of gain is a DISPLAY metric and an input convenience only —
+  never a projection driver.** John's assumed ADG is deliberately biased low;
+  converting a $/lb cost rate through it makes the cost projection optimistic
+  ($94/head in the worked example) while the revenue side is already conservative.
+  Assumed ADG drives weight and revenue; REALIZED ADG drives anything touching
+  cost.
+- **A premix short is not an ordinary short.** It means the ingredients are still
+  on the books — two errors, and the feed still allocates cleanly so nothing looks
+  broken. That is how PB reached −1,109,171 lb. It needs its own anomaly wording.
+- **Shrink surfaces as a bay that will not go to zero, not as going short.**
+  Physical < book = book balance survives on an empty bay. Going short is the
+  opposite signal: a delivery was never entered.
+
 ### Cost of gain and premixes (phase 4, live 2026-08-27)
 
 - **Feed cost spreads over head-days INSIDE each usage's period**, never onto

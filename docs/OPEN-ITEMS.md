@@ -244,10 +244,11 @@ no cost has frozen yet.
   2026-08-11. Feed entered for a period starting before the layer's date
   finds nothing to draw on, goes short, costs at the item's last known price
   and flags itself — correct behaviour, wrong answer.
-- **"Corn hopper bin" and "Corn" are separate items.** If it is the same corn
-  in two places it should be one item in two locations. FIFO is scoped per
-  (item, location), so merging loses nothing and different crop years still
-  stay separate by bay.
+- ~~**"Corn hopper bin" and "Corn" are separate items."**~~ **Resolved
+  2026-08-28: keep them separate.** PB encodes the bay in the commodity name,
+  and that is the only signal telling an import which pile was fed. Merging to
+  match Redwing's single `Corn $` box would destroy it. Instead several items
+  map to one Redwing box. See `feed-design-decisions.md` #2.
 - **The four PB negatives have no real number.** Corn −1,393, Deccox −756,
   RTU Silage Tran 1 −29,918, RTU Silage Premix 2025 −1,109,171 lb. A negative
   opening balance is PB saying it fed something it was never told existed,
@@ -280,6 +281,13 @@ no cost has frozen yet.
   history starts 2026-04-27 against a first invoice of 2025-12-04). Lot-level
   allocation is unaffected — it goes through `lot_daily_head`. Only bites once
   mineral is put out by pasture.
+
+**Superseded 2026-08-28.** A working session settled 25 design decisions that
+change several items above — the cut-over is 9/1 and barn-only, silage is
+deferred, the COG boundary is a ranch-level date rather than the per-lot flag
+phase 4 shipped, and a count variance means shrink for commodities but
+consumption for mineral. Read `docs/feed-design-decisions.md` before acting on
+this item.
 
 **Not built:** phase 3 (PB import — designed, waiting on a CSV; its real
 hazard is an OVERLAPPING import, not a duplicate one, since `pb_row_key`
