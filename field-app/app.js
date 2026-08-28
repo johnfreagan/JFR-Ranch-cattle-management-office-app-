@@ -118,6 +118,20 @@ let tagLotMap = loadJSON('betaCattleTagLots', {});
 let tagRanges = loadJSON('betaCattleTagRanges', []);
 
 // One place that answers "which lot is this tag on", best source first.
+// Assigning an unknown value to a <select> silently does nothing - the
+// element just stays on its placeholder. Lot and Pasture are both selects
+// fed from cached lookups, so any gap in that cache showed up as a blank
+// field with no error: the tag resolved fine, the option simply was not
+// there to select. Report it instead of swallowing it.
+function setSelectValue(select, value) {
+    if (!select) return false;
+    const want = String(value == null ? '' : value).trim();
+    if (!want) return false;
+    const ok = Array.from(select.options).some(o => o.value === want);
+    if (ok) select.value = want;
+    return ok;
+}
+
 function resolveLotForTag(tag) {
     const key = String(tag).trim();
     if (!key) return '';
@@ -315,6 +329,23 @@ function toIsoOrNull(value) {
     const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(str);
     const d = new Date(dateOnly ? str + 'T00:00:00' : str);
     return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// Whole days from a date-only arrival string to today, in LOCAL time.
+// The same date-only trap as above bit the estimated-weight box: it did
+//   const arrival = new Date("2026-08-11");   // UTC midnight
+//   arrival.setHours(0,0,0,0);                // -> local midnight Aug 10
+// which in Texas rewinds a day, so every lot read one day heavier than the
+// books. Build the date from its parts and no timezone is involved.
+function daysOnFeedFrom(dateStr) {
+    if (!dateStr) return 0;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr));
+    if (!m) return 0;
+    const arrival = new Date(+m[1], +m[2] - 1, +m[3]);
+    if (isNaN(arrival.getTime())) return 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.max(0, Math.round((today - arrival) / 86400000));
 }
 
 // Map a field payload onto the staging row. `raw` is the payload verbatim
@@ -1173,10 +1204,21 @@ window.processCloudData = function(data) {
             safeSetItem('betaCattleLots', JSON.stringify(lotsDatabase));
             safeSetItem('betaCattleProtocols', JSON.stringify(protocolsDatabase));
             
-            safeSetItem('betaLastSyncDate', new Date().toISOString().split('T')[0]);
-        // Recorded only here, after a pull has populated everything, so a
-        // failed or partial pull cannot mark the device as up to date.
-        safeSetItem('betaCattleDataVersion', String(DATA_SCHEMA_VERSION));
+            // Only stamp the device as up to date when the lookups the
+            // doctoring form depends on actually arrived. The comment here
+            // used to claim a partial pull could not mark the device current,
+            // but nothing enforced it: the degrade-rather-than-die path above
+            // reports a failed query and carries on, so a device that had
+            // lost its tag maps was still stamped fresh and would not
+            // re-sync on its own.
+            // Absent (a caller that predates this flag) counts as complete,
+            // so an unrelated path cannot strand a device as never-synced.
+            if (data.lookupsComplete !== false) {
+                safeSetItem('betaLastSyncDate', new Date().toISOString().split('T')[0]);
+                safeSetItem('betaCattleDataVersion', String(DATA_SCHEMA_VERSION));
+            } else {
+                localStorage.removeItem('betaLastSyncDate');
+            }
 
             // Retire tombstones the cloud has already dropped (keeps the set from growing forever)
             const allCloudIds = new Set([...cloudRecordIds, ...cloudMoveIds]);
@@ -1191,7 +1233,17 @@ window.processCloudData = function(data) {
                 updateMovesList();
             }
             updateDailySummary();
-            syncCloudBtn.innerText = "✅ DATA REFRESHED!";
+            // What the device actually holds, not just that something
+            // happened. "Refreshed" told a cowboy nothing when the tag map
+            // had come back empty, and an empty tag map is exactly what a
+            // tag that will not resolve looks like from the outside.
+            const tagCount = Object.keys(tagLotMap).length;
+            syncCloudBtn.innerText = tagCount > 0
+                ? `✅ ${lotsDatabase.length} lots · ${tagCount} tags`
+                : "⚠ REFRESHED — NO TAGS";
+            syncCloudBtn.title = `${lotsDatabase.length} lots, ${tagCount} tags, `
+                + `${tagRanges.length} tag ranges, `
+                + `${Object.keys(tagLocationMap).length} known locations`;
         }
     } catch (err) { 
         console.error('processCloudData error:', err);
@@ -1281,7 +1333,8 @@ async function pullCloudData() {
             // estimated-weight box and the dose auto-fill depend on; `lots`
             // carries the tag range used to infer a lot from a tag number.
             sb.from('lot_status')
-              .select('lot_id, lot_number, arrival_date, target_adg, avg_weight_in, closed_at')
+              .select('lot_id, lot_number, arrival_date, target_adg, avg_weight_in, ' +
+                      'projected_current_weight, days_since_weighted_arrival, closed_at')
               .is('closed_at', null).order('lot_number'),
             sb.from('lots')
               .select('id, lot_number, start_tag, end_tag, closed_at, is_test')
@@ -1411,6 +1464,11 @@ async function pullCloudData() {
                     arrivalDate: l.arrival_date,
                     targetADG:   l.target_adg,
                     avgWeight:   l.avg_weight_in,
+                    // The office weights off the WEIGHTED arrival date (head-
+                    // weighted across the loads), not the first load. Carrying
+                    // the view's own numbers is what keeps the two apps equal.
+                    projWeight:  l.projected_current_weight,
+                    weightedDOF: l.days_since_weighted_arrival,
                     isTest:      !!base.is_test
                 };
             })
@@ -1459,8 +1517,10 @@ async function pullCloudData() {
 
         const tagLocations = {};
         const tagLots = {};
+        let tagFetchOk = false;
         try {
             const openTags = await fetchOpenLotTags();
+            tagFetchOk = true;
             openTags.forEach(t => {
                 if (t.lots && t.lots.lot_number) tagLots[String(t.tag_number)] = t.lots.lot_number;
                 const dests = destsByReceipt[t.delivery_receipt_id] || [];
@@ -1477,15 +1537,26 @@ async function pullCloudData() {
             // whole pull and leave the cowboy without lots or meds.
             console.warn('tag location build failed:', tagErr);
         }
-        tagRanges = (receiptRes.data || [])
-            .filter(r => r.lots && !r.lots.is_test && r.tag_start != null && r.tag_end != null)
-            .map(r => ({ lotNumber: r.lots.lot_number, start: r.tag_start, end: r.tag_end }));
-        safeSetItem('betaCattleTagRanges', JSON.stringify(tagRanges));
 
-        tagLocationMap = tagLocations;
-        tagLotMap = tagLots;
-        safeSetItem('betaCattleTagLocations', JSON.stringify(tagLocationMap));
-        safeSetItem('betaCattleTagLots', JSON.stringify(tagLotMap));
+        // Only replace a cache when its own fetch actually succeeded. This
+        // used to assign unconditionally, so one failed request replaced a
+        // good tag map with {} AND persisted the empty version - turning a
+        // transient network blip into a device that could no longer resolve
+        // any tag. Keeping the previous data is always better than keeping
+        // nothing.
+        if (tagFetchOk) {
+            tagLocationMap = tagLocations;
+            tagLotMap = tagLots;
+            safeSetItem('betaCattleTagLocations', JSON.stringify(tagLocationMap));
+            safeSetItem('betaCattleTagLots', JSON.stringify(tagLotMap));
+        }
+        if (!receiptRes.error) {
+            tagRanges = (receiptRes.data || [])
+                .filter(r => r.lots && !r.lots.is_test && r.tag_start != null && r.tag_end != null)
+                .map(r => ({ lotNumber: r.lots.lot_number, start: r.tag_start, end: r.tag_end }));
+            safeSetItem('betaCattleTagRanges', JSON.stringify(tagRanges));
+        }
+        const lookupsComplete = tagFetchOk && !receiptRes.error;
 
         // Book treatments, shaped like the app's own records so the same
         // lookups work on both. No id: these must never be edited or deleted
@@ -1540,7 +1611,8 @@ async function pullCloudData() {
 
         window.processCloudData({
             records: cloudRecords, moves: cloudMoves,
-            medications, locations, lots, protocols
+            medications, locations, lots, protocols,
+            lookupsComplete
         });
     } catch (err) {
         console.error('pullCloudData error:', err);
@@ -1592,10 +1664,19 @@ tagNumberInput.oninput = function(e) {
 
     if (!foundLot) foundLot = resolveLotForTag(val);
     
+    let lotMissingFromList = false;
     if (foundLot && !locks.lot) {
-        lotInput.value = foundLot;
-        lotInput.style.pointerEvents = 'none';
-        lotInput.style.backgroundColor = '#e5e5ea';
+        if (setSelectValue(lotInput, foundLot)) {
+            lotInput.style.pointerEvents = 'none';
+            lotInput.style.backgroundColor = '#e5e5ea';
+        } else {
+            // The tag resolved but this device has no option for that lot -
+            // its lot list is stale or the pull failed. Say so; do not leave
+            // the cowboy staring at an empty box.
+            lotMissingFromList = true;
+            lotInput.style.pointerEvents = 'auto';
+            lotInput.style.backgroundColor = '#ffffff';
+        }
     } else if (!locks.lot) {
         lotInput.style.pointerEvents = 'auto';
         lotInput.style.backgroundColor = '#ffffff';
@@ -1625,16 +1706,25 @@ tagNumberInput.oninput = function(e) {
         pastureInput.innerHTML = '<option value="" disabled selected>Select Pasture...</option>'
             + uniquePastures.map(p => `<option value="${p}">${p}</option>`).join('');
         
-        pastureInput.value = past;
+        setSelectValue(pastureInput, past);
     }
 
-    updateAlertBox();
+    updateAlertBox(lotMissingFromList ? foundLot : '');
 };
 
-function updateAlertBox() {
+function updateAlertBox(staleLot) {
     const tagVal = tagNumberInput.value.trim();
     const lotVal = lotInput.value.trim();
     let alertHtml = "";
+
+    // A resolved lot that is not in this device's list means stale cached
+    // data, not an unknown animal. Naming it is the difference between a
+    // fixable problem and "the app just doesn't work".
+    if (staleLot) {
+        alertHtml += `<div style="color:#b00020"><b>⚠ Tag is on lot ${staleLot}, `
+            + `but this device's lot list is out of date.</b> Tap Sync Cloud Data, `
+            + `then re-enter the tag.</div>`;
+    }
     
     if (tagVal !== '') {
         const history = historyPool().filter(r => String(r.tagNumber) === tagVal && String(r.id) !== String(editingRecordId));
@@ -1648,14 +1738,22 @@ function updateAlertBox() {
     if (lotVal !== '') {
         const lot = lotsDatabase.find(l => String(l.lotNumber).trim().toLowerCase() === lotVal.toLowerCase());
         if (lot) {
-            const arrival = new Date(lot.arrivalDate);
-            const today = new Date();
-            arrival.setHours(0,0,0,0); today.setHours(0,0,0,0);
-            let dof = isNaN(arrival.getTime()) ? 0 : Math.floor((today - arrival) / (1000 * 3600 * 24));
-            if (dof < 0) dof = 0;
+            // Days on feed. The office measures this from the lot's WEIGHTED
+            // arrival date - head-weighted across every load - not from the
+            // first load. On a lot still receiving, those are far apart: 36-27
+            // first landed Aug 11 but its average animal arrived Aug 19, so
+            // counting from Aug 11 overstated the estimate by eight days of
+            // gain. Use the view's own figure and only fall back to a local
+            // calculation when it is missing.
+            let dof = (lot.weightedDOF != null && !isNaN(Number(lot.weightedDOF)))
+                ? Math.max(0, Math.round(Number(lot.weightedDOF)))
+                : daysOnFeedFrom(lot.arrivalDate);
             const gain = parseFloat(lot.targetADG) || 0;
             const startW = parseFloat(lot.avgWeight) || 0;
-            currentEstWeight = Math.round(startW + (dof * gain));
+            // Same rule for the weight itself: the books' number wins.
+            currentEstWeight = (lot.projWeight != null && !isNaN(Number(lot.projWeight)))
+                ? Math.round(Number(lot.projWeight))
+                : Math.round(startW + (dof * gain));
             alertHtml += `📦 <b>Lot: ${lot.lotNumber}</b> | <b>DOF:</b> ${dof} | <b>Gain:</b> ${gain}<br><b>Est. Weight: ${currentEstWeight} lbs</b>`;
         } else {
             alertHtml += `📦 <b>Lot: ${lotVal}</b> (No weight data found)`;

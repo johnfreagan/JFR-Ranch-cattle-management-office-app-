@@ -10,7 +10,7 @@
 // Bump CACHE_VERSION whenever you deploy changes to index.html / app.js / styles.css.
 // =========================================================
 
-const CACHE_VERSION = 'v12';   // v12: page every growable query
+const CACHE_VERSION = 'v13';   // v13: weighted-arrival weights, checked selects
 const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 
 // Must match the query strings index.html actually requests, or these get
