@@ -46,10 +46,9 @@ html, body {
 }
 
 body {
-  background-image:
-    linear-gradient(var(--line) 1px, transparent 1px);
-  background-size: 100% 2.6rem;
-  background-position: 0 5.2rem;
+  /* No printed rule pattern. The ledger reference stays in the palette and
+     the type; the ruled lines fought every row that was not exactly 2.6rem
+     tall, which is most of them once an entry wraps to two lines. */
   padding-top: var(--safe-top);
   padding-bottom: calc(var(--safe-bottom) + 4.5rem);
   min-height: 100vh;
