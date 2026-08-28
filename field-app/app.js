@@ -113,6 +113,12 @@ let tagLocationMap = loadJSON('betaCattleTagLocations', {});
 // outside their lot's range), so the range is a last-ditch fallback only.
 let tagLotMap = loadJSON('betaCattleTagLots', {});
 
+// tag number -> { why, places } for tags whose location is NOT knowable.
+// The books track pasture per LOT, not per animal, so a load that turned out
+// into two pastures leaves every tag on it genuinely ambiguous. Saying that
+// out loud, with the shortlist, beats an empty box that reads as a bug.
+let tagCandidateMap = loadJSON('betaCattleTagCandidates', {});
+
 // Per-receipt tag ranges, for a tag that is physically in the pasture but not
 // registered in lot_tags yet.
 let tagRanges = loadJSON('betaCattleTagRanges', []);
@@ -917,7 +923,7 @@ historyTabBtn.onclick = () => switchTab('history');
 // synced under an older schema has a current betaLastSyncDate but is
 // missing the new data entirely, and would otherwise sit there looking
 // synced while tag lookups quietly returned nothing.
-const DATA_SCHEMA_VERSION = 5;
+const DATA_SCHEMA_VERSION = 6;
 
 function checkDailySync() {
     const lastSync = localStorage.getItem('betaLastSyncDate');
@@ -1517,6 +1523,7 @@ async function pullCloudData() {
 
         const tagLocations = {};
         const tagLots = {};
+        const tagCandidates = {};
         let tagFetchOk = false;
         try {
             const openTags = await fetchOpenLotTags();
@@ -1530,7 +1537,27 @@ async function pullCloudData() {
                 if (dests.length === 1 && openHere.indexOf(dests[0]) !== -1) pid = dests[0];
                 // Case 2: the lot is only in one place, so the animal is too.
                 else if (openHere.length === 1) pid = openHere[0];
-                if (pid && pastureLabelById[pid]) tagLocations[String(t.tag_number)] = pastureLabelById[pid];
+                if (pid && pastureLabelById[pid]) {
+                    tagLocations[String(t.tag_number)] = pastureLabelById[pid];
+                    return;
+                }
+                // Unresolved. Say WHY, and narrow it to the pastures it could
+                // actually be in - a blank box reads as broken, and "one of
+                // these two" is most of the answer on a load that split.
+                let why = null, ids = [];
+                if (dests.length > 1) {
+                    why = 'split';
+                    // Only offer arrival pastures the lot still occupies.
+                    ids = dests.filter(id => openHere.indexOf(id) !== -1);
+                    if (ids.length === 0) { why = 'moved'; ids = openHere; }
+                } else if (dests.length === 1) {
+                    // Arrived somewhere the lot has since left entirely.
+                    why = 'moved'; ids = openHere;
+                } else if (openHere.length > 1) {
+                    why = 'multi'; ids = openHere;
+                }
+                const places = [...new Set(ids)].map(id => pastureLabelById[id]).filter(Boolean).sort();
+                if (why && places.length > 1) tagCandidates[String(t.tag_number)] = { why, places };
             });
         } catch (tagErr) {
             // Location is an autofill convenience; losing it must not fail the
@@ -1547,8 +1574,10 @@ async function pullCloudData() {
         if (tagFetchOk) {
             tagLocationMap = tagLocations;
             tagLotMap = tagLots;
+            tagCandidateMap = tagCandidates;
             safeSetItem('betaCattleTagLocations', JSON.stringify(tagLocationMap));
             safeSetItem('betaCattleTagLots', JSON.stringify(tagLotMap));
+            safeSetItem('betaCattleTagCandidates', JSON.stringify(tagCandidateMap));
         }
         if (!receiptRes.error) {
             tagRanges = (receiptRes.data || [])
@@ -1734,6 +1763,24 @@ function updateAlertBox(staleLot) {
         }
     }
     
+    // Why the pasture did not fill itself in. The books record pasture per
+    // LOT, not per animal, so when a load turned out into two pastures nobody
+    // wrote down which half each tag went to - the answer does not exist to
+    // look up. Naming the candidates turns a blank box into a two-way choice.
+    if (tagVal !== '' && !pastureInput.value) {
+        const cand = tagCandidateMap[tagVal];
+        if (cand && cand.places && cand.places.length > 1) {
+            const list = cand.places.map(p => `<b>${p}</b>`).join(' or ');
+            const why = cand.why === 'split'
+                ? 'This load was split between these pastures on arrival'
+                : cand.why === 'moved'
+                    ? 'This lot has moved since arrival, and is now in'
+                    : 'This lot is in more than one pasture';
+            alertHtml += `<div style="margin-top:4px">📍 ${why}: ${list}. `
+                + `The books track pasture by lot, not by tag, so pick the one it came out of.</div>`;
+        }
+    }
+
     currentEstWeight = 0; 
     if (lotVal !== '') {
         const lot = lotsDatabase.find(l => String(l.lotNumber).trim().toLowerCase() === lotVal.toLowerCase());
@@ -1911,7 +1958,12 @@ propertyInput.onchange = function() {
     const uniquePastures = [...new Set(pastures)];
     pastureInput.innerHTML = '<option value="" disabled selected>Select Pasture...</option>'
         + uniquePastures.map(p => `<option value="${p}">${p}</option>`).join('');
+    updateAlertBox();
 };
+
+// Once the pasture is answered the "we cannot know which" note has served its
+// purpose, so clear it rather than leaving it nagging over a filled field.
+pastureInput.onchange = function() { updateAlertBox(); };
 
 function pushToCloud(record) {
     // Queue for resilient delivery. Retries on reconnect, focus, and interval.
@@ -2563,7 +2615,7 @@ const RESET_KEYS = [
     'betaCattleRecords', 'betaCattleMoves', 'betaCattleMeds', 'betaCattleLocs',
     'betaCattleLots', 'betaCattleProtocols', 'betaCattleLocks',
     'betaCattleBooksHistory', 'betaCattleTagLocations', 'betaCattleTagLots',
-    'betaCattleTagRanges',
+    'betaCattleTagRanges', 'betaCattleTagCandidates',
     'betaCattleSyncQueue', 'betaCattleTombstones', 'betaCattleRejected',
     'betaLastSyncDate', 'betaCattleDataVersion', 'betaCattleDayReport'
     // 'crewMemberName' is deliberately kept - it is a convenience, not state,
