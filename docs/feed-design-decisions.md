@@ -1,6 +1,6 @@
 # Feed inventory — design decisions
 
-Twenty-five decisions taken 2026-08-28 in one working session with John, reached
+Twenty-six decisions taken 2026-08-28 in one working session with John, reached
 in dependency order. Each one records what was decided **and why the alternative
 lost**, because the reason is the part that stops it being re-litigated in six
 months.
@@ -363,7 +363,48 @@ Salt — **$9,089.13** in Redwing's Mineral RM 118008, currently $0 in the app.
 
 ---
 
-## 8. What this changes
+## 8. The weekly entry screen
+
+### 26. A matrix, tied to PB's own stated total
+
+**The cycle.** PB runs Monday–Sunday. The report is pulled and entered every
+Monday by an office employee, one lot at a time from PB's lot dropdown. Only
+**commodity and pounds** are taken from it — never Cost Per Ton, Feed Cost,
+management fee or yardage.
+
+**The screen.** Commodities down the left, lots across the top. Work one column
+per PB invoice. Bay defaults from the item — PB's commodity name carries it,
+which is the whole point of decision 2 — and is overrideable; a commodity drawn
+from two bays expands that cell into two lines, the way a single-line shipment
+load splits when a second line is added. Bay balances net down live while typing,
+so an overdraw shows before save. One period, set once for the whole entry.
+
+**The verification.** The employee types PB's stated **Amount Fed** total for the
+lot. The column total ties to it within a small tolerance and shows green or
+amber. **Warn loudly, never block.**
+
+**Why the typed total is worth seven keystrokes.** Without something to tie to, a
+transposed digit balances perfectly and surfaces in closeout months later. With
+it, the entry is provably right before save — the same principle as the shipment
+save refusing a load whose lines do not sum to its own head. Verified on the
+2026-08-24→30 invoice for 36-27: the nine commodity lines sum to **99,209 lb**
+against a stated **99,210** — one pound of rounding on displayed integers, so a
+tolerance is required, and a real transposition is orders of magnitude larger.
+Feed Cost behaves the same way ($13,976.10 against $13,976.11).
+
+**Name resolution needs no new mapping.** All nine commodities on that invoice —
+Corn hopper bin, Molasses, DDG, Peanut Hulls, SoyHull Pellets, Whole Cottonseed,
+Deccox- Corrid Crumbles, Pennchlor 50G, Ranly mixing mineral — match
+`feed_items.pb_name` exactly as they stand.
+
+**`period_end` may never be in the future.** A partial period spreads real dollars
+across days nothing was fed on. The Mon–Sun-entered-Monday cycle means this guard
+should never fire; it costs nothing and it stops the one entry that would be
+silently wrong.
+
+---
+
+## 9. What this changes
 
 Nothing below is built yet.
 
@@ -380,7 +421,9 @@ Nothing below is built yet.
 **App**
 
 - Count sheet: "bay is empty — zero every line"; estimate labelling on bulk bays.
-- Weekly entry: one overlap summary on save.
+- Weekly entry: the matrix screen — column per lot, bay defaulting and cell split,
+  live bay netting, typed PB total with a tie indicator, one overlap summary on save,
+  and a hard stop on a future `period_end`.
 - Anomalies: overdue bays; premix short with the ingredients-still-on-books wording;
   missing non-feed COG rate.
 - Closeout: head-day split at `feed_direct_from`; zero non-feed COG with a warning
@@ -397,18 +440,18 @@ Nothing below is built yet.
 
 ---
 
-## 9. Monday 8/31
+## 10. Monday 8/31
 
 No feeding that day, so inventory is static across the changeover.
 
 | what | who |
 |---|---|
-| Post feed to Redwing from PB — the normal weekly posting | Lauren |
+| Post feed to Redwing from PB — the normal weekly posting | Office |
 | Walk the barns and count | John |
 | PB ↔ office app tie, from John's numbers | Claude |
 | Decide the variance account | John + accountant |
 | **9/1** — direct charging starts, allocation stops carrying feed | — |
-| **9/7** — first real weekly entry, covering 9/1–9/6 | Lauren |
+| **9/7** — first real weekly entry, covering 9/1–9/6 | Office |
 
 **Numbers needed on the day:**
 
