@@ -1716,17 +1716,16 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Feed out</h2>
-                    <div style="display:flex; gap:8px;">
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <select id="fdUsMode" style="max-width:190px;">
+                            <option value="matrix">Weekly sheet (PB)</option>
+                            <option value="rows">Single rows</option>
+                        </select>
                         <button id="fdUsRefreshBtn">Refresh on hand</button>
                         <button class="primary" id="fdUsAddRowBtn">+ Row</button>
                     </div>
                 </div>
-                <p class="muted" style="font-size:12px; margin:-6px 0 14px 0;">
-                    One row per commodity per lot for the period. The dates are the period the feed was
-                    <em>eaten</em>, not the day you key it: a Friday entry for the week's corn spreads over
-                    the week, so a lot that shipped Wednesday is not charged Thursday and Friday.
-                    Nothing is written until you save, and if any row fails the whole batch is put back.
-                </p>
+                <p class="muted" style="font-size:12px; margin:-6px 0 14px 0;" id="fdUsIntro"></p>
 
                 <div class="form-grid">
                     <div>
@@ -1744,6 +1743,15 @@
                 </div>
                 <div id="fdUsPeriodHint" class="muted" style="font-size:12px; margin-top:4px;"></div>
 
+                <div id="fdUsMatrixWrap" style="margin-top:14px;">
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+                        <select id="fdMxAddLot" style="max-width:200px;"><option value="">— Add a lot column —</option></select>
+                        <select id="fdMxAddItem" style="max-width:240px;"><option value="">— Add a commodity row —</option></select>
+                        <button type="button" id="fdMxResetBtn">Reset sheet</button>
+                    </div>
+                    <div id="fdMxTable" style="overflow-x:auto;"></div>
+                    <div id="fdMxTie" style="margin-top:10px;"></div>
+                </div>
                 <div id="fdUsRowList" style="margin-top:14px;"></div>
                 <div id="fdUsDrawSummary" style="margin-top:14px;"></div>
             </div>
@@ -2314,6 +2322,11 @@
                     <label for="fdLocCapacity">Capacity (lb)</label>
                     <input type="number" step="1" min="1" id="fdLocCapacity" placeholder="optional">
                 </div>
+                <div>
+                    <label for="fdLocCountInterval">Count every (days)</label>
+                    <input type="number" step="1" min="1" id="fdLocCountInterval" placeholder="e.g. 90">
+                    <div class="muted" style="font-size:11px; margin-top:2px;">Overdue shows on Inventory and Anomalies. It never blocks feeding.</div>
+                </div>
             </div>
             <div style="margin-bottom:14px;">
                 <label style="font-size:13px;">
@@ -2423,12 +2436,54 @@
                     <input type="text" id="fdItemAccount" placeholder="optional">
                 </div>
                 <div>
+                    <label for="fdItemTemplateField">Redwing template box</label>
+                    <input type="text" id="fdItemTemplateField" placeholder="e.g. Corn" list="fdItemTemplateList">
+                    <datalist id="fdItemTemplateList">
+                        <option value="Corn"><option value="DDGS"><option value="Peanut Hulls">
+                        <option value="Cottonseed Hulls"><option value="WCS"><option value="Penchlor">
+                        <option value="Corrid Crumbles"><option value="(old)Premix"><option value="BatchTransPre">
+                        <option value="TranPremix"><option value="24Corn/Sorg Silage"><option value="25Corn Silage">
+                        <option value="SoyHull"><option value="Molasses"><option value="Salt"><option value="Limiter">
+                        <option value="Ranly"><option value="Redman Bag Salt"><option value="ADM Master Gain">
+                        <option value="IGR Master Gain"><option value="MLS Tubs"><option value="Purina Min">
+                        <option value="One Grass"><option value="Ranly Mixing Min">
+                    </datalist>
+                    <div class="muted" style="font-size:11px; margin-top:2px;">Several items may share one box &mdash; the export sums them.</div>
+                </div>
+                <div>
                     <label for="fdItemProfitCenter">Profit center</label>
                     <input type="text" id="fdItemProfitCenter" placeholder="optional">
                 </div>
                 <div>
                     <label for="fdItemProductionCenter">Production center</label>
                     <input type="text" id="fdItemProductionCenter" placeholder="optional">
+                </div>
+            </div>
+
+            <h4 style="margin-bottom:8px;">Shrink &amp; counts</h4>
+            <div class="form-grid" style="margin-bottom:6px;">
+                <div>
+                    <label for="fdItemVarianceMeaning">A count variance means</label>
+                    <select id="fdItemVarianceMeaning">
+                        <option value="shrink">Shrink &mdash; we know what was fed</option>
+                        <option value="consumption">Consumption &mdash; no feeding record exists</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="fdItemShrinkPct">Entry shrink allowance (%)</label>
+                    <input type="number" step="0.01" min="0" max="99" id="fdItemShrinkPct" placeholder="blank = none">
+                </div>
+            </div>
+            <p class="muted" style="font-size:11px; margin:0 0 12px 0;" id="fdItemVarianceHint"></p>
+
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="fdItemIsPremix" style="width:auto; vertical-align:middle;">
+                    This is a premix &mdash; made from other commodities
+                </label>
+                <div class="muted" style="font-size:11px; margin-top:2px;">
+                    A premix going short means the batch was never recorded and its ingredients are still on the books.
+                    It gets its own line on Anomalies rather than the ordinary short flag.
                 </div>
             </div>
 
@@ -2498,8 +2553,26 @@
                     <input type="number" step="0.01" min="0.01" id="fdRcQtyLb" required>
                 </div>
             </div>
-            <div class="muted" style="font-size:11px; margin-bottom:14px;" id="fdRcQtyHint">
+            <div class="muted" style="font-size:11px; margin-bottom:10px;" id="fdRcQtyHint">
                 Type either one and the other fills in.
+            </div>
+
+            <div id="fdRcShrinkBlock" class="hidden" style="margin-bottom:14px; padding:10px 12px; background:rgba(0,0,0,0.03); border-radius:6px;">
+                <div class="form-grid" style="margin-bottom:6px;">
+                    <div>
+                        <label for="fdRcGrossQty">Gross pounds in</label>
+                        <input type="number" step="0.01" min="0" id="fdRcGrossQty" placeholder="before shrink">
+                    </div>
+                    <div>
+                        <label for="fdRcShrinkPct">Shrink allowance (%)</label>
+                        <input type="number" step="0.01" min="0" max="99" id="fdRcShrinkPct">
+                    </div>
+                </div>
+                <div class="muted" style="font-size:11px;" id="fdRcShrinkHint">
+                    Gross &times; (1 &minus; allowance) becomes the booked pounds above and carries the full cost,
+                    so the price per pound rises on day one and every pound fed carries its share.
+                    Gross is kept so next season&rsquo;s allowance calibrates against it, never against the booked figure.
+                </div>
             </div>
 
             <h4 style="margin-bottom:8px;">Cost</h4>
@@ -2662,10 +2735,14 @@
             </div>
         </div>
 
-        <p class="muted" style="font-size:12px; margin:0 0 10px 0;">
-            Book shows what the layers say is there. Type what is actually there. Anything you leave
-            blank is skipped &mdash; not treated as zero.
-        </p>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0 0 10px 0;">
+            <p class="muted" style="font-size:12px; margin:0; flex:1; min-width:220px;">
+                Book shows what the layers say is there. Type what is actually there. Anything you leave
+                blank is skipped &mdash; not treated as zero.
+            </p>
+            <button type="button" id="fdCtZeroAllBtn">Bay is empty &mdash; zero every line</button>
+        </div>
+        <div id="fdCtZeroNote" class="muted hidden" style="font-size:12px; margin:0 0 10px 0; color:#b58900;"></div>
 
         <div id="fdCtLines"><div class="empty">Pick a location.</div></div>
 
@@ -3850,6 +3927,12 @@ window.addEventListener('unhandledrejection', function(e) {
     // out loud rather than charging zero feed, the same posture head-days
     // already take.
     let currentLotFeed = null;
+    // Ranch-level, not per lot: feed stops being an assumption and starts
+    // being an actual on ONE date for the whole outfit. A per-lot flag with
+    // no date rewrites a lot's whole life - setting it on 36-27 would
+    // re-price August at the non-feed rate with no actual feed to replace it.
+    let feedDirectFrom = null;         // 'YYYY-MM-DD' or null
+    let currentHeadDaysAfterBoundary = null;   // head-days on/after feedDirectFrom
     const $ = id => document.getElementById(id);
 
     // A refused write comes back as a Postgres 42501 / row-level security
@@ -4304,6 +4387,29 @@ window.addEventListener('unhandledrejection', function(e) {
         currentLotFeed = (feedCostRes && !feedCostRes.error)
             ? (feedCostRes.data || { feed_cost_usd: 0, feed_lb: 0, cost_per_head_day: 0, unallocated_usd: 0 })
             : null;
+
+        // Head-days on or after the direct-charge boundary. The closeout
+        // SPLITS a lot's life there: days before keep the full assumed cost
+        // of gain (feed included, on the allocation); days after charge the
+        // non-feed rate plus actual feed. Only the days after are fetched -
+        // before is the remainder - so the row count is days-since-9/1, not
+        // the whole life of the lot.
+        currentHeadDaysAfterBoundary = null;
+        await loadRanchSettings();
+        if (feedDirectFrom) {
+            const hdRes = await supabase.from('lot_daily_head')
+                .select('head_on_hand')
+                .eq('lot_id', lotId)
+                .gte('as_of_date', feedDirectFrom)
+                .limit(1200);
+            if (!hdRes.error) {
+                currentHeadDaysAfterBoundary =
+                    (hdRes.data || []).reduce((t, r) => t + (Number(r.head_on_hand) || 0), 0);
+                // A lot open long enough to hit the cap would silently
+                // under-report. Better to know nothing than to know wrong.
+                if ((hdRes.data || []).length >= 1200) currentHeadDaysAfterBoundary = null;
+            }
+        }
 
         currentActualMedCost = {
             total: procTotal + treatTotal + otherTotal,
@@ -5257,6 +5363,16 @@ window.addEventListener('unhandledrejection', function(e) {
         }).format(new Date());
     }
 
+    // One row. Read once per session; a failure leaves it null and the
+    // closeout then behaves exactly as it did before the boundary existed.
+    async function loadRanchSettings(){
+        if (feedDirectFrom !== null) return;
+        const { data, error } = await supabase
+            .from('ranch_settings').select('feed_direct_from').maybeSingle();
+        if (error || !data) return;
+        feedDirectFrom = data.feed_direct_from || null;
+    }
+
     // ---- ACTUAL TO DATE -------------------------------------------------
     // Everything here comes from the books. The only inputs from the
     // assumptions panel are the COG and labor RATES, because there is no
@@ -5291,15 +5407,51 @@ window.addEventListener('unhandledrejection', function(e) {
         // this rate instead. Nothing is recomputed retroactively.
         const nonFeedCog = (lot && lot.assumed_nonfeed_cog_per_day != null)
             ? Number(lot.assumed_nonfeed_cog_per_day) : null;
-        const cogSplit = nonFeedCog != null;
-        const cogRate  = cogSplit ? nonFeedCog : (rates.cog || 0);
-        const cogMode  = cogSplit ? 'per_day' : rates.cogMode;
+
+        // The boundary. Before feedDirectFrom, feed lives INSIDE the assumed
+        // cost of gain and on the cost allocation, so the full assumed rate
+        // runs unchanged. On or after it, the lot charges actual feed plus a
+        // non-feed rate. Splitting head-days on the date is the whole point:
+        // applying the non-feed rate to a lot's whole life would re-price the
+        // months before it with no actual feed to replace what was removed.
+        const boundaryActive = !!feedDirectFrom && currentHeadDaysAfterBoundary != null;
+        const hdAfter  = boundaryActive ? Math.min(currentHeadDaysAfterBoundary, headDays) : 0;
+        const hdBefore = Math.max(0, headDays - hdAfter);
+
+        // The boundary is set but the split could not be loaded. Do NOT fall
+        // through to the per-lot non-feed rate: with no date to split on it
+        // would apply to the lot's WHOLE life and silently re-price every
+        // month before the boundary at the lower rate, with no actual feed to
+        // replace what was removed. That is the exact failure this date
+        // exists to prevent. Charge the original assumed rate throughout and
+        // say so - too high is visible, evaporated is not.
+        const splitUnavailable = !!feedDirectFrom && currentHeadDaysAfterBoundary == null;
+
+        // Missing non-feed rate on a lot that has crossed the boundary:
+        // charge ZERO for those days and say so, loudly. Falling back to the
+        // full assumed rate would silently double-count against actual feed,
+        // which is the exact overlap the boundary exists to remove.
+        const nonFeedMissing = boundaryActive && hdAfter > 0 && nonFeedCog == null;
+        const useNonFeedOnly = !boundaryActive && !splitUnavailable && nonFeedCog != null;
+        const cogSplit = boundaryActive || useNonFeedOnly;
+        const cogRate  = boundaryActive ? (nonFeedCog != null ? nonFeedCog : 0)
+                       : useNonFeedOnly ? nonFeedCog
+                       : (rates.cog || 0);
+        const cogMode  = (boundaryActive || useNonFeedOnly) ? 'per_day' : rates.cogMode;
 
         // A per-head rate is a flat charge taken at receiving; a per-day rate
         // is charged against head-days actually run.
-        const cog   = cogMode === 'per_day'
-            ? cogRate * headDays
-            : cogRate * headIn;
+        let cog;
+        if (boundaryActive) {
+            // days before the boundary keep the ORIGINAL assumed rate, in its
+            // original mode; days after charge the non-feed rate.
+            const beforeCog = rates.cogMode === 'per_day'
+                ? (rates.cog || 0) * hdBefore
+                : (rates.cog || 0) * headIn;   // a flat charge was taken once, at receiving
+            cog = beforeCog + cogRate * hdAfter;
+        } else {
+            cog = cogMode === 'per_day' ? cogRate * headDays : cogRate * headIn;
+        }
         const labor = rates.laborMode === 'per_day'
             ? (rates.labor || 0) * headDays
             : (rates.labor || 0) * headIn;
@@ -5321,6 +5473,7 @@ window.addEventListener('unhandledrejection', function(e) {
             headIn, headCurrent, headDead, daysToDate, headDays,
             cattleCost, processing, treatment, otherMed, feed, cog, labor, interest,
             feedPerHeadDay, cogSplit, cogRate, cogMode,
+            boundaryActive, splitUnavailable, hdBefore, hdAfter, nonFeedMissing, nonFeedCog,
             operating, totalCost,
             soldHead, revenue, soldWeight,
             avgCostHead: headIn > 0 ? cattleCost / headIn : 0,
@@ -5614,18 +5767,91 @@ window.addEventListener('unhandledrejection', function(e) {
         if (currentLotFeed == null) {
             warnings.push('Feed cost could not be loaded. It is missing from the Actual column, not zero.');
         }
-        // The overlap is the whole point of showing it. Assumed COG covers
-        // feed, grass and yardage together; until the feed share is split
-        // out, charging both double-counts whatever part of the rate is feed.
-        if (actual.feed > 0 && !actual.cogSplit && rates.cog) {
+        // Before the boundary, assumed COG covers feed, grass and yardage
+        // together, so charging actual feed beside it double-counts whatever
+        // part of the rate is feed. On or after the boundary the split is
+        // structural and this cannot happen.
+        if (actual.feed > 0 && !actual.boundaryActive && !actual.cogSplit && rates.cog) {
             warnings.push('Feed and cost of gain OVERLAP on this lot — the assumed COG rate still includes a feed share, ' +
                 'and actual feed is charged beside it. Set the lot\'s non-feed COG rate to split them.');
+        }
+        // A missing non-feed rate after the boundary charges ZERO for those
+        // days rather than falling back to the full assumed rate, which would
+        // double-count against actual feed. Zero is visibly incomplete; a
+        // double count looks fine.
+        if (actual.nonFeedMissing) {
+            warnings.push('This lot has ' + fmtNum(actual.hdAfter, 0) + ' head-days on or after ' + fmtDate(feedDirectFrom) +
+                ' with <b>no non-feed cost of gain rate set</b>. Those days are charging actual feed and <b>nothing else</b> — ' +
+                'no grass, no yardage, no labor share. Set the lot\'s non-feed COG rate.');
+        }
+        if (actual.boundaryActive && actual.hdAfter > 0 && actual.hdBefore > 0) {
+            warnings.push('Cost of gain is split at ' + fmtDate(feedDirectFrom) + ': ' +
+                fmtNum(actual.hdBefore, 0) + ' head-days on the old assumed rate (feed included), ' +
+                fmtNum(actual.hdAfter, 0) + ' on the non-feed rate plus actual feed.');
+        }
+        if (feedDirectFrom && currentHeadDaysAfterBoundary == null && currentHeadDaysToDate != null) {
+            warnings.push('The head-day split at ' + fmtDate(feedDirectFrom) + ' could not be loaded, so cost of gain is ' +
+                'running on the <b>full assumed rate for the whole lot</b> — deliberately, because applying the non-feed ' +
+                'rate without a date to split on would re-price every month before the boundary. ' +
+                'Feed may be double-counted against it here. Reload the lot.');
         }
         if (currentLotFeed && Number(currentLotFeed.unallocated_usd) > 0) {
             warnings.push(fmtMoney(currentLotFeed.unallocated_usd) + ' of feed could not be charged to any day — ' +
                 'its period covers no head-days for this lot. See Feed → Cost.');
         }
         const warnBlock = warnings.length ? `<div class="alert" style="background:#fff8e6; border:1px solid #d4a017; color:#6a4c0a; padding:8px 10px; margin-bottom:10px; border-radius:var(--radius); font-size:12.5px;">${warnings.map(w=>`<div>${w}</div>`).join('')}</div>` : '';
+
+        // ---- cost per POUND OF GAIN, and which ADG is driving things ----
+        //
+        // Per-pound is how John thinks about cost of gain, and a flat
+        // $/head/day is systematically wrong across a lot's life anyway - a
+        // 300 lb steer and a 700 lb steer do not eat the same dollars.
+        //
+        // But it is a DISPLAY metric and never a projection driver. The
+        // projection carries to a ship DATE, so days are fixed and ADG has no
+        // business touching cost. John's assumed ADG is deliberately biased
+        // low to carry a margin; convert a cost rate through it and the cost
+        // projection goes optimistic while revenue is already conservative -
+        // the one combination that is wrong in both directions at once.
+        //
+        // So: assumed ADG drives weight and revenue. REALIZED ADG drives
+        // anything that touches cost, and only once real weights exist.
+        const realizedAdg = (currentRealizedAdg && currentRealizedAdg.realized_adg != null)
+            ? Number(currentRealizedAdg.realized_adg) : null;
+        const gainToDateLb = (realizedAdg != null && actual.headDays > 0)
+            ? realizedAdg * actual.headDays : null;
+        const costOfGainPerLb = (gainToDateLb && gainToDateLb > 0)
+            ? (actual.processing + actual.treatment + actual.otherMed + actual.feed
+               + actual.cog + actual.labor) / gainToDateLb
+            : null;
+
+        const gainBlock = `
+            <div style="margin-top:10px; padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:12.5px;">
+                <div style="display:flex; gap:22px; flex-wrap:wrap; align-items:baseline;">
+                    <div><span class="muted" style="font-size:11px;">COST OF GAIN, PER LB</span><br>
+                        <strong style="font-size:16px;">${costOfGainPerLb != null
+                            ? '$' + costOfGainPerLb.toFixed(4) + '/lb'
+                            : '<span class="muted" style="font-size:13px;">needs real weights</span>'}</strong></div>
+                    <div><span class="muted" style="font-size:11px;">ADG ASSUMED</span><br>
+                        <strong style="font-size:16px;">${rates.adg != null ? Number(rates.adg).toFixed(2) : '—'}</strong></div>
+                    <div><span class="muted" style="font-size:11px;">ADG REALIZED</span><br>
+                        <strong style="font-size:16px; ${realizedAdg != null ? 'color:var(--success);' : ''}">${
+                            realizedAdg != null ? realizedAdg.toFixed(2)
+                            : '<span class="muted" style="font-size:13px;">no weigh-outs yet</span>'}</strong></div>
+                    ${(realizedAdg != null && rates.adg != null) ? `<div>
+                        <span class="muted" style="font-size:11px;">MARGIN CARRIED</span><br>
+                        <strong style="font-size:16px;">${(realizedAdg - Number(rates.adg) >= 0 ? '+' : '−')}${Math.abs(realizedAdg - Number(rates.adg)).toFixed(2)}</strong>
+                        </div>` : ''}
+                </div>
+                <div class="muted" style="font-size:11px; margin-top:6px; line-height:1.5;">
+                    ${costOfGainPerLb != null
+                        ? 'Operating cost to date divided by gain to date, using the <b>realized</b> ADG. '
+                        : 'Cost per pound of gain needs two real weigh events — dividing cost by an estimated gain on a young lot turns a 10% weight error into a 10% cost error. '}
+                    Assumed ADG drives weight and revenue; realized ADG drives anything touching cost.
+                    ${(realizedAdg != null && rates.adg != null && realizedAdg > Number(rates.adg))
+                        ? 'These cattle are running ahead of the assumption — that gap is the margin the projection is carrying.' : ''}
+                </div>
+            </div>`;
 
         // ---- the table ----
         const money = n => (n == null ? '—' : fmtMoney(n));
@@ -5667,7 +5893,11 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${row('Processing', budget ? b('med') : null, actual.processing, actual.processing, {note:'at receiving'})}
                     ${row('Treatment', null, actual.treatment, actual.treatment + proj.treatmentFwd, {note:'doctoring'})}
                     ${(actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, actual.feed, actual.feed + proj.feedFwd, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day actual' : 'from the feed ledger'}) : ''}
-                    ${row('Cost of gain', b('cog'), actual.cog, actual.cog + proj.cogFwd, {note: actual.cogSplit ? 'non-feed only' : ''})}
+                    ${row('Cost of gain', b('cog'), actual.cog, actual.cog + proj.cogFwd, {note:
+                        actual.nonFeedMissing ? '<span style="color:#b58900;">no non-feed rate set</span>'
+                        : actual.boundaryActive && actual.hdBefore > 0
+                            ? `split at ${fmtDate(feedDirectFrom)} · non-feed after`
+                        : actual.cogSplit ? 'non-feed only' : ''})}
                     ${row('Labor', b('labor'), actual.labor, actual.labor + proj.laborFwd)}
                     ${row('Interest', b('interest'), actual.interest, actual.interest + proj.interestFwd)}
                     ${row('Total cost', b('totalCost'), actual.totalCost, proj.totalCost, {strong:true, rule:true})}
@@ -5677,6 +5907,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${row('Break-even $/lb', b('breakEvenPerLb'), null, proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note:'on cattle still on feed'})}
                 </tbody>
             </table>
+            ${gainBlock}
             <div class="muted" style="font-size:11px; margin-top:8px; line-height:1.5;">
                 Actual has no Net because the lot is not finished — revenue only lands as cattle ship.
                 Death loss is not a line: the cattle that died are already in Cattle in, so the loss shows up
@@ -9801,11 +10032,17 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         $('reportAnomaliesContent').innerHTML = '<div class="empty">Running checks…</div>';
 
         // Pull everything we need in parallel
-        const [statusRes, lotsRes, assignmentsRes, receiptsRes] = await Promise.all([
+        const [statusRes, lotsRes, assignmentsRes, receiptsRes,
+               bayRes, premixRes, settingsRes] = await Promise.all([
             supabase.from('lot_status').select('lot_id, lot_number, head_in, head_in_invoiced, head_in_received, head_pending_invoice, head_dead, head_sold, head_current, closed_at'),
-            supabase.from('lots').select('id, is_test, closed_at'),
+            supabase.from('lots').select('id, is_test, closed_at, lot_number, assumed_nonfeed_cog_per_day'),
             supabase.from('lot_pasture_assignments').select('lot_id, head_count').is('moved_out', null),
-            supabase.from('delivery_receipts').select('id, lot_id, head_count, tag_start, tag_end')
+            supabase.from('delivery_receipts').select('id, lot_id, head_count, tag_start, tag_end'),
+            // Feed checks. Crew cannot read these; RLS returns zero rows and
+            // no error, so the section simply does not appear for them.
+            supabase.from('feed_location_count_status').select('*'),
+            supabase.from('feed_premix_shorts').select('*'),
+            supabase.from('ranch_settings').select('feed_direct_from').maybeSingle()
         ]);
 
         // Active tags MUST be paginated: PostgREST caps responses at 1000 rows and
@@ -9960,7 +10197,81 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             });
         });
 
-        if (findings.length === 0) {
+        // ---- FEED ---------------------------------------------------
+        // Two of these belong to a lot and join the list below. Overdue bays
+        // belong to no lot, so they get their own block.
+        const feedBoundary = (settingsRes && settingsRes.data)
+            ? settingsRes.data.feed_direct_from : null;
+        const overdueBays = (bayRes && !bayRes.error ? (bayRes.data || []) : [])
+            .filter(b => b.is_active && b.is_overdue);
+
+        // A premix going short means the batch was never recorded and its
+        // ingredients are STILL ON THE BOOKS - two errors in opposite
+        // directions, and the feed still allocates cleanly so nothing else
+        // on any screen looks wrong. This is why it is not the ordinary
+        // short flag.
+        (premixRes && !premixRes.error ? (premixRes.data || []) : []).forEach(ps => {
+            const st = (statusRes.data || []).find(x => x.lot_id === ps.lot_id);
+            if (!ps.lot_id || !st || isTestById[ps.lot_id]) return;
+            findings.push({
+                lot_id: ps.lot_id,
+                lot_number: st.lot_number,
+                severity: 'high',
+                type: 'premix_short',
+                title: 'Premix fed with no batch behind it',
+                detail: `${fmtNum(ps.short_lb)} lb of ${ps.item_name} on ${fmtDate(ps.usage_date)} came off no layer. ` +
+                        `The batch was never recorded, so its ingredients are still sitting in the bay book — ` +
+                        `two errors, opposite directions. Record the batch under Feed → Batches.`
+            });
+        });
+
+        // From the boundary date, a lot with no non-feed COG rate charges
+        // actual feed and NOTHING else - no grass, no yardage, no labor
+        // share. Zero is visibly incomplete; falling back to the full
+        // assumed rate would silently double-count against actual feed.
+        if (feedBoundary && feedBoundary <= ranchToday()) {
+            (lotsRes.data || []).forEach(l => {
+                if (l.is_test || l.closed_at) return;
+                if (/^TEST[_-]/i.test(l.lot_number || '')) return;
+                if (l.assumed_nonfeed_cog_per_day != null) return;
+                const st = (statusRes.data || []).find(x => x.lot_id === l.id);
+                if (!st) return;
+                findings.push({
+                    lot_id: l.id,
+                    lot_number: st.lot_number,
+                    severity: 'medium',
+                    type: 'no_nonfeed_cog',
+                    title: 'No non-feed cost of gain rate',
+                    detail: `Feed has charged directly since ${fmtDate(feedBoundary)}, but this lot has no ` +
+                            `non-feed rate, so days on or after that date carry actual feed and nothing else. ` +
+                            `Set it on the lot's assumptions.`
+                });
+            });
+        }
+
+        const bayBlock = overdueBays.length ? `
+            <div style="margin-bottom:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+                    <h4 style="margin:0;">Feed bays</h4>
+                    <span class="muted" style="font-size:12px;">${overdueBays.length} overdue</span>
+                </div>
+                <table style="font-size:13px;">
+                    <thead><tr><th style="width:60px;">Severity</th><th>Finding</th><th>Detail</th></tr></thead>
+                    <tbody>${overdueBays.map(b => `
+                        <tr>
+                            <td><span style="font-size:10px; padding:1px 6px; border-radius:8px; font-weight:500; background:#fff3d6; color:#8a4d2a;">medium</span></td>
+                            <td><strong>Bay overdue for a count</strong></td>
+                            <td>${escapeHtml(b.location_name)} —
+                                ${b.last_counted_on == null
+                                    ? 'never counted'
+                                    : `last counted ${fmtDate(b.last_counted_on)}, ${b.days_since_count} days ago against a ${b.count_interval_days}-day target`}.
+                                ${fmtNum(b.on_hand_lb)} lb on the books there.
+                                Between counts that balance is unverified and FIFO keeps spending it.</td>
+                        </tr>`).join('')}</tbody>
+                </table>
+            </div>` : '';
+
+        if (findings.length === 0 && !bayBlock) {
             $('reportAnomaliesContent').innerHTML = '<div class="empty">✓ No anomalies detected across active lots. Everything ties out.</div>';
             return;
         }
@@ -9986,7 +10297,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         const banner = `
             <div class="alert" style="background: ${counts.high > 0 ? '#fbeaea' : counts.medium > 0 ? '#fff3d6' : '#e8f0f5'}; border: 1px solid ${counts.high > 0 ? '#c54545' : counts.medium > 0 ? '#d4a017' : '#5a8db9'}; color: #333; padding: 10px; margin-bottom: 12px; border-radius: var(--radius); font-size: 13px;">
-                <strong>${findings.length} finding${findings.length === 1 ? '' : 's'} across ${Object.keys(byLot).length} lot${Object.keys(byLot).length === 1 ? '' : 's'}</strong> ·
+                <strong>${findings.length} finding${findings.length === 1 ? '' : 's'} across ${Object.keys(byLot).length} lot${Object.keys(byLot).length === 1 ? '' : 's'}</strong>${
+                    overdueBays.length ? ` · <strong>${overdueBays.length} bay${overdueBays.length === 1 ? '' : 's'} overdue for a count</strong>` : ''} ·
                 ${counts.high > 0 ? `${counts.high} high` : ''}
                 ${counts.medium > 0 ? ` · ${counts.medium} medium` : ''}
                 ${counts.low > 0 ? ` · ${counts.low} low` : ''}
@@ -10018,7 +10330,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             `;
         }).join('');
 
-        $('reportAnomaliesContent').innerHTML = banner + lotSections;
+        $('reportAnomaliesContent').innerHTML = banner + bayBlock + lotSections;
     }
 
     async function loadYardSheetReport() {
@@ -20217,6 +20529,7 @@ ${ranchBlocks}
     let fdOnHand = [];       // feed_on_hand rows
     let fdRefsLoaded = false;
     let fdUsageSheet = null; // { rows: [...] }
+    let fdCountStatus = [];  // feed_location_count_status rows
     let fdCountState = null; // { location_id, lines: [...] }
 
     const FD_ITEM_TYPES = {
@@ -20274,6 +20587,42 @@ ${ranchBlocks}
         fdPastures  = pastRes.data || [];
         fdRefsLoaded = true;
         return null;
+    }
+
+    // Days since each bay was counted. The app is the system of record for
+    // feed on hand only if the counts actually happen; an overdue bay is
+    // otherwise indistinguishable on screen from one counted last week.
+    async function fdLoadCountStatus() {
+        const { data, error } = await supabase.from('feed_location_count_status').select('*');
+        if (error) { fdCountStatus = []; return error; }
+        fdCountStatus = data || [];
+        return null;
+    }
+
+    function fdCountStatusFor(locId) {
+        return fdCountStatus.find(c => c.location_id === locId) || null;
+    }
+
+    function fdOverdueBays() {
+        return fdCountStatus.filter(c => c.is_active && c.is_overdue);
+    }
+
+    // Flagged, never blocked. Refusing to record usage from an overdue bay
+    // does not un-feed the cattle.
+    function fdOverdueDue() {
+        const due = fdOverdueBays();
+        if (!due.length) return '';
+        const names = due.map(c => {
+            const d = c.days_since_count;
+            return escapeHtml(c.location_name) +
+                (d == null ? ' (never counted)' : ` (${d} days, target ${c.count_interval_days})`);
+        }).join(' &middot; ');
+        return `<div class="alert warning" style="margin-bottom:14px;">
+            <b>${due.length} bay${due.length === 1 ? ' is' : 's are'} overdue for a count.</b>
+            ${names}<br>
+            <span style="font-size:12px;">Between counts the book balance is an unverified number that FIFO
+            keeps spending. Nothing is blocked &mdash; but shrink is only captured when a bay is counted.</span>
+        </div>`;
     }
 
     async function fdLoadOnHand() {
@@ -20345,6 +20694,7 @@ ${ranchBlocks}
         $('fdInvContent').innerHTML = '<div class="empty">Loading…</div>';
         const byLocation = $('fdInvByLocation').checked;
 
+        await fdLoadCountStatus();
         const { data, error } = await supabase
             .from(byLocation ? 'feed_on_hand' : 'feed_item_on_hand')
             .select('*');
@@ -20375,11 +20725,24 @@ ${ranchBlocks}
                      <div style="font-size:20px;">${fmtMoney(totalValue)}</div></div>
                 ${pendingLb > 0 ? `<div><div class="muted" style="font-size:11px;">UNPRICED</div>
                      <div style="font-size:20px; color:var(--warning, #b58900);">${fmtNum(pendingLb)} lb</div></div>` : ''}
-            </div>`;
+            </div>
+            ${fdOverdueDue()}`;
 
         const sorted = rows.slice().sort((a, b) =>
             (a.item_name || '').localeCompare(b.item_name || '') ||
             (a.location_name || '').localeCompare(b.location_name || ''));
+
+        const countBadge = locId => {
+            const st = fdCountStatusFor(locId);
+            if (!st || !st.count_interval_days) return '';
+            if (st.last_counted_on == null) {
+                return `<div style="font-size:11px; color:#b58900;">never counted</div>`;
+            }
+            const d = Number(st.days_since_count);
+            return st.is_overdue
+                ? `<div style="font-size:11px; color:#b58900;">⚠ counted ${d} days ago &middot; target ${st.count_interval_days}</div>`
+                : `<div class="muted" style="font-size:11px;">counted ${d} day${d === 1 ? '' : 's'} ago</div>`;
+        };
 
         const body = sorted.map(r => {
             const item = fdItem(r.item_id);
@@ -20389,7 +20752,8 @@ ${ranchBlocks}
                 <td><strong>${escapeHtml(r.item_name || '—')}</strong>
                     <div class="muted" style="font-size:11px;">${escapeHtml(FD_ITEM_TYPES[r.item_type] || r.item_type || '')}</div></td>
                 ${byLocation ? `<td>${escapeHtml(r.location_name || '—')}
-                    ${capPct != null ? `<div class="muted" style="font-size:11px;">${capPct}% of capacity</div>` : ''}</td>` : ''}
+                    ${capPct != null ? `<div class="muted" style="font-size:11px;">${capPct}% of capacity</div>` : ''}
+                    ${countBadge(r.location_id)}</td>` : ''}
                 <td class="num">${fmtNum(r.qty_lb)} lb
                     ${item && item.purchase_unit !== 'lb'
                         ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdInUnits(r.qty_lb, item))}</div>` : ''}</td>
@@ -20472,6 +20836,7 @@ ${ranchBlocks}
         $('fdLocName').value     = loc ? loc.name : '';
         $('fdLocKind').value     = loc ? loc.kind : 'bay';
         $('fdLocCapacity').value = loc && loc.capacity_lb != null ? loc.capacity_lb : '';
+        $('fdLocCountInterval').value = loc && loc.count_interval_days != null ? loc.count_interval_days : '';
         $('fdLocIsBulk').checked = loc ? !!loc.is_bulk : true;
         $('fdLocActive').checked = loc ? !!loc.is_active : true;
         $('fdLocNotes').value    = loc ? (loc.notes || '') : '';
@@ -20499,6 +20864,7 @@ ${ranchBlocks}
             kind: $('fdLocKind').value,
             is_bulk: $('fdLocIsBulk').checked,
             capacity_lb: $('fdLocCapacity').value ? parseFloat($('fdLocCapacity').value) : null,
+            count_interval_days: $('fdLocCountInterval').value ? parseInt($('fdLocCountInterval').value, 10) : null,
             is_active: $('fdLocActive').checked,
             notes: $('fdLocNotes').value.trim() || null
         };
@@ -20571,8 +20937,12 @@ ${ranchBlocks}
                     <td>${escapeHtml(i.category || '—')}</td>
                     <td>${escapeHtml(i.purchase_unit)}</td>
                     <td class="num">${fmtNum(i.lb_per_purchase_unit, 0)} lb</td>
-                    <td>${i.is_counted ? 'counted' : 'estimated'}</td>
-                    <td>${escapeHtml(i.redwing_account || '—')}</td>
+                    <td>${i.is_counted ? 'counted' : 'estimated'}
+                        ${i.count_variance_meaning === 'consumption'
+                            ? '<div class="muted" style="font-size:11px;">variance = consumption</div>' : ''}</td>
+                    <td>${escapeHtml(i.redwing_template_field || i.redwing_account || '—')}
+                        ${i.default_shrink_allowance_pct != null
+                            ? `<div class="muted" style="font-size:11px;">${fmtNum(i.default_shrink_allowance_pct, 2)}% shrink at entry</div>` : ''}</td>
                     <td>${i.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
                 </tr>`).join('');
             return `<div style="margin-bottom:24px;">
@@ -20580,7 +20950,7 @@ ${ranchBlocks}
                     <span class="muted" style="font-weight:400; text-transform:none; letter-spacing:0; font-size:12px;">(${groups[t].length})</span></h4>
                 <table>
                     <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th class="num">Lb / unit</th>
-                        <th>At count</th><th>Redwing acct</th><th>Status</th></tr></thead>
+                        <th>At count</th><th>Redwing box</th><th>Status</th></tr></thead>
                     <tbody>${rows}</tbody>
                 </table>
             </div>`;
@@ -20612,11 +20982,39 @@ ${ranchBlocks}
         $('fdItemAccount').value          = item ? (item.redwing_account || '') : '';
         $('fdItemProfitCenter').value     = item ? (item.redwing_profit_center || '') : '';
         $('fdItemProductionCenter').value = item ? (item.redwing_production_center || '') : '';
+        $('fdItemTemplateField').value    = item ? (item.redwing_template_field || '') : '';
+        $('fdItemVarianceMeaning').value  = item ? (item.count_variance_meaning || 'shrink')
+                                                : 'shrink';
+        $('fdItemShrinkPct').value        = item && item.default_shrink_allowance_pct != null
+                                                ? item.default_shrink_allowance_pct : '';
+        $('fdItemIsPremix').checked       = item ? !!item.is_premix : false;
         $('fdItemActive').checked         = item ? !!item.is_active : true;
         $('fdItemNotes').value            = item ? (item.notes || '') : '';
         $('fdItemDefaultLoc').innerHTML   = fdLocationOptions(item ? item.default_location_id : '', true);
         $('fdItemDeleteBtn').classList.toggle('hidden', !item);
+        fdSyncVarianceHint();
         showModal('fdItemModal');
+    }
+
+    // Barn commodities: PB tells us what was fed, so a count residual is
+    // SHRINK and goes to the variance account, never to a lot. Mineral: no
+    // feeding record exists, so the residual IS what was consumed and it
+    // allocates to lots by head-days. Same mechanism, opposite meaning.
+    function fdSyncVarianceHint() {
+        const el = $('fdItemVarianceHint');
+        if (!el) return;
+        el.innerHTML = $('fdItemVarianceMeaning').value === 'consumption'
+            ? 'No feeding record exists for this item, so the drop from book at each count <b>is</b> what was consumed. It allocates to every open lot by head-days.'
+            : 'We know what was fed, so the drop from book beyond that is <b>shrink</b>. It goes to the variance account and is never charged to a lot.';
+    }
+
+    // Mineral has no feeding record, so a new mineral item defaults to
+    // treating its count variance as consumption.
+    function fdSyncVarianceFromType() {
+        if ($('fdItemId').value) return;   // never re-decide for a saved item
+        $('fdItemVarianceMeaning').value =
+            ($('fdItemType').value === 'mineral') ? 'consumption' : 'shrink';
+        fdSyncVarianceHint();
     }
 
     // The unit picker sets a sane lb-per-unit, but never overwrites a number
@@ -20650,6 +21048,11 @@ ${ranchBlocks}
             redwing_account: $('fdItemAccount').value.trim() || null,
             redwing_profit_center: $('fdItemProfitCenter').value.trim() || null,
             redwing_production_center: $('fdItemProductionCenter').value.trim() || null,
+            redwing_template_field: $('fdItemTemplateField').value.trim() || null,
+            count_variance_meaning: $('fdItemVarianceMeaning').value,
+            default_shrink_allowance_pct: $('fdItemShrinkPct').value !== ''
+                ? parseFloat($('fdItemShrinkPct').value) : null,
+            is_premix: $('fdItemIsPremix').checked,
             default_location_id: $('fdItemDefaultLoc').value || null,
             is_active: $('fdItemActive').checked,
             notes: $('fdItemNotes').value.trim() || null
@@ -20776,6 +21179,9 @@ ${ranchBlocks}
         $('fdRcOtherCost').value    = r && r.other_cost != null ? r.other_cost : '';
         $('fdRcCostPending').checked = r ? !!r.cost_pending : false;
         $('fdRcNotes').value        = r ? (r.notes || '') : '';
+        $('fdRcGrossQty').value     = r && r.gross_qty_lb != null ? r.gross_qty_lb : '';
+        $('fdRcShrinkPct').value    = r && r.shrink_allowance_pct != null ? r.shrink_allowance_pct : '';
+        fdSyncShrinkBlock(!r);
 
         // The quantity of a load that has already been partly fed cannot be
         // edited here - the layers downstream were sized against it.
@@ -20791,6 +21197,47 @@ ${ranchBlocks}
         $('fdRcDeleteBtn').classList.toggle('hidden', !r || used > 0);
         fdUpdateReceiptCost();
         showModal('fdReceiptModal');
+    }
+
+    // The entry haircut. Silage is booked at gross x (1 - allowance) holding
+    // the FULL harvest cost, so $/lb rises on day one and every pound fed
+    // carries its share of the shrink - no revaluation is ever needed.
+    // Gross is stored beside it because next season's allowance calibrates
+    // on GROSS; calibrating on the booked figure compounds this year's
+    // estimate error into next year's.
+    //
+    // Deliberately NOT switched on for scale-ticketed commodities: haircutting
+    // a weighed load breaks the tie to the invoice and to Redwing.
+    function fdSyncShrinkBlock(seedFromItem) {
+        const item = fdItem($('fdRcItem').value);
+        const has = !!(item && (item.default_shrink_allowance_pct != null
+                                || $('fdRcShrinkPct').value !== ''
+                                || $('fdRcGrossQty').value !== ''));
+        $('fdRcShrinkBlock').classList.toggle('hidden', !has);
+        if (!has) return;
+        if (seedFromItem && $('fdRcShrinkPct').value === '' && item
+            && item.default_shrink_allowance_pct != null) {
+            $('fdRcShrinkPct').value = item.default_shrink_allowance_pct;
+        }
+        fdApplyShrink();
+    }
+
+    function fdApplyShrink() {
+        const gross = parseFloat($('fdRcGrossQty').value);
+        const pct   = parseFloat($('fdRcShrinkPct').value);
+        const hint  = $('fdRcShrinkHint');
+        if (!(gross > 0) || isNaN(pct) || pct < 0 || pct >= 100) return;
+        const booked = Math.round(gross * (1 - pct / 100) * 100) / 100;
+        if (!$('fdRcQtyLb').disabled) {
+            $('fdRcQtyLb').value = booked;
+            fdSyncUnitsFromQty();
+        }
+        if (hint) {
+            hint.innerHTML = `<b>${fmtNum(gross)} lb</b> gross &minus; ${pct}% = ` +
+                `<b>${fmtNum(booked)} lb</b> booked, carrying the full cost. ` +
+                `Gross is kept so next season&rsquo;s allowance calibrates against it.`;
+        }
+        fdUpdateReceiptCost();
     }
 
     function fdUpdateReceiptCost() {
@@ -20874,8 +21321,20 @@ ${ranchBlocks}
             freight_cost: pending ? null : freight,
             other_cost:   pending ? null : other,
             cost_pending: pending,
+            gross_qty_lb: $('fdRcGrossQty').value ? parseFloat($('fdRcGrossQty').value) : null,
+            shrink_allowance_pct: $('fdRcShrinkPct').value !== ''
+                ? parseFloat($('fdRcShrinkPct').value) : null,
             notes: $('fdRcNotes').value.trim() || null
         };
+
+        // gross must be at least the booked figure - the haircut only ever
+        // takes pounds off, and a gross below booked means the two fields
+        // were typed against different loads.
+        if (payload.gross_qty_lb != null && payload.gross_qty_lb < qtyLb) {
+            showAlert('fdReceiptModalAlert',
+                'Gross pounds cannot be less than the booked pounds. The shrink allowance only ever takes pounds off.');
+            return;
+        }
 
         $('fdRcSaveBtn').disabled = true;
         try {
@@ -20958,6 +21417,321 @@ ${ranchBlocks}
         };
     }
 
+    // ======================================================================
+    // THE WEEKLY SHEET
+    // ======================================================================
+    // PB runs Monday-Sunday and prints one invoice per lot, commodities down
+    // it, with a stated "Amount Fed" total. This screen mirrors that: rows
+    // are commodities, columns are lots, and you work one column per invoice.
+    //
+    // The bay is the one field PB never gives you. It defaults from the item,
+    // because PB encodes the bay IN the commodity name ("Corn hopper bin") -
+    // which is exactly why "Corn" and "Corn hopper bin" stay two items. A
+    // commodity drawn from two bays is simply two rows.
+    //
+    // The tie: type PB's stated total into the column footer. Without
+    // something to tie to, a transposed digit balances perfectly and surfaces
+    // in closeout months later. PB's own lines round - on the 8/24-30 invoice
+    // for 36-27 the nine lines sum to 99,209 against a stated 99,210 - so the
+    // check carries a tolerance, and warns rather than blocking.
+    let fdMatrix = null;   // { lotIds:[], rows:[{uid,item_id,location_id}], cells:{}, pbTotals:{} }
+    const FD_TIE_TOLERANCE_LB = 5;
+
+    function fdMxMode() {
+        const el = $('fdUsMode');
+        return el ? el.value : 'matrix';
+    }
+
+    function fdMxCellKey(uid, lotId) { return uid + '|' + lotId; }
+
+    // The bay a commodity comes out of, in order of confidence: where it is
+    // usually kept, else the only bay that actually holds any, else nothing.
+    function fdMxDefaultLocation(itemId) {
+        const item = fdItem(itemId);
+        if (item && item.default_location_id) return item.default_location_id;
+        const holding = fdOnHand.filter(o => o.item_id === itemId && Number(o.qty_lb) > 0);
+        if (holding.length === 1) return holding[0].location_id;
+        return '';
+    }
+
+    function fdMxNewRow(itemId, locId) {
+        return {
+            uid: 'm' + Math.random().toString(36).slice(2, 9),
+            item_id: itemId,
+            location_id: locId || fdMxDefaultLocation(itemId)
+        };
+    }
+
+    function fdMxInit(force) {
+        if (fdMatrix && !force) return;
+        // Every commodity with stock, in its usual bay. Anything else is
+        // added by hand - a blank sheet with a picker is slower every single
+        // Monday than a sheet that starts where the feed actually is.
+        const withStock = [];
+        const seen = new Set();
+        fdOnHand.forEach(o => {
+            if (!(Number(o.qty_lb) > 0)) return;
+            const item = fdItem(o.item_id);
+            if (!item || !item.is_active) return;
+            if (seen.has(o.item_id)) return;
+            seen.add(o.item_id);
+            withStock.push(fdMxNewRow(o.item_id, fdMxDefaultLocation(o.item_id) || o.location_id));
+        });
+        withStock.sort((a, b) => {
+            const A = fdItem(a.item_id), B = fdItem(b.item_id);
+            return (A ? A.name : '').localeCompare(B ? B.name : '');
+        });
+        fdMatrix = {
+            lotIds: fdOpenLots.map(l => l.id),
+            rows: withStock,
+            cells: {},
+            pbTotals: {}
+        };
+    }
+
+    // The matrix is a data-entry surface; the sheet underneath is still the
+    // ordinary row list, so validation, save, rollback and the all-or-nothing
+    // reversal are written once and work for both.
+    function fdMxSyncSheet() {
+        if (!fdMatrix) return;
+        const rows = [];
+        fdMatrix.rows.forEach(r => {
+            fdMatrix.lotIds.forEach(lotId => {
+                const v = fdMatrix.cells[fdMxCellKey(r.uid, lotId)];
+                const n = parseFloat(v);
+                if (!(n > 0)) return;
+                rows.push({
+                    uid: r.uid + '_' + lotId,
+                    item_id: r.item_id,
+                    from_location_id: r.location_id,
+                    destination_type: 'lot',
+                    lot_id: lotId,
+                    pasture_id: '',
+                    to_location_id: '',
+                    qty_lb: String(n)
+                });
+            });
+        });
+        fdUsageSheet = { rows };
+    }
+
+    function fdMxColumnTotal(lotId) {
+        if (!fdMatrix) return 0;
+        return fdMatrix.rows.reduce((t, r) => {
+            const n = parseFloat(fdMatrix.cells[fdMxCellKey(r.uid, lotId)]);
+            return t + (n > 0 ? n : 0);
+        }, 0);
+    }
+
+    function fdMxRowTotal(uid) {
+        if (!fdMatrix) return 0;
+        return fdMatrix.lotIds.reduce((t, lotId) => {
+            const n = parseFloat(fdMatrix.cells[fdMxCellKey(uid, lotId)]);
+            return t + (n > 0 ? n : 0);
+        }, 0);
+    }
+
+    // What this sheet draws out of each (item, bay), against what is there.
+    function fdMxBayDraw(row) {
+        const onHand = fdOnHandFor(row.item_id, row.location_id);
+        const drawn = fdMatrix.rows
+            .filter(r => r.item_id === row.item_id && r.location_id === row.location_id)
+            .reduce((t, r) => t + fdMxRowTotal(r.uid), 0);
+        return { onHand, drawn, left: onHand - drawn };
+    }
+
+    function fdMxRender() {
+        if (!fdMatrix) { $('fdMxTable').innerHTML = ''; return; }
+        const lots = fdMatrix.lotIds
+            .map(id => fdOpenLots.find(l => l.id === id))
+            .filter(Boolean);
+
+        $('fdMxAddLot').innerHTML = '<option value="">— Add a lot column —</option>' +
+            fdOpenLots.filter(l => !fdMatrix.lotIds.includes(l.id))
+                .map(l => `<option value="${l.id}">${escapeHtml(l.lot_number)}</option>`).join('');
+        $('fdMxAddItem').innerHTML = '<option value="">— Add a commodity row —</option>' +
+            fdItems.filter(i => i.is_active)
+                .map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('');
+
+        if (!lots.length || !fdMatrix.rows.length) {
+            $('fdMxTable').innerHTML =
+                '<div class="empty">Add at least one lot column and one commodity row.</div>';
+            $('fdMxTie').innerHTML = '';
+            return;
+        }
+
+        const head = `<tr>
+            <th style="min-width:200px;">Commodity</th>
+            <th style="min-width:150px;">Out of</th>
+            ${lots.map(l => `<th class="num" style="min-width:110px;">${escapeHtml(l.lot_number)}
+                <div style="font-weight:400;"><button type="button" class="fd-mx-droplot" data-lot="${l.id}"
+                     style="font-size:10px; padding:0 4px; background:none; border:none; color:var(--text-muted); cursor:pointer;">remove</button></div></th>`).join('')}
+            <th class="num" style="min-width:100px;">Row total</th>
+            <th style="width:28px;"></th>
+        </tr>`;
+
+        const body = fdMatrix.rows.map(r => {
+            const item = fdItem(r.item_id);
+            const draw = fdMxBayDraw(r);
+            const over = draw.left < -0.0001;
+            return `<tr>
+                <td><strong>${escapeHtml(item ? item.name : '—')}</strong>
+                    ${item && item.pb_name && item.pb_name !== item.name
+                        ? `<div class="muted" style="font-size:11px;">PB: ${escapeHtml(item.pb_name)}</div>` : ''}</td>
+                <td>
+                    <select data-fd-mx-loc="${r.uid}" style="max-width:150px;">
+                        ${fdLocationOptions(r.location_id, true)}
+                    </select>
+                    <div style="font-size:11px; ${over ? 'color:#b58900;' : 'color:var(--text-muted);'}">
+                        ${over ? '⚠ over by ' + fmtNum(-draw.left) + ' lb'
+                               : fmtNum(Math.max(0, draw.left)) + ' of ' + fmtNum(draw.onHand) + ' lb left'}
+                    </div>
+                </td>
+                ${lots.map(l => `<td class="num"><input type="number" step="0.01" min="0"
+                    data-fd-mx-cell="${fdMxCellKey(r.uid, l.id)}"
+                    value="${fdMatrix.cells[fdMxCellKey(r.uid, l.id)] || ''}"
+                    style="max-width:96px; text-align:right;"></td>`).join('')}
+                <td class="num" data-fd-mx-rowtot="${r.uid}">${fmtNum(fdMxRowTotal(r.uid))}</td>
+                <td><button type="button" class="fd-mx-droprow" data-uid="${r.uid}"
+                    style="background:none; border:none; color:var(--text-muted); cursor:pointer;">×</button></td>
+            </tr>`;
+        }).join('');
+
+        // The column footer is where the sheet becomes verifiable: PB's own
+        // Amount Fed against what was typed.
+        const foot = `<tr style="border-top:2px solid var(--border);">
+            <td colspan="2" style="font-weight:600;">Typed total</td>
+            ${lots.map(l => `<td class="num" data-fd-mx-coltot="${l.id}" style="font-weight:600;">${fmtNum(fdMxColumnTotal(l.id))}</td>`).join('')}
+            <td class="num" style="font-weight:600;" data-fd-mx-grand>${fmtNum(lots.reduce((t, l) => t + fdMxColumnTotal(l.id), 0))}</td>
+            <td></td>
+        </tr>
+        <tr>
+            <td colspan="2">PB &ldquo;Amount Fed&rdquo;
+                <div class="muted" style="font-size:11px;">type it off the invoice</div></td>
+            ${lots.map(l => `<td class="num"><input type="number" step="0.01" min="0"
+                data-fd-mx-pb="${l.id}" value="${fdMatrix.pbTotals[l.id] || ''}"
+                style="max-width:96px; text-align:right;"></td>`).join('')}
+            <td colspan="2"></td>
+        </tr>
+        <tr>
+            <td colspan="2"></td>
+            ${lots.map(l => `<td class="num" data-fd-mx-tie="${l.id}" style="font-size:11px;"></td>`).join('')}
+            <td colspan="2"></td>
+        </tr>`;
+
+        $('fdMxTable').innerHTML =
+            `<table style="font-size:13px;"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table>`;
+
+        fdMxWire();
+        fdMxRefreshTotals();
+    }
+
+    function fdMxWire() {
+        $('fdMxTable').querySelectorAll('[data-fd-mx-cell]').forEach(inp => {
+            inp.oninput = () => {
+                fdMatrix.cells[inp.dataset.fdMxCell] = inp.value;
+                // Deliberately do NOT re-render: it would eat the caret.
+                // The derived numbers are refreshed in place instead.
+                fdMxRefreshTotals();
+            };
+        });
+        $('fdMxTable').querySelectorAll('[data-fd-mx-pb]').forEach(inp => {
+            inp.oninput = () => {
+                fdMatrix.pbTotals[inp.dataset.fdMxPb] = inp.value;
+                fdMxRefreshTotals();
+            };
+        });
+        $('fdMxTable').querySelectorAll('[data-fd-mx-loc]').forEach(sel => {
+            sel.onchange = () => {
+                const r = fdMatrix.rows.find(x => x.uid === sel.dataset.fdMxLoc);
+                if (r) { r.location_id = sel.value; fdMxRender(); }
+            };
+        });
+        $('fdMxTable').querySelectorAll('.fd-mx-droprow').forEach(btn => {
+            btn.onclick = () => {
+                fdMatrix.rows = fdMatrix.rows.filter(r => r.uid !== btn.dataset.uid);
+                fdMxRender();
+            };
+        });
+        $('fdMxTable').querySelectorAll('.fd-mx-droplot').forEach(btn => {
+            btn.onclick = () => {
+                fdMatrix.lotIds = fdMatrix.lotIds.filter(id => id !== btn.dataset.lot);
+                fdMxRender();
+            };
+        });
+    }
+
+    // Totals, bay draw-downs and the tie indicator, refreshed WITHOUT
+    // re-rendering the inputs - the same reason the shipment screen refreshes
+    // its option labels in place.
+    function fdMxRefreshTotals() {
+        if (!fdMatrix) return;
+        fdMxSyncSheet();
+
+        fdMatrix.rows.forEach(r => {
+            const cell = $('fdMxTable').querySelector(`[data-fd-mx-rowtot="${r.uid}"]`);
+            if (cell) cell.textContent = fmtNum(fdMxRowTotal(r.uid));
+            const sel = $('fdMxTable').querySelector(`[data-fd-mx-loc="${r.uid}"]`);
+            if (sel && sel.parentElement) {
+                const note = sel.parentElement.querySelector('div');
+                const draw = fdMxBayDraw(r);
+                if (note) {
+                    const over = draw.left < -0.0001;
+                    note.style.color = over ? '#b58900' : 'var(--text-muted)';
+                    note.textContent = over
+                        ? '⚠ over by ' + fmtNum(-draw.left) + ' lb'
+                        : fmtNum(Math.max(0, draw.left)) + ' of ' + fmtNum(draw.onHand) + ' lb left';
+                }
+            }
+        });
+
+        let grand = 0;
+        fdMatrix.lotIds.forEach(lotId => {
+            const tot = fdMxColumnTotal(lotId);
+            grand += tot;
+            const tc = $('fdMxTable').querySelector(`[data-fd-mx-coltot="${lotId}"]`);
+            if (tc) tc.textContent = fmtNum(tot);
+
+            const tie = $('fdMxTable').querySelector(`[data-fd-mx-tie="${lotId}"]`);
+            if (!tie) return;
+            const pb = parseFloat(fdMatrix.pbTotals[lotId]);
+            if (!(pb > 0)) { tie.innerHTML = ''; tie.style.color = ''; return; }
+            const diff = tot - pb;
+            if (Math.abs(diff) <= FD_TIE_TOLERANCE_LB) {
+                tie.style.color = 'var(--success)';
+                tie.innerHTML = Math.abs(diff) < 0.005 ? '✓ ties' : `✓ ties (${diff > 0 ? '+' : '−'}${fmtNum(Math.abs(diff))} lb rounding)`;
+            } else {
+                tie.style.color = '#b58900';
+                tie.innerHTML = `⚠ ${diff > 0 ? 'over' : 'under'} by ${fmtNum(Math.abs(diff))} lb`;
+            }
+        });
+        const g = $('fdMxTable').querySelector('[data-fd-mx-grand]');
+        if (g) g.textContent = fmtNum(grand);
+
+        fdMxRenderTieSummary();
+    }
+
+    function fdMxRenderTieSummary() {
+        const box = $('fdMxTie');
+        if (!box || !fdMatrix) return;
+        const off = [];
+        let tied = 0, untyped = 0;
+        fdMatrix.lotIds.forEach(lotId => {
+            const lot = fdOpenLots.find(l => l.id === lotId);
+            const pb = parseFloat(fdMatrix.pbTotals[lotId]);
+            const tot = fdMxColumnTotal(lotId);
+            if (!(pb > 0)) { if (tot > 0) untyped++; return; }
+            if (Math.abs(tot - pb) <= FD_TIE_TOLERANCE_LB) tied++;
+            else off.push(`${lot ? lot.lot_number : '?'} off by ${fmtNum(Math.abs(tot - pb))} lb`);
+        });
+        if (!off.length && !tied && !untyped) { box.innerHTML = ''; return; }
+        box.innerHTML = `<div class="muted" style="font-size:12px;">
+            ${tied ? `<span style="color:var(--success);">✓ ${tied} column${tied === 1 ? '' : 's'} tie to PB.</span> ` : ''}
+            ${off.length ? `<span style="color:#b58900;">⚠ ${off.join(' · ')}.</span> ` : ''}
+            ${untyped ? `${untyped} column${untyped === 1 ? ' has' : 's have'} feed typed but no PB total to check against.` : ''}
+        </div>`;
+    }
+
     async function initFeedUsage() {
         if (!fdUsageSheet) fdUsageSheet = { rows: [] };
         if (!$('fdUsPeriodStart').value) {
@@ -20973,9 +21747,71 @@ ${ranchBlocks}
         }
         const err = await fdLoadOnHand();
         if (err) showAlert('fdUsSaveAlert', 'Could not load what is on hand: ' + err.message);
-        if (!fdUsageSheet.rows.length) fdUsageSheet.rows.push(fdNewUsageRow());
-        renderFdUsageRows();
+        fdMxInit();
+        fdApplyUsageMode();
         loadFdLedger();
+    }
+
+    // Two surfaces over one sheet. The weekly matrix is the Monday routine;
+    // single rows still exist because a transfer between bays, a pasture
+    // destination and a correction cannot be expressed as a lot column.
+    function fdApplyUsageMode() {
+        const matrix = fdMxMode() === 'matrix';
+        $('fdUsMatrixWrap').classList.toggle('hidden', !matrix);
+        $('fdUsRowList').classList.toggle('hidden', matrix);
+        $('fdUsDrawSummary').classList.toggle('hidden', matrix);
+        $('fdUsAddRowBtn').classList.toggle('hidden', matrix);
+        $('fdUsIntro').innerHTML = matrix
+            ? 'One column per PB invoice, commodities down the side. The bay defaults from the item &mdash; ' +
+              'PB puts the bay in the commodity name, which is why <em>Corn</em> and <em>Corn hopper bin</em> are two items. ' +
+              'Type PB&rsquo;s <b>Amount Fed</b> into the footer and the column tells you whether it ties. ' +
+              'The dates are the period the feed was <em>eaten</em>, so a lot that shipped Wednesday is not charged Thursday.'
+            : 'One row per commodity per lot for the period, plus transfers between bays and corrections. ' +
+              'The dates are the period the feed was <em>eaten</em>, not the day you key it. ' +
+              'Nothing is written until you save, and if any row fails the whole batch is put back.';
+        if (matrix) {
+            fdMxRender();
+        } else {
+            if (!fdUsageSheet || !fdUsageSheet.rows.length) fdUsageSheet = { rows: [fdNewUsageRow()] };
+            renderFdUsageRows();
+        }
+    }
+
+    // Decision 21. Nothing stops entering 9/1-9/6 and then 9/1-9/13; four
+    // days feed twice, the dollars allocate cleanly, every screen balances,
+    // and the only symptom is a cost of gain quietly too high. It cannot be
+    // a uniqueness rule - the same lot fed the same corn out of two bays in
+    // one week is legitimately two rows - so this checks the WHOLE sheet
+    // once on save and reports one summary, not one dialog per row.
+    async function fdCheckOverlap(live, start, end) {
+        const lotIds = [...new Set(live.filter(r => r.lot_id).map(r => r.lot_id))];
+        if (!lotIds.length) return null;
+        const itemIds = [...new Set(live.map(r => r.item_id))];
+        const { data, error } = await supabase
+            .from('feed_usage')
+            .select('lot_id, item_id, qty_lb, period_start, period_end')
+            .eq('destination_type', 'lot')
+            .in('lot_id', lotIds)
+            .in('item_id', itemIds)
+            .lte('period_start', end)
+            .gte('period_end', start)
+            .limit(500);
+        // A failed check must not read as "no overlap".
+        if (error) return { unknown: true, message: error.message };
+        const hits = data || [];
+        if (!hits.length) return null;
+
+        const byLot = {};
+        hits.forEach(h => {
+            const lot = fdOpenLots.find(l => l.id === h.lot_id);
+            const name = lot ? lot.lot_number : '(lot)';
+            byLot[name] = byLot[name] || { rows: 0, lb: 0, from: h.period_start, to: h.period_end };
+            byLot[name].rows++;
+            byLot[name].lb += Number(h.qty_lb) || 0;
+            if (h.period_start < byLot[name].from) byLot[name].from = h.period_start;
+            if (h.period_end   > byLot[name].to)   byLot[name].to   = h.period_end;
+        });
+        return { hits: hits.length, byLot };
     }
 
     // How many pounds of (item, location) the rest of the sheet already
@@ -21199,8 +22035,13 @@ ${ranchBlocks}
         return { errs, live };
     }
 
+    // Set when the person has seen the overlap summary and chosen to go
+    // ahead anyway. Warn loudly, never block - but never twice silently.
+    let fdOverlapAcknowledged = null;
+
     async function saveFdUsage() {
         clearAlert('fdUsSaveAlert');
+        if (fdMxMode() === 'matrix') fdMxSyncSheet();
         const { errs, live } = fdValidateUsage();
         if (errs.length) {
             showAlert('fdUsSaveAlert', errs.join('\n'));
@@ -21210,6 +22051,46 @@ ${ranchBlocks}
         const start = $('fdUsPeriodStart').value, end = $('fdUsPeriodEnd').value;
         const notes = $('fdUsNotes').value.trim() || null;
         const posted = [];
+
+        // A period that has not finished spreads real dollars across days
+        // nothing was fed on. The database refuses it too; catching it here
+        // saves a round trip and says it in plain words.
+        if (end > ranchToday()) {
+            showAlert('fdUsSaveAlert',
+                `The period ends ${fmtDate(end)}, which has not happened yet. Feed cost is spread across the ` +
+                `head-days inside the period, so a week that is not over would put cost on days nothing was fed. ` +
+                `Enter the week that finished.`);
+            return;
+        }
+
+        // Decision 21: one summary for the whole sheet, on save.
+        const overlapKey = start + '|' + end + '|' + live.length;
+        if (fdOverlapAcknowledged !== overlapKey) {
+            const ov = await fdCheckOverlap(live, start, end);
+            if (ov && ov.unknown) {
+                showAlert('fdUsSaveAlert',
+                    'Could not check whether these dates were already entered: ' + ov.message +
+                    '\n\nSave again to go ahead without the check.');
+                fdOverlapAcknowledged = overlapKey;
+                return;
+            }
+            if (ov) {
+                const lines = Object.keys(ov.byLot).map(name => {
+                    const g = ov.byLot[name];
+                    return `  ${name}: ${g.rows} row${g.rows === 1 ? '' : 's'}, ${fmtNum(g.lb)} lb already entered for ${fmtDate(g.from)} – ${fmtDate(g.to)}`;
+                });
+                showAlert('fdUsSaveAlert',
+                    `These dates already have feed entered for some of these lots and commodities:\n\n` +
+                    lines.join('\n') +
+                    `\n\nSaving now feeds those days twice. The dollars will still allocate cleanly and every ` +
+                    `screen will still balance — the only symptom is a cost of gain that is quietly too high.\n\n` +
+                    `If this is a correction rather than a duplicate, delete the old rows first. ` +
+                    `Otherwise press Save again to go ahead.`);
+                fdOverlapAcknowledged = overlapKey;
+                return;
+            }
+            fdOverlapAcknowledged = overlapKey;
+        }
 
         $('fdUsSaveBtn').disabled = true;
         $('fdUsSaveHint').textContent = 'Saving…';
@@ -21245,9 +22126,11 @@ ${ranchBlocks}
 
             const n = posted.length;
             fdUsageSheet = { rows: [fdNewUsageRow()] };
+            fdOverlapAcknowledged = null;
             $('fdUsNotes').value = '';
             await fdLoadOnHand();
-            renderFdUsageRows();
+            fdMxInit(true);
+            fdApplyUsageMode();
             loadFdLedger();
             showAlert('fdUsSaveAlert', `Saved ${n} feed-out row${n === 1 ? '' : 's'}.`, 'success');
         } finally {
@@ -21391,6 +22274,7 @@ ${ranchBlocks}
         $('fdCtNotes').value = '';
         $('fdCtLocation').innerHTML = fdLocationOptions('', true);
         $('fdCtLines').innerHTML = '<div class="empty">Pick a location.</div>';
+        $('fdCtZeroNote').classList.add('hidden');
         fdCountState = null;
         showModal('fdCountModal');
     }
@@ -21424,10 +22308,14 @@ ${ranchBlocks}
 
         const rowHtml = l => {
             const item = fdItem(l.item_id);
+            const consumes = item && item.count_variance_meaning === 'consumption';
             return `<tr>
                 <td><strong>${escapeHtml(l.item_name)}</strong>
                     ${item && item.purchase_unit !== 'lb'
-                        ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdInUnits(l.book_qty_lb, item))} on the books</div>` : ''}</td>
+                        ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdInUnits(l.book_qty_lb, item))} on the books</div>` : ''}
+                    <div class="muted" style="font-size:11px;">${consumes
+                        ? 'short of book &rarr; <b>consumption</b>, split to lots by head-days'
+                        : 'short of book &rarr; <b>shrink</b>, charged to no lot'}</div></td>
                 <td class="num">${fmtNum(l.book_qty_lb)} lb</td>
                 <td><select data-fd-ct-method="${l.item_id}">
                         <option value="estimated"${l.method === 'estimated' ? ' selected' : ''}>Estimated</option>
@@ -21490,6 +22378,29 @@ ${ranchBlocks}
             };
         };
         wire();
+
+        // "Blank is skipped, not zero" is the right default for an ordinary
+        // count and the WRONG one for the thing that actually happens several
+        // times a year: walk up to an empty bay and declare it empty. A
+        // skipped line means that commodity's shrink is silently not
+        // captured, the book balance survives, and FIFO keeps drawing on feed
+        // that is not there.
+        const zeroBtn = $('fdCtZeroAllBtn');
+        if (zeroBtn) zeroBtn.onclick = () => {
+            if (!fdCountState || !fdCountState.lines.length) return;
+            fdCountState.lines.forEach(l => { l.counted = '0'; });
+            $('fdCtLines').querySelectorAll('[data-fd-ct-qty]').forEach(inp => { inp.value = '0'; });
+            const book = fdCountState.lines.reduce((t, l) => t + (Number(l.book_qty_lb) || 0), 0);
+            const note = $('fdCtZeroNote');
+            if (note) {
+                note.classList.remove('hidden');
+                note.innerHTML = book > 0
+                    ? `Every line set to zero. Posting this writes off <b>${fmtNum(book)} lb</b> of book balance across ` +
+                      `${fdCountState.lines.length} item${fdCountState.lines.length === 1 ? '' : 's'}. ` +
+                      `Change any line back if that bay is not actually empty.`
+                    : 'Every line set to zero. The books already show this bay empty, so nothing will post.';
+            }
+        };
     }
 
     async function postFdCount() {
@@ -21578,13 +22489,17 @@ ${ranchBlocks}
     $('fdItemCancelBtn').addEventListener('click', () => hideModal('fdItemModal'));
     $('fdItemDeleteBtn').addEventListener('click', deleteFdItem);
     $('fdItemPurchaseUnit').addEventListener('change', fdSyncUnitDefault);
+    $('fdItemType').addEventListener('change', fdSyncVarianceFromType);
+    $('fdItemVarianceMeaning').addEventListener('change', fdSyncVarianceHint);
 
     $('fdNewReceiptBtn').addEventListener('click', () => openFdReceiptModal(null));
     $('fdRcOnlyPending').addEventListener('change', loadFeedReceipts);
     $('fdReceiptForm').addEventListener('submit', saveFdReceipt);
     $('fdRcCancelBtn').addEventListener('click', () => hideModal('fdReceiptModal'));
     $('fdRcDeleteBtn').addEventListener('click', deleteFdReceipt);
-    $('fdRcItem').addEventListener('change', () => { fdSyncQtyFromUnits(); });
+    $('fdRcItem').addEventListener('change', () => { fdSyncQtyFromUnits(); fdSyncShrinkBlock(true); });
+    $('fdRcGrossQty').addEventListener('input', fdApplyShrink);
+    $('fdRcShrinkPct').addEventListener('input', fdApplyShrink);
     $('fdRcQtyUnits').addEventListener('input', fdSyncQtyFromUnits);
     $('fdRcQtyLb').addEventListener('input', fdSyncUnitsFromQty);
     ['fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost'].forEach(id =>
@@ -21599,13 +22514,46 @@ ${ranchBlocks}
     $('fdUsClearBtn').addEventListener('click', () => {
         if (!confirm('Clear the sheet? Nothing has been saved yet.')) return;
         fdUsageSheet = { rows: [fdNewUsageRow()] };
-        renderFdUsageRows();
+        fdOverlapAcknowledged = null;
+        fdMxInit(true);
+        fdApplyUsageMode();
     });
     $('fdUsSaveBtn').addEventListener('click', saveFdUsage);
     $('fdUsRefreshBtn').addEventListener('click', async () => {
         await fdLoadRefs(true);
         await fdLoadOnHand();
-        renderFdUsageRows();
+        fdApplyUsageMode();
+    });
+    $('fdUsMode').addEventListener('change', () => {
+        // Carry what is typed across the switch: the matrix writes into the
+        // same sheet the row list renders, so a half-typed week is not lost
+        // by looking at it the other way round.
+        if (fdMxMode() === 'rows') {
+            fdMxSyncSheet();
+            if (!fdUsageSheet.rows.length) fdUsageSheet = { rows: [fdNewUsageRow()] };
+        }
+        fdApplyUsageMode();
+    });
+    $('fdMxAddLot').addEventListener('change', e => {
+        if (!e.target.value || !fdMatrix) return;
+        if (!fdMatrix.lotIds.includes(e.target.value)) fdMatrix.lotIds.push(e.target.value);
+        e.target.value = '';
+        fdMxRender();
+    });
+    $('fdMxAddItem').addEventListener('change', e => {
+        if (!e.target.value || !fdMatrix) return;
+        // A second row for an item already on the sheet is how a commodity
+        // drawn from two bays is expressed - so this deliberately does not
+        // refuse a duplicate item.
+        fdMatrix.rows.push(fdMxNewRow(e.target.value));
+        e.target.value = '';
+        fdMxRender();
+    });
+    $('fdMxResetBtn').addEventListener('click', () => {
+        if (!confirm('Reset the sheet? Anything typed is discarded — nothing has been saved.')) return;
+        fdOverlapAcknowledged = null;
+        fdMxInit(true);
+        fdMxRender();
     });
     $('fdUsShowFlagged').addEventListener('change', loadFdLedger);
     ['fdUsPeriodStart', 'fdUsPeriodEnd'].forEach(id => $(id).addEventListener('change', () => {

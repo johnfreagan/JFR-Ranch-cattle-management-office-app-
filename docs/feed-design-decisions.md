@@ -9,7 +9,9 @@ Companion documents: `commodity-feed-inventory-plan.md` (the original design and
 reasoning), `sql/2026-08-27_feed_inventory.sql` and
 `sql/2026-08-27_feed_phase4_premix.sql` (what is built).
 
-**Status:** decided, not yet built. Section 8 lists what changes.
+**Status:** BUILT 2026-08-28 — migration `sql/2026-08-28_feed_decisions.sql` plus the
+app changes listed in section 9. Three items remain open; they are John's, not
+code.
 
 ---
 
@@ -404,9 +406,9 @@ silently wrong.
 
 ---
 
-## 9. What this changes
+## 9. What this changed
 
-Nothing below is built yet.
+All of it is built. Migration: `docs/sql/2026-08-28_feed_decisions.sql`.
 
 **Schema**
 
