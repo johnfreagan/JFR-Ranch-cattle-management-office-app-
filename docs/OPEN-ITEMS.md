@@ -299,18 +299,22 @@ real data yet:
 - **The migration has not been applied.** `docs/sql/2026-08-28_tally_book.sql`
   needs pasting into the SQL editor; the MCP connector is read-only. Until
   then every query 404s, which the app does at least surface in a banner.
-  Re-run `rls_verify.sql` afterwards per rule 7.
+  Re-run `rls_verify.sql` afterwards per rule 7. **The app is deployed and
+  live without it** - merged to main 2026-08-28, serving at
+  `/tally-book/` - so it currently loads to a sign-in screen and then fails
+  every read.
 - **Nothing has been signed in.** The authenticated read/write paths, the RLS
   scoping and the project save are unverified against the live database. What
   IS verified: the login gate holds, the ranch-date logic (proved against a
   9pm-Central instant, where the old `toISOString()` returns the next day),
   error surfacing on a real failure, and the project sheet's open/prefill/
   cancel/backdrop behaviour.
-- **The service worker could not be registered in the test browser** - script
-  fetch is blocked there, and the request never reached the server. The file
-  is a copy of `field-app/sw.js`, which works in production, but confirm
-  install-to-homescreen and an offline load on the real Pages URL before
-  trusting it.
+- **The service worker is confirmed working** (2026-08-28, on the deployed
+  Pages URL - it could not be registered in the local test browser, which
+  blocks the script fetch). Registered and activated at the right scope, with
+  all six shell entries cached under exactly the query-string keys the page
+  requests. Still unexercised: an actual offline load, and
+  install-to-homescreen on a phone.
 
 Deliberately not built, in rough order of when they will be missed:
 
