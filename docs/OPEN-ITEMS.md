@@ -289,41 +289,42 @@ put-out).
 
 ---
 
-## 11. Tally Book - not yet exercised end to end
+## 11. Tally Book - the port is unverified against the live database
 
-**Status:** built 2026-08-28, blocked on two things only John can do.
+**Status:** ported to the artifact UI 2026-08-28. Two things block a real
+end-to-end run, and both need John.
 
-The app is in `tally-book/` and validates clean, but nothing has run against
-real data yet:
+- **`docs/sql/2026-08-28_tally_book_v2.sql` has not been applied.** It drops
+  `tally_entries` / `tally_projects` (guarded: it refuses if either holds
+  real rows) and creates `tally_days` + `tally_book`. Until it runs, the app
+  signs in and then every sync fails - loudly, in a toast. Re-run
+  `rls_verify.sql` afterwards per rule 7.
+- **Nothing has been signed in.** Unverified: the push/pull round trip, the
+  dirty-diff picking the right days, the locally-dirty-wins conflict rule,
+  the RLS scoping, and purge-on-user-change.
 
-- **The migration has not been applied.** `docs/sql/2026-08-28_tally_book.sql`
-  needs pasting into the SQL editor; the MCP connector is read-only. Until
-  then every query 404s, which the app does at least surface in a banner.
-  Re-run `rls_verify.sql` afterwards per rule 7. **The app is deployed and
-  live without it** - merged to main 2026-08-28, serving at
-  `/tally-book/` - so it currently loads to a sign-in screen and then fails
-  every read.
-- **Nothing has been signed in.** The authenticated read/write paths, the RLS
-  scoping and the project save are unverified against the live database. What
-  IS verified: the login gate holds, the ranch-date logic (proved against a
-  9pm-Central instant, where the old `toISOString()` returns the next day),
-  error surfacing on a real failure, and the project sheet's open/prefill/
-  cancel/backdrop behaviour.
-- **The service worker is confirmed working** (2026-08-28, on the deployed
-  Pages URL - it could not be registered in the local test browser, which
-  blocks the script fetch). Registered and activated at the right scope, with
-  all six shell entries cached under exactly the query-string keys the page
-  requests. Still unexercised: an actual offline load, and
-  install-to-homescreen on a phone.
+What IS verified, in a browser, on the ported build: the book boots and
+paints; the date reads 28 August from the ranch clock; capture works and the
+natural-language parser still files "tomorrow 7am" to the next day at 07:00;
+the bullet cycle open -> done -> migrated strikes the old entry at `st:2` AND
+copies a fresh one to tomorrow; all six tabs render; the sync dot goes amber
+on unsaved changes and a sync with no session refuses with a visible toast
+rather than pretending. Two real layout bugs were found and fixed this way -
+the collapsed grid and the truncated date.
 
-Deliberately not built, in rough order of when they will be missed:
+**The data migration, once the schema is in:** John opens the artifact,
+More -> Export, copies the JSON; then in the app, More -> Restore, pastes it.
+The shape is preserved end to end, so delegation, sub-steps, trackers and
+collections all survive - there is no hand-written mapping to get wrong.
+**His book is still only in one browser's localStorage until he does this.**
 
-- **No offline write queue.** An entry made with no signal is lost. The field
-  app persists a queue keyed by user id; the same pattern applies here.
-- Phases 3-8 from the handover: Siri capture, weekly/monthly/future logs,
-  search, Gmail triage, Reminders, and a cattle lot summary panel.
-- Projects can be edited but not created or deleted from the app - the two
-  seeded rows are the register. Adding rows is a form, not a migration.
+Deliberately not built:
+
+- **No offline write queue.** Entries survive offline in `localStorage` and
+  go up on the next sync, which covers the ordinary case. What is missing is
+  a dead-letter path for a write the database later refuses.
+- Nothing links the tally book to ranch data. The artifact's Lots tab reads
+  a pasted export; wiring it to the real views is a separate job.
 
 ---
 

@@ -1,13 +1,13 @@
 {
   "name": "Tally Book — JFR Ranch",
   "short_name": "Tally Book",
-  "description": "Daily bullet journal and project register for JFR Ranch.",
+  "description": "Daily bullet journal for JFR Ranch — day page, loops, logs, lists.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#ebe3cf",
-  "theme_color": "#ebe3cf",
+  "background_color": "#EFF0EB",
+  "theme_color": "#EFF0EB",
   "icons": [
     {
       "src": "icon-192.png",

@@ -18,14 +18,14 @@
 // in the runtime cache.
 // =========================================================
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';   // v2: ported to the artifact UI + Supabase sync
 const CACHE_NAME = `tally-book-${CACHE_VERSION}`;
 
 const APP_SHELL = [
     './',
     './index.html',
-    './app.js?v=v1',
-    './styles.css?v=v1',
+    './app.js?v=v2',
+    './styles.css?v=v2',
     './supabase.min.js?v=2.46.1',
     './manifest.json'
 ];

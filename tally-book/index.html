@@ -1,133 +1,242 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Tally Book — JFR Ranch</title>
-<meta name="theme-color" content="#ebe3cf" />
-<link rel="manifest" href="manifest.json" />
-<link rel="icon" href="icon.svg" type="image/svg+xml" />
-<link rel="apple-touch-icon" href="apple-touch-icon.png" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css?v=v1" />
+<meta name="theme-color" content="#EFF0EB">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Zilla+Slab:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css?v=v2">
 </head>
 <body>
-  <div class="offline-banner" id="offlineBanner">offline — showing last synced entries</div>
-  <div class="error-banner" id="errorBanner" role="alert"></div>
 
-  <!-- ── Sign in ────────────────────────────────────────────────
-       The tally book is scoped to auth.uid(). Without a session
-       every read returns zero rows and no error, which is the
-       failure mode CLAUDE.md warns about — so the app never gets
-       past this gate unsigned. -->
-  <section class="login" id="loginView" hidden>
-    <div class="login-card">
-      <h1>Tally Book</h1>
-      <div class="login-sub">JFR Ranch</div>
-      <form id="loginForm">
-        <label for="loginEmail">Email</label>
-        <input type="email" id="loginEmail" autocomplete="username" inputmode="email" required />
-        <label for="loginPassword">Password</label>
-        <input type="password" id="loginPassword" autocomplete="current-password" required />
-        <button type="submit" class="login-btn" id="loginBtn">Sign in</button>
-      </form>
-      <div class="login-error" id="loginError"></div>
+<p class="boot-error" id="bootError" hidden></p>
+
+<!-- Sign in. The book is scoped to auth.uid(); with no session every read
+     returns zero rows and no error, so an empty book and a locked one look
+     identical. The app never gets past this gate unsigned. -->
+<section class="login" id="loginView" hidden>
+  <div class="login-card">
+    <h1>Tally Book</h1>
+    <div class="login-sub">JFR Ranch</div>
+    <form id="loginForm">
+      <label for="loginEmail">Email</label>
+      <input type="email" id="loginEmail" autocomplete="username" inputmode="email" required>
+      <label for="loginPassword">Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" required>
+      <button type="submit" class="login-btn" id="loginBtn">Sign in</button>
+    </form>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</section>
+
+<div id="bookView" hidden>
+
+<div class="app">
+
+  <header class="top">
+    <div class="left">
+      <div class="eyebrow-row">
+        <span class="eyebrow" id="eyebrow">—</span>
+        <button class="dot" id="syncDot" title="Sync now" aria-label="Sync now"></button>
+      </div>
+      <h1 class="title" id="title">—</h1>
     </div>
-  </section>
+    <div class="top-act" id="topAct"></div>
+  </header>
 
-  <!-- ── The book ───────────────────────────────────────────── -->
-  <div id="bookView" hidden>
-    <header class="masthead">
-      <div class="masthead-row">
-        <h1>Tally Book</h1>
-        <span class="ranch-mark">JFR RANCH</span>
+  <div class="stage">
+
+    <!-- ============ DAY ============ -->
+    <section class="view" id="v-day">
+      <div class="pulse">
+        <span class="n" id="pulseN">0</span>
+        <span class="lab" id="pulseLab"><b>nothing open</b>on today's page</span>
       </div>
-      <div class="masthead-row">
-        <div class="date-line" id="dateLine">—</div>
-        <button class="signout-btn" id="signOutBtn" type="button">sign out</button>
+      <div class="lab-row">
+        <span id="dayLabel">Today's page</span>
+        <button class="r" id="toNotes">End of day ›</button>
       </div>
-    </header>
+      <div id="log"></div>
+      <button class="waiting-line" id="inboxLine" hidden>
+        <span class="wk">Inbox</span><span class="wv" id="inboxV">—</span><span class="chev">›</span>
+      </button>
+      <button class="waiting-line" id="waitingLine" hidden>
+        <span class="wk">Waiting on</span><span class="wv" id="waitingV">—</span><span class="chev">›</span>
+      </button>
+      <div class="lab-row" id="soonHead" hidden><span>Coming up</span></div>
+      <div id="soon"></div>
+    </section>
 
-    <main id="app">
+    <!-- ============ LOOPS ============ -->
+    <section class="view" id="v-loops" hidden>
+      <div class="lab-row"><span>Unfinished, oldest first</span></div>
+      <div id="loops"></div>
+    </section>
 
-      <!-- Morning Triage -->
-      <section class="section" id="triageSection">
-        <div class="section-head">
-          <h2>Open loops <span class="count" id="openLoopsCount"></span></h2>
+    <!-- ============ LOTS ============ -->
+    <section class="view" id="v-lots" hidden>
+      <div id="lotBody"></div>
+    </section>
+
+    <!-- ============ MONTH ============ -->
+    <section class="view" id="v-month" hidden>
+      <div class="seg" id="monthSeg">
+        <button data-p="cal" aria-selected="true">calendar</button>
+        <button data-p="tasks" aria-selected="false">month</button>
+        <button data-p="future" aria-selected="false">future</button>
+        <button data-p="track" aria-selected="false">trackers</button>
+      </div>
+
+      <div class="pane" id="p-cal">
+        <div class="month" id="month"></div>
+        <div class="lab-row"><span id="monthNote">—</span></div>
+      </div>
+
+      <div class="pane" id="p-tasks" hidden>
+        <div class="lab-row"><span id="mtLabel">This month — no day picked</span></div>
+        <div id="monthTasks"></div>
+        <div class="rowflex" style="margin-top:12px">
+          <input class="field" id="mtText" placeholder="Something to do this month…" enterkeyhint="done">
+          <button class="pill" id="mtAdd">add</button>
         </div>
-        <div id="openLoopsList"><div class="empty">nothing carried over — clean slate</div></div>
+      </div>
 
-        <div class="section-head" style="margin-top:1.2rem;">
-          <h2>Rapid log <span class="count" id="rapidCount"></span></h2>
-          <span class="sub">untriaged</span>
+      <div class="pane" id="p-future" hidden>
+        <div class="lab-row"><span>Six months out</span></div>
+        <div id="future"></div>
+      </div>
+
+      <div class="pane" id="p-track" hidden>
+        <div id="trackers"></div>
+        <div class="rowflex" style="margin-top:14px">
+          <button class="pill" id="trkAdd">+ tracker</button>
         </div>
-        <div id="rapidList"><div class="empty">bucket's empty</div></div>
-      </section>
+      </div>
+    </section>
 
-      <!-- Rapid entry -->
-      <section class="section">
-        <div class="section-head"><h2>Add to log</h2></div>
-        <form class="rapid-input-row" id="rapidForm">
-          <select id="typeSelect" aria-label="Entry type">
-            <option value="task">▢ task</option>
-            <option value="event">○ event</option>
-            <option value="note">— note</option>
-          </select>
-          <input type="text" id="contentInput" placeholder="What's the line?" autocomplete="off" />
-          <button type="button" class="priority-toggle" id="priorityToggle" aria-pressed="false" aria-label="Mark priority"></button>
-          <button type="submit" class="submit-btn" aria-label="Add entry">＋</button>
-        </form>
-      </section>
+    <!-- ============ SEARCH ============ -->
+    <section class="view" id="v-search" hidden>
+      <input class="field" id="qText" placeholder="Search every entry, note and list…" autocomplete="off">
+      <div class="lab-row"><span id="qCount">Type to search</span></div>
+      <div id="results"></div>
+    </section>
 
-      <!-- Today's log -->
-      <section class="section" id="todaySection">
-        <div class="section-head">
-          <h2>Today's log <span class="count" id="todayCount"></span></h2>
-        </div>
-        <div id="todayList"><div class="empty">nothing logged yet today</div></div>
-      </section>
+    <!-- ============ MIGRATION ============ -->
+    <section class="view" id="v-migrate" hidden>
+      <div id="migBody"></div>
+    </section>
 
-      <!-- Project panel -->
-      <section class="section" id="projectSection">
-        <div class="section-head"><h2>Projects</h2></div>
-        <div id="projectList"><div class="empty">loading —</div></div>
-      </section>
+    <!-- ============ LISTS ============ -->
+    <section class="view" id="v-lists" hidden>
+      <div class="seg" id="listSeg">
+        <button data-l="inbox" aria-selected="true">inbox</button>
+        <button data-l="colls" aria-selected="false">collections</button>
+        <button data-l="who" aria-selected="false">waiting on</button>
+      </div>
+      <div class="pane" id="l-inbox">
+        <div class="lab-row"><span>Unfiled — no day picked</span></div>
+        <div id="inbox"></div>
+      </div>
+      <div class="pane" id="l-colls" hidden>
+        <div id="colls"></div>
+      </div>
+      <div class="pane" id="l-who" hidden>
+        <div id="delegated"></div>
+      </div>
+    </section>
 
-    </main>
+    <!-- ============ NOTES ============ -->
+    <section class="view" id="v-notes" hidden>
+      <div class="lab-row"><span>Weather, cattle worked, what got away</span></div>
+      <textarea class="field reflect" id="reflect" placeholder="How the day actually went."></textarea>
+    </section>
 
-    <nav class="bottom-nav">
-      <button class="active" data-view="daily">Daily</button>
-      <button data-view="monthly" disabled title="Phase 4">Monthly</button>
-      <button data-view="future" disabled title="Phase 4">Future</button>
-      <button data-view="search" disabled title="Phase 5">Search</button>
-    </nav>
+    <!-- ============ MORE ============ -->
+    <section class="view" id="v-more" hidden>
+      <button class="mrow" id="mMap">
+        <span class="mk">Where things live</span><span class="mv">the six sheets</span><span class="chev">›</span>
+      </button>
+      <button class="mrow" id="mRepeats">
+        <span class="mk">Repeats</span><span class="mv" id="mRepeatsV">none</span><span class="chev">›</span>
+      </button>
+      <button class="mrow" id="mInbox">
+        <span class="mk">Import</span><span class="mv">from Siri / Reminders</span><span class="chev">›</span>
+      </button>
+      <button class="mrow" id="mLots">
+        <span class="mk">Load lot data</span><span class="mv" id="mLotsV">—</span><span class="chev">›</span>
+      </button>
+      <button class="mrow" id="mSize">
+        <span class="mk">Text size</span><span class="mv" id="mSizeV">regular</span><span class="chev">›</span>
+      </button>
+      <button class="mrow" id="mAuto">
+        <span class="mk">Auto-sync</span><span class="mv" id="mAutoV">on</span><span class="chev">›</span>
+      </button>
+      <button class="mrow" id="mExport">
+        <span class="mk">Export backup</span><span class="mv">JSON</span><span class="chev">›</span>
+      </button>
+      <button class="mrow" id="mRestore">
+        <span class="mk">Restore backup</span><span class="mv">paste</span><span class="chev">›</span>
+      </button>
+      <button class="mrow" id="signOutBtn">
+        <span class="mk">Sign out</span><span class="mv">all JFR apps on this device</span><span class="chev">›</span>
+      </button>
+      <p class="mnote" id="syncNote">—</p>
+    </section>
+
+    <!-- ============ PANEL (inbox / lots / restore) ============ -->
+    <section class="view" id="v-panel" hidden>
+      <div id="panelBody"></div>
+    </section>
+
   </div>
 
-  <!-- ── Project edit sheet ─────────────────────────────────── -->
-  <div class="sheet-backdrop" id="projectSheet" hidden>
-    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="projectSheetTitle">
-      <h3 id="projectSheetTitle">Project</h3>
-      <label for="pfStatus">Status</label>
-      <input type="text" id="pfStatus" placeholder="Where it stands" />
-      <label for="pfNext">Next action</label>
-      <input type="text" id="pfNext" placeholder="The very next thing" />
-      <label for="pfBlocked">Blocked on <span class="hint">— leave empty if it isn't</span></label>
-      <input type="text" id="pfBlocked" placeholder="Waiting for…" />
-      <label for="pfTarget">Target date</label>
-      <input type="date" id="pfTarget" />
-      <div class="sheet-actions">
-        <button type="button" class="action-btn kill" id="pfCancel">cancel</button>
-        <button type="button" class="action-btn done" id="pfSave">save</button>
-      </div>
-      <div class="sheet-error" id="pfError"></div>
+  <div class="capture" id="capture">
+    <div class="cap-row">
+      <input class="field" id="capText" placeholder="Check Sandy Creek water…" autocomplete="off" enterkeyhint="done">
+      <button class="mic" id="capMic" hidden aria-label="Speak an entry" title="Speak an entry"></button>
+      <button class="go" id="capAdd">Add</button>
+    </div>
+    <div class="hint" id="capHint" hidden></div>
+    <div class="rowflex">
+      <button class="pill" id="tType-task" data-type="task" aria-pressed="true">• task</button>
+      <button class="pill" id="tType-event" data-type="event" aria-pressed="false">○ event</button>
+      <button class="pill" id="tType-note" data-type="note" aria-pressed="false">– note</button>
+      <button class="pill" id="capPrio" aria-pressed="false">* priority</button>
+      <button class="pill when-btn" id="capWhenBtn" aria-expanded="false">today</button>
+    </div>
+    <div class="rowflex when" id="capWhenRow" hidden>
+      <button class="pill" id="capToday">today</button>
+      <button class="pill" id="capTom">tomorrow</button>
+      <button class="pill" id="capUnfiled">inbox</button>
+      <input class="datebox" id="capDate" type="date" aria-label="Date">
+      <input class="timebox" id="capTime" type="time" aria-label="Time">
+      <button class="pill" id="capClear" hidden>clear</button>
     </div>
   </div>
 
-  <script src="supabase.min.js?v=2.46.1"></script>
-  <script src="app.js?v=v1"></script>
+  <nav class="tabs" id="tabs">
+    <button class="tab" data-v="day" aria-selected="true"><span class="g">•</span>Day</button>
+    <button class="tab" data-v="loops" aria-selected="false"><span class="g">↺</span><span class="b" id="bLoops"></span>Loops</button>
+    <button class="tab" data-v="lots" aria-selected="false"><span class="g">▤</span>Lots</button>
+    <button class="tab" data-v="month" aria-selected="false"><span class="g">▦</span>Logs</button>
+    <button class="tab" data-v="lists" aria-selected="false"><span class="g">≔</span>Lists</button>
+    <button class="tab" data-v="more" aria-selected="false"><span class="g">⋯</span>More</button>
+  </nav>
+
+</div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="supabase.min.js?v=2.46.1"></script>
+<script src="app.js?v=v2"></script>
 </body>
 </html>

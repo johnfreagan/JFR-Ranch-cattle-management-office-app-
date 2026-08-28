@@ -574,49 +574,66 @@ feed_counts · feed_count_lines ───────────┘   physical 
   overloaded — PostgREST resolves an RPC by argument names and two overloads
   make that ambiguous. The verify block asserts exactly one exists.
 
-## Tally Book (built 2026-08-28)
+## Tally Book (built 2026-08-28, ported the same day)
 
-A second PWA in this repo at `tally-book/`, alongside `field-app/`. Daily
-bullet journal plus a project status register. Migration:
-`docs/sql/2026-08-28_tally_book.sql`. It touches no ranch data.
+A second PWA in this repo at `tally-book/`, alongside `field-app/`. A daily
+bullet journal. Migration: `docs/sql/2026-08-28_tally_book_v2.sql`, which
+supersedes `..._tally_book.sql`. Touches no ranch data.
 
-- **`tally_entries` and `tally_projects` are scoped to `auth.uid()`, not to a
-  role.** `user_id` defaults to `auth.uid()`; both policies are
-  `USING (user_id = auth.uid())` with a matching `WITH CHECK`. Lauren is an
-  owner and still cannot see John's book — a role is not a shared diary. The
-  handed-over draft shipped with no RLS at all on the theory that it is a
-  single-user app; in THIS database the `postgres` default ACL grants
-  `authenticated` full DML on any new public table, so that would have handed
-  every crew cowboy the journal through PostgREST.
-- **Sign-in is shared across all three apps.** Office, field and tally book sit
-  on one origin and all use Supabase's default storage key, so one sign-in
-  covers all three — and signing out of any of them signs out of all of them.
-  The tally book's sign-out button says so rather than surprising you.
-- **`entry_date` is `public.ranch_today()` in the DB and an
-  `America/Chicago` `Intl.DateTimeFormat` in the app**, never `CURRENT_DATE`
-  and never `toISOString()`. Every read is keyed on the day boundary, so in
-  UTC the whole book points at tomorrow from 7pm Central: today's log empties
-  and everything just written jumps to "open loops". Same trap as
-  `lot_daily_head`.
-- **"→ today" keeps `status='open'`.** The draft set `'migrated'`, which took
-  the entry out of the open-loops query while moving it to today, so a task
-  pushed forward and left unfinished disappeared for good. `migrated`
-  describes how a bullet arrived, not whether it is still owed.
-- **Kill is a status, not a DELETE.** A mis-tap on a phone should not be
-  unrecoverable. Killed rows drop out of the day's page and stay in the table.
-- **Every write asserts on the returned rows** (`.select()` then check
-  `data.length`) and both failure paths reach a visible banner. A refused
-  write returns an empty result and no error — OPEN-ITEMS item 3 — and this
-  app is the one place that does it from day one rather than relying on a
-  `data-perm` gate.
-- The Supabase client is **vendored** (`supabase.min.js`), not imported from
-  `esm.sh`. A cross-origin ESM import is the one asset a service worker cannot
-  cache, so offline would have meant a blank page.
-- `sw.js` is a copy of `field-app/sw.js`'s network-first shell strategy.
-  **Bump `CACHE_VERSION` and the `?v=` strings in both `index.html` and
-  `APP_SHELL` together on every deploy**, or a fresh page pairs with old code.
-- **No offline write queue.** Unlike the field app, an entry made with no
-  signal is lost. Fine for the office; fix before relying on it out of range.
+**The app is John's "JFR Tally Book" artifact, ported.** The first cut was a
+from-scratch three-section journal; the artifact was a far more complete book
+- day page, migration ritual, delegation, sub-steps, collections, repeats,
+trackers, natural-language dates, voice capture, 114 functions - and it is
+what he actually uses. The port swapped its persistence and changed nothing
+else. Do not "simplify" it back.
+
+- **The artifact stored the book in its own published page**, rebuilding its
+  HTML with the state baked in and republishing. That sync had never once
+  succeeded: the published copy read `days:{}` and `updatedAt:
+  1970-01-01`, so the entire book lived in one browser's `localStorage` with
+  no copy anywhere. That is what the port exists to fix.
+- **`localStorage` is now the CACHE, Supabase is the record.** The book
+  paints from the cache instantly and stays usable with no signal;
+  `tally_days` and `tally_book` are what reach the other device.
+- **Storage follows the app's shape, not the other way round.**
+  `tally_days` is one row per day (`{entries, reflect}`); `tally_book` is one
+  row per long-tail key (colls, months, rules, people, inbox, trackers,
+  track, settings, lots). Flattening to one-row-per-bullet would have meant
+  rewriting all 114 functions to read flat rows - a rewrite of the working
+  part.
+- **Per day, not one document, for conflict granularity.** One blob is
+  last-writer-wins over the whole book: a phone out of signal all day syncs
+  on the way home and silently overwrites the laptop. Per day, only the days
+  that changed move.
+- **What to push is found by DIFFING against a synced snapshot**, never by
+  having `touch()`'s ~50 call sites declare what they changed. A call site
+  that forgot would be an entry that silently never leaves the phone, and
+  that is invisible until you go looking for it somewhere else. A diff
+  cannot forget.
+- **A locally dirty day is never overwritten by the remote copy.** The person
+  is typing on THIS device; discarding that to honour a row written elsewhere
+  is the one outcome that loses work someone can see. Local wins and is
+  pushed immediately after, so both ends agree within the same sync.
+- **Every sync write checks the rows it got back.** A refused write returns
+  an empty result and no error, so without the check an RLS refusal reports
+  success and the dot goes green on a book going nowhere.
+- **Both local stores are purged on sign-out AND on user change.**
+  `localStorage` knows nothing about RLS; a cache left by one account is
+  readable by whoever signs in next on that device.
+- **`#syncDot` had to be ADDED to the markup.** `paintDot()` always looked
+  for it and the artifact never had one, so the sync indicator - and
+  `syncNote` with it - was dead code the whole time.
+- **`#bookView` carries `height:100%`.** `.app` is `height:100%` against a
+  `100dvh` body; wrapping it in the auth gate put a zero-height block in
+  between and the whole grid collapsed - capture and tabs rode up under the
+  header and the day log had nowhere to render.
+- Sign-in is shared across all three apps: one origin, Supabase's default
+  storage key. Signing out of any signs out of all, and the button says so.
+- `doExport()` still falls back to a copy-paste panel when the artifact
+  `downloads` capability is absent, so **Export and Restore both work
+  outside the artifact** - which is how John's existing book moves across.
+- `sw.js` is `field-app/sw.js`'s network-first shell. **Bump `CACHE_VERSION`
+  and the `?v=` strings in both `index.html` and `APP_SHELL` together.**
 
 ## SQL conventions
 
