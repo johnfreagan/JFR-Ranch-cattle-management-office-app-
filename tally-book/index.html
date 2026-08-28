@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Tally Book — JFR Ranch</title>
+<meta name="theme-color" content="#ebe3cf" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css?v=v1" />
+</head>
+<body>
+  <div class="offline-banner" id="offlineBanner">offline — showing last synced entries</div>
+  <div class="error-banner" id="errorBanner" role="alert"></div>
+
+  <!-- ── Sign in ────────────────────────────────────────────────
+       The tally book is scoped to auth.uid(). Without a session
+       every read returns zero rows and no error, which is the
+       failure mode CLAUDE.md warns about — so the app never gets
+       past this gate unsigned. -->
+  <section class="login" id="loginView" hidden>
+    <div class="login-card">
+      <h1>Tally Book</h1>
+      <div class="login-sub">JFR Ranch</div>
+      <form id="loginForm">
+        <label for="loginEmail">Email</label>
+        <input type="email" id="loginEmail" autocomplete="username" inputmode="email" required />
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" required />
+        <button type="submit" class="login-btn" id="loginBtn">Sign in</button>
+      </form>
+      <div class="login-error" id="loginError"></div>
+    </div>
+  </section>
+
+  <!-- ── The book ───────────────────────────────────────────── -->
+  <div id="bookView" hidden>
+    <header class="masthead">
+      <div class="masthead-row">
+        <h1>Tally Book</h1>
+        <span class="ranch-mark">JFR RANCH</span>
+      </div>
+      <div class="masthead-row">
+        <div class="date-line" id="dateLine">—</div>
+        <button class="signout-btn" id="signOutBtn" type="button">sign out</button>
+      </div>
+    </header>
+
+    <main id="app">
+
+      <!-- Morning Triage -->
+      <section class="section" id="triageSection">
+        <div class="section-head">
+          <h2>Open loops <span class="count" id="openLoopsCount"></span></h2>
+        </div>
+        <div id="openLoopsList"><div class="empty">nothing carried over — clean slate</div></div>
+
+        <div class="section-head" style="margin-top:1.2rem;">
+          <h2>Rapid log <span class="count" id="rapidCount"></span></h2>
+          <span class="sub">untriaged</span>
+        </div>
+        <div id="rapidList"><div class="empty">bucket's empty</div></div>
+      </section>
+
+      <!-- Rapid entry -->
+      <section class="section">
+        <div class="section-head"><h2>Add to log</h2></div>
+        <form class="rapid-input-row" id="rapidForm">
+          <select id="typeSelect" aria-label="Entry type">
+            <option value="task">▢ task</option>
+            <option value="event">○ event</option>
+            <option value="note">— note</option>
+          </select>
+          <input type="text" id="contentInput" placeholder="What's the line?" autocomplete="off" />
+          <button type="button" class="priority-toggle" id="priorityToggle" aria-pressed="false" aria-label="Mark priority"></button>
+          <button type="submit" class="submit-btn" aria-label="Add entry">＋</button>
+        </form>
+      </section>
+
+      <!-- Today's log -->
+      <section class="section" id="todaySection">
+        <div class="section-head">
+          <h2>Today's log <span class="count" id="todayCount"></span></h2>
+        </div>
+        <div id="todayList"><div class="empty">nothing logged yet today</div></div>
+      </section>
+
+      <!-- Project panel -->
+      <section class="section" id="projectSection">
+        <div class="section-head"><h2>Projects</h2></div>
+        <div id="projectList"><div class="empty">loading —</div></div>
+      </section>
+
+    </main>
+
+    <nav class="bottom-nav">
+      <button class="active" data-view="daily">Daily</button>
+      <button data-view="monthly" disabled title="Phase 4">Monthly</button>
+      <button data-view="future" disabled title="Phase 4">Future</button>
+      <button data-view="search" disabled title="Phase 5">Search</button>
+    </nav>
+  </div>
+
+  <!-- ── Project edit sheet ─────────────────────────────────── -->
+  <div class="sheet-backdrop" id="projectSheet" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="projectSheetTitle">
+      <h3 id="projectSheetTitle">Project</h3>
+      <label for="pfStatus">Status</label>
+      <input type="text" id="pfStatus" placeholder="Where it stands" />
+      <label for="pfNext">Next action</label>
+      <input type="text" id="pfNext" placeholder="The very next thing" />
+      <label for="pfBlocked">Blocked on <span class="hint">— leave empty if it isn't</span></label>
+      <input type="text" id="pfBlocked" placeholder="Waiting for…" />
+      <label for="pfTarget">Target date</label>
+      <input type="date" id="pfTarget" />
+      <div class="sheet-actions">
+        <button type="button" class="action-btn kill" id="pfCancel">cancel</button>
+        <button type="button" class="action-btn done" id="pfSave">save</button>
+      </div>
+      <div class="sheet-error" id="pfError"></div>
+    </div>
+  </div>
+
+  <script src="supabase.min.js?v=2.46.1"></script>
+  <script src="app.js?v=v1"></script>
+</body>
+</html>

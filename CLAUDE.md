@@ -574,6 +574,50 @@ feed_counts · feed_count_lines ───────────┘   physical 
   overloaded — PostgREST resolves an RPC by argument names and two overloads
   make that ambiguous. The verify block asserts exactly one exists.
 
+## Tally Book (built 2026-08-28)
+
+A second PWA in this repo at `tally-book/`, alongside `field-app/`. Daily
+bullet journal plus a project status register. Migration:
+`docs/sql/2026-08-28_tally_book.sql`. It touches no ranch data.
+
+- **`tally_entries` and `tally_projects` are scoped to `auth.uid()`, not to a
+  role.** `user_id` defaults to `auth.uid()`; both policies are
+  `USING (user_id = auth.uid())` with a matching `WITH CHECK`. Lauren is an
+  owner and still cannot see John's book — a role is not a shared diary. The
+  handed-over draft shipped with no RLS at all on the theory that it is a
+  single-user app; in THIS database the `postgres` default ACL grants
+  `authenticated` full DML on any new public table, so that would have handed
+  every crew cowboy the journal through PostgREST.
+- **Sign-in is shared across all three apps.** Office, field and tally book sit
+  on one origin and all use Supabase's default storage key, so one sign-in
+  covers all three — and signing out of any of them signs out of all of them.
+  The tally book's sign-out button says so rather than surprising you.
+- **`entry_date` is `public.ranch_today()` in the DB and an
+  `America/Chicago` `Intl.DateTimeFormat` in the app**, never `CURRENT_DATE`
+  and never `toISOString()`. Every read is keyed on the day boundary, so in
+  UTC the whole book points at tomorrow from 7pm Central: today's log empties
+  and everything just written jumps to "open loops". Same trap as
+  `lot_daily_head`.
+- **"→ today" keeps `status='open'`.** The draft set `'migrated'`, which took
+  the entry out of the open-loops query while moving it to today, so a task
+  pushed forward and left unfinished disappeared for good. `migrated`
+  describes how a bullet arrived, not whether it is still owed.
+- **Kill is a status, not a DELETE.** A mis-tap on a phone should not be
+  unrecoverable. Killed rows drop out of the day's page and stay in the table.
+- **Every write asserts on the returned rows** (`.select()` then check
+  `data.length`) and both failure paths reach a visible banner. A refused
+  write returns an empty result and no error — OPEN-ITEMS item 3 — and this
+  app is the one place that does it from day one rather than relying on a
+  `data-perm` gate.
+- The Supabase client is **vendored** (`supabase.min.js`), not imported from
+  `esm.sh`. A cross-origin ESM import is the one asset a service worker cannot
+  cache, so offline would have meant a blank page.
+- `sw.js` is a copy of `field-app/sw.js`'s network-first shell strategy.
+  **Bump `CACHE_VERSION` and the `?v=` strings in both `index.html` and
+  `APP_SHELL` together on every deploy**, or a fresh page pairs with old code.
+- **No offline write queue.** Unlike the field app, an entry made with no
+  signal is lost. Fine for the office; fix before relying on it out of range.
+
 ## SQL conventions
 
 - ALL migration/correction SQL must be idempotent (IF NOT EXISTS, guarded DO

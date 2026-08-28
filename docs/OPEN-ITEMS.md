@@ -3,7 +3,7 @@
 Things known to need attention, and deliberately not done yet. Ordered by when
 they will bite, not by size.
 
-**Last reviewed:** 2026-08-27
+**Last reviewed:** 2026-08-28
 
 Anything finished moves to the bottom under *Closed* with the date, so the
 history of what was decided survives.
@@ -286,6 +286,40 @@ hazard is an OVERLAPPING import, not a duplicate one, since `pb_row_key`
 upserts a re-run but Aug 17-26 then Aug 20-31 double-feeds four days under
 different keys), phase 5 (Redwing export), phase 6 (field-app mineral
 put-out).
+
+---
+
+## 11. Tally Book - not yet exercised end to end
+
+**Status:** built 2026-08-28, blocked on two things only John can do.
+
+The app is in `tally-book/` and validates clean, but nothing has run against
+real data yet:
+
+- **The migration has not been applied.** `docs/sql/2026-08-28_tally_book.sql`
+  needs pasting into the SQL editor; the MCP connector is read-only. Until
+  then every query 404s, which the app does at least surface in a banner.
+  Re-run `rls_verify.sql` afterwards per rule 7.
+- **Nothing has been signed in.** The authenticated read/write paths, the RLS
+  scoping and the project save are unverified against the live database. What
+  IS verified: the login gate holds, the ranch-date logic (proved against a
+  9pm-Central instant, where the old `toISOString()` returns the next day),
+  error surfacing on a real failure, and the project sheet's open/prefill/
+  cancel/backdrop behaviour.
+- **The service worker could not be registered in the test browser** - script
+  fetch is blocked there, and the request never reached the server. The file
+  is a copy of `field-app/sw.js`, which works in production, but confirm
+  install-to-homescreen and an offline load on the real Pages URL before
+  trusting it.
+
+Deliberately not built, in rough order of when they will be missed:
+
+- **No offline write queue.** An entry made with no signal is lost. The field
+  app persists a queue keyed by user id; the same pattern applies here.
+- Phases 3-8 from the handover: Siri capture, weekly/monthly/future logs,
+  search, Gmail triage, Reminders, and a cattle lot summary panel.
+- Projects can be edited but not created or deleted from the app - the two
+  seeded rows are the register. Adding rows is a form, not a migration.
 
 ---
 

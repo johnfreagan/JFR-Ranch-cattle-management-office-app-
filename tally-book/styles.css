@@ -1,0 +1,643 @@
+/* ─────────────────────────────────────────────────────────
+   Tally Book — design tokens
+   Direction: a working ranch ledger. Aged paper, ruled lines,
+   ink-stamped signifiers. The priority flag is a small branding-
+   iron stamp (JFR's own mark) instead of a generic asterisk —
+   that's the signature element.
+   ───────────────────────────────────────────────────────── */
+
+:root {
+  --paper: #ebe3cf;
+  --paper-raised: #f2ecdc;
+  --ink: #22281f;
+  --ink-soft: #4a5142;
+  --ink-faint: #8b8770;
+  --barn-red: #8c3b2e;
+  --wheat: #b9911f;
+  --sage: #6b7a5e;
+  --line: #c7bc9f;
+  --line-strong: #a99b76;
+  --danger: #8c3b2e;
+
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius: 3px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; }
+
+/* The UA's `[hidden] { display: none }` loses to any class that sets display,
+   so `.login { display: flex }` kept the sign-in card on screen forever with
+   the book rendered underneath it. Every view here toggles via the hidden
+   attribute, so it wins outright. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px);
+  background-size: 100% 2.6rem;
+  background-position: 0 5.2rem;
+  padding-top: var(--safe-top);
+  padding-bottom: calc(var(--safe-bottom) + 4.5rem);
+  min-height: 100vh;
+}
+
+a { color: inherit; }
+
+/* ── App shell ───────────────────────────────────────────── */
+
+.masthead {
+  padding: 1.1rem 1.1rem 0.9rem;
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.masthead-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.masthead h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.5rem;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+
+.masthead .ranch-mark {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.date-line {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  margin-top: 0.3rem;
+  letter-spacing: 0.02em;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 1.1rem;
+}
+
+/* ── Section headers ─────────────────────────────────────── */
+
+.section {
+  margin-top: 1.8rem;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.section-head h2 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.section-head .count {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.section-head .sub {
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+}
+
+/* ── Entry rows ──────────────────────────────────────────── */
+
+.entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.entry:last-child { border-bottom: none; }
+
+.signifier {
+  flex: 0 0 auto;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.signifier.task::before { content: "▢"; }
+.signifier.event::before { content: "○"; }
+.signifier.note::before { content: "—"; color: var(--ink-faint); }
+.signifier.task.done::before { content: "▣"; color: var(--sage); }
+
+.entry-body { flex: 1 1 auto; min-width: 0; }
+
+.entry-content {
+  font-size: 0.95rem;
+  line-height: 1.35;
+  word-wrap: break-word;
+}
+
+.entry.done .entry-content {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-strong);
+}
+
+.entry-meta {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--ink-faint);
+  margin-top: 0.15rem;
+  letter-spacing: 0.02em;
+}
+
+/* The stamp — signature element. A branding-iron mark for priority,
+   pressed into the paper at a slight angle, letterpress inset shading. */
+.stamp {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--barn-red);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-8deg);
+  color: var(--barn-red);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.7rem;
+  box-shadow: inset 0 0 0 1px rgba(140, 59, 46, 0.15);
+  opacity: 0.85;
+  margin-top: 0.05rem;
+}
+
+.stamp::before { content: "JFR"; font-size: 0.5rem; letter-spacing: 0.02em; }
+
+/* ── Quick actions (Morning Triage) ─────────────────────────── */
+
+.actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.action-btn {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  border-radius: var(--radius);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.action-btn:active { transform: translateY(1px); }
+.action-btn.keep:active { border-color: var(--ink); }
+.action-btn.today:active { border-color: var(--wheat); color: var(--wheat); }
+.action-btn.done:active { border-color: var(--sage); color: var(--sage); }
+.action-btn.kill:active { border-color: var(--barn-red); color: var(--barn-red); }
+
+/* ── Empty state ─────────────────────────────────────────── */
+
+.empty {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  padding: 0.8rem 0;
+  font-style: italic;
+}
+
+/* ── Rapid log input ─────────────────────────────────────── */
+
+.rapid-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.7rem 0;
+  border-bottom: 2px solid var(--ink);
+  margin-bottom: 0.2rem;
+}
+
+.rapid-input-row select {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+  color: var(--ink);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.3rem;
+}
+
+.rapid-input-row input[type="text"] {
+  flex: 1;
+  border: none;
+  border-bottom: 1px solid var(--line-strong);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  padding: 0.4rem 0.1rem;
+  color: var(--ink);
+}
+
+.rapid-input-row input[type="text"]:focus {
+  outline: none;
+  border-bottom-color: var(--ink);
+}
+
+.priority-toggle {
+  flex: 0 0 auto;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  border: 1.5px dashed var(--line-strong);
+  background: transparent;
+  color: var(--line-strong);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.55rem;
+  cursor: pointer;
+}
+
+.priority-toggle::before { content: "JFR"; }
+
+.priority-toggle.active {
+  border: 1.5px solid var(--barn-red);
+  border-style: solid;
+  color: var(--barn-red);
+  transform: rotate(-8deg);
+  box-shadow: inset 0 0 0 1px rgba(140, 59, 46, 0.15);
+}
+
+.submit-btn {
+  flex: 0 0 auto;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  border: none;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.submit-btn:active { background: var(--ink-soft); }
+
+/* ── Project panel ───────────────────────────────────────── */
+
+.project-card {
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--sage);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.6rem;
+}
+
+.project-card.blocked { border-left-color: var(--barn-red); }
+
+.project-name {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.project-status {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  margin-top: 0.25rem;
+}
+
+.project-next {
+  font-size: 0.8rem;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed var(--line);
+}
+
+.project-next .label {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+  margin-right: 0.35rem;
+}
+
+.project-blocked {
+  font-size: 0.78rem;
+  color: var(--barn-red);
+  margin-top: 0.3rem;
+}
+
+/* ── Bottom nav ──────────────────────────────────────────── */
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: var(--paper-raised);
+  border-top: 2px solid var(--ink);
+  padding-bottom: var(--safe-bottom);
+  z-index: 10;
+}
+
+.bottom-nav button {
+  flex: 1;
+  background: none;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  padding: 0.75rem 0 0.6rem;
+  cursor: pointer;
+}
+
+.bottom-nav button.active {
+  color: var(--ink);
+  border-top: 2px solid var(--barn-red);
+  margin-top: -2px;
+}
+
+/* ── Toast / offline banner ──────────────────────────────── */
+
+.offline-banner {
+  display: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-align: center;
+  background: var(--wheat);
+  color: var(--ink);
+  padding: 0.3rem;
+  letter-spacing: 0.03em;
+}
+
+.offline-banner.show { display: block; }
+
+/* ── Utility ─────────────────────────────────────────────── */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+:focus-visible {
+  outline: 2px solid var(--barn-red);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ── Sign in ─────────────────────────────────────────────── */
+/* The book is scoped to auth.uid(). No session means every query
+   returns zero rows with no error, so the app gates here instead of
+   rendering an empty book that looks like a sync failure. */
+
+.login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 21rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-top: 3px solid var(--ink);
+  border-radius: var(--radius);
+  padding: 1.6rem 1.4rem;
+}
+
+.login-card h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.6rem;
+  margin: 0;
+}
+
+.login-sub {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 1.4rem;
+}
+
+.login-card label,
+.sheet label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  margin: 0.9rem 0 0.25rem;
+}
+
+.login-card input,
+.sheet input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--line-strong);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  padding: 0.4rem 0.1rem;
+  color: var(--ink);
+  border-radius: 0;              /* iOS rounds text inputs by default */
+  -webkit-appearance: none;
+}
+
+.login-card input:focus,
+.sheet input:focus {
+  outline: none;
+  border-bottom-color: var(--ink);
+}
+
+.login-btn {
+  width: 100%;
+  margin-top: 1.5rem;
+  padding: 0.75rem;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.login-btn:disabled { background: var(--ink-faint); cursor: default; }
+
+.login-error,
+.sheet-error {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--barn-red);
+  margin-top: 0.8rem;
+  min-height: 1rem;
+}
+
+.signout-btn {
+  background: none;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  padding: 0.3rem 0 0;
+  cursor: pointer;
+}
+
+/* ── Error banner ────────────────────────────────────────── */
+/* A refused write returns an empty result, not an error. Both paths
+   land here rather than in the console, where a phone cannot see them. */
+
+.error-banner {
+  display: none;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-align: center;
+  background: var(--barn-red);
+  color: var(--paper);
+  padding: 0.45rem 0.8rem;
+  letter-spacing: 0.02em;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.error-banner.show { display: block; }
+
+/* ── Untriaged signifier ─────────────────────────────────── */
+
+.signifier.untriaged { opacity: 0.4; }
+
+/* ── Project card as a control ───────────────────────────── */
+
+.project-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.project-card:active { background: var(--paper); }
+
+.project-target {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--ink-faint);
+  margin-top: 0.3rem;
+  letter-spacing: 0.02em;
+}
+
+/* ── Project edit sheet ──────────────────────────────────── */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(34, 40, 31, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 30;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 640px;
+  background: var(--paper-raised);
+  border-top: 3px solid var(--ink);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 1.2rem 1.1rem calc(1.2rem + var(--safe-bottom));
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.sheet h3 {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.sheet label .hint {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1.4rem;
+}
+
+.sheet-actions .action-btn { padding: 0.55rem 1rem; }
