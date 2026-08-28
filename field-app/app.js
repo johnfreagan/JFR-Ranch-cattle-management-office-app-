@@ -917,7 +917,7 @@ historyTabBtn.onclick = () => switchTab('history');
 // synced under an older schema has a current betaLastSyncDate but is
 // missing the new data entirely, and would otherwise sit there looking
 // synced while tag lookups quietly returned nothing.
-const DATA_SCHEMA_VERSION = 4;
+const DATA_SCHEMA_VERSION = 5;
 
 function checkDailySync() {
     const lastSync = localStorage.getItem('betaLastSyncDate');

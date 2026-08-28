@@ -21,7 +21,7 @@ const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 const APP_SHELL = [
     './',
     './index.html',
-    './app.js?v=v12',
+    './app.js?v=v13',
     './supabase.min.js?v=2.46.1',
     './styles.css?v=beta3',
     './manifest.json'
