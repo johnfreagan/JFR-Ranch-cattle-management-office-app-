@@ -115,15 +115,62 @@ earlier in this document that disagrees with them.
     no month of operation behind it would make the first count that matters
     also the first count ever taken.
 
+### Cost boundaries and cutover
+
+13. **Expired product is overhead, and is NOT allocated to lots.** Waste (a
+    dropped bottle) goes with count shrink, because both are handling losses on
+    cattle being worked. Expiry is an *ordering* problem — nobody's cattle
+    caused a jug to reach its date — and it is lumpy enough that one jug would
+    swamp a month. Keeping them apart keeps both signals: shrink says the crew,
+    expiry says the buying.
+14. **The pre-May-2026 receipts are a data gap, and we are NOT backfilling.**
+    Confirmed with John. Every receipt before 2026-04-27 has no receiving
+    protocol and no protocol in the system predates that date, so a backfill
+    would mean reconstructing one from old vet invoices. Five lots therefore
+    show $0.00 processing — 31-26 (1,766 hd, closed), 37X, 47-26, 37X-1, 37X-F,
+    about 2,900 head and roughly $58,000 at the ~$20/hd the newer lots run.
+    **That cost is picked up by the cost ledger instead**, and most of those
+    lots ship soon. The only change is cosmetic and worth doing: show
+    *"protocol not recorded"* rather than a bare `$0.00`, which reads as a real
+    number.
+15. **Medicine leaves the cost allocation on 1 October — split by cost DATE,
+    not by lot.** Vet invoices before the cutover stay head-day allocated;
+    from the cutover they are inventory purchases reaching lots as actual
+    usage. **Meds stay in the cost allocation for September** (John: "leave in
+    next month"). A lot running across the boundary gets allocated meds early
+    and actual usage after — correct, and unavoidable however it is cut.
+    Non-med lines on a vet invoice (fees, supplies) stay in the ledger
+    throughout.
+16. **History is held, not rewritten.** John: *"Program will hold the
+    allocations from previous months which have said cost. Will just start
+    allocating that month's actual usage going forward. Should be as close to
+    complete as possible."* Prior months keep the allocation they were closed
+    with; the switch is forward-only. That is exactly what the phase 3 snapshot
+    does — freeze what the books already said, derive nothing retroactively.
+    **"As complete as possible" is read as: treatment and processing both
+    switch on 1 October rather than staggering them.**
+
+    **The gate on that stays non-negotiable.** Before processing flips, the
+    snapshot must show every lot's processing total unchanged to the cent. If a
+    single lot moves, processing does not flip that day and treatment goes
+    alone. Completeness is the goal; a silently changed closed lot is not a
+    price worth paying for it.
+17. **A processing draw comes off the buyer's shelf when his source key matches
+    the lot's Source, and off Ranch stock otherwise.** Covers both the buyer
+    processing before delivery and a load worked at the ranch, with nobody
+    choosing per receipt. A short buyer shelf records a shortfall and flags it
+    rather than failing, same as everywhere else.
+
 ### Still open
 
 - **The Redwing posting grain** — one row per lot per period, or split by
   medication or category. Waiting on the Redwing reports.
-- **Does expired product allocate to lots like count shrink, or stay overhead?**
-- **Does JFR ever process its own cattle at the ranch?** Decides whether a
-  processing draw can come from Ranch stock as well as a buyer's.
+- **The opening balance for buyer locations** — what each buyer is holding on
+  day one.
 - **Whether `medications.cost_per_head` is retired** once every in-scope
   medication carries a container size and a unit cost.
+- **Who does what operationally** — who counts the barn, who enters purchases,
+  who chases the buyers.
 
 ---
 
