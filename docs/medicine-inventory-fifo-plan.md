@@ -99,10 +99,9 @@ earlier in this document that disagrees with them.
     1,095 doctoring events is recorded by John, because the cowboys do not have
     logins yet — `recorded_by_user_id` currently means *who typed it in*, not
     *who gave the shot*. A per-person custody figure built on that would be
-    nonsense. Checkouts still record a name for traceability, `med_custody` is
-    built but **hidden until crew accounts exist**, and the trigger to turn it
-    on is the day cowboys log in and record their own doctoring. Until then the
-    picker is a small list of crew names, not app users.
+    nonsense. Checkouts still record a name for traceability.
+    **Superseded in part by decision 26** — logins were assumed to be the
+    trigger that would make a per-person number valid. They are not.
 
 ### Timing
 
@@ -253,6 +252,33 @@ earlier in this document that disagrees with them.
     **The crew bottle count will be attempted near month end** rather than
     relying on the carried estimate, so decision 21 is the fallback and not the
     plan.
+
+### Why per-person never works, and what replaces it
+
+26. **Crew-level is the honest ceiling. `med_custody` is deleted, not hidden.**
+    John, 2026-08-29: two men work together, use meds out of *one* man's box,
+    and the *other* documents the treatment.
+
+    That breaks per-person reconciliation permanently, and logins do not fix
+    it. Logins fix *who typed it*; they do nothing about *whose box it came
+    out of*. If A carries the box and B writes the treatments up, A's checkouts
+    drain against B's records — A looks like he is losing drug and B looks like
+    he is conjuring it. Where that is the habitual pairing it is a **systematic
+    bias, not noise**, so it does not wash out over a longer window either.
+
+    **The pool is unaffected**, because it does not care whose hand the bottle
+    was in — checkouts in, doses out, the count trues the whole thing up. Only
+    the per-person split breaks.
+
+    The single thing that would fix it is recording *whose meds* at the moment
+    of treatment, and that is not worth a field-app change, an extra tap on
+    every doctoring entry, and a default that is wrong precisely when two men
+    are working together.
+
+    So: **`med_custody` is dropped** — it computes a comparison now known to be
+    invalid, and no future event makes it correct. A plain **checkout log**
+    replaces it, answering "who has bottles" and nothing more. Shrink is a crew
+    number. The plan no longer promises a per-person one.
 
 ### Still open
 
