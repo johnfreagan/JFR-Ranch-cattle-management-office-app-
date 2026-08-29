@@ -23,6 +23,110 @@ not touched.
 
 ---
 
+## Decisions from the design review (2026-08-29)
+
+A question-by-question walk of the design tree. These supersede anything
+earlier in this document that disagrees with them.
+
+### Scope and catalog
+
+1. **Everything in `medications` is inventory** — drugs, implants, and the three
+   tag products — with a per-medication **`track_inventory`** flag to switch off
+   anything not worth counting. The flag cannot be retrofitted: once counts
+   exist, changing what is in scope changes what past counts meant.
+2. **A medication with no container size is flagged, not stocked.** Synovex
+   Primer, Protivity and Dexamethasone have no `bottle_size`. They show on the
+   inventory screens saying so, a purchase line for them will not post, and they
+   are left off the printed count sheet until fixed. Doctoring is never blocked:
+   `dose_cc` is already in base units, so doses still record — they just show as
+   uncovered until the medication is set up and stocked.
+
+### The count
+
+3. **A posted count hard-locks its location on and before the count date.** A
+   purchase or adjustment dated into a locked period is refused. **Un-posting is
+   owner-only** and reverses every adjustment the count made. Without this a
+   late invoice silently rewrites a month whose shrink is already booked.
+4. **A count cannot post while doctoring entries dated on or before it are
+   unapproved.** The screen lists how many and from which days. This is the
+   trap that makes the whole thing worth building: count the shelf on the 31st
+   with the 28th's treatments still in Approvals, and the count books those
+   doses as shrink — then the approval posts them again. Two hundred units
+   recorded where a hundred moved, and **it does not wash out next month.**
+   The rhythm is: enter the count on the 31st as a draft, clear Approvals on
+   the 1st, post it dated the 31st.
+5. **The sheet has two column-pairs — barn and crew — that add to one total.**
+   Still one Ranch pool and no transfers; this is only how the count is
+   gathered, and it tells you whether shrink is sitting in the barn or in the
+   trucks, which is a stock problem versus a handling problem. **Open bottles
+   are recorded in quarters** (crew writes ½, not 250) because that is the
+   precision a man in a truck can honestly give.
+
+### Where the money goes
+
+6. **Redwing changes to match lot usage.** It allocated meds by head-days, like
+   mineral, only because nothing could say which lot got the drug. That is what
+   this replaces — the report is not a new posting, it retires an existing
+   allocation.
+7. **Shrink is allocated to lots, per medication, pro-rata by units of that
+   medication used** (largest-remainder, so the parts sum exactly — the method
+   the shipment allocation already uses). Draxxin shrink is split only across
+   lots that actually got Draxxin. Every dollar of med spend therefore lands on
+   cattle and closeout ties to the P&L. **Consequence:** a lot that shipped in
+   August receives its share when the August count posts in early September —
+   its cost moves once, then never again, because a posted count is locked.
+8. **A buyer's leftover is handled as a count on his location.** He reports what
+   is left at month end or when a lot finishes processing; the variance posts
+   as an adjustment exactly like barn shrink, allocated across the lots he
+   processed since his last count, pro-rata by **expected** usage per
+   medication. Nothing about buyers is special — same sheet, same lock, same
+   rule — and his balance is always a number a human stated rather than one
+   that compounds unwatched.
+9. **Closeout grows an "Animal health" line that opens into Processing,
+   Treatment and Shrink.** The headline is total dollars ÷ **head in** — head in
+   never moves, so lots stay comparable and the figure cannot flatter itself as
+   cattle die or ship. The drill-down keeps each component's existing
+   convention (processing per head in, treatment per live head), so no number
+   anyone already reads changes meaning; it just gains a parent.
+10. **"Shrink" keeps its name.** It is the word cattle accounting uses, and
+    naming it is what makes it something you can work to control. The app now
+    carries two shrinks — pay-weight on Sales, medicine on Inventory — on
+    different screens, which is disambiguation enough.
+
+### Custody
+
+11. **The crew is pooled for now; no per-person number yet.** Every one of the
+    1,095 doctoring events is recorded by John, because the cowboys do not have
+    logins yet — `recorded_by_user_id` currently means *who typed it in*, not
+    *who gave the shot*. A per-person custody figure built on that would be
+    nonsense. Checkouts still record a name for traceability, `med_custody` is
+    built but **hidden until crew accounts exist**, and the trigger to turn it
+    on is the day cowboys log in and record their own doctoring. Until then the
+    picker is a small list of crew names, not app users.
+
+### Timing
+
+12. **Lite in September, books switch 1 October.** Opening count in the first
+    week of September and `usage_from` set so the ledger runs for real — but
+    Redwing keeps its head-day allocation for September and closeout does not
+    change. The 9/30 count is then a dress rehearsal that can be held against
+    Redwing's September allocation, and that comparison is the only way to earn
+    trust in the number before it drives anything. Going live in October with
+    no month of operation behind it would make the first count that matters
+    also the first count ever taken.
+
+### Still open
+
+- **The Redwing posting grain** — one row per lot per period, or split by
+  medication or category. Waiting on the Redwing reports.
+- **Does expired product allocate to lots like count shrink, or stay overhead?**
+- **Does JFR ever process its own cattle at the ranch?** Decides whether a
+  processing draw can come from Ranch stock as well as a buyer's.
+- **Whether `medications.cost_per_head` is retired** once every in-scope
+  medication carries a container size and a unit cost.
+
+---
+
 ## Why this is three phases and not one
 
 Two of those decisions are cheap and one is not.
