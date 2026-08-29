@@ -336,6 +336,60 @@ Deliberately not built:
 
 ---
 
+## 12. Only two accounts exist, and both are owner
+
+**Status:** open. Surfaced 2026-08-28 by the RLS roster. **John's call: Lauren
+stays owner.** Office and crew accounts to be added 2026-08-31.
+
+`user_profiles` holds exactly two rows — John and Lauren, both `owner`, both
+active. Nothing is misconfigured; the consequence is that **the entire crew and
+office boundary has never been exercised by a real login**:
+
+- "Crew can't see any dollars", the office-only Closeout and Feed tabs, the 65
+  `data-perm` controls, and every RLS denial that returns zero rows rather than
+  an error — all of it is theoretical.
+- The field PWA went live 2026-08-25 and no cowboy has an account, so the
+  offline queue replaying under later authorization (open item 3's sibling) has
+  never been seen against a real crew user either.
+
+The privilege that actually matters: **owner is the only role that can delete**,
+and `lot_movements`, `lot_events` and `lot_pasture_assignments` are audit trails
+where an accidental delete is unrecoverable in a way an accidental insert is
+not. That is why the privilege is narrow. `office` covers everything the books
+need — invoices, cost, margin, corrections — minus that.
+
+Asked and answered 2026-08-28: Lauren keeps owner. Recorded here so the reason
+the role exists is not lost, and so the first office and crew accounts get
+tested against the boundary rather than assumed to work.
+
+Note for whoever adds them: `ranch_settings.feed_direct_from` is owner-only to
+UPDATE by design — it moves money between periods — so an office user cannot
+change the feed cut-over date.
+
+---
+
+## 13. Tally Book has two orphan tables
+
+**Status:** open, cosmetic. **John's call: clean up on the next tally build.**
+
+`docs/sql/2026-08-28_tally_book_v2.sql` supersedes `..._tally_book.sql` and
+moved storage to `tally_days` (one row per day) and `tally_book` (one row per
+long-tail key). The first cut's tables were never dropped:
+
+| table | rows | |
+|---|---|---|
+| `tally_days` | 1 | live |
+| `tally_book` | 8 | live |
+| `tally_entries` | 0 | orphan |
+| `tally_projects` | 2 | orphan |
+
+Harmless — they carry RLS and policies like everything else. The hazard is
+purely that the next person reading the schema sees four tally tables and
+cannot tell which two are real, and `tally_projects` having rows in it makes
+that mistake easy. Look at those 2 rows before dropping.
+
+---
+
 ## Closed
 
 - **2026-08-27 — The RLS verify script now exists.** `CLAUDE.md` rule 7 and
