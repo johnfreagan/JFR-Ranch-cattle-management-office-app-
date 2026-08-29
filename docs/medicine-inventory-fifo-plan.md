@@ -189,6 +189,33 @@ earlier in this document that disagrees with them.
     **Allocation to lots begins with the October count**, posted in early
     November, on the first month meds are out of the cost ledger.
 
+### When the crew doesn't turn a number in
+
+21. **Carry the crew's last reported figure forward and flag the count as
+    estimated.** John's call over blocking. The month always closes and no fake
+    shrink is booked from stock that is sitting in a truck. The cost is that a
+    stale figure looks like a real one, so: every screen carries a **"crew last
+    actually counted"** date, and when a real crew count finally lands after
+    estimated months the catch-up variance is booked in the month it is found —
+    the period lock forbids reopening the closed ones — **labelled with the
+    period it covers**, so a month does not appear to have lost a case.
+
+22. **PARKED — "a new bottle means the old one is empty."** John's idea, and a
+    good one: when a cowboy draws another bottle of the same medication, treat
+    his previous one as finished. It stops crew holdings rolling up and gives a
+    continuous signal instead of a monthly one. It splits in two, though:
+    - **As an estimate** it is strictly better than a carried figure — crew
+      holdings become the sum of the latest checkout per person per medication,
+      refreshed every time anyone draws. Books untouched.
+    - **As a shrink trigger** it needs to know which doses came out of *that*
+      bottle, which needs per-person dose attribution — so it waits for crew
+      logins. Pooled across the whole crew it degenerates into "every
+      checked-out bottle is consumed", which is bottle-level expensing one
+      bottle late: the head-day allocation wearing a different hat.
+
+    **Revisit once there is real running experience and the cowboys have
+    logins.** Until then, decision 21 stands.
+
 ### Still open
 
 - **The Redwing posting grain** — one row per lot per period, or split by
