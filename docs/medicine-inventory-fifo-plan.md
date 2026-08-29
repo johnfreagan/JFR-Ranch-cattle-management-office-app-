@@ -216,6 +216,25 @@ earlier in this document that disagrees with them.
     **Revisit once there is real running experience and the cowboys have
     logins.** Until then, decision 21 stands.
 
+### The go/no-go
+
+23. **No written threshold — judged on the numbers in early October** (John's
+    call over pre-agreed gates). The four things worth looking at are still
+    worth looking at: quantities against Redwing item by item, the roll-forward
+    tying to on-hand (asserted automatically by the tests), shrink as a share of
+    usage, and total September med dollars against the head-day allocation.
+24. **The app computes BOTH sides of the September comparison.** One report,
+    per lot: actual FIFO usage against a head-day allocation of the *same total
+    spend*, with the difference in dollars and $/hd. Because both sides come off
+    one total, every gap on the page is purely distribution — which lot was
+    really carrying the drug — and that is the thing being judged. Nothing has
+    to be extracted from Redwing, and it is ready the day September closes.
+
+    **The expected signature: the totals should land close and the per-lot split
+    should differ noticeably.** The difference is the product. If the *totals*
+    disagree, something is wrong and it wants finding before the switch, not
+    after.
+
 ### Still open
 
 - **The Redwing posting grain** — one row per lot per period, or split by
