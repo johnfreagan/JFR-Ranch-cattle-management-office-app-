@@ -161,16 +161,42 @@ earlier in this document that disagrees with them.
     choosing per receipt. A short buyer shelf records a shortfall and flags it
     rather than failing, same as everywhere else.
 
+### Opening balances
+
+18. **The opening count is valued at Redwing's carrying value, item by item.**
+    Your physical count sets the QUANTITY; Redwing's unit cost sets the PRICE.
+    Day one then ties to the penny by construction, so there is never a founding
+    difference nobody can explain, and everything that diverges afterwards is a
+    real transaction you can point at. FIFO runs forward from there and takes
+    over as the opening stock is used up.
+    **Prerequisite:** `medications.redwing_item_code` has to be mapped before
+    the opening count — you cannot take a per-item value without matching the
+    items. It also forces the quantity comparison on day one, when it is
+    cheapest to fix.
+19. **Buyer opening balances are established at the OCTOBER cutover, not in
+    September.** Nothing consumes a buyer's stock until processing starts
+    drawing on 1 October, so a 9/1 figure would sit untouched for a month and
+    end up overstated by whatever he actually used. Ring each buyer as part of
+    the switch, enter what he is holding as an opening count on his location,
+    priced at our last invoice for those items. His balance starts true on the
+    day it first matters, and September is free for the phone calls.
+20. **September's shrink is reported, not allocated.** The 9/30 count posts its
+    adjustments so inventory is right going into October, but the shrink is not
+    pushed onto lots and not sent to Redwing — September meds already reach lots
+    through the head-day allocation, and allocating as well would count them
+    twice. The figure exists to be looked at and held against Redwing's
+    September number, which is the entire point of the rehearsal month.
+    **Allocation to lots begins with the October count**, posted in early
+    November, on the first month meds are out of the cost ledger.
+
 ### Still open
 
 - **The Redwing posting grain** — one row per lot per period, or split by
   medication or category. Waiting on the Redwing reports.
-- **The opening balance for buyer locations** — what each buyer is holding on
-  day one.
 - **Whether `medications.cost_per_head` is retired** once every in-scope
-  medication carries a container size and a unit cost.
-- **Who does what operationally** — who counts the barn, who enters purchases,
-  who chases the buyers.
+  medication carries a container size and a unit cost. Two meds currently carry
+  both it and a unit cost (Ivomec Long Range, Lot Tag), where it is dead weight
+  today and a landmine if a dose is ever null.
 
 ---
 
