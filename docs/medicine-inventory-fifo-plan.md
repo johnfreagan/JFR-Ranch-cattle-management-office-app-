@@ -235,6 +235,25 @@ earlier in this document that disagrees with them.
     disagree, something is wrong and it wants finding before the switch, not
     after.
 
+### Crew members are names, not accounts
+
+25. **A crew member is a row on a list; an app login is optional** (John,
+    2026-08-29). Some hands are regulars who will get field-app accounts; some
+    come occasionally and should never see field-app information at all. Both
+    need to be checked out to, and the office or the head crew leader enters on
+    their behalf.
+
+    So `med_txns` points at a **`med_crew_members`** row — name, active, and a
+    *nullable* link to a `user_profiles` account — rather than at a user id.
+    When a member has an account and crew logins arrive, per-person dose
+    attribution works for him; for the hands without one it never will, and the
+    design should not pretend otherwise. This also settles the picker: it was
+    reading `admin_list_users`, which today returns only John and Lauren.
+
+    **The crew bottle count will be attempted near month end** rather than
+    relying on the carried estimate, so decision 21 is the fallback and not the
+    plan.
+
 ### Still open
 
 - **The Redwing posting grain** — one row per lot per period, or split by
