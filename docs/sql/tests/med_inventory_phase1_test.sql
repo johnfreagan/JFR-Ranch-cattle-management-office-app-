@@ -54,6 +54,11 @@ CREATE TABLE public.doctoring_event_meds (id uuid PRIMARY KEY DEFAULT gen_random
   doctoring_event_id uuid, position smallint DEFAULT 1, medication_id uuid,
   dose_cc numeric, cost numeric);
 
+-- The count's approvals gate reads this.
+CREATE TABLE public.pending_field_entries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entry_type text, status text, event_datetime timestamptz);
+
 INSERT INTO public.medications (id, name, generic_category, dose_mode, per_weight_rate, bottle_size, bottle_size_unit, cost_per_unit)
 VALUES ('11111111-0000-0000-0000-000000000001','Draxxin','Antibiotic','per_weight',1.1,500,'mL',0.99262),
        ('11111111-0000-0000-0000-000000000002','Valcor','Anthelmintic (Dewormer)','per_weight',2.0,500,'mL',0.30142);

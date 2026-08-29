@@ -69,16 +69,26 @@ function run(argv) {
     t('junk line ignored, not booked',  r.lines.length === 1 && r.unmatched.length === 1);
 
     // ---- the count sheet -------------------------------------------------
-    // This is the one that matters. Number('') is 0, and a blank line read as
-    // a count of zero would post an adjustment writing the stock to nothing.
-    t('blank means NOT COUNTED',
-        mod.invCountedUnits({ full_bottles: '', open_units: '', bottle_size: 500 }) === null);
-    t('an explicit 0 IS a count of zero',
-        mod.invCountedUnits({ full_bottles: '0', open_units: '', bottle_size: 500 }) === 0);
-    t('2 full bottles + 400 open = 1400',
-        mod.invCountedUnits({ full_bottles: '2', open_units: '400', bottle_size: 500 }) === 1400);
-    t('an open bottle alone counts',
-        mod.invCountedUnits({ full_bottles: '', open_units: '250', bottle_size: 500 }) === 250);
+    // Four boxes: barn full + barn open, crew full + crew open. The open
+    // columns are a FRACTION of a bottle - the crew writes 1/2, not 250 - so
+    // everything adds in bottles and is multiplied once at the end.
+    var C = function (bf, bo, cf, co, size) {
+        return mod.invCountedUnits({
+            barn_full: bf, barn_open: bo, crew_full: cf, crew_open: co, bottle_size: size
+        });
+    };
+
+    // The one that matters. Number('') is 0, and a blank line read as a count
+    // of zero would post an adjustment writing that medication's stock to
+    // nothing - the one thing the count screen must never do.
+    t('all four blank means NOT COUNTED',        C('', '', '', '', 500) === null);
+    t('an explicit 0 IS a count of zero',        C('0', '', '', '', 500) === 0);
+
+    t('barn: 2 bottles + half = 1250',           C('2', '0.5', '', '', 500) === 1250);
+    t('crew alone counts',                       C('', '', '1', '0.25', 500) === 625);
+    t('barn and crew add into one figure',       C('2', '0.5', '1', '0.25', 500) === 1875);
+    t('a quarter of a 3,785 mL jug',             C('', '0.25', '', '', 3785) === 946.25);
+    t('doses work the same as millilitres',      C('3', '', '', '', 50) === 150);
 
     out.push(ok ? 'RESULT: PASS' : 'RESULT: FAIL');
     console.log(out.join('\n'));

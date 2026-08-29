@@ -115,13 +115,24 @@ $pre$;
 ALTER TABLE public.medications
     ADD COLUMN IF NOT EXISTS redwing_item_code text;
 
+-- Everything in the catalog is inventory by default - drugs, implants and the
+-- tag products alike, because a box of 50 tags behaves exactly like a 50-dose
+-- vaccine and costs real money. This is the switch for anything not worth
+-- counting.
+--
+-- It cannot be retrofitted: once counts exist, changing what is in scope
+-- changes what past counts MEANT. So it ships from day one even though it is
+-- expected to stay true on nearly everything.
+ALTER TABLE public.medications
+    ADD COLUMN IF NOT EXISTS track_inventory boolean NOT NULL DEFAULT true;
+
 
 -- ---------------------------------------------------------------------
 -- 2. med_stock_locations - the ranch, and one row per buyer
 -- ---------------------------------------------------------------------
 -- The barn and the crew boxes are ONE pool. A bottle in a truck has not
 -- left the ranch; it is the same inventory in a different hand, and who
--- has it is custody, tracked on the person (med_txns.crew_user_id) and
+-- has it is custody, tracked on the person (med_txns.crew_member_id) and
 -- not on the stock. Buyer rows exist because a buyer's pickup at the
 -- supplier is genuinely separate inventory sitting on his place.
 CREATE TABLE IF NOT EXISTS public.med_stock_locations (
@@ -164,6 +175,30 @@ ALTER TABLE public.med_stock_locations
 INSERT INTO public.med_stock_locations (name, kind, notes)
 SELECT 'Ranch', 'ranch', 'Barn and crew boxes together - one pool. Custody is tracked per person, not per location.'
 WHERE NOT EXISTS (SELECT 1 FROM public.med_stock_locations WHERE kind = 'ranch');
+
+
+-- ---------------------------------------------------------------------
+-- 2b. med_crew_members - a name, and maybe an account
+-- ---------------------------------------------------------------------
+-- Some hands are regulars who will get field-app logins; some come
+-- occasionally and should never see field-app information at all. Both have
+-- to be checked out to, with the office or the head crew leader entering on
+-- their behalf. So custody points HERE and not at user_profiles - a login is
+-- an optional attribute of a crew member, not the definition of one.
+--
+-- The link exists for the day a regular gets an account. It does NOT enable a
+-- per-person shrink figure: two men work together out of one man's box while
+-- the other writes the treatment up, so doses recorded by a man are not doses
+-- drawn from his box. That is a systematic bias, not noise, and no login
+-- fixes it. See med_checkout_log - this is custody, not accountability.
+CREATE TABLE IF NOT EXISTS public.med_crew_members (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       text        NOT NULL UNIQUE,
+    user_id    uuid,        -- nullable on purpose; most hands will never have one
+    is_active  boolean     NOT NULL DEFAULT true,
+    notes      text,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
 
 
 -- ---------------------------------------------------------------------
@@ -288,8 +323,9 @@ CREATE TABLE IF NOT EXISTS public.med_txns (
 
     -- Custody. A checkout does not move stock - the bottle is still ranch
     -- inventory, just in somebody's hand - so this is the only thing a
-    -- checkout row actually records.
-    crew_user_id    uuid,
+    -- checkout row actually records. Points at a crew member rather than a
+    -- user account, because most of the men who carry bottles do not have one.
+    crew_member_id  uuid REFERENCES public.med_crew_members(id),
 
     -- 'count' | 'waste' | 'expired' | 'correction' | 'opening' on adjustments.
     reason          text,
@@ -325,7 +361,7 @@ CREATE TABLE IF NOT EXISTS public.med_txns (
 CREATE INDEX IF NOT EXISTS med_txns_date_idx     ON public.med_txns(txn_date);
 CREATE INDEX IF NOT EXISTS med_txns_med_idx      ON public.med_txns(medication_id, location_id, txn_date);
 CREATE INDEX IF NOT EXISTS med_txns_ref_idx      ON public.med_txns(ref_kind, ref_id);
-CREATE INDEX IF NOT EXISTS med_txns_crew_idx     ON public.med_txns(crew_user_id) WHERE crew_user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS med_txns_crew_idx     ON public.med_txns(crew_member_id) WHERE crew_member_id IS NOT NULL;
 
 -- The allocation rows. This is where FIFO cost freezes, and it is what
 -- makes a reversal exact: put back precisely what was taken, to the
@@ -363,6 +399,21 @@ CREATE TABLE IF NOT EXISTS public.med_counts (
     is_opening  boolean     NOT NULL DEFAULT false,
 
     counted_by  text,
+
+    -- TRUE when the crew did not turn a number in and their last reported
+    -- figure was carried forward. The month still closes and no fake shrink
+    -- is booked out of stock sitting in a truck - but a carried figure looks
+    -- exactly like a real one on a report, so it is marked, and every screen
+    -- shows when the crew LAST ACTUALLY counted.
+    crew_estimated boolean  NOT NULL DEFAULT false,
+
+    -- The date of the last count at this location where the crew really
+    -- reported. When a real count follows estimated months, its variance
+    -- covers the whole span since this date - the period lock forbids
+    -- reopening the closed months to spread it back - so the report has to
+    -- say so, or one month looks like the crew lost a case.
+    crew_counted_since date,
+
     notes       text,
     posted_at   timestamptz,
 
@@ -382,12 +433,27 @@ CREATE TABLE IF NOT EXISTS public.med_count_lines (
     count_id       uuid NOT NULL REFERENCES public.med_counts(id) ON DELETE CASCADE,
     medication_id  uuid NOT NULL REFERENCES public.medications(id),
 
-    -- Two columns, because that is how counting actually goes. A 500 mL
-    -- bottle half used is 250 units of real inventory, and one box would
-    -- force the counter to do arithmetic on a clipboard - which is where
-    -- the error gets made. The app multiplies.
-    full_bottles   numeric(12,4),
-    open_units     numeric(14,4),
+    -- Four boxes, because that is how counting actually goes: the barn and
+    -- the trucks are counted by different people, possibly on different
+    -- days, and full bottles and the open one are separate questions.
+    --
+    -- Still ONE pool and no transfers - this is only how the count is
+    -- GATHERED. Splitting it tells you whether shrink is sitting in the barn
+    -- or in the trucks, which is a stock problem versus a handling problem.
+    --
+    -- The open columns are a FRACTION OF A BOTTLE, not units: the crew writes
+    -- 1/2, not 250. That is the precision a man in a truck can honestly give,
+    -- and the app does the multiplication rather than making him do it on a
+    -- clipboard - which is where the error gets made.
+    barn_full      numeric(12,4),
+    barn_open      numeric(6,4)  CHECK (barn_open IS NULL OR (barn_open >= 0 AND barn_open < 1)),
+    crew_full      numeric(12,4),
+    crew_open      numeric(6,4)  CHECK (crew_open IS NULL OR (crew_open >= 0 AND crew_open < 1)),
+
+    -- TRUE when the crew half of this line was carried forward rather than
+    -- reported. Per line, because the crew may report some meds and not
+    -- others.
+    crew_carried   boolean NOT NULL DEFAULT false,
 
     -- Snapshotted so a later catalog change cannot rewrite what was counted.
     bottle_size    numeric(12,4),
@@ -433,6 +499,77 @@ BEGIN
     END IF;
 END
 $fk$;
+
+
+-- ---------------------------------------------------------------------
+-- 6b. The period lock
+-- ---------------------------------------------------------------------
+-- A posted count is a statement about what was on the shelf on a date. Let
+-- anything be dated into the period behind it and that statement quietly
+-- stops being true: a vet invoice entered in October dated August rewrites
+-- what August's ending balance was, while August's shrink is already booked
+-- and already allocated to lots that may well have shipped.
+--
+-- So: once a count posts, that location is closed on and before its date.
+-- Later paperwork gets dated after, or an owner un-posts the count, fixes it,
+-- and posts again.
+--
+-- This is deliberately NOT a fix for the late invoice that should have
+-- covered earlier usage - med_settle_uncovered handles that, inside the open
+-- period, without backdating anything.
+CREATE OR REPLACE FUNCTION public.med_locked_through(p_location_id uuid)
+RETURNS date
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $fn$
+    SELECT MAX(count_date)
+      FROM public.med_counts
+     WHERE location_id = p_location_id AND status = 'posted';
+$fn$;
+
+CREATE OR REPLACE FUNCTION public.med_guard_locked_period()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $fn$
+DECLARE
+    v_locked date;
+    v_date   date;
+    v_loc    uuid;
+BEGIN
+    IF TG_TABLE_NAME = 'med_txns' THEN
+        v_date := NEW.txn_date;      v_loc := NEW.location_id;
+    ELSE
+        v_date := NEW.received_date; v_loc := NEW.location_id;
+    END IF;
+
+    v_locked := public.med_locked_through(v_loc);
+
+    IF v_locked IS NOT NULL AND v_date <= v_locked THEN
+        RAISE EXCEPTION
+            'That period is closed. % is dated % and this location was counted through %. Date it after %, or have an owner un-post the count.',
+            TG_TABLE_NAME, v_date, v_locked, v_locked
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    RETURN NEW;
+END
+$fn$;
+
+-- The count's OWN adjustments are dated on the count date, and post while the
+-- count is still a draft, so they never meet a lock of their own making.
+DROP TRIGGER IF EXISTS med_txns_period_lock ON public.med_txns;
+CREATE TRIGGER med_txns_period_lock
+    BEFORE INSERT ON public.med_txns
+    FOR EACH ROW EXECUTE FUNCTION public.med_guard_locked_period();
+
+DROP TRIGGER IF EXISTS med_purchase_lines_period_lock ON public.med_purchase_lines;
+CREATE TRIGGER med_purchase_lines_period_lock
+    BEFORE INSERT ON public.med_purchase_lines
+    FOR EACH ROW EXECUTE FUNCTION public.med_guard_locked_period();
 
 
 -- ---------------------------------------------------------------------
@@ -518,7 +655,7 @@ CREATE OR REPLACE FUNCTION public.med_consume(
     p_ref_id        uuid    DEFAULT NULL,
     p_txn_date      date    DEFAULT NULL,
     p_notes         text    DEFAULT NULL,
-    p_crew_user_id  uuid    DEFAULT NULL
+    p_crew_member_id uuid   DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -532,6 +669,9 @@ DECLARE
     v_total      numeric := 0;
     v_last_cost  numeric;
     v_prov       boolean := false;
+    v_date       date;
+    v_locked     date;
+    v_note       text := p_notes;
     row_rec      record;
 BEGIN
     IF p_qty_units IS NULL OR p_qty_units <= 0 THEN
@@ -541,13 +681,36 @@ BEGIN
         RAISE EXCEPTION 'med_consume: txn_type must be usage or adjustment (got %)', p_txn_type;
     END IF;
 
+    v_date   := COALESCE(p_txn_date, public.ranch_today());
+    v_locked := public.med_locked_through(p_location_id);
+
+    -- A dose given in a month that has since been counted and closed.
+    --
+    -- It happens: a field entry syncs a week late and is approved after the
+    -- count posted. The period lock would reject it, and because the usage
+    -- hook is fail-soft that rejection would SILENTLY LOSE the dose - a
+    -- treatment that really happened, gone, to satisfy a bookkeeping rule.
+    -- Every other rule here bends before that one does.
+    --
+    -- So usage posts to the first OPEN day instead, carrying its true date in
+    -- the note. The closed month keeps the shrink it booked; the open month
+    -- comes up long by the same amount and nets it back off. Across the pair
+    -- the units and the dollars are right, and nothing is lost. Purchases get
+    -- no such relief - an invoice can simply be dated correctly.
+    IF v_locked IS NOT NULL AND v_date <= v_locked THEN
+        v_note := COALESCE(v_note || ' | ', '')
+                  || 'Given ' || v_date || ', posted ' || (v_locked + 1)
+                  || ' - ' || v_date || ' was closed by a posted count.';
+        v_date := v_locked + 1;
+    END IF;
+
     INSERT INTO public.med_txns (
         txn_date, txn_type, medication_id, location_id, qty_units, direction,
-        crew_user_id, reason, ref_kind, ref_id, notes, created_by
+        crew_member_id, reason, ref_kind, ref_id, notes, created_by
     ) VALUES (
-        COALESCE(p_txn_date, public.ranch_today()), p_txn_type, p_medication_id,
-        p_location_id, p_qty_units, -1, p_crew_user_id, p_reason, p_ref_kind,
-        p_ref_id, p_notes, auth.uid()
+        v_date, p_txn_type, p_medication_id,
+        p_location_id, p_qty_units, -1, p_crew_member_id, p_reason, p_ref_kind,
+        p_ref_id, v_note, auth.uid()
     )
     RETURNING id INTO v_txn_id;
 
@@ -844,6 +1007,10 @@ DECLARE
     v_cost      numeric;
     v_value     numeric;
     v_consumed  jsonb;
+    v_kind      text;
+    v_pending   integer := 0;
+    v_first     date;
+    v_last      date;
     v_lines     integer := 0;
     v_short     integer := 0;
     v_over      integer := 0;
@@ -860,6 +1027,39 @@ BEGIN
     END IF;
     IF v_status <> 'draft' THEN
         RAISE EXCEPTION 'med_post_count: count % is already %; a posted count cannot be posted again.', p_count_id, v_status;
+    END IF;
+
+    SELECT kind INTO v_kind FROM public.med_stock_locations WHERE id = v_location;
+
+    -- THE APPROVALS GATE.
+    --
+    -- Count the shelf on the 31st with the 28th's treatments still sitting in
+    -- Approvals, and the ledger has not heard about those doses yet - so the
+    -- count comes up short and books them as SHRINK. Then the approval posts
+    -- them again as usage. Two hundred units recorded where a hundred moved,
+    -- and it does NOT wash out next month: the count is locked and the shrink
+    -- is already allocated to lots that may have shipped.
+    --
+    -- So the count waits for the queue. Enter it on the 31st as a draft,
+    -- clear Approvals on the 1st, post it dated the 31st.
+    --
+    -- Ranch only: a buyer's shelf has nothing to do with our doctoring queue.
+    IF v_kind = 'ranch' THEN
+        SELECT count(*),
+               MIN((event_datetime AT TIME ZONE 'America/Chicago')::date),
+               MAX((event_datetime AT TIME ZONE 'America/Chicago')::date)
+          INTO v_pending, v_first, v_last
+          FROM public.pending_field_entries
+         WHERE status = 'pending'
+           AND entry_type = 'doctoring'
+           AND (event_datetime AT TIME ZONE 'America/Chicago')::date <= v_date;
+
+        IF v_pending > 0 THEN
+            RAISE EXCEPTION
+                'Cannot post: % doctoring entr% dated % to % still awaiting approval. Those doses are not in the ledger yet, so this count would book them as shrink and the approvals would then post them again. Clear the Approvals queue, then post.',
+                v_pending, CASE WHEN v_pending = 1 THEN 'y is' ELSE 'ies are' END, v_first, v_last
+                USING ERRCODE = 'check_violation';
+        END IF;
     END IF;
 
     -- A NULL counted_units means NOT COUNTED. Skipping those here is the
@@ -960,9 +1160,28 @@ BEGIN
         v_value := NULL;
     END LOOP;
 
-    UPDATE public.med_counts
-       SET status = 'posted', posted_at = now()
-     WHERE id = p_count_id;
+    -- Record whether the crew really reported, and how far back this count's
+    -- variance actually reaches. When a real crew count follows estimated
+    -- months its variance covers the whole span since they last truly
+    -- counted - the lock forbids reopening those months to spread it back -
+    -- so the span is stored and the report says so, rather than one month
+    -- appearing to have lost a case.
+    UPDATE public.med_counts c
+       SET status = 'posted',
+           posted_at = now(),
+           crew_estimated = EXISTS (
+               SELECT 1 FROM public.med_count_lines cl
+                WHERE cl.count_id = p_count_id AND cl.crew_carried
+           ),
+           crew_counted_since = (
+               SELECT MAX(prev.count_date)
+                 FROM public.med_counts prev
+                WHERE prev.location_id = c.location_id
+                  AND prev.status = 'posted'
+                  AND prev.id <> c.id
+                  AND NOT prev.crew_estimated
+           )
+     WHERE c.id = p_count_id;
 
     RETURN jsonb_build_object(
         'count_id',      p_count_id,
@@ -977,6 +1196,113 @@ $fn$;
 
 REVOKE ALL ON FUNCTION public.med_post_count(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.med_post_count(uuid) TO authenticated;
+
+
+-- ---------------------------------------------------------------------
+-- 10a. med_unpost_count - the way back out
+-- ---------------------------------------------------------------------
+-- The period lock only works because there is a door. Without one, a count
+-- posted with a typo in it would close the month permanently and the only
+-- remedy would be an adjustment correcting an adjustment.
+--
+-- Un-posting reverses EXACTLY what the count did and nothing else:
+--   - short lines: reverse the adjustment txn, restoring the units to the
+--     layers they were taken off, through the same machinery a deleted
+--     treatment uses;
+--   - long lines: delete the layer the count created - but ONLY if nothing
+--     has drawn on it since, because reversing a layer somebody has already
+--     used would take stock out of a treatment that really happened.
+--
+-- Owner-only in practice: it is INVOKER, and DELETE on these tables is
+-- owner-only by policy.
+CREATE OR REPLACE FUNCTION public.med_unpost_count(p_count_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $fn$
+DECLARE
+    v_status   text;
+    v_location uuid;
+    v_date     date;
+    v_reversed integer := 0;
+    v_dropped  integer := 0;
+    v_used     numeric;
+    row_rec    record;
+BEGIN
+    SELECT status, location_id, count_date INTO v_status, v_location, v_date
+      FROM public.med_counts WHERE id = p_count_id FOR UPDATE;
+
+    IF v_status IS NULL THEN
+        RAISE EXCEPTION 'med_unpost_count: no such count %', p_count_id;
+    END IF;
+    IF v_status <> 'posted' THEN
+        RAISE EXCEPTION 'med_unpost_count: count % is %, not posted.', p_count_id, v_status;
+    END IF;
+
+    -- A later posted count at this location would be sitting on top of this
+    -- one; unwinding underneath it would leave that later count's variance
+    -- measured against a shelf that no longer exists.
+    IF EXISTS (
+        SELECT 1 FROM public.med_counts
+         WHERE location_id = v_location AND status = 'posted'
+           AND count_date > v_date AND id <> p_count_id
+    ) THEN
+        RAISE EXCEPTION
+            'med_unpost_count: a later count has been posted at this location. Un-post that one first.'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Long lines: the layers this count created.
+    FOR row_rec IN
+        SELECT l.id, l.qty_bottles * l.bottle_size AS qty_units, l.qty_remaining, m.name AS med_name
+          FROM public.med_purchase_lines l
+          JOIN public.medications m ON m.id = l.medication_id
+         WHERE l.count_id = p_count_id
+    LOOP
+        v_used := row_rec.qty_units - row_rec.qty_remaining;
+        IF v_used > 0 THEN
+            RAISE EXCEPTION
+                'med_unpost_count: % units of the % this count found have already been used. Un-posting would take stock back out of treatments that really happened. Correct it with a new count instead.',
+                v_used, row_rec.med_name
+                USING ERRCODE = 'check_violation';
+        END IF;
+        -- The layer's own ledger row goes with it, via the delete trigger.
+        DELETE FROM public.med_purchase_lines WHERE id = row_rec.id;
+        v_dropped := v_dropped + 1;
+    END LOOP;
+
+    -- Short lines: reverse the adjustments, putting units back on the exact
+    -- layers they came off.
+    FOR row_rec IN
+        SELECT id FROM public.med_txns
+         WHERE ref_kind = 'med_count' AND ref_id = p_count_id AND direction = -1
+    LOOP
+        PERFORM public.med_reverse_txn(row_rec.id);
+        v_reversed := v_reversed + 1;
+    END LOOP;
+
+    UPDATE public.med_counts
+       SET status = 'draft', posted_at = NULL,
+           crew_estimated = false, crew_counted_since = NULL
+     WHERE id = p_count_id;
+
+    -- The stored variance figures described a posting that no longer exists.
+    UPDATE public.med_count_lines
+       SET expected_units = NULL, variance_units = NULL, variance_value = NULL
+     WHERE count_id = p_count_id;
+
+    RETURN jsonb_build_object(
+        'count_id',          p_count_id,
+        'adjustments_reversed', v_reversed,
+        'layers_removed',    v_dropped,
+        'status',            'draft'
+    );
+END
+$fn$;
+
+REVOKE ALL ON FUNCTION public.med_unpost_count(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.med_unpost_count(uuid) TO authenticated;
 
 
 -- ---------------------------------------------------------------------
@@ -1112,14 +1438,22 @@ SELECT
     -- figure as its own column so the two reports tie.
     COALESCE(sf.uncovered_units, 0)                       AS uncovered_units,
     COALESCE(sf.unpriced_usage_units, 0)                  AS unpriced_usage_units,
-    (m.cost_per_unit IS NULL AND m.cost_per_head IS NULL)  AS unpriced_in_catalog
+    (m.cost_per_unit IS NULL AND m.cost_per_head IS NULL)  AS unpriced_in_catalog,
+
+    -- Cannot be stocked or counted until somebody says what it comes in.
+    -- Doctoring is unaffected - dose_cc is already in base units - so these
+    -- can still accrue usage; it just shows as uncovered until they are set
+    -- up. Flagged loudly rather than defaulted to 1, because a 100-dose
+    -- cartridge entered as "100 bottles" of 1 makes the count sheet ask for
+    -- full bottles of a single dose each.
+    (COALESCE(m.bottle_size, 0) <= 0)                      AS needs_container_size
 FROM public.med_stock_locations loc
 CROSS JOIN public.medications m
 LEFT JOIN public.med_purchase_lines l
        ON l.medication_id = m.id AND l.location_id = loc.id AND l.qty_remaining > 0
 LEFT JOIN shortfalls sf
        ON sf.medication_id = m.id AND sf.location_id = loc.id
-WHERE loc.is_active AND m.is_active
+WHERE loc.is_active AND m.is_active AND m.track_inventory
 GROUP BY loc.id, loc.name, loc.kind, loc.is_test, loc.usage_from,
          m.id, m.name, m.generic_category,
          m.redwing_item_code, m.bottle_size_unit, m.bottle_size,
@@ -1144,7 +1478,7 @@ SELECT
     t.total_cost,
     t.total_cost * t.direction AS signed_value,
     t.shortfall_units,
-    t.crew_user_id,
+    t.crew_member_id,
     t.ref_kind,
     t.ref_id,
     t.notes,
@@ -1305,51 +1639,49 @@ JOIN public.medications m           ON m.id   = p.medication_id
 JOIN public.med_stock_locations loc ON loc.id = p.location_id;
 
 
--- med_custody -----------------------------------------------------------
--- Per person: what they signed out against what they wrote down.
+-- med_checkout_log --------------------------------------------------------
+-- Who has bottles. That is ALL this answers, deliberately.
 --
--- This number is fair over a month and unfair over a day. A bottle
--- checked out by one man and finished by another shows one running high
--- and the other low until it washes out. The dollars still reconcile at
--- the location level regardless, because the count does not care whose
--- hand the bottle was in. Say so on the screen.
+-- An earlier cut of this file compared a man's checkouts against the doses he
+-- recorded and called the difference his shrink. That is invalid and no
+-- future change makes it valid: two men work together, draw out of ONE man's
+-- box, and the OTHER writes the treatment up. His checkouts drain against the
+-- other man's records - one looks like he is losing drug, the other like he
+-- is conjuring it. Where that is the habitual pairing it is a systematic bias
+-- rather than noise, so it does not average out over a longer window either.
+--
+-- Crew logins do not fix it. They fix WHO TYPED IT, and say nothing about
+-- WHOSE BOX IT CAME OUT OF. Only recording whose meds at the moment of
+-- treatment would, and that is not worth a field-app change plus an extra tap
+-- on every entry that is wrong precisely when two men are working together.
+--
+-- The POOL is unaffected by any of this - it does not care whose hand the
+-- bottle was in. Checkouts in, doses out, the count trues the whole thing up.
+-- Shrink is a crew number. This view is for finding a bottle, not for blame.
 DROP VIEW IF EXISTS public.med_custody;
-CREATE VIEW public.med_custody
+DROP VIEW IF EXISTS public.med_checkout_log;
+CREATE VIEW public.med_checkout_log
 WITH (security_invoker = true) AS
-WITH checked_out AS (
-    SELECT crew_user_id, medication_id,
-           date_trunc('month', txn_date)::date AS period_month,
-           SUM(qty_units) AS out_units
-      FROM public.med_txns
-     WHERE txn_type = 'checkout' AND crew_user_id IS NOT NULL
-     GROUP BY crew_user_id, medication_id, date_trunc('month', txn_date)
-),
-given AS (
-    SELECT de.recorded_by_user_id AS crew_user_id,
-           dem.medication_id,
-           date_trunc('month', de.event_datetime AT TIME ZONE 'America/Chicago')::date AS period_month,
-           SUM(COALESCE(dem.dose_cc, 0)) AS given_units
-      FROM public.doctoring_event_meds dem
-      JOIN public.doctoring_events de ON de.id = dem.doctoring_event_id
-     WHERE dem.medication_id IS NOT NULL AND de.recorded_by_user_id IS NOT NULL
-     GROUP BY de.recorded_by_user_id, dem.medication_id,
-              date_trunc('month', de.event_datetime AT TIME ZONE 'America/Chicago')
-)
 SELECT
-    COALESCE(c.crew_user_id, g.crew_user_id)   AS crew_user_id,
-    COALESCE(c.medication_id, g.medication_id) AS medication_id,
-    m.name                                     AS medication_name,
-    COALESCE(c.period_month, g.period_month)   AS period_month,
-    COALESCE(c.out_units, 0)                   AS checked_out_units,
-    COALESCE(g.given_units, 0)                 AS recorded_dose_units,
-    COALESCE(c.out_units, 0) - COALESCE(g.given_units, 0) AS outstanding_units
-FROM checked_out c
-FULL OUTER JOIN given g
-    ON  g.crew_user_id  = c.crew_user_id
-    AND g.medication_id = c.medication_id
-    AND g.period_month  = c.period_month
-JOIN public.medications m
-    ON m.id = COALESCE(c.medication_id, g.medication_id);
+    t.id,
+    t.txn_date,
+    cm.name              AS crew_member,
+    t.crew_member_id,
+    m.name               AS medication_name,
+    m.generic_category,
+    t.medication_id,
+    CASE WHEN COALESCE(m.bottle_size, 0) > 0
+         THEN round(t.qty_units / m.bottle_size, 2)
+    END                  AS bottles,
+    t.qty_units,
+    COALESCE(m.bottle_size_unit, 'mL') AS unit,
+    CASE WHEN t.qty_units < 0 THEN 'return' ELSE 'out' END AS direction_label,
+    t.notes,
+    t.created_at
+FROM public.med_txns t
+JOIN public.medications m       ON m.id  = t.medication_id
+LEFT JOIN public.med_crew_members cm ON cm.id = t.crew_member_id
+WHERE t.txn_type = 'checkout';
 
 
 -- med_buyer_reconciliation ----------------------------------------------
@@ -1458,6 +1790,7 @@ JOIN public.med_stock_locations loc
 -- ENABLE without a policy is a total lockout; a policy without ENABLE is
 -- decoration. Both, every table.
 ALTER TABLE public.med_stock_locations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.med_crew_members    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.med_purchases       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.med_purchase_lines  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.med_txns            ENABLE ROW LEVEL SECURITY;
@@ -1488,6 +1821,29 @@ CREATE POLICY med_stock_locations_update ON public.med_stock_locations
     WITH CHECK (public.current_user_role() = ANY (ARRAY['owner','office']));
 
 CREATE POLICY med_stock_locations_delete ON public.med_stock_locations
+    FOR DELETE TO authenticated
+    USING (public.current_user_role() = 'owner');
+
+-- med_crew_members
+DROP POLICY IF EXISTS med_crew_members_select ON public.med_crew_members;
+DROP POLICY IF EXISTS med_crew_members_insert ON public.med_crew_members;
+DROP POLICY IF EXISTS med_crew_members_update ON public.med_crew_members;
+DROP POLICY IF EXISTS med_crew_members_delete ON public.med_crew_members;
+
+CREATE POLICY med_crew_members_select ON public.med_crew_members
+    FOR SELECT TO authenticated
+    USING (public.current_user_role() = ANY (ARRAY['owner','office']));
+
+CREATE POLICY med_crew_members_insert ON public.med_crew_members
+    FOR INSERT TO authenticated
+    WITH CHECK (public.current_user_role() = ANY (ARRAY['owner','office']));
+
+CREATE POLICY med_crew_members_update ON public.med_crew_members
+    FOR UPDATE TO authenticated
+    USING (public.current_user_role() = ANY (ARRAY['owner','office']))
+    WITH CHECK (public.current_user_role() = ANY (ARRAY['owner','office']));
+
+CREATE POLICY med_crew_members_delete ON public.med_crew_members
     FOR DELETE TO authenticated
     USING (public.current_user_role() = 'owner');
 
@@ -1639,10 +1995,10 @@ DECLARE
     t text;
 BEGIN
     FOREACH t IN ARRAY ARRAY[
-        'med_stock_locations','med_purchases','med_purchase_lines',
+        'med_stock_locations','med_crew_members','med_purchases','med_purchase_lines',
         'med_txns','med_txn_layers','med_counts','med_count_lines',
         'med_on_hand','med_activity','med_roll_forward','med_efficiency',
-        'med_custody','med_buyer_reconciliation'
+        'med_checkout_log','med_buyer_reconciliation'
     ]
     LOOP
         EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC', t);
@@ -1651,7 +2007,7 @@ BEGIN
     END LOOP;
 
     FOREACH t IN ARRAY ARRAY[
-        'med_stock_locations','med_purchases','med_purchase_lines',
+        'med_stock_locations','med_crew_members','med_purchases','med_purchase_lines',
         'med_txns','med_txn_layers','med_counts','med_count_lines'
     ]
     LOOP
@@ -1671,7 +2027,7 @@ DECLARE
     v_count int;
 BEGIN
     FOREACH t IN ARRAY ARRAY[
-        'med_stock_locations','med_purchases','med_purchase_lines',
+        'med_stock_locations','med_crew_members','med_purchases','med_purchase_lines',
         'med_txns','med_txn_layers','med_counts','med_count_lines'
     ]
     LOOP
@@ -1682,7 +2038,7 @@ BEGIN
 
     FOREACH t IN ARRAY ARRAY[
         'med_on_hand','med_activity','med_roll_forward','med_efficiency',
-        'med_custody','med_buyer_reconciliation'
+        'med_checkout_log','med_buyer_reconciliation'
     ]
     LOOP
         IF to_regclass('public.' || t) IS NULL THEN
@@ -1700,7 +2056,7 @@ BEGIN
       JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public'
        AND c.relname IN ('med_on_hand','med_activity','med_roll_forward',
-                         'med_efficiency','med_custody','med_buyer_reconciliation')
+                         'med_efficiency','med_checkout_log','med_buyer_reconciliation')
        AND c.relkind = 'v'
        AND COALESCE((SELECT option_value FROM pg_options_to_table(c.reloptions)
                       WHERE option_name = 'security_invoker'), 'false') <> 'true';
@@ -1725,7 +2081,7 @@ BEGIN
       JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public'
        AND c.relkind = 'r'
-       AND c.relname IN ('med_stock_locations','med_purchases','med_purchase_lines',
+       AND c.relname IN ('med_stock_locations','med_crew_members','med_purchases','med_purchase_lines',
                          'med_txns','med_txn_layers','med_counts','med_count_lines')
        AND (NOT c.relrowsecurity
             OR NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid));
@@ -1733,6 +2089,6 @@ BEGIN
         RAISE EXCEPTION '% table(s) have RLS disabled or no policies.', v_count;
     END IF;
 
-    RAISE NOTICE 'Medicine inventory phase 1 applied: 7 tables, 6 views, 5 functions, RLS verified.';
+    RAISE NOTICE 'Medicine inventory phase 1 applied: 8 tables, 6 views, 8 functions, RLS verified.';
 END
 $post$;

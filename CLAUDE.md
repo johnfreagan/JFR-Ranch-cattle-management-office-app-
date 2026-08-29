@@ -290,6 +290,44 @@ med_counts ── med_count_lines            med_stock_locations (Ranch + 1/buye
   A missing table, an unpriced med or an empty shelf must never cost us the
   record of a treatment that happened. Short draws become `shortfall_units`,
   flagged on the on-hand screen; the count explains them.
+- **A count cannot post while doctoring dated on or before it is unapproved.**
+  `med_post_count` checks `pending_field_entries` (ranch locations only) and
+  refuses, naming the dates. Count the shelf on the 31st with the 28th's
+  treatments still in Approvals and the count books those doses as shrink —
+  then the approval posts them again. It does NOT wash out: the count is
+  locked and the shrink is already allocated. Rhythm: draft on the 31st, clear
+  Approvals on the 1st, post dated the 31st.
+- **A posted count LOCKS its location on and before its date.** Triggers on
+  `med_txns` and `med_purchase_lines` refuse anything dated into it;
+  `med_unpost_count` (owner-only) is the way back out and refuses if the stock
+  a count found has since been used, or if a later count sits on top.
+- **Usage is the ONE thing the lock bends for.** A field entry that syncs late
+  and is approved after the count posted would otherwise be silently dropped —
+  the hook is fail-soft, so a rejection loses a treatment that really
+  happened. `med_consume` posts it to the first OPEN day with its true date in
+  the note; the closed month keeps its shrink and the open month nets it back
+  off. Purchases get no such relief: an invoice can be dated correctly.
+- **The count sheet has four boxes per line** — barn full/open, crew
+  full/open — and the **open columns are a FRACTION of a bottle** (the crew
+  writes ½, not 250). Still one pool and no transfers; this is only how the
+  count is gathered, and it says whether shrink is in the barn or the trucks.
+- **When the crew doesn't report, their last figures are carried and the line
+  is marked `crew_carried`.** The count records `crew_estimated` and
+  `crew_counted_since`, so when they next really count, that variance is known
+  to cover the whole span rather than one month.
+- **`medications.track_inventory`** takes something out of scope. It cannot be
+  retrofitted — once counts exist, changing scope changes what past counts
+  meant.
+- **A medication with no `bottle_size` is flagged, never stocked.** Bottles do
+  not convert to units without one. Doctoring is unaffected (`dose_cc` is
+  already base units), so it still accrues usage and shows as uncovered.
+- **Custody is `med_crew_members`, not `user_profiles`** — most men who carry
+  bottles have no login and should never see field-app data. **There is no
+  per-person shrink figure and there never will be:** two men work together
+  out of ONE man's box while the OTHER writes it up, so doses recorded by a
+  man are not doses drawn from his box. That is a systematic bias, and crew
+  logins do not fix it — they fix who *typed* it. `med_checkout_log` answers
+  "who has bottles" and nothing more. Shrink is a crew number.
 - **Blank is not zero.** `invNum('')` returns null, not 0. A blank count line
   means NOT COUNTED; read as zero it would post an adjustment writing that
   medication's stock to nothing. `med_post_count` skips NULL `counted_units`

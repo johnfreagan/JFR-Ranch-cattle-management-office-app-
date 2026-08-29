@@ -14,6 +14,9 @@ DECLARE
     v_n       numeric;
     v_ok      boolean;
     v_n2      numeric;
+    v_when    date;
+    v_shrink  numeric;
+    v_txt     text;
     v_count   uuid := '44444444-0000-0000-0000-000000000001';
 BEGIN
     SELECT id INTO v_loc FROM public.med_stock_locations WHERE kind = 'ranch';
@@ -82,9 +85,9 @@ BEGIN
     --    left BLANK - blank means not counted, never zero.
     INSERT INTO public.med_counts (id, count_date, location_id, counted_by)
     VALUES (v_count,'2026-08-31',v_loc,'test');
-    INSERT INTO public.med_count_lines (count_id, medication_id, full_bottles, open_units, bottle_size, counted_units)
-    VALUES (v_count,'11111111-0000-0000-0000-000000000001',2,400,500,1400);
-    INSERT INTO public.med_count_lines (count_id, medication_id, full_bottles, open_units, bottle_size, counted_units, unit_cost)
+    INSERT INTO public.med_count_lines (count_id, medication_id, barn_full, barn_open, bottle_size, counted_units)
+    VALUES (v_count,'11111111-0000-0000-0000-000000000001',2,0.8,500,1400);
+    INSERT INTO public.med_count_lines (count_id, medication_id, barn_full, barn_open, bottle_size, counted_units, unit_cost)
     VALUES (v_count,'11111111-0000-0000-0000-000000000003',1,0,250,250,0.75948);
     INSERT INTO public.med_count_lines (count_id, medication_id, counted_units)
     VALUES (v_count,'11111111-0000-0000-0000-000000000002',NULL);
@@ -224,6 +227,96 @@ BEGIN
     SELECT count(*) INTO v_n FROM public.med_txn_layers l
       LEFT JOIN public.med_txns t ON t.id = l.txn_id WHERE t.id IS NULL;
     IF v_n <> 0 THEN RAISE EXCEPTION 'T15 purge orphaned % layer allocation row(s)', v_n; END IF;
+
+    -- 16. THE APPROVALS GATE. Count the shelf with treatments still awaiting
+    --     approval and the count books those doses as shrink, then the
+    --     approval posts them again. Must refuse.
+    INSERT INTO public.pending_field_entries (entry_type, status, event_datetime)
+    VALUES ('doctoring','pending','2026-09-28 14:00-05');
+    INSERT INTO public.med_counts (id, count_date, location_id, counted_by)
+    VALUES ('d0000000-0000-0000-0000-000000000001','2026-09-30',v_loc,'test');
+    INSERT INTO public.med_count_lines (count_id, medication_id, barn_full, barn_open, bottle_size, counted_units)
+    VALUES ('d0000000-0000-0000-0000-000000000001','11111111-0000-0000-0000-000000000001',0,0.5,500,250);
+
+    BEGIN
+        PERFORM public.med_post_count('d0000000-0000-0000-0000-000000000001');
+        RAISE EXCEPTION 'T16 count posted with doctoring still awaiting approval';
+    EXCEPTION WHEN others THEN
+        IF SQLERRM LIKE 'T16%' THEN RAISE; END IF;
+    END;
+
+    -- Clear the queue and it goes through.
+    UPDATE public.pending_field_entries SET status = 'approved';
+    v_res := public.med_post_count('d0000000-0000-0000-0000-000000000001');
+    IF (v_res->>'lines_counted')::int <> 1 THEN
+        RAISE EXCEPTION 'T16 count did not post once the queue was clear';
+    END IF;
+    -- Whatever shrink it booked is what un-posting has to give back.
+    v_shrink := (v_res->>'shrink_units')::numeric;
+
+    -- 17. THE PERIOD LOCK. A posted count closes its date and everything
+    --     before it, or a late invoice silently rewrites a month whose
+    --     shrink is already booked and already allocated to shipped lots.
+    IF public.med_locked_through(v_loc) <> DATE '2026-09-30' THEN
+        RAISE EXCEPTION 'T17 lock date wrong: got %', public.med_locked_through(v_loc);
+    END IF;
+
+    BEGIN
+        INSERT INTO public.med_purchases (id, purchase_date, vendor, location_id, invoice_total)
+        VALUES ('c0000000-0000-0000-0000-000000000002','2026-09-15','Vet',v_loc,100.00);
+        INSERT INTO public.med_purchase_lines (purchase_id, medication_id, location_id, qty_bottles, bottle_size, unit, unit_cost, qty_remaining, received_date)
+        VALUES ('c0000000-0000-0000-0000-000000000002','11111111-0000-0000-0000-000000000002',v_loc,1,500,'mL',0.30,500,'2026-09-15');
+        RAISE EXCEPTION 'T17 a backdated invoice was accepted into a closed period';
+    EXCEPTION WHEN others THEN
+        IF SQLERRM LIKE 'T17%' THEN RAISE; END IF;
+    END;
+
+    -- 18. USAGE IS NEVER LOST TO THE LOCK. A field entry that syncs late and
+    --     is approved after the count posted must still reach the ledger -
+    --     the hook is fail-soft, so a rejection here would silently lose a
+    --     treatment that really happened. It posts to the first OPEN day
+    --     carrying its true date.
+    v_res := public.med_consume('11111111-0000-0000-0000-000000000001'::uuid, v_loc, 10,
+             'usage','treatment','doctoring_event',NULL,'2026-09-20');
+    SELECT txn_date INTO v_when FROM public.med_txns WHERE id = (v_res->>'txn_id')::uuid;
+    IF v_when <> DATE '2026-10-01' THEN
+        RAISE EXCEPTION 'T18 locked-period usage landed on %, expected the first open day 2026-10-01', v_when;
+    END IF;
+    SELECT notes INTO v_txt FROM public.med_txns WHERE id = (v_res->>'txn_id')::uuid;
+    IF v_txt IS NULL OR v_txt NOT LIKE '%2026-09-20%' THEN
+        RAISE EXCEPTION 'T18 re-dated usage did not record its true date';
+    END IF;
+
+    -- 19. UN-POST puts the shrink back and reopens the period.
+    SELECT qty_units INTO v_n FROM public.med_on_hand
+     WHERE medication_name='Draxxin' AND location_id = v_loc;
+    v_res := public.med_unpost_count('d0000000-0000-0000-0000-000000000001');
+    SELECT qty_units INTO v_n2 FROM public.med_on_hand
+     WHERE medication_name='Draxxin' AND location_id = v_loc;
+    -- The invariant, not a hardcoded figure: exactly the shrink the count
+    -- booked comes back, no more and no less.
+    IF v_n2 - v_n <> v_shrink THEN
+        RAISE EXCEPTION 'T19 un-post restored % units; the count booked % of shrink', v_n2 - v_n, v_shrink;
+    END IF;
+    -- Un-posting lifts ITS OWN lock and no more: the August count posted
+    -- earlier in this suite is still standing, so the location stays closed
+    -- through 8/31. Lifting that too would reopen a month nobody touched.
+    IF public.med_locked_through(v_loc) <> DATE '2026-08-31' THEN
+        RAISE EXCEPTION 'T19 lock is now % after un-posting; the earlier 2026-08-31 count should still hold it',
+            public.med_locked_through(v_loc);
+    END IF;
+    SELECT variance_units INTO v_n FROM public.med_count_lines
+     WHERE count_id='d0000000-0000-0000-0000-000000000001' LIMIT 1;
+    IF v_n IS NOT NULL THEN
+        RAISE EXCEPTION 'T19 un-post left a stale variance figure on the count line';
+    END IF;
+
+    -- 20. track_inventory takes a medication out of scope entirely.
+    UPDATE public.medications SET track_inventory = false WHERE name = 'Max 40 Fly Tag';
+    SELECT count(*) INTO v_n FROM public.med_on_hand
+     WHERE medication_name = 'Max 40 Fly Tag';
+    IF v_n <> 0 THEN RAISE EXCEPTION 'T20 an out-of-scope medication is still on the count sheet'; END IF;
+    UPDATE public.medications SET track_inventory = true WHERE name = 'Max 40 Fly Tag';
 
     RAISE NOTICE 'med_inventory phase 1: behaviour assertions passed.';
 END

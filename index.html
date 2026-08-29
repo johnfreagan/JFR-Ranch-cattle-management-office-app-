@@ -1972,12 +1972,14 @@
                     <button id="invCoReturnBtn">Record return</button>
                 </div>
 
-                <h4 style="margin: 22px 0 6px 0;">Outstanding by person</h4>
+                <h4 style="margin: 22px 0 6px 0;">Checkout log</h4>
                 <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
-                    Fair over a month and unfair over a day: a bottle checked out by one man and
-                    finished by another runs one high and the other low until it washes out. The
-                    dollars still reconcile at the location level, because the count does not care
-                    whose hand the bottle was in.
+                    Who has bottles &mdash; and deliberately nothing more. Two men work together, draw out
+                    of one man's box, and the other writes the treatment up, so doses recorded by a man
+                    are not doses drawn from his box. A per-person shrink figure built on that would be
+                    wrong in a consistent direction, and crew logins would not fix it: they say who typed
+                    it, not whose box it came out of. <strong>Shrink is a crew number.</strong>
+                    This list is for finding a bottle.
                 </p>
                 <div id="invCustodyContent"><div class="empty">Loading…</div></div>
             </div>
@@ -2090,6 +2092,20 @@
             <div class="card">
                 <div class="card-header"><h2>Go live</h2></div>
                 <div id="invGoLiveContent"><div class="empty">Loading…</div></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>Crew</h2>
+                    <button class="primary" id="invAddCrewBtn">+ Crew member</button>
+                </div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    The men who carry bottles. A login is <strong>optional</strong> &mdash; occasional hands
+                    get a name here and never see the field app, with the office or head crew leader
+                    entering on their behalf. Custody only; shrink is a crew number, not a per-person one.
+                </p>
+                <div id="invCrewAlert"></div>
+                <div id="invCrewContent"><div class="empty">Loading…</div></div>
             </div>
 
             <div class="card">
@@ -2482,6 +2498,17 @@
                         <option value="true">Active (visible in pickers)</option>
                         <option value="false">Inactive (hidden from pickers)</option>
                     </select>
+                </div>
+                <div data-perm="office">
+                    <label for="medTrackInv">Track in inventory</label>
+                    <select id="medTrackInv">
+                        <option value="true">Yes — counted and stocked</option>
+                        <option value="false">No — leave off the count sheet</option>
+                    </select>
+                    <div class="muted" style="font-size: 11px; margin-top: 4px;">
+                        Turn off only for something not worth counting. Changing it later changes what
+                        past counts meant, so it is best decided once.
+                    </div>
                 </div>
             </div>
 
@@ -12122,6 +12149,7 @@ ${body}
         $('medBottleCost').value = med?.bottle_cost ?? '';
         updateMedCostPerUnit();
         $('medRoundUp').value = med?.round_up_to ?? 1;
+        $('medTrackInv').value = (med?.track_inventory === false) ? 'false' : 'true';
         $('medActive').value = med?.is_active === false ? 'false' : 'true';
         $('medNotes').value = med?.notes || '';
 
@@ -12243,6 +12271,7 @@ ${body}
             bottle_cost: $('medBottleCost').value ? parseFloat($('medBottleCost').value) : null,
             round_up_to: $('medRoundUp').value ? parseFloat($('medRoundUp').value) : 1,
             is_active: $('medActive').value === 'true',
+            track_inventory: $('medTrackInv').value === 'true',
             notes: $('medNotes').value.trim() || null,
             created_by: currentUser.id
         };
@@ -19912,6 +19941,8 @@ ${ranchBlocks}
     let invPurchaseLines = [];  // entry grid state
     let invCountState = null;   // { id, lines: [...] } while a count is open
     let invOnHandCache = [];    // last on-hand render, so the sheet can print it
+    let invCrewMembers = [];    // names, not app users - most hands have no login
+    let invLastCrewCount = null; // the last count where the crew really reported
 
     function invTempId() { return 'i' + Math.random().toString(36).slice(2, 9); }
     // Blank is NOT zero. Number('') is 0, and left unguarded that turns an
@@ -20062,6 +20093,9 @@ ${ranchBlocks}
             if (Number(r.expired_layer_count) > 0) flags.push(`<span style="color:#b91c1c">${r.expired_layer_count} expired</span>`);
             if (Number(r.expiring_soon_count) > 0) flags.push(`${r.expiring_soon_count} expiring &lt;60d`);
             if (r.unpriced_in_catalog) flags.push('<span style="color:#b45309">unpriced in catalog</span>');
+            // Cannot be stocked or counted until somebody says what it comes
+            // in. Doctoring is unaffected, so it can still accrue usage.
+            if (r.needs_container_size) flags.push('<span style="color:#b91c1c;font-weight:600">needs a container size</span>');
             html += `<tr>
                 <td>${escapeHtml(r.medication_name)}</td>
                 <td class="muted">${escapeHtml(r.generic_category || '')}</td>
@@ -20357,14 +20391,21 @@ ${ranchBlocks}
     async function initInvCheckouts() {
         $('invCoDate').value = ranchToday();
         invFillMedSelect('invCoMed');
-        if (!invUsers.length) {
-            const { data } = await supabase.rpc('admin_list_users');
-            invUsers = data || [];
-        }
+        // Crew members, NOT app users. Most of the men who carry bottles have
+        // no login and should never see field-app information; the office or
+        // the head crew leader enters on their behalf.
+        await loadInvCrewMembers();
         const sel = $('invCoPerson');
-        sel.innerHTML = '<option value="">— pick —</option>' + invUsers.map(u =>
-            `<option value="${u.id}">${escapeHtml(u.full_name || u.email || u.id)}</option>`).join('');
-        loadInvCustody();
+        sel.innerHTML = '<option value="">— pick —</option>' + invCrewMembers.map(c =>
+            `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+        loadInvCheckoutLog();
+    }
+
+    async function loadInvCrewMembers(force) {
+        if (invCrewMembers.length && !force) return;
+        const { data } = await supabase.from('med_crew_members')
+            .select('*').eq('is_active', true).order('name');
+        invCrewMembers = data || [];
     }
 
     async function saveInvCheckout(isReturn) {
@@ -20381,7 +20422,7 @@ ${ranchBlocks}
             showAlert('invCoAlert', `${med ? med.name : 'That medication'} has no bottle size on the Medications tab, so bottles cannot be converted to units.`, 'error');
             return;
         }
-        const ranch = invLocations.find(l => l.kind === 'ranch');
+        const ranch = invLocations.find(l => l.kind === 'ranch' && !l.is_test);
         const { data: { user } } = await supabase.auth.getUser();
         // A checkout does not move stock. direction 0: custody only.
         const { error } = await supabase.from('med_txns').insert({
@@ -20391,39 +20432,47 @@ ${ranchBlocks}
             location_id: ranch.id,
             qty_units: (isReturn ? -1 : 1) * bottles * size,
             direction: 0,
-            crew_user_id: person,
+            crew_member_id: person,
             notes: isReturn ? 'Return' : null,
             created_by: user ? user.id : null
         });
         if (error) { showAlert('invCoAlert', error.message, 'error'); return; }
         showAlert('invCoAlert', isReturn ? 'Return recorded.' : 'Checkout recorded.', 'success');
         $('invCoBottles').value = '';
-        loadInvCustody();
+        loadInvCheckoutLog();
     }
 
-    async function loadInvCustody() {
+    // Who has bottles. That is all this answers, deliberately.
+    //
+    // An earlier cut compared a man's checkouts against the doses he recorded
+    // and called the difference his shrink. Two men work together, draw out of
+    // ONE man's box, and the OTHER writes the treatment up - so his checkouts
+    // drain against the other man's records. One looks like he is losing drug,
+    // the other like he is conjuring it, and where that is the habitual
+    // pairing it is a systematic bias rather than noise. Crew logins do not
+    // fix it: they fix who TYPED it, not whose box it came out of.
+    //
+    // The pool is unaffected - it does not care whose hand the bottle was in.
+    // Shrink is a crew number. This list is for finding a bottle.
+    async function loadInvCheckoutLog() {
         $('invCustodyContent').innerHTML = '<div class="empty">Loading…</div>';
-        const { data, error } = await supabase.from('med_custody').select('*')
-            .order('period_month', { ascending: false }).limit(300);
+        const { data, error } = await supabase.from('med_checkout_log')
+            .select('*').order('txn_date', { ascending: false }).limit(200);
         if (error) { $('invCustodyContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
-        const rows = (data || []).filter(r => Number(r.checked_out_units) || Number(r.recorded_dose_units));
-        if (!rows.length) { $('invCustodyContent').innerHTML = '<div class="empty">No checkouts recorded yet.</div>'; return; }
+        if (!(data || []).length) { $('invCustodyContent').innerHTML = '<div class="empty">No checkouts recorded yet.</div>'; return; }
 
-        const nameOf = id => {
-            const u = invUsers.find(x => x.id === id);
-            return u ? (u.full_name || u.email || id) : (id ? id.slice(0, 8) : '—');
-        };
-        let html = `<table><thead><tr><th>Month</th><th>Person</th><th>Medication</th>
-            <th class="num">Checked out</th><th class="num">Doses recorded</th><th class="num">Outstanding</th></tr></thead><tbody>`;
-        rows.forEach(r => {
-            const out = Number(r.outstanding_units) || 0;
+        let html = `<table><thead><tr><th>Date</th><th>Crew member</th><th>Medication</th>
+            <th class="num">Bottles</th><th class="num">Units</th><th>Unit</th><th></th></tr></thead><tbody>`;
+        (data || []).forEach(r => {
+            const ret = r.direction_label === 'return';
             html += `<tr>
-                <td>${String(r.period_month || '').slice(0, 7)}</td>
-                <td>${escapeHtml(nameOf(r.crew_user_id))}</td>
+                <td>${r.txn_date}</td>
+                <td>${escapeHtml(r.crew_member || '—')}</td>
                 <td>${escapeHtml(r.medication_name)}</td>
-                <td class="num">${fmtNum(r.checked_out_units, 1)}</td>
-                <td class="num">${fmtNum(r.recorded_dose_units, 1)}</td>
-                <td class="num"${Math.abs(out) > 0.001 ? ' style="color:#b45309"' : ''}>${fmtNum(out, 1)}</td>
+                <td class="num">${r.bottles == null ? '—' : fmtNum(Math.abs(r.bottles), 2)}</td>
+                <td class="num">${fmtNum(Math.abs(r.qty_units), 1)}</td>
+                <td class="muted">${escapeHtml(r.unit || '')}</td>
+                <td>${ret ? '<span class="muted">returned</span>' : ''}</td>
             </tr>`;
         });
         html += '</tbody></table>';
@@ -20440,7 +20489,7 @@ ${ranchBlocks}
         if (!(data || []).length) { $('invCountListContent').innerHTML = '<div class="empty">No counts yet.</div>'; return; }
 
         let html = `<table><thead><tr><th>Date</th><th>Location</th><th>Counted by</th>
-            <th>Status</th><th></th></tr></thead><tbody>`;
+            <th>Status</th><th>Crew</th><th></th></tr></thead><tbody>`;
         (data || []).forEach(c => {
             html += `<tr>
                 <td>${c.count_date}${c.is_opening ? ' <span class="muted">(opening)</span>' : ''}</td>
@@ -20449,7 +20498,14 @@ ${ranchBlocks}
                 <td>${c.status === 'posted'
                         ? '<span style="color:#15803d">posted</span>'
                         : '<span style="color:#b45309">draft</span>'}</td>
-                <td><button data-inv-open-count="${c.id}">${c.status === 'posted' ? 'View' : 'Continue'}</button></td>
+                <td>${c.crew_estimated
+                        ? `<span style="color:#b45309" title="The crew's last figures were carried forward">estimated${
+                            c.crew_counted_since ? ' since ' + c.crew_counted_since : ''}</span>`
+                        : (c.status === 'posted' ? '<span class="muted">reported</span>' : '')}</td>
+                <td><button data-inv-open-count="${c.id}">${c.status === 'posted' ? 'View' : 'Continue'}</button>
+                    ${c.status === 'posted'
+                        ? `<button data-inv-unpost="${c.id}" data-perm="owner" style="margin-left:6px;">Un-post</button>`
+                        : ''}</td>
             </tr>`;
         });
         html += '</tbody></table>';
@@ -20486,20 +20542,38 @@ ${ranchBlocks}
         const locId = $('invCountLocation').value;
         $('invCountLines').innerHTML = '<div class="empty">Loading…</div>';
 
-        const [onHandRes, savedRes] = await Promise.all([
+        const [onHandRes, savedRes, lastCrewRes] = await Promise.all([
             supabase.from('med_on_hand').select('*').eq('location_id', locId)
                 .order('generic_category').order('medication_name'),
             invCountState && invCountState.id
                 ? supabase.from('med_count_lines').select('*').eq('count_id', invCountState.id)
-                : Promise.resolve({ data: [] })
+                : Promise.resolve({ data: [] }),
+            // The last count where the crew ACTUALLY reported, so their
+            // figures can be carried if they don't this time.
+            supabase.from('med_counts')
+                .select('id, count_date, med_count_lines(medication_id, crew_full, crew_open)')
+                .eq('location_id', locId).eq('status', 'posted').eq('crew_estimated', false)
+                .order('count_date', { ascending: false }).limit(1)
         ]);
+        const lc = (lastCrewRes.data || [])[0];
+        invLastCrewCount = lc ? { count_date: lc.count_date, lines: lc.med_count_lines || [] } : null;
         if (onHandRes.error) { $('invCountLines').innerHTML = `<div class="empty">${escapeHtml(onHandRes.error.message)}</div>`; return; }
 
         const saved = {};
         (savedRes.data || []).forEach(l => { saved[l.medication_id] = l; });
 
+        // Carry the crew's last reported figure where they have not reported
+        // this time. The month closes and no fake shrink is booked out of
+        // stock sitting in a truck - but a carried number looks exactly like
+        // a real one, so it is marked per line and surfaced on the screen.
+        const lastCrew = {};
+        if (invLastCrewCount) {
+            (invLastCrewCount.lines || []).forEach(l => { lastCrew[l.medication_id] = l; });
+        }
+
         invCountState.lines = (onHandRes.data || []).map(r => {
             const s = saved[r.medication_id];
+            const prev = lastCrew[r.medication_id];
             return {
                 medication_id: r.medication_id,
                 name: r.medication_name,
@@ -20507,43 +20581,97 @@ ${ranchBlocks}
                 unit: r.unit,
                 bottle_size: r.bottle_size,
                 expected: Number(r.qty_units) || 0,
-                full_bottles: s && s.full_bottles != null ? s.full_bottles : '',
-                open_units: s && s.open_units != null ? s.open_units : '',
+                barn_full:  s && s.barn_full  != null ? s.barn_full  : '',
+                barn_open:  s && s.barn_open  != null ? s.barn_open  : '',
+                crew_full:  s && s.crew_full  != null ? s.crew_full  : '',
+                crew_open:  s && s.crew_open  != null ? s.crew_open  : '',
+                crew_carried: s ? !!s.crew_carried : false,
+                prev_crew_full: prev && prev.crew_full != null ? prev.crew_full : null,
+                prev_crew_open: prev && prev.crew_open != null ? prev.crew_open : null,
                 unit_cost: s && s.unit_cost != null ? s.unit_cost : '',
-                unpriced: !!r.unpriced_in_catalog && !Number(r.qty_units)
+                unpriced: !!r.unpriced_in_catalog && !Number(r.qty_units),
+                needs_size: !!r.needs_container_size
             };
         });
         renderInvCountLines();
     }
 
+    // Four boxes: barn full + barn open, crew full + crew open. The open
+    // columns are a FRACTION of a bottle - the crew writes ½, not 250 - so
+    // everything adds up in bottles and gets multiplied once at the end.
+    //
+    // All four blank still means NOT COUNTED, which is not the same as zero.
     function invCountedUnits(l) {
-        const fb = invNum(l.full_bottles);
-        const ou = invNum(l.open_units);
-        if (fb == null && ou == null) return null;   // blank means NOT COUNTED
+        const bf = invNum(l.barn_full), bo = invNum(l.barn_open);
+        const cf = invNum(l.crew_full), co = invNum(l.crew_open);
+        if (bf == null && bo == null && cf == null && co == null) return null;
         const size = Number(l.bottle_size) || 0;
-        return (fb || 0) * size + (ou || 0);
+        return ((bf || 0) + (bo || 0) + (cf || 0) + (co || 0)) * size;
+    }
+
+    // A line is short a crew number if the barn side was counted and the crew
+    // side was left entirely blank.
+    function invCrewMissing(l) {
+        const counted = (invNum(l.barn_full) != null || invNum(l.barn_open) != null);
+        return counted && invNum(l.crew_full) == null && invNum(l.crew_open) == null;
+    }
+
+    // Fill the crew side from the last count where they really reported, and
+    // mark those lines so nobody mistakes a carried figure for a fresh one.
+    function carryInvCrewFigures() {
+        let n = 0;
+        invCountState.lines.forEach(l => {
+            if (!invCrewMissing(l)) return;
+            if (l.prev_crew_full == null && l.prev_crew_open == null) return;
+            l.crew_full = l.prev_crew_full == null ? '' : l.prev_crew_full;
+            l.crew_open = l.prev_crew_open == null ? '' : l.prev_crew_open;
+            l.crew_carried = true;
+            n++;
+        });
+        renderInvCountLines();
+        showAlert('invCountAlert', n
+            ? `Carried the crew figures from ${invLastCrewCount ? invLastCrewCount.count_date : 'the last real count'} on ${n} line(s). They are marked as carried.`
+            : 'No earlier crew figures to carry — the crew has never reported at this location.',
+            n ? 'success' : 'error');
     }
 
     function renderInvCountLines() {
         const showExp = $('invCountShowExpected').checked;
         const posted = invCountState && invCountState.status === 'posted';
+        const dis = posted ? ' disabled' : '';
         let html = `<table><thead><tr>
             <th>Medication</th><th>Unit</th><th class="num">Bottle size</th>
-            <th class="num">Full bottles</th><th class="num">Open bottle</th>
+            <th class="num">Barn full</th><th class="num">Barn open</th>
+            <th class="num">Crew full</th><th class="num">Crew open</th>
             ${showExp ? '<th class="num">Expected</th>' : ''}
             <th class="num">Counted</th><th class="num">Variance</th></tr></thead><tbody>`;
+
+        const box = (l, field, step) =>
+            `<input type="number" step="${step}" min="0"${field.endsWith('open') ? ' max="0.75"' : ''}` +
+            ` style="width:78px;text-align:right;"${dis}` +
+            ` value="${l[field]}" data-inv-count="${l.medication_id}" data-field="${field}">`;
+
         invCountState.lines.forEach(l => {
             const counted = invCountedUnits(l);
             const variance = counted == null ? null : counted - l.expected;
-            const dis = posted ? ' disabled' : '';
+            // A medication with no container size cannot be counted at all -
+            // bottles do not convert to units without one. Say so in the row
+            // rather than accepting a number that means nothing.
+            if (l.needs_size) {
+                html += `<tr><td>${escapeHtml(l.name)}</td><td class="muted">—</td>
+                    <td colspan="${showExp ? 8 : 7}" style="color:#b45309;font-size:12px;">
+                    Needs a container size on the Medications tab before it can be stocked or counted.</td></tr>`;
+                return;
+            }
             html += `<tr>
-                <td>${escapeHtml(l.name)}${l.unpriced ? ' <span class="muted" style="font-size:11px;color:#b45309">unpriced</span>' : ''}</td>
+                <td>${escapeHtml(l.name)}${l.unpriced ? ' <span class="muted" style="font-size:11px;color:#b45309">unpriced</span>' : ''}
+                    ${l.crew_carried ? ' <span style="font-size:11px;color:#b45309">crew carried</span>' : ''}</td>
                 <td class="muted">${escapeHtml(l.unit || '')}</td>
                 <td class="num muted">${l.bottle_size ? fmtNum(l.bottle_size, 0) : '—'}</td>
-                <td class="num"><input type="number" step="0.25" style="width:80px;text-align:right;"${dis}
-                     value="${l.full_bottles}" data-inv-count="${l.medication_id}" data-field="full_bottles"></td>
-                <td class="num"><input type="number" step="0.1" style="width:90px;text-align:right;"${dis}
-                     value="${l.open_units}" data-inv-count="${l.medication_id}" data-field="open_units"></td>
+                <td class="num">${box(l, 'barn_full', '1')}</td>
+                <td class="num">${box(l, 'barn_open', '0.25')}</td>
+                <td class="num">${box(l, 'crew_full', '1')}</td>
+                <td class="num">${box(l, 'crew_open', '0.25')}</td>
                 ${showExp ? `<td class="num muted">${fmtNum(l.expected, 1)}</td>` : ''}
                 <td class="num">${counted == null ? '<span class="muted">not counted</span>' : fmtNum(counted, 1)}</td>
                 <td class="num"${variance ? ` style="color:${variance < 0 ? '#b91c1c' : '#15803d'}"` : ''}>${
@@ -20551,6 +20679,10 @@ ${ranchBlocks}
             </tr>`;
         });
         html += '</tbody></table>';
+        html += `<p class="muted" style="font-size:12px;margin-top:8px;">
+            Open bottles are a <strong>fraction of a bottle</strong> — write ¼, ½, ¾, not millilitres.
+            Barn and crew are counted separately and added into one figure; leaving all four blank
+            means <strong>not counted</strong>, which is not the same as zero.</p>`;
         $('invCountLines').innerHTML = html;
         renderInvCountSummary();
     }
@@ -20566,12 +20698,25 @@ ${ranchBlocks}
             else if (v > 0) { over++; overUnits += v; }
         });
         const skipped = invCountState.lines.length - counted;
-        $('invCountSummary').innerHTML = `<div style="padding:10px;border-left:3px solid #64748b;background:#f8fafc;">
+        const crewMissing = invCountState.lines.filter(invCrewMissing).length;
+        let html = `<div style="padding:10px;border-left:3px solid #64748b;background:#f8fafc;">
             <strong>${counted}</strong> counted &middot;
             <strong>${short}</strong> short (${fmtNum(shortUnits, 1)} units) &middot;
             <strong>${over}</strong> over (${fmtNum(overUnits, 1)} units) &middot;
             <span class="muted">${skipped} left blank &mdash; blank means <em>not counted</em>, and posts nothing.</span>
         </div>`;
+        if (crewMissing > 0) {
+            html += `<div style="padding:10px 12px;border-left:3px solid #b45309;background:#fffbeb;margin-top:10px;font-size:12px;">
+                <strong>${crewMissing} line(s) have a barn count but no crew number.</strong>
+                Posting like that books whatever is in the trucks as shrink.
+                <button id="invCarryCrewBtn" style="margin-left:8px;">Carry last crew figures</button>
+                <div class="muted" style="margin-top:6px;">
+                    Carried lines are marked, and the count records that the crew did not really report —
+                    when they next do, that variance covers the whole span since.</div>
+            </div>`;
+        }
+        $('invCountSummary').innerHTML = html;
+        if ($('invCarryCrewBtn')) $('invCarryCrewBtn').addEventListener('click', carryInvCrewFigures);
     }
 
     async function saveInvCountDraft(silent) {
@@ -20604,8 +20749,11 @@ ${ranchBlocks}
                 .map(l => ({
                     count_id: invCountState.id,
                     medication_id: l.medication_id,
-                    full_bottles: invNum(l.full_bottles),
-                    open_units: invNum(l.open_units),
+                    barn_full: invNum(l.barn_full),
+                    barn_open: invNum(l.barn_open),
+                    crew_full: invNum(l.crew_full),
+                    crew_open: invNum(l.crew_open),
+                    crew_carried: !!l.crew_carried,
                     bottle_size: Number(l.bottle_size) || null,
                     counted_units: invCountedUnits(l),
                     unit_cost: invNum(l.unit_cost)
@@ -20647,6 +20795,23 @@ ${ranchBlocks}
         }
     }
 
+    // The way back out of a posted count. The period lock only works because
+    // this exists - without it a count posted with a typo would close the
+    // month for good, and the only remedy would be an adjustment correcting
+    // an adjustment.
+    async function unpostInvCount(id) {
+        if (!confirm('Un-post this count?\n\nIts adjustments are reversed — units go back on the exact layers ' +
+                     'they came off — and the period reopens. Refused if any stock the count found has since ' +
+                     'been used, or if a later count has been posted on top of it.')) return;
+        const { data, error } = await supabase.rpc('med_unpost_count', { p_count_id: id });
+        if (error) { showAlert('globalAlert', 'Could not un-post: ' + error.message, 'error'); return; }
+        const r = data || {};
+        showAlert('globalAlert',
+            `Count un-posted: ${r.adjustments_reversed || 0} adjustment(s) reversed, ` +
+            `${r.layers_removed || 0} layer(s) removed. The period is open again.`, 'success');
+        loadInvCounts();
+    }
+
     // The sheet. Blind by default - a number printed on it is a number that
     // gets copied down, and a count that agrees with the system because the
     // system was printed on it finds no shrink at all.
@@ -20669,21 +20834,27 @@ ${ranchBlocks}
 
         let body = `<h2>Medicine count sheet</h2>
             <div class="meta">${escapeHtml(locName)} &middot; ${dateStr} &middot; counted by ______________________</div>
-            <p class="note">Count full bottles and the open bottle separately. A half-used 500&nbsp;mL bottle
-            is 250 units &mdash; write 250 in the open column and let the app do the multiplication.</p>
-            <table><thead><tr><th>Medication</th><th>Unit</th><th class="n">Bottle size</th>
-            ${showExp ? '<th class="n">Expected</th>' : ''}
-            <th class="w">Full bottles</th><th class="w">Open bottle</th></tr></thead><tbody>`;
+            <p class="note">Count full bottles and the open one separately, and the barn separately from the
+            trucks. <strong>Open bottles are written as a fraction &mdash; ¼, ½, ¾ &mdash; not in millilitres.</strong>
+            The app does the arithmetic; nobody should be doing it on a clipboard.</p>
+            <table><thead>
+            <tr><th rowspan="2">Medication</th><th rowspan="2">Unit</th><th class="n" rowspan="2">Bottle size</th>
+            ${showExp ? '<th class="n" rowspan="2">Expected</th>' : ''}
+            <th colspan="2" style="text-align:center;">Barn</th>
+            <th colspan="2" style="text-align:center;">Crew trucks</th></tr>
+            <tr><th class="w">Full</th><th class="w">Open (¼ ½ ¾)</th>
+                <th class="w">Full</th><th class="w">Open (¼ ½ ¾)</th></tr>
+            </thead><tbody>`;
         let lastCat = null;
         lines.forEach(l => {
             if (l.category !== lastCat) {
                 lastCat = l.category;
-                body += `<tr class="cat"><td colspan="${showExp ? 6 : 5}">${escapeHtml(lastCat || '')}</td></tr>`;
+                body += `<tr class="cat"><td colspan="${showExp ? 8 : 7}">${escapeHtml(lastCat || '')}</td></tr>`;
             }
             body += `<tr><td>${escapeHtml(l.name)}</td><td>${escapeHtml(l.unit || '')}</td>
                 <td class="n">${l.bottle_size ? fmtNum(l.bottle_size, 0) : ''}</td>
                 ${showExp ? `<td class="n">${fmtNum(l.expected, 1)}</td>` : ''}
-                <td class="w"></td><td class="w"></td></tr>`;
+                <td class="w"></td><td class="w"></td><td class="w"></td><td class="w"></td></tr>`;
         });
         body += '</tbody></table>';
         if (!showExp) {
@@ -20906,8 +21077,44 @@ ${ranchBlocks}
     // ---- SETUP: locations, and the switch that starts the whole thing ----
     async function loadInvSetup() {
         await loadInvLookups(true);
+        await loadInvCrewMembers(true);
         renderInvGoLive();
+        renderInvCrew();
         renderInvLocations();
+    }
+
+    function renderInvCrew() {
+        if (!invCrewMembers.length) {
+            $('invCrewContent').innerHTML =
+                '<div class="empty">No crew members yet. Add the men who draw bottles.</div>';
+            return;
+        }
+        let html = '<table><thead><tr><th>Name</th><th>Has a login</th><th></th></tr></thead><tbody>';
+        invCrewMembers.forEach(c => {
+            html += '<tr><td>' + escapeHtml(c.name) + '</td>' +
+                '<td class="muted">' + (c.user_id ? 'yes' : 'no') + '</td>' +
+                '<td><button data-inv-crew-off="' + c.id + '">Deactivate</button></td></tr>';
+        });
+        html += '</tbody></table>';
+        $('invCrewContent').innerHTML = html;
+    }
+
+    async function addInvCrewMember() {
+        const name = prompt('Crew member name:');
+        if (!name || !name.trim()) return;
+        const { error } = await supabase.from('med_crew_members').insert({ name: name.trim() });
+        if (error) { showAlert('invCrewAlert', error.message, 'error'); return; }
+        showAlert('invCrewAlert', 'Added ' + escapeHtml(name.trim()) + '.', 'success');
+        loadInvSetup();
+    }
+
+    async function deactivateInvCrewMember(id) {
+        const c = invCrewMembers.find(x => x.id === id);
+        if (!c) return;
+        if (!confirm('Deactivate ' + c.name + '?\n\nPast checkouts keep his name; he just stops appearing in the picker.')) return;
+        const { error } = await supabase.from('med_crew_members').update({ is_active: false }).eq('id', id);
+        if (error) { showAlert('invCrewAlert', error.message, 'error'); return; }
+        loadInvSetup();
     }
 
     function renderInvGoLive() {
@@ -21134,7 +21341,9 @@ ${ranchBlocks}
     $('invCountPostBtn').addEventListener('click', postInvCount);
     $('invCountListContent').addEventListener('click', (e) => {
         const open = e.target.closest('[data-inv-open-count]');
-        if (open) openInvCountEntry(open.dataset.invOpenCount);
+        if (open) { openInvCountEntry(open.dataset.invOpenCount); return; }
+        const un = e.target.closest('[data-inv-unpost]');
+        if (un) unpostInvCount(un.dataset.invUnpost);
     });
     $('invCountLines').addEventListener('input', (e) => {
         const el = e.target.closest('[data-inv-count]');
@@ -21157,6 +21366,11 @@ ${ranchBlocks}
         }
     });
 
+    $('invAddCrewBtn').addEventListener('click', addInvCrewMember);
+    $('invCrewContent').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-inv-crew-off]');
+        if (b) deactivateInvCrewMember(b.dataset.invCrewOff);
+    });
     $('invAddLocBtn').addEventListener('click', addInvLocation);
     $('invLocContent').addEventListener('click', (e) => {
         const b = e.target.closest('[data-inv-purge]');
