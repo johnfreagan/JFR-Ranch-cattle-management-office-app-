@@ -13,8 +13,12 @@
 --
 -- Run it after any migration that adds a table, view, or function.
 --
--- NOTE: the SQL editor shows notices in its message pane, not the result
--- grid. If the roster at the end appears missing, look there.
+-- NOTE ON OUTPUT: the Supabase dashboard SQL editor does NOT surface
+-- RAISE NOTICE. On a PASS you will see only "Success. No rows returned" -
+-- the roster below is invisible there (it shows in psql). A FAILURE raises
+-- an exception, which the editor DOES show in red with every finding.
+-- To see the roster in the dashboard, run the companion query
+-- 20260821000301_rls_roster.sql, which returns it as rows.
 -- =====================================================================
 
 DO $verify$
