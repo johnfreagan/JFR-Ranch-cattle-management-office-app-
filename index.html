@@ -2625,9 +2625,18 @@
             </p>
             <div class="form-grid" style="margin-bottom:6px;">
                 <div>
-                    <label for="fdRcProductCost">Product ($)</label>
+                    <label for="fdRcProductRate">Product <span id="fdRcRateLabel" class="muted">($/ton)</span></label>
+                    <input type="number" step="0.0001" min="0" id="fdRcProductRate" placeholder="e.g. 158.15">
+                </div>
+                <div>
+                    <label for="fdRcProductCost">Product (total $)</label>
                     <input type="number" step="0.01" min="0" id="fdRcProductCost">
                 </div>
+            </div>
+            <div class="muted" style="font-size:11px; margin-bottom:10px;" id="fdRcRateHint">
+                Type either one and the other fills in. Tickets quote a rate; invoices quote a total.
+            </div>
+            <div class="form-grid" style="margin-bottom:6px;">
                 <div>
                     <label for="fdRcFreightCost">Freight ($)</label>
                     <input type="number" step="0.01" min="0" id="fdRcFreightCost">
@@ -21162,6 +21171,17 @@ ${ranchBlocks}
         return { label, per, isBags: item.purchase_unit === 'bag' };
     }
 
+    // A cost rate in the unit the feed is BOUGHT in. PB and every seller
+    // quote $/ton; $0.0791/lb is the same number nobody checks a ticket
+    // against. Sacks get $/bag for the same reason.
+    function fdRateInUnits(perLb, item) {
+        if (perLb == null || !item || !item.lb_per_purchase_unit) return '';
+        if (item.purchase_unit === 'lb') return '';
+        const per = Number(item.lb_per_purchase_unit);
+        if (!(per > 0)) return '';
+        return fmtMoney(Number(perLb) * per) + '/' + item.purchase_unit;
+    }
+
     function fdInUnits(lb, item) {
         if (lb == null || !item || !item.lb_per_purchase_unit) return '';
         const u = Number(lb) / Number(item.lb_per_purchase_unit);
@@ -21368,7 +21388,11 @@ ${ranchBlocks}
                 <td class="num">${fmtNum(r.qty_lb)} lb
                     ${item && item.purchase_unit !== 'lb'
                         ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdInUnits(r.qty_lb, item))}</div>` : ''}</td>
-                <td class="num">${r.avg_cost_per_lb != null ? '$' + Number(r.avg_cost_per_lb).toFixed(4) + '/lb' : '—'}</td>
+                <td class="num">${r.avg_cost_per_lb != null
+                        ? '$' + Number(r.avg_cost_per_lb).toFixed(4) + '/lb'
+                          + (fdRateInUnits(r.avg_cost_per_lb, item)
+                             ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdRateInUnits(r.avg_cost_per_lb, item))}</div>` : '')
+                        : '—'}</td>
                 <td class="num">${fmtMoney(r.value_usd)}</td>
                 <td class="num">${Number(r.pending_cost_lb) > 0
                         ? `<span style="color:#b58900;">⚠ ${fmtNum(r.pending_cost_lb)} lb</span>` : '—'}</td>
@@ -21785,6 +21809,7 @@ ${ranchBlocks}
         $('fdRcInvoice').value      = r ? (r.invoice_number || '') : '';
         $('fdRcQtyUnits').value     = r && r.qty_purchase_units != null ? r.qty_purchase_units : '';
         $('fdRcQtyLb').value        = r ? r.qty_lb : '';
+        $('fdRcProductRate').value  = '';   // derived below from the stored total
         $('fdRcProductCost').value  = r && r.product_cost != null ? r.product_cost : '';
         $('fdRcFreightCost').value  = r && r.freight_cost != null ? r.freight_cost : '';
         $('fdRcOtherCost').value    = r && r.other_cost != null ? r.other_cost : '';
@@ -21851,12 +21876,70 @@ ${ranchBlocks}
         fdUpdateReceiptCost();
     }
 
-    function fdUpdateReceiptCost() {
+    // The pounds a seller's rate is quoted AGAINST. With a shrink allowance
+    // the invoice is written on the GROSS off the scale - the haircut is
+    // ours, and the full purchase cost is deliberately held against the
+    // smaller booked figure. Dividing by booked pounds here would quietly
+    // inflate the rate we show back at the person typing the invoice.
+    function fdRcRateBasisLb() {
+        const gross = parseFloat($('fdRcGrossQty').value);
+        if (gross > 0 && !$('fdRcShrinkBlock').classList.contains('hidden')) return gross;
+        const lb = parseFloat($('fdRcQtyLb').value);
+        return lb > 0 ? lb : null;
+    }
+
+    // Rate <-> total, in whichever direction the person is typing. The box
+    // the caret is in is never rewritten; doing so eats the cursor mid-number.
+    function fdSyncCostFromRate() { fdSyncReceiptCost('rate'); }
+    function fdSyncRateFromCost() { fdSyncReceiptCost('total'); }
+    function fdSyncReceiptCost(driver) {
+        const item  = fdItem($('fdRcItem').value);
+        const per   = item ? Number(item.lb_per_purchase_unit) : 0;
+        const basis = fdRcRateBasisLb();
+        if (per > 0 && basis) {
+            const units = basis / per;
+            if (driver !== 'rate') {
+                const total = parseFloat($('fdRcProductCost').value);
+                $('fdRcProductRate').value = total > 0 ? +(total / units).toFixed(4) : '';
+            }
+            if (driver !== 'total') {
+                const rate = parseFloat($('fdRcProductRate').value);
+                $('fdRcProductCost').value = rate > 0 ? +(rate * units).toFixed(2) : '';
+            }
+        }
+        fdUpdateReceiptCost(driver);
+    }
+
+    function fdUpdateReceiptCost(driver) {
         const item = fdItem($('fdRcItem').value);
         $('fdRcUnitLabel').textContent = item ? '(' + item.purchase_unit + ')' : '';
+        const unit = item && item.purchase_unit !== 'lb' ? item.purchase_unit : 'lb';
+        $('fdRcRateLabel').textContent = '($/' + unit + ')';
         const lb = parseFloat($('fdRcQtyLb').value);
         const pending = $('fdRcCostPending').checked;
-        ['fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost'].forEach(id => { $(id).disabled = pending; });
+        ['fdRcProductRate', 'fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost']
+            .forEach(id => { $(id).disabled = pending; });
+
+        // Keep the pair honest when something OTHER than the two cost boxes
+        // moves - a different item, new pounds, a shrink figure. Whichever
+        // box the person last touched is the one that survives.
+        if (!pending && !driver) {
+            const per = item ? Number(item.lb_per_purchase_unit) : 0;
+            const basis = fdRcRateBasisLb();
+            const total = parseFloat($('fdRcProductCost').value);
+            if (per > 0 && basis && total > 0) {
+                $('fdRcProductRate').value = +(total / (basis / per)).toFixed(4);
+            }
+        }
+
+        const grossBasis = !$('fdRcShrinkBlock').classList.contains('hidden')
+                        && parseFloat($('fdRcGrossQty').value) > 0;
+        $('fdRcRateHint').innerHTML = 'Type either one and the other fills in. '
+            + 'Tickets quote a rate; invoices quote a total.'
+            + (grossBasis
+                ? ' The rate is read against <b>gross</b> pounds, which is what the seller billed &mdash;'
+                  + ' the shrink haircut is ours, so the full cost stays on the booked pounds.'
+                : '');
 
         if (pending) {
             $('fdRcCostDisplay').innerHTML =
@@ -21871,8 +21954,11 @@ ${ranchBlocks}
         }
         const perLb = total / lb;
         const perUnit = item ? perLb * Number(item.lb_per_purchase_unit) : null;
+        // Delivered is product + freight + other over the BOOKED pounds. It is
+        // deliberately not the same number as the rate box above, which is the
+        // seller's price for the product alone.
         $('fdRcCostDisplay').innerHTML =
-            `Delivered: <b>$${perLb.toFixed(4)}/lb</b>` +
+            `Delivered (incl. freight): <b>$${perLb.toFixed(4)}/lb</b>` +
             (perUnit != null && item.purchase_unit !== 'lb'
                 ? ` &middot; <b>${fmtMoney(perUnit)}/${escapeHtml(item.purchase_unit)}</b>` : '') +
             ` &middot; total ${fmtMoney(total)}`;
@@ -23155,9 +23241,11 @@ ${ranchBlocks}
     $('fdRcShrinkPct').addEventListener('input', fdApplyShrink);
     $('fdRcQtyUnits').addEventListener('input', fdSyncQtyFromUnits);
     $('fdRcQtyLb').addEventListener('input', fdSyncUnitsFromQty);
-    ['fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost'].forEach(id =>
-        $(id).addEventListener('input', fdUpdateReceiptCost));
-    $('fdRcCostPending').addEventListener('change', fdUpdateReceiptCost);
+    $('fdRcProductRate').addEventListener('input', fdSyncCostFromRate);
+    $('fdRcProductCost').addEventListener('input', fdSyncRateFromCost);
+    ['fdRcFreightCost', 'fdRcOtherCost'].forEach(id =>
+        $(id).addEventListener('input', () => fdUpdateReceiptCost()));
+    $('fdRcCostPending').addEventListener('change', () => fdUpdateReceiptCost());
 
     $('fdUsAddRowBtn').addEventListener('click', () => {
         const prev = fdUsageSheet.rows[fdUsageSheet.rows.length - 1];
