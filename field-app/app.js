@@ -113,6 +113,12 @@ let tagLocationMap = loadJSON('betaCattleTagLocations', {});
 // outside their lot's range), so the range is a last-ditch fallback only.
 let tagLotMap = loadJSON('betaCattleTagLots', {});
 
+// "Ranch - Pasture" -> [{lot, head}] standing there. Drives the move form's
+// lot picker: lot_movements.lot_id is NOT NULL, and a pasture holding two
+// lots (Shop/Bull Trap holds 37X-1 and 59X) cannot be resolved after the
+// fact — the cowboy at the gate is the only one who knows which moved.
+let pastureLotsMap = loadJSON('betaCattlePastureLots', {});
+
 // tag number -> { why, places } for tags whose location is NOT knowable.
 // The books track pasture per LOT, not per animal, so a load that turned out
 // into two pastures leaves every tag on it genuinely ambiguous. Saying that
@@ -923,7 +929,7 @@ historyTabBtn.onclick = () => switchTab('history');
 // synced under an older schema has a current betaLastSyncDate but is
 // missing the new data entirely, and would otherwise sit there looking
 // synced while tag lookups quietly returned nothing.
-const DATA_SCHEMA_VERSION = 6;
+const DATA_SCHEMA_VERSION = 7;
 
 function checkDailySync() {
     const lastSync = localStorage.getItem('betaLastSyncDate');
@@ -963,8 +969,56 @@ function populateMoveDropdowns() {
     });
 }
 
-document.getElementById('moveFromRanch').onchange = function() { updateMovePastures(this.value, 'moveFromPasture'); };
+document.getElementById('moveFromRanch').onchange = function() {
+    updateMovePastures(this.value, 'moveFromPasture');
+    refreshMoveLots();
+};
 document.getElementById('moveToRanch').onchange = function() { updateMovePastures(this.value, 'moveToPasture'); };
+document.getElementById('moveFromPasture').onchange = function() { refreshMoveLots(); };
+
+// Which lot is moving. lot_movements.lot_id is NOT NULL, so a move without
+// one cannot be posted at all - it sits in the office queue until somebody
+// guesses. Five pastures currently hold more than one lot, and once the
+// cattle have been mixed nobody can tell afterwards which of them moved, so
+// this has to be asked here, at the gate, while it is still knowable.
+// One lot standing there means there is nothing to choose: it is filled in
+// and the reason is shown rather than presented as a question.
+function refreshMoveLots(keepValue) {
+    const sel = document.getElementById('moveLot');
+    const hint = document.getElementById('moveLotHint');
+    if (!sel) return;
+    const ranch = String(document.getElementById('moveFromRanch').value || '').trim();
+    const past = String(document.getElementById('moveFromPasture').value || '').trim();
+    const label = ranch && past ? `${ranch} - ${past}` : '';
+    const here = (label && pastureLotsMap[label]) || [];
+
+    if (!label) {
+        sel.innerHTML = '<option value="">Pick From pasture first...</option>';
+        hint.style.display = 'none';
+        return;
+    }
+    if (here.length === 0) {
+        // The books show nothing standing there. Not a blocker - the cattle
+        // are real and the move happened - but the office must be told.
+        sel.innerHTML = '<option value="">— books show no lot here —</option>';
+        hint.textContent = 'The books show no open lot in this pasture. The office will sort it out.';
+        hint.style.display = 'block';
+        return;
+    }
+    const opts = here.map(x =>
+        `<option value="${x.lot}">${x.lot}${x.head != null ? ` (${x.head} hd)` : ''}</option>`).join('');
+    if (here.length === 1) {
+        sel.innerHTML = opts;
+        sel.value = here[0].lot;
+        hint.textContent = `Only lot in ${past}.`;
+        hint.style.display = 'block';
+    } else {
+        sel.innerHTML = '<option value="">Select Lot...</option>' + opts;
+        hint.textContent = `${here.length} lots are in ${past} — say which one is moving.`;
+        hint.style.display = 'block';
+    }
+    if (keepValue && Array.from(sel.options).some(o => o.value === keepValue)) sel.value = keepValue;
+}
 
 function updateMovePastures(prop, targetId) {
     const target = document.getElementById(targetId);
@@ -1001,6 +1055,18 @@ movesForm.addEventListener('submit', function(e) {
         return; 
     }
 
+    // Only insist on a lot when the books actually offer a choice. If they
+    // show nothing standing in that pasture there is nothing to pick, and
+    // blocking the save would strand a real move on the phone.
+    const lotSel = document.getElementById('moveLot');
+    const lotVal = String(lotSel.value || '').trim();
+    const here = pastureLotsMap[`${String(fromR).trim()} - ${String(fromP).trim()}`] || [];
+    if (!lotVal && here.length > 0) {
+        showToast('🛑 Say which lot is moving', 'error', 3000);
+        lotSel.focus();
+        return;
+    }
+
     const moveData = {
         type: 'move',
         id: editingMoveId || "M-" + Date.now(),
@@ -1009,13 +1075,14 @@ movesForm.addEventListener('submit', function(e) {
         fromPasture: fromP,
         toRanch: toR,
         toPasture: toP,
+        lotNumber: lotVal,
         headCount: count || "0",
         notes: document.getElementById('moveNotes').value,
         recordedBy: moveRecordedByInput.value.trim()
     };
 
     const countMsg = count ? `${count} Head` : "Uncounted Head";
-    if(!confirm(`Confirm Move:\n${countMsg}\nFrom: ${fromP}\nTo: ${toP}`)) return;
+    if(!confirm(`Confirm Move:\n${lotVal ? 'Lot ' + lotVal + '\n' : ''}${countMsg}\nFrom: ${fromP}\nTo: ${toP}`)) return;
 
     const saveMoveBtn = document.getElementById('saveMoveBtn');
     isSubmittingMove = true;
@@ -1038,6 +1105,9 @@ movesForm.addEventListener('submit', function(e) {
     showToast(`🚚 Move saved: ${fromP} → ${toP}`, 'success', 2000);
     updateDailySummary();
     movesForm.reset();
+    // reset() leaves the lot picker holding options for a pasture that is no
+    // longer selected; rebuild it from the (now empty) form.
+    refreshMoveLots();
     document.getElementById('moveDate').valueAsDate = new Date();
     moveRecordedByInput.value = localStorage.getItem('crewMemberName'); 
 
@@ -1051,7 +1121,14 @@ movesForm.addEventListener('submit', function(e) {
 window.editMoveLocal = function(id) {
     const m = movesRecords.find(rec => String(rec.id) === String(id));
     if (!m) return;
-    
+    // An approved entry is already in the books and its raw payload is
+    // immutable server-side, so a re-send would be refused. Say so here
+    // rather than letting the cowboy retype it into a rejection.
+    if (m._status === 'approved') {
+        showToast('Already approved and in the books — ask the office to change it', 'error', 4000);
+        return;
+    }
+
     editingMoveId = String(id);
     switchTab('moves'); 
     
@@ -1069,6 +1146,10 @@ window.editMoveLocal = function(id) {
         document.getElementById('moveToPasture').value = String(m.toPasture).trim();
     }
     
+    // Rebuild the lot list for the loaded from-pasture, keeping what was
+    // recorded if it is still standing there.
+    refreshMoveLots(String(m.lotNumber || '').trim());
+
     document.getElementById('moveHeadCount').value = m.headCount || "";
     document.getElementById('moveNotes').value = m.notes || "";
     
@@ -1356,7 +1437,7 @@ async function pullCloudData() {
             // A lot usually spans several pastures, so location can only be
             // inferred when it sits in exactly one.
             sb.from('lot_pasture_assignments')
-              .select('lot_id, pasture_id, moved_out, pastures!inner(name, ranches!inner(name))')
+              .select('lot_id, pasture_id, head_count, moved_out, pastures!inner(name, ranches!inner(name))')
               .is('moved_out', null),
             // Where each delivery receipt's cattle were turned out. Combined
             // with lot_tags.delivery_receipt_id this is the only per-ANIMAL
@@ -1437,8 +1518,14 @@ async function pullCloudData() {
 
         // Rebuild the app's own record shape straight out of `raw` — it is
         // the submitted payload verbatim, so no back-conversion is needed.
-        const cloudRecords = entries.filter(e => e.entry_type === 'doctoring').map(e => e.raw);
-        const cloudMoves   = entries.filter(e => e.entry_type === 'move').map(e => e.raw);
+        // `raw` is the submitted payload verbatim, so the app's own record
+        // shape needs no back-conversion. The one thing carried alongside it
+        // is the review status: an APPROVED entry is in the books and its raw
+        // payload is immutable in the DB, so offering Edit on it would build
+        // a re-send the server is guaranteed to reject.
+        const withStatus = (e) => Object.assign({}, e.raw, { _status: e.status || 'pending' });
+        const cloudRecords = entries.filter(e => e.entry_type === 'doctoring').map(withStatus);
+        const cloudMoves   = entries.filter(e => e.entry_type === 'move').map(withStatus);
 
         // The dose string feeds triggerMedAutoFill(), which splits on '/'
         // to mean rate-per-basis and otherwise treats it as a flat dose.
@@ -1515,11 +1602,31 @@ async function pullCloudData() {
             (destsByReceipt[d.receipt_id] = destsByReceipt[d.receipt_id] || []).push(d.pasture_id);
         });
 
+        // Open, non-test lots by id. Declared here because the pasture->lots
+        // map below needs it; the later lotNumberById is the same thing built
+        // further down for the doctoring history and is left alone.
+        const lotNumberByIdEarly = {};
+        (lotsRes.data || []).forEach(l => { if (!l.is_test) lotNumberByIdEarly[l.id] = l.lot_number; });
+
         // lot -> set of pastures it is currently open in
         const openPastureIdsByLot = {};
         (assignRes.data || []).forEach(a => {
             (openPastureIdsByLot[a.lot_id] = openPastureIdsByLot[a.lot_id] || []).push(a.pasture_id);
         });
+
+        // "Ranch - Pasture" -> the lots standing there, with head. This is
+        // what lets the move form ask which lot is moving: the cowboy at the
+        // gate knows, and the office two days later is guessing from a map.
+        const pastureLots = {};
+        (assignRes.data || []).forEach(a => {
+            const label = a.pastures && a.pastures.ranches
+                ? `${a.pastures.ranches.name} - ${a.pastures.name}` : null;
+            const lot = lotNumberByIdEarly[a.lot_id];
+            if (!label || !lot) return;
+            (pastureLots[label] = pastureLots[label] || []).push({ lot, head: a.head_count });
+        });
+        Object.keys(pastureLots).forEach(k =>
+            pastureLots[k].sort((x, y) => String(x.lot).localeCompare(String(y.lot))));
 
         const tagLocations = {};
         const tagLots = {};
@@ -1571,6 +1678,10 @@ async function pullCloudData() {
         // transient network blip into a device that could no longer resolve
         // any tag. Keeping the previous data is always better than keeping
         // nothing.
+        if (!assignRes.error) {
+            pastureLotsMap = pastureLots;
+            safeSetItem('betaCattlePastureLots', JSON.stringify(pastureLotsMap));
+        }
         if (tagFetchOk) {
             tagLocationMap = tagLocations;
             tagLotMap = tagLots;
@@ -2120,17 +2231,22 @@ document.getElementById('recallActionBtn').onclick = function() {
 // =========================================================
 // TABLE RENDERING (Only shown on History Tab)
 // =========================================================
-function getYesterdayMidnight() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    return yesterday;
+// How far back the history tab reaches. Two days was too short to be
+// useful: a move entered on Saturday had already dropped off the list by
+// Monday morning, which is exactly when somebody notices it needs fixing.
+// A week covers a weekend plus the Monday it gets looked at.
+const HISTORY_DAYS = 7;
+
+function getHistoryCutoff() {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (HISTORY_DAYS - 1));
+    return d;
 }
 
 function updateRecentList() {
     recordTableBody.innerHTML = '';
-    const cutoff = getYesterdayMidnight();
+    const cutoff = getHistoryCutoff();
     const recentRecords = records.filter(r => {
         if (!r.dateTime) return false;
         const recDate = new Date(r.dateTime.split('T')[0] + "T00:00:00");
@@ -2143,7 +2259,7 @@ function updateRecentList() {
 
 function updateMovesList() {
     movesTableBody.innerHTML = '';
-    const cutoff = getYesterdayMidnight();
+    const cutoff = getHistoryCutoff();
     const recentMoves = movesRecords.filter(m => {
         if (!m.date) return false;
         const mDate = new Date(m.date.split('T')[0] + "T00:00:00");
@@ -2158,36 +2274,47 @@ function renderDoctoringRow(r) {
     const tr = document.createElement('tr');
     const drugOffTag = r.drugOff ? `<b style="color:#d70015;">[Drug off: ${r.drugOff}]</b> ` : '';
     tr.innerHTML = `
-        <td><b>${r.tagNumber}</b></td>
+        <td><b>${r.tagNumber}</b> ${statusCell(r)}</td>
         <td>${String(r.dateTime).replace('T', ' ')}</td>
         <td>${r.treatmentType}</td>
         <td>${r.location}</td>
         <td>${r.medication1} <small>${r.dosage1}</small></td>
         <td>${drugOffTag}${r.notes || ''}</td>
-        <td>
-            <div class="action-buttons">
-                <button type="button" class="edit-btn" title="Load this record into the form to edit it." onclick="editLocal('${r.id}')">Edit</button>
-                <button type="button" id="del-${r.id}" class="delete-btn" title="Delete this record. You'll be asked to confirm." onclick="confirmDelete('${r.id}', 'doctoring')">Del</button>
-            </div>
-        </td>
+        <td>${rowActions(r, 'doctoring')}</td>
     `;
     recordTableBody.appendChild(tr);
+}
+
+// An approved entry is in the books: the server refuses any change to its
+// raw payload, so Edit and Del are shown disabled with the reason rather
+// than offered and then rejected.
+function statusCell(rec) {
+    if (rec._status === 'approved') return '<span class="row-status approved">in books</span>';
+    if (rec._status === 'rejected') return '<span class="row-status rejected">rejected</span>';
+    return '';
+}
+
+function rowActions(rec, kind) {
+    if (rec._status === 'approved') {
+        return '<span class="muted" style="font-size:11px;">approved &mdash; office only</span>';
+    }
+    return `
+            <div class="action-buttons">
+                <button type="button" class="edit-btn" title="Load this record into the form to edit it." onclick="${kind === 'move' ? 'editMoveLocal' : 'editLocal'}('${rec.id}')">Edit</button>
+                <button type="button" id="del-${rec.id}" class="delete-btn" title="Delete this record. You'll be asked to confirm." onclick="confirmDelete('${rec.id}', '${kind}')">Del</button>
+            </div>`;
 }
 
 function renderMoveRow(m) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-        <td>${m.date}</td>
+        <td>${m.date} ${statusCell(m)}</td>
         <td>${m.fromRanch} - ${m.fromPasture}</td>
         <td>${m.toRanch} - ${m.toPasture}</td>
+        <td>${m.lotNumber ? '<b>' + m.lotNumber + '</b>' : '<span class="muted">not said</span>'}</td>
         <td>${m.headCount || '0'}</td>
         <td>${m.notes || '-'}</td>
-        <td>
-            <div class="action-buttons">
-                <button type="button" class="edit-btn" title="Load this move into the form to edit it." onclick="editMoveLocal('${m.id}')">Edit</button>
-                <button type="button" id="del-${m.id}" class="delete-btn" title="Delete this move. You'll be asked to confirm." onclick="confirmDelete('${m.id}', 'move')">Del</button>
-            </div>
-        </td>
+        <td>${rowActions(m, 'move')}</td>
     `;
     movesTableBody.appendChild(tr);
 }
@@ -2195,7 +2322,11 @@ function renderMoveRow(m) {
 window.editLocal = function(id) {
     const r = records.find(rec => String(rec.id) === String(id));
     if (!r) return;
-    
+    if (r._status === 'approved') {
+        showToast('Already approved and in the books — ask the office to change it', 'error', 4000);
+        return;
+    }
+
     editingRecordId = String(id);
     switchTab('doctoring');
     
@@ -2615,7 +2746,7 @@ const RESET_KEYS = [
     'betaCattleRecords', 'betaCattleMoves', 'betaCattleMeds', 'betaCattleLocs',
     'betaCattleLots', 'betaCattleProtocols', 'betaCattleLocks',
     'betaCattleBooksHistory', 'betaCattleTagLocations', 'betaCattleTagLots',
-    'betaCattleTagRanges', 'betaCattleTagCandidates',
+    'betaCattleTagRanges', 'betaCattleTagCandidates', 'betaCattlePastureLots',
     'betaCattleSyncQueue', 'betaCattleTombstones', 'betaCattleRejected',
     'betaLastSyncDate', 'betaCattleDataVersion', 'betaCattleDayReport'
     // 'crewMemberName' is deliberately kept - it is a convenience, not state,

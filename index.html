@@ -6744,12 +6744,19 @@ window.addEventListener('unhandledrejection', function(e) {
             const head = ov.head != null ? ov.head : (isNaN(rawHead) ? null : rawHead);
             if (head == null || head <= 0) warnings.push('head count not given — uncounted move');
 
-            // lot_movements.lot_id is NOT NULL and the field app does not
-            // always ask, so the lot comes from one of three places, in
-            // order: the office's edit, an inference when the from-pasture
-            // holds exactly one open lot, or nowhere - and then it must be
-            // picked. Moving the wrong lot's head is not a guess worth making.
+            // lot_movements.lot_id is NOT NULL, so the lot comes from one of
+            // four places, best first: the office's edit, what the cowboy
+            // said at the gate (field app v15 asks), an inference when the
+            // from-pasture holds exactly one open lot, or nowhere - and then
+            // it must be picked. The cowboy's answer outranks inference
+            // because he was standing there; only an explicit office
+            // correction beats it. Moving the wrong lot's head is not a
+            // guess worth making.
             let lot = ov.lot || null;
+            if (!lot && raw.lotNumber) {
+                lot = lk.lots[norm(raw.lotNumber)] || null;
+                if (!lot) issues.push(`lot "${raw.lotNumber}" from the field is not an open lot — use Edit to set it`);
+            }
             if (fromPasture) {
                 const here = lk.assignments.filter(a => a.pasture_id === fromPasture.id);
                 if (!lot) {
