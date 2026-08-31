@@ -451,3 +451,27 @@ that mistake easy. Look at those 2 rows before dropping.
   owner-only, does names, roles, and activation.
 - **2026-08-24 — Nothing prevented locking yourself out.** `guard_last_owner()`
   refuses to remove the last active owner.
+
+## 14. Ranly is an ADDITIVE, and Redwing has it in two places (2026-08-31)
+
+**Take this to the accountant.** Redwing's own two screens disagree about
+what Ranly is:
+
+- The **RM Inventory report** carries `Ranly TMR Mineral` under
+  **Feed RM 118004**.
+- The **entry form** puts `Ranly Mixing Min` on the **Mineral Application**
+  template, which posts to **Mineral - WIP**.
+
+Those are different accounts. Feed it through the Mineral screen and it
+leaves an account it was never in. John's call 2026-08-31: **Ranly stays an
+additive** - the app has it as `item_type = 'additive'` and that is correct;
+the Redwing entry form is where it is misplaced. Nothing in the app changes.
+
+Until it is settled, Ranly's `redwing_template_field` decides which of our
+two reports it lands on, so whichever way the accountant rules, the fix is
+one field on one item and no code.
+
+Related retirements the same day: the `One Grass` box is retired, and the
+`RTU Silage Premix 2025` / `RTU Silage Tran 1 2025` items are to be archived
+- premixes start fresh this year. Redwing's Premix RM 118010 already carries
+all three of its products at $0.00, which agrees.
