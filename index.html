@@ -10480,7 +10480,11 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                bayRes, premixRes, settingsRes] = await Promise.all([
             supabase.from('lot_status').select('lot_id, lot_number, head_in, head_in_invoiced, head_in_received, head_pending_invoice, head_dead, head_sold, head_current, closed_at'),
             supabase.from('lots').select('id, is_test, closed_at, lot_number, assumed_nonfeed_cog_per_day'),
-            supabase.from('lot_pasture_assignments').select('lot_id, head_count').is('moved_out', null),
+            // pasture_id and names come along for the stranded-head checks:
+            // those findings belong to a PASTURE, not to a lot.
+            supabase.from('lot_pasture_assignments')
+                .select('lot_id, head_count, pasture_id, moved_in, pastures!inner(name, ranches!inner(name))')
+                .is('moved_out', null),
             supabase.from('delivery_receipts').select('id, lot_id, head_count, tag_start, tag_end'),
             // Feed checks. Crew cannot read these; RLS returns zero rows and
             // no error, so the section simply does not appear for them.
@@ -10522,6 +10526,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         (assignmentsRes.data || []).forEach(a => {
             pastureSumByLot[a.lot_id] = (pastureSumByLot[a.lot_id] || 0) + (Number(a.head_count) || 0);
         });
+
+        // Keyed on lot_id — lot_status is keyed on lot_id, NOT id.
+        const statusByLotId = {};
+        (statusRes.data || []).forEach(st => { statusByLotId[st.lot_id] = st; });
+        const lotNumById = {};
+        (lotsRes.data || []).forEach(l => { lotNumById[l.id] = l.lot_number; });
 
         const tagCountByReceipt = {};
         (tagsRes.data || []).forEach(t => {
@@ -10693,6 +10703,144 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             });
         }
 
+        // Declared here rather than beside the lot sections: the pasture
+        // block below renders first and a `const` used before its declaration
+        // throws, which no parse check would catch.
+        const severityBadge = sev => {
+            const color = sev === 'high' ? 'background: #fbeaea; color: #8a2a2a;'
+                       : sev === 'medium' ? 'background: #fff3d6; color: #8a4d2a;'
+                       : sev === 'low' ? 'background: #f0f0f0; color: #555;'
+                       : 'background: #e8f0f5; color: #2a5278;';
+            return `<span style="font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 500; ${color}">${sev}</span>`;
+        };
+
+        // ==========================================================
+        // A PASTURE THAT WILL NOT GO TO ZERO
+        //
+        // Cattle from several lots get run together, and a move off a mixed
+        // pasture is split pro-rata because nobody can tell by eye which
+        // animal belongs to which lot. That estimate is harmless while the
+        // pasture is full - a move touches no money, and lot_daily_head is
+        // built from invoices, receipts, deaths and sales and never reads a
+        // pasture. It stops being harmless as the pasture draws down: the
+        // books keep a residue of whichever lots the arithmetic left behind,
+        // and the next SALE off that pasture allocates real dollars to
+        // whatever lot the books claim is standing there.
+        //
+        // John's rule (2026-08-31): "we generally can't get a handle on what
+        // lots are left until we get to 20-30 head left and we can then leave
+        // the appropriate head in lot." So the check fires at exactly that
+        // point - not as an error, but as a prompt that this pasture is now
+        // small enough to count.
+        const SETTLE_AT = 30;      // head, per John's 20-30 window
+        const RESIDUE_AT = 3;      // a one-, two- or three-head leftover
+
+        const pastureRows = (assignmentsRes.data || [])
+            .filter(a => !isTestById[a.lot_id] && a.pastures)
+            .map(a => ({
+                lot_id: a.lot_id,
+                lot_number: lotNumById[a.lot_id] || '?',
+                head: Number(a.head_count) || 0,
+                moved_in: a.moved_in,
+                pasture_id: a.pasture_id,
+                label: `${a.pastures.ranches ? a.pastures.ranches.name + ' – ' : ''}${a.pastures.name}`
+            }));
+
+        const byPasture = {};
+        pastureRows.forEach(r => {
+            (byPasture[r.pasture_id] = byPasture[r.pasture_id] || { label: r.label, rows: [] }).rows.push(r);
+        });
+
+        const pastureFindings = [];
+        Object.values(byPasture).forEach(p => {
+            const head = p.rows.reduce((t, r) => t + r.head, 0);
+            const lots = p.rows.length;
+            const listed = p.rows.slice().sort((a, b) => b.head - a.head)
+                .map(r => `${r.lot_number} ${r.head}`).join(', ');
+
+            // 1. Mixed and now countable — the moment the split can be settled.
+            const countable = lots > 1 && head > 0 && head <= SETTLE_AT;
+            if (countable) {
+                pastureFindings.push({
+                    severity: 'medium',
+                    title: 'Mixed pasture small enough to count',
+                    detail: `${p.label} holds ${head} head as ${lots} lots (${listed}). ` +
+                            `That split is an estimate carried forward from earlier moves. ` +
+                            `At this size the tags can be read: count what is actually there and ` +
+                            `correct the books before the next draw sells off the wrong lot.`
+                });
+            }
+
+            // 2. A residue of one or two head of a lot that is otherwise gone.
+            //    This is what "will not go to zero" looks like: the pasture
+            //    empties out and a sliver of some lot stays behind forever.
+            // Once a pasture is flagged countable, listing each sliver in it
+            // separately just repeats the same instruction four times. The
+            // finding above already names every lot and its head.
+            if (countable) return;
+            p.rows.forEach(r => {
+                const st = statusByLotId[r.lot_id];
+                if (!st) return;
+                const sold = Number(st.head_sold) || 0;
+                const cur = Number(st.head_current) || 0;
+                const inn = Number(st.head_in) || 0;
+                if (r.head > 0 && r.head <= RESIDUE_AT && sold > 0 && inn > 0 && (sold / inn) >= 0.5) {
+                    pastureFindings.push({
+                        severity: cur <= RESIDUE_AT ? 'medium' : 'low',
+                        title: 'Stranded head left in a pasture',
+                        detail: `${p.label} still carries ${r.head} head of ${r.lot_number}, a lot that is ` +
+                                `${Math.round((sold / inn) * 100)}% sold with ${cur} head left in total. ` +
+                                `A sliver like this is usually a pro-rata split that went the wrong way ` +
+                                `earlier, not cattle actually standing there. Verify before the lot is closed.`
+                    });
+                }
+            });
+        });
+
+        // 3. Lot-level: a nearly-sold lot scattered in small pieces. Each
+        //    piece is a separate chance for the next draw to bill the wrong
+        //    lot, so it belongs on the lot as well as on the pasture.
+        const piecesByLot = {};
+        pastureRows.forEach(r => {
+            (piecesByLot[r.lot_id] = piecesByLot[r.lot_id] || []).push(r);
+        });
+        Object.keys(piecesByLot).forEach(lotId => {
+            const pieces = piecesByLot[lotId];
+            const st = statusByLotId[lotId];
+            if (!st || closedAtById[lotId]) return;
+            const cur = Number(st.head_current) || 0;
+            if (pieces.length >= 2 && cur > 0 && cur <= SETTLE_AT) {
+                findings.push({
+                    lot_id: lotId,
+                    lot_number: st.lot_number,
+                    severity: 'low',
+                    title: 'Last head scattered across pastures',
+                    detail: `${cur} head left, spread over ${pieces.length} pastures ` +
+                            `(${pieces.slice().sort((a, b) => b.head - a.head)
+                                 .map(p => `${p.label} ${p.head}`).join(', ')}). ` +
+                            `Each piece is a separate chance for the next draw to bill the wrong lot. ` +
+                            `Count them and consolidate.`
+                });
+            }
+        });
+
+        const pastureBlock = pastureFindings.length ? `
+            <div style="margin-bottom:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+                    <h4 style="margin:0;">Pastures</h4>
+                    <span class="muted" style="font-size:12px;">${pastureFindings.length} to settle</span>
+                </div>
+                <table style="font-size:13px;">
+                    <thead><tr><th style="width:60px;">Severity</th><th>Finding</th><th>Detail</th></tr></thead>
+                    <tbody>${pastureFindings.map(f => `
+                        <tr>
+                            <td>${severityBadge(f.severity)}</td>
+                            <td><strong>${escapeHtml(f.title)}</strong></td>
+                            <td>${escapeHtml(f.detail)}</td>
+                        </tr>`).join('')}</tbody>
+                </table>
+            </div>` : '';
+
         const bayBlock = overdueBays.length ? `
             <div style="margin-bottom:16px;">
                 <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
@@ -10715,7 +10863,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 </table>
             </div>` : '';
 
-        if (findings.length === 0 && !bayBlock) {
+        if (findings.length === 0 && !bayBlock && !pastureBlock) {
             $('reportAnomaliesContent').innerHTML = '<div class="empty">✓ No anomalies detected across active lots. Everything ties out.</div>';
             return;
         }
@@ -10731,22 +10879,17 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const counts = { high: 0, medium: 0, low: 0, info: 0 };
         findings.forEach(f => { counts[f.severity] = (counts[f.severity] || 0) + 1; });
 
-        const severityBadge = sev => {
-            const color = sev === 'high' ? 'background: #fbeaea; color: #8a2a2a;'
-                       : sev === 'medium' ? 'background: #fff3d6; color: #8a4d2a;'
-                       : sev === 'low' ? 'background: #f0f0f0; color: #555;'
-                       : 'background: #e8f0f5; color: #2a5278;';
-            return `<span style="font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 500; ${color}">${sev}</span>`;
-        };
-
         const banner = `
             <div class="alert" style="background: ${counts.high > 0 ? '#fbeaea' : counts.medium > 0 ? '#fff3d6' : '#e8f0f5'}; border: 1px solid ${counts.high > 0 ? '#c54545' : counts.medium > 0 ? '#d4a017' : '#5a8db9'}; color: #333; padding: 10px; margin-bottom: 12px; border-radius: var(--radius); font-size: 13px;">
-                <strong>${findings.length} finding${findings.length === 1 ? '' : 's'} across ${Object.keys(byLot).length} lot${Object.keys(byLot).length === 1 ? '' : 's'}</strong>${
-                    overdueBays.length ? ` · <strong>${overdueBays.length} bay${overdueBays.length === 1 ? '' : 's'} overdue for a count</strong>` : ''} ·
-                ${counts.high > 0 ? `${counts.high} high` : ''}
-                ${counts.medium > 0 ? ` · ${counts.medium} medium` : ''}
-                ${counts.low > 0 ? ` · ${counts.low} low` : ''}
-                ${counts.info > 0 ? ` · ${counts.info} info` : ''}
+                ${[
+                    `<strong>${findings.length} finding${findings.length === 1 ? '' : 's'} across ${Object.keys(byLot).length} lot${Object.keys(byLot).length === 1 ? '' : 's'}</strong>`,
+                    pastureFindings.length ? `<strong>${pastureFindings.length} pasture${pastureFindings.length === 1 ? '' : 's'} to settle</strong>` : '',
+                    overdueBays.length ? `<strong>${overdueBays.length} bay${overdueBays.length === 1 ? '' : 's'} overdue for a count</strong>` : '',
+                    counts.high > 0 ? `${counts.high} high` : '',
+                    counts.medium > 0 ? `${counts.medium} medium` : '',
+                    counts.low > 0 ? `${counts.low} low` : '',
+                    counts.info > 0 ? `${counts.info} info` : ''
+                ].filter(Boolean).join(' · ')}
             </div>
         `;
 
@@ -10774,7 +10917,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             `;
         }).join('');
 
-        $('reportAnomaliesContent').innerHTML = banner + bayBlock + lotSections;
+        $('reportAnomaliesContent').innerHTML = banner + pastureBlock + bayBlock + lotSections;
     }
 
     async function loadYardSheetReport() {
