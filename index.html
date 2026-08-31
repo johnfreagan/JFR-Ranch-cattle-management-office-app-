@@ -770,6 +770,7 @@
             <button class="sub-tab" data-subtab="batches">Batches</button>
             <button class="sub-tab" data-subtab="counts">Counts</button>
             <button class="sub-tab" data-subtab="cost">Cost</button>
+            <button class="sub-tab" data-subtab="redwing">Redwing</button>
             <button class="sub-tab" data-subtab="items">Items</button>
             <button class="sub-tab" data-subtab="locations">Locations</button>
         </div>
@@ -1894,6 +1895,29 @@
         </div>
 
         <!-- Items: the catalog. No price column, deliberately. -->
+        <!-- Redwing: the four postings that come out of a week of feed -->
+        <div id="feedRedwingView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Post to Redwing</h2>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <input type="date" id="fdRwFrom" style="max-width:150px;">
+                        <span class="muted">to</span>
+                        <input type="date" id="fdRwTo" style="max-width:150px;">
+                        <button id="fdRwWeekBtn" title="Jump to the last completed Monday-Sunday week">Last week</button>
+                        <button class="primary" id="fdRwRunBtn">Run</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    One week of feed becomes four postings. Each section below is laid out in the order of the
+                    Redwing screen it is typed into, so it is read straight down. Pounds and dollars are the app&rsquo;s
+                    &mdash; the app is the system of record for feed on hand, and Redwing receives its dollars.
+                </p>
+                <div id="fdRwAlert"></div>
+                <div id="fdRwContent"><div class="empty">Pick a period and press Run.</div></div>
+            </div>
+        </div>
+
         <div id="feedItemsView" class="hidden" data-perm="office">
             <div class="card">
                 <div class="card-header">
@@ -6500,7 +6524,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
-         'feedBatchesView', 'feedCostView',
+         'feedBatchesView', 'feedCostView', 'feedRedwingView',
          'feedItemsView', 'feedLocationsView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
@@ -21316,6 +21340,9 @@ ${ranchBlocks}
         } else if (subtab === 'cost') {
             $('feedCostView').classList.remove('hidden');
             loadFeedCost();
+        } else if (subtab === 'redwing') {
+            $('feedRedwingView').classList.remove('hidden');
+            initFdRedwing();
         } else if (subtab === 'items') {
             $('feedItemsView').classList.remove('hidden');
             loadFeedItems();
@@ -23228,6 +23255,19 @@ ${ranchBlocks}
 
     $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);
     $('fdInvPrintBtn').addEventListener('click', printFdOnHand);
+    $('fdRwRunBtn').addEventListener('click', loadFdRedwing);
+    $('fdRwWeekBtn').addEventListener('click', () => {
+        const w = fdRwLastWeek();
+        $('fdRwFrom').value = w.from; $('fdRwTo').value = w.to;
+        loadFdRedwing();
+    });
+    $('fdRwContent').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-fd-rw-print],[data-fd-rw-pdf],[data-fd-rw-copy]');
+        if (!b) return;
+        if (b.dataset.fdRwPrint) printFdRwSection(b.dataset.fdRwPrint);
+        else if (b.dataset.fdRwPdf) shareFdRwPdf(b.dataset.fdRwPdf);
+        else copyFdRwSection(b.dataset.fdRwCopy);
+    });
     $('fdInvPdfBtn').addEventListener('click', shareFdOnHandPdf);
     $('fdInvByLocation').addEventListener('change', loadFeedInventory);
 
@@ -23782,6 +23822,445 @@ ${ranchBlocks}
                 <p class="muted" style="font-size:11px; margin-top:8px;">
                     Fix the period on the feed-out row, or reverse and re-enter it. Nothing is lost — the dollars
                     are still on the ledger, they just have no day to sit on.</p>`;
+        }
+    }
+
+    // ==========================================================
+    // REDWING: the four postings that come out of a week of feed
+    // ==========================================================
+    // Redwing's two entry screens are FIXED FORMS - a $ box and a lbs box
+    // per commodity, typed by hand. That layout is the whole reason the
+    // Salt line reads -5,457 lb carrying +$1,999.18: two boxes, no
+    // arithmetic between them, and nothing to catch a number typed into
+    // one and not the other. These reports exist to be read straight down
+    // the screen so the two boxes are always filled from the same row.
+    //
+    // Box order below IS the screen order, not alphabetical. Re-sorting it
+    // would defeat the point.
+    const FD_RW_FEED_BOXES = [
+        'Corn', 'DDGS', 'Peanut Hulls', 'Cottonseed Hulls', 'WCS',
+        'Penchlor', 'Corrid Crumbles', '(old)Premix', 'BatchTransPre',
+        'TranPremix', '24Corn/Sorg Silage', '25Corn Silage', 'SoyHull',
+        'Molasses', 'Salt', 'Limiter'
+    ];
+    const FD_RW_MIN_BOXES = [
+        'Redman Bag Salt', 'ADM Master Gain', 'IGR Master Gain',
+        'MLS Tubs', 'Purina Min', 'One Grass', 'Ranly Mixing Min'
+    ];
+
+    let fdRwData = null;
+
+    function fdRwBoxOf(itemId) {
+        const it = fdItem(itemId);
+        return it && it.redwing_template_field ? it.redwing_template_field : null;
+    }
+    function fdRwTemplateOf(box) {
+        if (FD_RW_FEED_BOXES.includes(box)) return 'feed';
+        if (FD_RW_MIN_BOXES.includes(box)) return 'mineral';
+        return null;
+    }
+
+    // Last completed Monday-Sunday. The ranch runs Mon-Sun and the sheet is
+    // pulled Monday morning for the week just finished, so on any day the
+    // useful default is the last week that is actually over.
+    function fdRwLastWeek() {
+        const t = new Date(ranchToday() + 'T12:00:00');
+        const dow = (t.getDay() + 6) % 7;              // 0 = Monday
+        const sun = new Date(t); sun.setDate(t.getDate() - dow - 1);
+        const mon = new Date(sun); mon.setDate(sun.getDate() - 6);
+        const iso = d => d.toISOString().slice(0, 10);
+        return { from: iso(mon), to: iso(sun) };
+    }
+
+    function initFdRedwing() {
+        if (!$('fdRwFrom').value) {
+            const w = fdRwLastWeek();
+            $('fdRwFrom').value = w.from;
+            $('fdRwTo').value   = w.to;
+        }
+        if (fdRwData) renderFdRedwing(); else loadFdRedwing();
+    }
+
+    async function loadFdRedwing() {
+        clearAlert('fdRwAlert');
+        const from = $('fdRwFrom').value, to = $('fdRwTo').value;
+        if (!from || !to) { showAlert('fdRwAlert', 'Pick both dates.'); return; }
+        if (from > to)    { showAlert('fdRwAlert', 'The start date is after the end date.'); return; }
+        $('fdRwContent').innerHTML = '<div class="empty">Loading…</div>';
+        await fdLoadRefs();
+
+        // Usage inside the period, and EVERY receipt and usage row ever, because
+        // the roll-forward's opening balance is arithmetic over all history:
+        // a FIFO layer records what is left now, not what was there in June.
+        const [usg, rec, allU] = await Promise.all([
+            supabase.from('feed_usage_detail').select('*')
+                .gte('usage_date', from).lte('usage_date', to),
+            supabase.from('feed_receipts').select('id,item_id,receipt_date,qty_lb,product_cost,freight_cost,other_cost,cost_pending,source'),
+            supabase.from('feed_usage').select('id,item_id,usage_date,qty_lb,destination_type,is_short')
+        ]);
+        const err = usg.error || rec.error || allU.error;
+        if (err) {
+            $('fdRwContent').innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`;
+            return;
+        }
+        fdRwData = { from, to, usage: usg.data || [], receipts: rec.data || [], allUsage: allU.data || [] };
+        renderFdRedwing();
+    }
+
+    // ---- the four datasets ------------------------------------------------
+    function fdRwBuild() {
+        const d = fdRwData;
+        const cost = r => Number(r.cost_usd) || 0;
+
+        // 1 + 2. What went to a lot, grouped by lot then by Redwing box.
+        const lots = {};
+        const unmapped = [];
+        d.usage.filter(u => u.destination_type === 'lot').forEach(u => {
+            const box = fdRwBoxOf(u.item_id);
+            const tpl = box ? fdRwTemplateOf(box) : null;
+            if (!tpl) { unmapped.push(u); return; }
+            const L = lots[u.lot_number] || (lots[u.lot_number] = { feed: {}, mineral: {} });
+            const bucket = L[tpl];
+            const b = bucket[box] || (bucket[box] = { lb: 0, usd: 0, pending: 0, items: new Set(), sources: new Set() });
+            b.lb += Number(u.qty_lb) || 0;
+            b.usd += cost(u);
+            b.pending += Number(u.pending_cost_lines) || 0;
+            b.items.add(u.item_name);
+            b.sources.add(u.source);
+        });
+
+        // 3. Variance account. Shrink is feed the books had and the bay did
+        // not; found feed is the reverse. They are two sides of ONE account -
+        // its balance is how good the allowances are - so they belong on one
+        // report, netted, never split into two unrelated entries.
+        const varRows = {};
+        d.usage.filter(u => u.destination_type === 'adjustment').forEach(u => {
+            const v = varRows[u.item_name] || (varRows[u.item_name] = { shrinkLb: 0, shrinkUsd: 0, foundLb: 0, foundUsd: 0 });
+            v.shrinkLb += Number(u.qty_lb) || 0;
+            v.shrinkUsd += cost(u);
+        });
+        d.receipts.filter(r => r.source === 'count_adjustment'
+                            && r.receipt_date >= d.from && r.receipt_date <= d.to).forEach(r => {
+            const it = fdItem(r.item_id);
+            const nm = it ? it.name : '—';
+            const v = varRows[nm] || (varRows[nm] = { shrinkLb: 0, shrinkUsd: 0, foundLb: 0, foundUsd: 0 });
+            v.foundLb += Number(r.qty_lb) || 0;
+            v.foundUsd += (Number(r.product_cost) || 0) + (Number(r.freight_cost) || 0) + (Number(r.other_cost) || 0);
+        });
+
+        // 4. Roll-forward. Opening is not stored anywhere - it is receipts
+        // minus usage up to the day before. Both sides are flows, so the
+        // identity below is true by construction and any break in it means a
+        // row was written that neither side counted.
+        const roll = {};
+        const touch = id => {
+            const it = fdItem(id);
+            return roll[id] || (roll[id] = { name: it ? it.name : '—', item: it,
+                                             begin: 0, purch: 0, found: 0, batchIn: 0,
+                                             toLots: 0, shrink: 0, batchOut: 0, xfer: 0 });
+        };
+        d.receipts.forEach(r => {
+            const R = touch(r.item_id);
+            const q = Number(r.qty_lb) || 0;
+            if (r.receipt_date < d.from) { R.begin += q; return; }
+            if (r.receipt_date > d.to) return;
+            if (r.source === 'count_adjustment') R.found += q;
+            else if (r.source === 'batch') R.batchIn += q;
+            else if (r.source === 'transfer') R.xfer += q;
+            else R.purch += q;
+        });
+        d.allUsage.forEach(u => {
+            const R = touch(u.item_id);
+            const q = Number(u.qty_lb) || 0;
+            if (u.usage_date < d.from) { R.begin -= q; return; }
+            if (u.usage_date > d.to) return;
+            if (u.destination_type === 'adjustment') R.shrink += q;
+            else if (u.destination_type === 'batch') R.batchOut += q;
+            else if (u.destination_type === 'transfer') R.xfer -= q;
+            else R.toLots += q;
+        });
+        Object.values(roll).forEach(R => {
+            R.end = R.begin + R.purch + R.found + R.batchIn + R.xfer
+                  - R.toLots - R.shrink - R.batchOut;
+        });
+
+        return { lots, unmapped, varRows, roll };
+    }
+
+    // ---- rendering --------------------------------------------------------
+    const fdRwLb  = n => fmtNum(Math.round((Number(n) || 0) * 100) / 100, 2);
+    const fdRwUsd = n => fmtMoney(Number(n) || 0);
+
+    function fdRwSection(id, title, note, inner) {
+        return `<div class="card" style="margin-top:14px;">
+            <div class="card-header">
+                <h3 style="margin:0;">${escapeHtml(title)}</h3>
+                <div style="display:flex; gap:6px;">
+                    <button data-fd-rw-print="${id}">🖨 Print</button>
+                    <button data-fd-rw-pdf="${id}">📄 PDF</button>
+                    <button data-fd-rw-copy="${id}">⧉ Copy rows</button>
+                </div>
+            </div>
+            <p class="muted" style="font-size:11.5px; margin:-4px 0 10px 0;">${note}</p>
+            ${inner}
+        </div>`;
+    }
+
+    // A lot at a time, because that is one trip through the Redwing screen.
+    function fdRwApplicationHtml(which) {
+        const { lots } = fdRwBuild();
+        const boxes = which === 'feed' ? FD_RW_FEED_BOXES : FD_RW_MIN_BOXES;
+        const names = Object.keys(lots).filter(n => Object.keys(lots[n][which]).length).sort();
+        if (!names.length) return '<div class="empty">Nothing to post for this period.</div>';
+        return names.map(lotNo => {
+            const bucket = lots[lotNo][which];
+            let tLb = 0, tUsd = 0, pending = 0;
+            const rows = boxes.filter(b => bucket[b]).map(b => {
+                const v = bucket[b];
+                tLb += v.lb; tUsd += v.usd; pending += v.pending;
+                return `<tr>
+                    <td>${escapeHtml(b)}${v.items.size > 1 || !v.items.has(b)
+                        ? `<div class="muted" style="font-size:11px;">${escapeHtml([...v.items].join(' + '))}</div>` : ''}</td>
+                    <td class="num">${fdRwUsd(v.usd)}${v.pending > 0
+                        ? ' <span style="color:#b58900;" title="an unpriced load is in here">⚠</span>' : ''}</td>
+                    <td class="num">${fdRwLb(v.lb)}</td>
+                </tr>`;
+            }).join('');
+            return `<div style="margin-bottom:16px;">
+                <div style="font-weight:600; margin-bottom:4px;">Production Center ${escapeHtml(lotNo)}</div>
+                <table><thead><tr><th>Box</th><th class="num">$</th><th class="num">lbs</th></tr></thead>
+                <tbody>${rows}
+                <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                    <td>${which === 'feed' ? 'Total $ Fed / Total lbs Fed' : 'Total $ Min Out / Total lbs Min Out'}</td>
+                    <td class="num">${fdRwUsd(tUsd)}</td><td class="num">${fdRwLb(tLb)}</td></tr>
+                </tbody></table>
+                ${pending > 0 ? `<div class="muted" style="font-size:11px; color:#b58900;">
+                    ⚠ An unpriced load is inside these dollars. Price it before posting, or Redwing takes a
+                    number that will change underneath it.</div>` : ''}
+            </div>`;
+        }).join('');
+    }
+
+    function fdRwVarianceHtml() {
+        const { varRows } = fdRwBuild();
+        const names = Object.keys(varRows).sort();
+        if (!names.length) return '<div class="empty">No shrink or found feed in this period.</div>';
+        let nLb = 0, nUsd = 0;
+        const rows = names.map(n => {
+            const v = varRows[n];
+            const netLb = v.foundLb - v.shrinkLb, netUsd = v.foundUsd - v.shrinkUsd;
+            nLb += netLb; nUsd += netUsd;
+            return `<tr><td>${escapeHtml(n)}</td>
+                <td class="num">${v.shrinkLb ? fdRwLb(v.shrinkLb) : '—'}</td>
+                <td class="num">${v.shrinkUsd ? fdRwUsd(v.shrinkUsd) : '—'}</td>
+                <td class="num">${v.foundLb ? fdRwLb(v.foundLb) : '—'}</td>
+                <td class="num">${v.foundUsd ? fdRwUsd(v.foundUsd) : '—'}</td>
+                <td class="num">${fdRwLb(netLb)}</td>
+                <td class="num">${fdRwUsd(netUsd)}</td></tr>`;
+        }).join('');
+        return `<table><thead><tr><th>Item</th>
+            <th class="num" colspan="2">Shrink</th><th class="num" colspan="2">Found</th>
+            <th class="num" colspan="2">Net to variance</th></tr>
+            <tr><th></th><th class="num">lbs</th><th class="num">$</th>
+            <th class="num">lbs</th><th class="num">$</th>
+            <th class="num">lbs</th><th class="num">$</th></tr></thead>
+            <tbody>${rows}
+            <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                <td>Net to the variance account</td><td colspan="4"></td>
+                <td class="num">${fdRwLb(nLb)}</td><td class="num">${fdRwUsd(nUsd)}</td></tr>
+            </tbody></table>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+            A negative net is shrink &mdash; feed the books had and the bay did not. A positive net is found feed.
+            Both sides go to the <b>same</b> account: its balance is how good the shrink allowances are, and
+            posting found feed anywhere else makes that balance meaningless.</p>`;
+    }
+
+    function fdRwRollHtml() {
+        const { roll } = fdRwBuild();
+        const rows = Object.values(roll)
+            .filter(R => R.begin || R.purch || R.found || R.toLots || R.shrink || R.batchIn || R.batchOut || R.xfer || R.end)
+            .sort((a, b) => a.name.localeCompare(b.name));
+        if (!rows.length) return '<div class="empty">No movement and no opening balance in this period.</div>';
+        const T = rows.reduce((t, R) => ({
+            begin: t.begin + R.begin, purch: t.purch + R.purch, found: t.found + R.found,
+            toLots: t.toLots + R.toLots, shrink: t.shrink + R.shrink, other: t.other + R.batchIn - R.batchOut + R.xfer,
+            end: t.end + R.end
+        }), { begin: 0, purch: 0, found: 0, toLots: 0, shrink: 0, other: 0, end: 0 });
+        const live = fdOnHand.reduce((s, o) => s + (Number(o.qty_lb) || 0), 0);
+        const tiesLive = fdRwData.to >= ranchToday();
+        const body = rows.map(R => {
+            const other = R.batchIn - R.batchOut + R.xfer;
+            return `<tr><td><strong>${escapeHtml(R.name)}</strong></td>
+                <td class="num">${fdRwLb(R.begin)}</td>
+                <td class="num">${R.purch ? fdRwLb(R.purch) : '—'}</td>
+                <td class="num">${R.found ? fdRwLb(R.found) : '—'}</td>
+                <td class="num">${R.toLots ? fdRwLb(R.toLots) : '—'}</td>
+                <td class="num">${R.shrink ? fdRwLb(R.shrink) : '—'}</td>
+                <td class="num">${other ? fdRwLb(other) : '—'}</td>
+                <td class="num"><strong${R.end < -0.005 ? ' style="color:#b58900;" title="more was fed than was ever received"' : ''}>${fdRwLb(R.end)}</strong>${R.end < -0.005 ? ' ⚠' : ''}</td></tr>`;
+        }).join('');
+        return `<table><thead><tr><th>Item</th>
+            <th class="num">Beginning</th><th class="num">Purchases</th><th class="num">Found</th>
+            <th class="num">Fed to lots</th><th class="num">Shrink</th><th class="num">Batch/transfer</th>
+            <th class="num">Ending</th></tr></thead>
+            <tbody>${body}
+            <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                <td>Total lb</td><td class="num">${fdRwLb(T.begin)}</td><td class="num">${fdRwLb(T.purch)}</td>
+                <td class="num">${fdRwLb(T.found)}</td><td class="num">${fdRwLb(T.toLots)}</td>
+                <td class="num">${fdRwLb(T.shrink)}</td><td class="num">${fdRwLb(T.other)}</td>
+                <td class="num">${fdRwLb(T.end)}</td></tr>
+            </tbody></table>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+            Beginning + purchases + found &minus; fed &minus; shrink &plusmn; batch/transfer = ending, by construction:
+            both sides are flows and neither is a stored balance.
+            ${rows.some(R => R.end < -0.005) ? `<br><span style="color:#b58900;">⚠ An item ends NEGATIVE.
+            More was fed than was ever received: a delivery was never entered, or a feed-out is on the wrong
+            item. Fix it before posting &mdash; a negative ending posts a credit to inventory.</span>` : ''}
+            ${tiesLive ? (Math.abs(T.end - live) < 0.5
+                ? `Ending ties to the live on-hand of <b>${fmtNum(live)} lb</b>.`
+                : `<span style="color:#b58900;">⚠ Ending is ${fdRwLb(T.end)} lb but the live on-hand is
+                   ${fmtNum(live)} lb. A layer or a usage row exists that one side is not counting &mdash;
+                   do not post from this until it is found.</span>`) : ''}</p>`;
+    }
+
+    function renderFdRedwing() {
+        const d = fdRwData;
+        const { unmapped } = fdRwBuild();
+        const period = `${fmtDate(d.from)} &ndash; ${fmtDate(d.to)}`;
+        const warn = unmapped.length ? `<div class="alert warn" style="margin-bottom:12px;">
+            <b>${unmapped.length} feed-out row${unmapped.length === 1 ? '' : 's'} cannot be posted.</b>
+            ${escapeHtml([...new Set(unmapped.map(u => u.item_name))].join(', '))} —
+            ${unmapped.length === 1 ? 'this item has' : 'these items have'} no Redwing box set.
+            Set it on the item (Feed → Items) or these pounds silently never reach Redwing.
+            Shown here rather than dropped, for exactly that reason.</div>` : '';
+
+        $('fdRwContent').innerHTML = warn +
+            `<div class="muted" style="font-size:12px;">Period ${period}</div>` +
+            fdRwSection('feed', 'Feed Application — bulk commodities',
+                'One block per lot, in the order of the Redwing Feed Application screen. Type the $ box and the lbs box from the same row.',
+                fdRwApplicationHtml('feed')) +
+            fdRwSection('mineral', 'Mineral Application — from consumption',
+                'Mineral is not fed off a ticket; nobody records a bag going to a pasture. These pounds come from the physical count, allocated across open lots by head-days, which is what a mineral count variance means.',
+                fdRwApplicationHtml('mineral')) +
+            fdRwSection('variance', 'Variance account — shrink and found feed',
+                'Never charged to a lot. Barn shrink is the cost of handling feed, not of feeding a particular set of cattle.',
+                fdRwVarianceHtml()) +
+            fdRwSection('roll', 'Inventory roll-forward',
+                'Beginning, purchases, usage, shrink, ending — the proof that the period&rsquo;s movement explains the change in what is standing in the barn.',
+                fdRwRollHtml());
+    }
+
+    // ---- print / pdf / copy ----------------------------------------------
+    // Each output is generated from the SAME html the screen is showing, so a
+    // printed sheet and the screen it came from cannot disagree. The three
+    // buttons differ only in where the table ends up.
+    const FD_RW_TITLES = {
+        feed:     'Feed Application — bulk commodities',
+        mineral:  'Mineral Application — from consumption',
+        variance: 'Variance account — shrink and found feed',
+        roll:     'Inventory roll-forward'
+    };
+    // The item hint under a box name is there to be READ on paper; in a copied
+    // row or a PDF cell it just runs into the box name ("CornCorn hopper bin")
+    // and the box name is the only part anyone types. Drop it for both.
+    function fdRwCellText(el) {
+        const c = el.cloneNode(true);
+        c.querySelectorAll('.muted').forEach(m => m.remove());
+        return c.textContent.replace(/\s+/g, ' ').trim();
+    }
+
+    function fdRwSectionHtml(id) {
+        return id === 'feed'     ? fdRwApplicationHtml('feed')
+             : id === 'mineral'  ? fdRwApplicationHtml('mineral')
+             : id === 'variance' ? fdRwVarianceHtml()
+             :                     fdRwRollHtml();
+    }
+
+    function printFdRwSection(id) {
+        const w = window.open('', '_blank');
+        if (!w) { showAlert('fdRwAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
+        const wide = id === 'variance' || id === 'roll';
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+        <title>${escapeHtml(FD_RW_TITLES[id])} — ${fdRwData.from} to ${fdRwData.to}</title>
+        <style>
+            @page{size:${wide ? 'landscape' : 'portrait'};}
+            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#111;}
+            h1{font-size:17px;margin:0 0 2px 0;}
+            .meta{color:#555;font-size:11.5px;margin-bottom:12px;}
+            table{border-collapse:collapse;width:100%;font-size:12px;margin-bottom:10px;}
+            th,td{border:1px solid #999;padding:4px 7px;text-align:left;}
+            th{background:#eee;font-size:10px;text-transform:uppercase;letter-spacing:.05em;}
+            td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+            .muted{color:#666;font-size:10.5px;}
+            .empty{color:#666;font-style:italic;}
+            @media print{ body{margin:11mm;} tr{break-inside:avoid;} thead{display:table-header-group;} }
+        </style></head><body>
+        <h1>${escapeHtml(FD_RW_TITLES[id])}</h1>
+        <div class="meta">JFR Ranch Co. Ltd. &nbsp;·&nbsp; ${fmtDate(fdRwData.from)} &ndash; ${fmtDate(fdRwData.to)}
+            &nbsp;·&nbsp; printed ${ranchToday()}</div>
+        ${fdRwSectionHtml(id)}
+        </body></html>`);
+        w.document.close();
+        w.focus();
+        setTimeout(() => w.print(), 250);
+    }
+
+    async function shareFdRwPdf(id) {
+        if (!pdfReady()) return;
+        const wide = id === 'variance' || id === 'roll';
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: wide ? 'landscape' : 'portrait' });
+        doc.setFontSize(14);
+        doc.text(FD_RW_TITLES[id].replace(/—/g, '-'), 14, 16);
+        doc.setFontSize(9); doc.setTextColor(110);
+        doc.text(`JFR Ranch Co. Ltd.  ·  ${fdRwData.from} to ${fdRwData.to}`, 14, 22);
+        doc.setTextColor(40);
+        // Walk the rendered tables rather than rebuilding them, so the PDF is
+        // the same document as the screen and the print sheet.
+        const host = document.createElement('div');
+        host.innerHTML = fdRwSectionHtml(id);
+        let y = 27;
+        host.querySelectorAll('table').forEach((tbl, n) => {
+            const cap = tbl.previousElementSibling;
+            if (cap && !cap.matches('table')) {
+                doc.setFontSize(10);
+                doc.text(cap.textContent.trim(), 14, y);
+                y += 5;
+            }
+            const head = [...tbl.querySelectorAll('thead tr')].map(tr => [...tr.children].map(th => ({
+                content: fdRwCellText(th), colSpan: th.colSpan > 1 ? th.colSpan : 1 })));
+            const body = [...tbl.querySelectorAll('tbody tr')].map(tr => [...tr.children].map(fdRwCellText));
+            doc.autoTable({
+                startY: y, head, body,
+                styles: { fontSize: 8, cellPadding: 2 },
+                headStyles: { fillColor: [240, 240, 234], textColor: 30, fontStyle: 'bold' },
+                columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' },
+                                4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' },
+                                7: { halign: 'right' } }
+            });
+            y = doc.lastAutoTable.finalY + 8;
+        });
+        await sharePdfFile(doc, `JFR-${id}-${fdRwData.from}-to-${fdRwData.to}.pdf`, FD_RW_TITLES[id]);
+    }
+
+    // Tab-separated, which is what actually saves the typing: it pastes into
+    // a spreadsheet as columns.
+    async function copyFdRwSection(id) {
+        const host = document.createElement('div');
+        host.innerHTML = fdRwSectionHtml(id);
+        const lines = [];
+        host.querySelectorAll('table').forEach(tbl => {
+            const cap = tbl.previousElementSibling;
+            if (cap && !cap.matches('table')) lines.push(cap.textContent.trim());
+            tbl.querySelectorAll('tr').forEach(tr =>
+                lines.push([...tr.children].map(fdRwCellText).join('\t')));
+            lines.push('');
+        });
+        try {
+            await navigator.clipboard.writeText(lines.join('\n'));
+            showAlert('fdRwAlert', 'Rows copied — paste into the spreadsheet or straight down the Redwing screen.', 'success');
+        } catch (err) {
+            showAlert('fdRwAlert', 'The browser would not let the page write to the clipboard. Use Print instead.');
         }
     }
 
