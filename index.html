@@ -8968,7 +8968,7 @@ window.addEventListener('unhandledrejection', function(e) {
             `<td class="${[1,2,3,5].includes(i) ? 'r' : ''}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
 
         // Landscape: twelve columns will not fit portrait at a readable size.
-        w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(acctFilename('pdf'))}</title>
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(acctFilename('pdf'))}</title>
 <style>
     @page { size: landscape; margin: 10mm; }
     body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; color: #1a1a1a; }
@@ -10999,7 +10999,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         const w = window.open('', '_blank');
         if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
-        w.document.write(`<!DOCTYPE html><html><head><title>Fresh Cattle — Doctoring Eligibility</title>
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Fresh Cattle — Doctoring Eligibility</title>
 <style>
     body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 32px; color: #1a1a1a; }
     h1 { font-size: 20px; margin: 0 0 2px 0; }
@@ -11816,7 +11816,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         const w = window.open('', '_blank');
         if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
-        w.document.write(`<!DOCTYPE html><html><head><title>Daily Report — ${escapeHtml(dfrLongDate(model.day))}</title>
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Daily Report — ${escapeHtml(dfrLongDate(model.day))}</title>
 <style>
     body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 32px; color: #1a1a1a; }
     h1 { font-size: 20px; margin: 0 0 2px 0; }
@@ -13974,7 +13974,7 @@ ${body}
 
         const w = window.open('', '_blank');
         if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
-        w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(receivingSheetTitle())}</title>
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(receivingSheetTitle())}</title>
 <style>
     body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 32px; color: #1a1a1a; }
     h1 { font-size: 20px; margin: 0 0 2px 0; }
@@ -14806,6 +14806,7 @@ ${body}
             const html = `<!DOCTYPE html>
 <html>
 <head>
+<meta charset="utf-8">
 <title>JFR Ranch — Pasture Directory</title>
 <style>
     body { font-family: -apple-system, system-ui, sans-serif; padding: 30px 40px; color: #222; max-width: 850px; margin: 0 auto; }
@@ -20551,6 +20552,21 @@ ${ranchBlocks}
 
     // Pounds shown in the unit the ticket is written in, because "15.8 ton"
     // is what a person recognises and 31,630 lb is what the database holds.
+    // What a count is written in for this item. Bulk commodities are weighed
+    // and get TONS beside pounds; sacks are counted and get BAGS. Both boxes
+    // are live and each fills the other, so whichever way the barn is walked
+    // the books still get pounds.
+    function fdCountUnit(item) {
+        if (!item || !item.lb_per_purchase_unit) return null;
+        const per = Number(item.lb_per_purchase_unit);
+        if (!(per > 0) || item.purchase_unit === 'lb') return null;
+        const label = item.purchase_unit === 'ton' ? 'tons'
+                    : item.purchase_unit === 'bag' ? 'bags'
+                    : item.purchase_unit === 'cwt' ? 'cwt'
+                    : item.purchase_unit;
+        return { label, per, isBags: item.purchase_unit === 'bag' };
+    }
+
     function fdInUnits(lb, item) {
         if (lb == null || !item || !item.lb_per_purchase_unit) return '';
         const u = Number(lb) / Number(item.lb_per_purchase_unit);
@@ -22300,6 +22316,7 @@ ${ranchBlocks}
                 item_name: o.item_name,
                 book_qty_lb: Number(o.qty_lb) || 0,
                 counted: '',
+                counted_units: '',
                 method: (loc && loc.is_bulk) ? 'estimated' : 'counted_bags',
                 bags: '',
                 note: ''
@@ -22309,6 +22326,7 @@ ${ranchBlocks}
         const rowHtml = l => {
             const item = fdItem(l.item_id);
             const consumes = item && item.count_variance_meaning === 'consumption';
+            const u = fdCountUnit(item);
             return `<tr>
                 <td><strong>${escapeHtml(l.item_name)}</strong>
                     ${item && item.purchase_unit !== 'lb'
@@ -22316,22 +22334,27 @@ ${ranchBlocks}
                     <div class="muted" style="font-size:11px;">${consumes
                         ? 'short of book &rarr; <b>consumption</b>, split to lots by head-days'
                         : 'short of book &rarr; <b>shrink</b>, charged to no lot'}</div></td>
-                <td class="num">${fmtNum(l.book_qty_lb)} lb</td>
+                <td class="num">${u ? `<b>${fmtNum(l.book_qty_lb / u.per, 2)}</b> ${u.label}<br>` : ''}<span class="muted">${fmtNum(l.book_qty_lb)} lb</span></td>
                 <td><select data-fd-ct-method="${l.item_id}">
                         <option value="estimated"${l.method === 'estimated' ? ' selected' : ''}>Estimated</option>
                         <option value="counted_bags"${l.method === 'counted_bags' ? ' selected' : ''}>Counted (bags)</option>
                         <option value="measured"${l.method === 'measured' ? ' selected' : ''}>Measured</option>
                     </select></td>
-                <td><input type="number" step="0.01" min="0" data-fd-ct-qty="${l.item_id}" placeholder="lb" style="max-width:120px;"></td>
-                <td><input type="text" data-fd-ct-note="${l.item_id}" placeholder="how it was judged" style="max-width:160px;"></td>
+                <td>${u ? `<input type="number" step="0.01" min="0" data-fd-ct-units="${l.item_id}"
+                        placeholder="${u.label}" style="max-width:92px;">
+                        <div class="muted" style="font-size:11px;">${u.label}</div>`
+                      : '<span class="muted" style="font-size:11px;">&mdash;</span>'}</td>
+                <td><input type="number" step="0.01" min="0" data-fd-ct-qty="${l.item_id}" placeholder="lb" style="max-width:106px;"></td>
+                <td><input type="text" data-fd-ct-note="${l.item_id}" placeholder="how it was judged" style="max-width:140px;"></td>
             </tr>`;
         };
 
         $('fdCtLines').innerHTML = `
             <table>
-                <thead><tr><th>Item</th><th class="num">Book</th><th>Method</th><th>Counted (lb)</th><th>Note</th></tr></thead>
+                <thead><tr><th>Item</th><th class="num">Book</th><th>Method</th>
+                    <th>Counted</th><th>Counted (lb)</th><th>Note</th></tr></thead>
                 <tbody id="fdCtLineBody">${fdCountState.lines.map(rowHtml).join('') ||
-                    '<tr><td colspan="5" class="muted" style="font-size:12px;">Nothing on the books here yet.</td></tr>'}</tbody>
+                    '<tr><td colspan="6" class="muted" style="font-size:12px;">Nothing on the books here yet.</td></tr>'}</tbody>
             </table>
             ${others.length ? `<div style="margin-top:10px;">
                 <label for="fdCtAddItem" style="font-size:13px;">Also count something not on the books here</label>
@@ -22344,7 +22367,31 @@ ${ranchBlocks}
             $('fdCtLines').querySelectorAll('[data-fd-ct-qty]').forEach(inp => {
                 inp.oninput = () => {
                     const l = fdCountState.lines.find(x => x.item_id === inp.dataset.fdCtQty);
-                    if (l) l.counted = inp.value;
+                    if (!l) return;
+                    l.counted = inp.value;
+                    // Fill the unit box from pounds, but never while the person
+                    // is typing in it - that would fight the caret.
+                    const u = fdCountUnit(fdItem(l.item_id));
+                    const box = $('fdCtLines').querySelector(`[data-fd-ct-units="${l.item_id}"]`);
+                    if (u && box && document.activeElement !== box) {
+                        const lb = parseFloat(inp.value);
+                        box.value = (lb > 0) ? String(Math.round(lb / u.per * 10000) / 10000) : '';
+                        l.counted_units = box.value;
+                    }
+                };
+            });
+            $('fdCtLines').querySelectorAll('[data-fd-ct-units]').forEach(inp => {
+                inp.oninput = () => {
+                    const l = fdCountState.lines.find(x => x.item_id === inp.dataset.fdCtUnits);
+                    if (!l) return;
+                    l.counted_units = inp.value;
+                    const u = fdCountUnit(fdItem(l.item_id));
+                    const box = $('fdCtLines').querySelector(`[data-fd-ct-qty="${l.item_id}"]`);
+                    const n = parseFloat(inp.value);
+                    if (u && box) {
+                        box.value = (n >= 0 && !isNaN(n)) ? String(Math.round(n * u.per * 100) / 100) : '';
+                        l.counted = box.value;
+                    }
                 };
             });
             $('fdCtLines').querySelectorAll('[data-fd-ct-method]').forEach(sel => {
@@ -22366,7 +22413,8 @@ ${ranchBlocks}
                 if (fdCountState.lines.some(l => l.item_id === item.id)) { add.value = ''; return; }
                 fdCountState.lines.push({
                     item_id: item.id, item_name: item.name, book_qty_lb: 0,
-                    counted: '', method: item.is_counted ? 'counted_bags' : 'estimated', bags: '', note: ''
+                    counted: '', counted_units: '',
+                    method: item.is_counted ? 'counted_bags' : 'estimated', bags: '', note: ''
                 });
                 const tbody = $('fdCtLineBody');
                 if (tbody) {
@@ -22388,8 +22436,9 @@ ${ranchBlocks}
         const zeroBtn = $('fdCtZeroAllBtn');
         if (zeroBtn) zeroBtn.onclick = () => {
             if (!fdCountState || !fdCountState.lines.length) return;
-            fdCountState.lines.forEach(l => { l.counted = '0'; });
+            fdCountState.lines.forEach(l => { l.counted = '0'; l.counted_units = '0'; });
             $('fdCtLines').querySelectorAll('[data-fd-ct-qty]').forEach(inp => { inp.value = '0'; });
+            $('fdCtLines').querySelectorAll('[data-fd-ct-units]').forEach(inp => { inp.value = '0'; });
             const book = fdCountState.lines.reduce((t, l) => t + (Number(l.book_qty_lb) || 0), 0);
             const note = $('fdCtZeroNote');
             if (note) {
@@ -22433,13 +22482,22 @@ ${ranchBlocks}
             }
             const countId = ins.data[0].id;
 
-            const lineRows = filled.map(l => ({
-                count_id: countId,
-                item_id: l.item_id,
-                counted_qty_lb: parseFloat(l.counted),
-                method: l.method,
-                estimate_note: l.note || null
-            }));
+            const lineRows = filled.map(l => {
+                // bags_counted has been on the table since the start and was
+                // never populated. A sack count is a different KIND of fact
+                // from an estimated weight, and the variance report has to be
+                // able to tell them apart.
+                const u = fdCountUnit(fdItem(l.item_id));
+                const units = parseFloat(l.counted_units);
+                return {
+                    count_id: countId,
+                    item_id: l.item_id,
+                    counted_qty_lb: parseFloat(l.counted),
+                    bags_counted: (u && u.isBags && units >= 0 && !isNaN(units)) ? units : null,
+                    method: l.method,
+                    estimate_note: l.note || null
+                };
+            });
             const linesRes = await supabase.from('feed_count_lines').insert(lineRows).select();
             if (linesRes.error) {
                 // Leave nothing half-built behind.
@@ -23038,19 +23096,27 @@ ${ranchBlocks}
         if (!loc) return;
         const here = fdOnHand.filter(o => o.location_id === locId)
             .sort((a, b) => (a.item_name || '').localeCompare(b.item_name || ''));
+        // Bulk is weighed, so the sheet asks for TONS with pounds beside it.
+        // Sacks are counted, so it asks for BAGS. Both columns are there
+        // either way - whichever one gets written in, the other is arithmetic
+        // and the app does it. Writing a tonnage into a pounds column is the
+        // single easiest way to put a 2,000x error into the books.
         const rows = here.map(o => {
             const item = fdItem(o.item_id);
-            const units = item && item.purchase_unit !== 'lb' ? fdInUnits(o.qty_lb, item) : '';
+            const u = fdCountUnit(item);
             return `<tr>
-                <td>${escapeHtml(o.item_name)}${units ? `<div class="sub">${escapeHtml(units)} on the books</div>` : ''}</td>
-                <td class="r">${fmtNum(o.qty_lb)}</td>
+                <td><b>${escapeHtml(o.item_name)}</b>
+                    ${u ? `<div class="sub">count in <b>${escapeHtml(u.label.toUpperCase())}</b> &middot; 1 ${escapeHtml(u.label.replace(/s$/,''))} = ${fmtNum(u.per)} lb</div>` : ''}</td>
+                <td class="r">${u ? `<b>${fmtNum(o.qty_lb / u.per, 2)}</b> ${escapeHtml(u.label)}<br>` : ''}
+                    <span class="sub">${fmtNum(o.qty_lb)} lb</span></td>
+                <td class="blank"></td>
                 <td class="blank"></td>
                 <td class="blank"></td>
             </tr>`;
         }).join('');
         const w = window.open('', '_blank');
         if (!w) { showAlert('fdCtAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
-        w.document.write(`<!doctype html><html><head><title>Count sheet — ${escapeHtml(loc.name)}</title>
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Count sheet — ${escapeHtml(loc.name)}</title>
         <style>
             body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:28px;color:#111;}
             h1{font-size:19px;margin:0 0 2px 0;}
@@ -23059,7 +23125,9 @@ ${ranchBlocks}
             th,td{border:1px solid #999;padding:7px 8px;text-align:left;vertical-align:top;}
             th{background:#eee;font-size:11px;text-transform:uppercase;letter-spacing:.06em;}
             td.r{text-align:right;font-variant-numeric:tabular-nums;}
-            td.blank{width:110px;background:#fcfcfc;}
+            td.blank{width:92px;background:#fcfcfc;height:34px;}
+            th:first-child,td:first-child{width:31%;}
+            th:nth-child(2),td:nth-child(2){width:19%;}
             .sub{color:#777;font-size:10.5px;}
             .foot{margin-top:16px;color:#666;font-size:11px;line-height:1.5;}
             .sign{margin-top:26px;font-size:12px;}
@@ -23070,14 +23138,19 @@ ${ranchBlocks}
         <div class="meta">${escapeHtml(loc.kind)}${loc.is_bulk ? ' · bulk, estimate it' : ' · counted in whole units'}
             &nbsp;·&nbsp; printed ${ranchToday()}</div>
         <table>
-            <thead><tr><th>Item</th><th style="text-align:right;">Book (lb)</th><th>Counted (lb)</th><th>How judged</th></tr></thead>
-            <tbody>${rows || '<tr><td colspan="4">Nothing on the books in this location.</td></tr>'}
-            <tr><td>&nbsp;</td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td></tr>
-            <tr><td>&nbsp;</td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td></tr>
+            <thead><tr><th>Item</th><th style="text-align:right;">Book</th>
+                <th>Counted &mdash; tons / bags</th><th>or pounds</th><th>How judged</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="5">Nothing on the books in this location.</td></tr>'}
+            <tr><td class="blank"></td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
+            <tr><td class="blank"></td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
+            <tr><td class="blank"></td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
             </tbody>
         </table>
         <div class="foot">
-            Leave a line blank and it is skipped, not treated as zero.<br>
+            <b>Fill in ONE of the two count columns per line</b> &mdash; tons or bags if that is how it was
+            judged, pounds if it was weighed. The app converts the other. Do not fill in both.<br>
+            Leave a line entirely blank and it is skipped, <b>not</b> treated as zero. To say a bay is
+            empty, write 0.<br>
             Blank rows at the bottom are for anything in the bay that is not on the books.
         </div>
         <div class="sign">Counted by <span></span> &nbsp;&nbsp; Date <span style="width:130px;"></span></div>
