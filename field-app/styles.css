@@ -149,6 +149,21 @@ tr:last-child td {
 }
 
 /* --- ACTION BUTTONS FOR TABLES (EDIT/DEL) --- */
+/* Small grey helper text — the move form's lot hint and "not said" in the
+   history table. Was being used before it existed. */
+.muted { color: #8e8e93; font-size: 11px; }
+#moveLotHint { display: block; margin-top: 4px; }
+
+/* Where a staged entry stands with the office. "in books" means approved
+   and no longer editable from the phone. */
+.row-status {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 1px 5px; border-radius: 4px; vertical-align: middle;
+    text-transform: uppercase; letter-spacing: .03em;
+}
+.row-status.approved { background: #e5fceb; color: #1b7a34; }
+.row-status.rejected { background: #ffeaea; color: #d70015; }
+
 .action-buttons { 
     display: flex; 
     gap: 8px; 
