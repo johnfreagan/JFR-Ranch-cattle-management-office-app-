@@ -1801,6 +1801,9 @@
                     <h2>Physical counts</h2>
                     <div style="display:flex; gap:8px; align-items:center;">
                         <select id="fdCtPrintLoc" style="max-width:180px;"><option value="">— Print sheet for —</option></select>
+                        <label style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;"
+                               title="Lists every item that belongs in this location, including ones the books show nothing of. Use it for the first count of a bay; after that the sheet lists what is actually on the books.">
+                            <input type="checkbox" id="fdCtPrintAll"> first count</label>
                         <button id="fdCtPrintBtn">🖨 Count sheet</button>
                         <button class="primary" id="fdNewCountBtn">+ Count a bay</button>
                     </div>
@@ -23469,17 +23472,36 @@ ${ranchBlocks}
     // What you carry to the bay: book quantity printed, a blank to write in.
     // Book is printed on purpose — arguing with a number in front of you is
     // how an estimate gets anchored, and a bay count is an estimate.
-    function printFdCountSheet(locId) {
+    // Categories print in this order, and MINERAL IS ONE BLOCK. A person
+    // walking a pallet counts all the mineral, then all the sacked feed -
+    // not alphabetically, which interleaves them.
+    const FD_SHEET_GROUPS = [
+        ['bulk_commodity', 'Bulk commodity'],
+        ['bagged_feed',    'Bagged feed'],
+        ['additive',       'Additive'],
+        ['mineral',        'Mineral']
+    ];
+
+    function printFdCountSheet(locId, everyItem) {
         const loc = fdLoc(locId);
         if (!loc) return;
         const here = fdOnHand.filter(o => o.location_id === locId)
-            .sort((a, b) => (a.item_name || '').localeCompare(b.item_name || ''));
+            .map(o => ({ item_id: o.item_id, item_name: o.item_name, qty_lb: Number(o.qty_lb) || 0 }));
+        // The FIRST count has to list items the books have never carried
+        // here - a bay that has always read zero is exactly the one nobody
+        // has ever verified. Every count after this one lists what is on
+        // the books, because by then the books are the thing being checked.
+        if (everyItem) {
+            const seen = new Set(here.map(o => o.item_id));
+            fdItems.filter(i => i.is_active && !seen.has(i.id) && i.default_location_id === locId)
+                   .forEach(i => here.push({ item_id: i.id, item_name: i.name, qty_lb: 0 }));
+        }
         // Bulk is weighed, so the sheet asks for TONS with pounds beside it.
         // Sacks are counted, so it asks for BAGS. Both columns are there
         // either way - whichever one gets written in, the other is arithmetic
         // and the app does it. Writing a tonnage into a pounds column is the
         // single easiest way to put a 2,000x error into the books.
-        const rows = here.map(o => {
+        const line = (o) => {
             const item = fdItem(o.item_id);
             const u = fdCountUnit(item);
             return `<tr>
@@ -23488,7 +23510,20 @@ ${ranchBlocks}
                 <td class="blank"></td>
                 <td class="blank"></td>
             </tr>`;
-        }).join('');
+        };
+        // A group heading only earns its line when there is more than one
+        // group on the sheet. A pallet holding nothing but mineral does not
+        // need to be told so.
+        const byGroup = FD_SHEET_GROUPS.map(([key, label]) => [label,
+            here.filter(o => (fdItem(o.item_id) || {}).item_type === key)
+                .sort((a, b) => (a.item_name || '').localeCompare(b.item_name || ''))]);
+        const other = here.filter(o => !FD_SHEET_GROUPS.some(g => g[0] === (fdItem(o.item_id) || {}).item_type))
+                          .sort((a, b) => (a.item_name || '').localeCompare(b.item_name || ''));
+        if (other.length) byGroup.push(['Other', other]);
+        const used = byGroup.filter(g => g[1].length);
+        const rows = used.map(([label, list]) =>
+            (used.length > 1 ? `<tr><td class="grp" colspan="4">${escapeHtml(label)}</td></tr>` : '')
+            + list.map(line).join('')).join('');
         const w = window.open('', '_blank');
         if (!w) { showAlert('fdCtAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
         w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Count sheet — ${escapeHtml(loc.name)}</title>
@@ -23512,6 +23547,8 @@ ${ranchBlocks}
             .unit{color:#666;font-size:10.5px;font-weight:400;margin-left:5px;
                   text-transform:uppercase;letter-spacing:.04em;}
             .sub{color:#777;font-size:10.5px;}
+            td.grp{background:#f2f2f2;font-size:10px;font-weight:700;padding:3px 8px;
+                   text-transform:uppercase;letter-spacing:.07em;color:#444;}
             .foot{margin-top:12px;color:#555;font-size:10.5px;line-height:1.45;}
             .sign{margin-top:18px;font-size:12px;}
             .sign span{display:inline-block;border-bottom:1px solid #666;width:200px;margin-left:6px;}
@@ -23523,7 +23560,7 @@ ${ranchBlocks}
         </style></head><body>
         <h1>Feed count — ${escapeHtml(loc.name)}</h1>
         <div class="meta">${escapeHtml(loc.kind)}${loc.is_bulk ? ' · bulk, estimate it' : ' · counted in whole units'}
-            &nbsp;·&nbsp; printed ${ranchToday()}</div>
+            &nbsp;·&nbsp; printed ${ranchToday()}${everyItem ? ' &nbsp;·&nbsp; <b>first count — every item listed, on the books or not</b>' : ''}</div>
         <table>
             <thead><tr><th>Item</th><th style="text-align:right;">Book</th>
                 <th>Counted</th><th>How judged</th></tr></thead>
@@ -23573,7 +23610,7 @@ ${ranchBlocks}
     $('fdCtPrintBtn').addEventListener('click', () => {
         const locId = $('fdCtPrintLoc').value;
         if (!locId) { showAlert('fdCtAlert', 'Pick which location the sheet is for.'); return; }
-        printFdCountSheet(locId);
+        printFdCountSheet(locId, $('fdCtPrintAll').checked);
     });
 
     $('fdCostRefreshBtn').addEventListener('click', loadFeedCost);
