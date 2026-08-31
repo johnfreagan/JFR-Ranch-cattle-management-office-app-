@@ -2519,6 +2519,27 @@ window.__bootTallyBook = function () {
      empty page: opening the app minted an empty "today", the pull saw a
      locally dirty day and refused to overwrite it, and the phone's real
      entries were declined every single sync. */
+  /* "Has anything actually been written here?" - by content, not by shape.
+     months is an object of six month keys even when the future log is
+     untouched, so counting keys would call it populated and let a blank
+     one overwrite a real one. */
+  function bookEmpty(key, v) {
+    if (v === null || v === undefined) return true;
+    if (Array.isArray(v)) return v.length === 0;
+    if (typeof v === "object") {
+      var ks = Object.keys(v);
+      if (!ks.length) return true;
+      if (key === "months") {
+        return ks.every(function (k) {
+          var m = v[k];
+          return !m || !m.entries || !m.entries.length;
+        });
+      }
+      return false;
+    }
+    return false;
+  }
+
   function emptyDay(doc) {
     if (!doc) return true;
     if (doc.entries && doc.entries.length) return false;
@@ -2619,6 +2640,18 @@ window.__bootTallyBook = function () {
         skipped++;
         return;
       }
+      /* A day this device has never synced cannot outrank the server: it
+         has no history to be "ahead" of. This is the fresh-device case -
+         everything looks locally dirty against an empty snapshot, so
+         without this the pull refuses the real book and the push then
+         writes defaults over it. */
+      var neverSynced = !(row.day in snapshot.days);
+      if (neverSynced && !emptyDay(row.doc)) {
+        state.days[row.day] = row.doc;
+        snapshot.days[row.day] = clone(row.doc);
+        applied++;
+        return;
+      }
       /* Local wins only if there is actually something local to lose. */
       if (mine.indexOf(row.day) >= 0 && !emptyDay(state.days[row.day])) { skipped++; return; }
       /* Our own push comes back on the next pull. Applying it would repaint
@@ -2637,11 +2670,27 @@ window.__bootTallyBook = function () {
     if (b.error) throw b.error;
     (b.data || []).forEach(function (row) {
       mark(row.updated_at);
-      if (mineKeys.indexOf(row.key) >= 0) { skipped++; return; }
       if (ser(state[row.key]) === ser(row.doc)) {
         snapshot.book[row.key] = clone(row.doc);
         return;
       }
+      /* Never let a blank value overwrite a populated one - this is what
+         emptied John's collections on 2026-08-31: a device with no
+         snapshot pushed its defaults over two real lists. Advancing the
+         snapshot marks ours dirty so the next push repairs the server. */
+      if (bookEmpty(row.key, row.doc) && !bookEmpty(row.key, state[row.key])) {
+        snapshot.book[row.key] = clone(row.doc);
+        skipped++;
+        return;
+      }
+      var neverSyncedKey = !(row.key in snapshot.book);
+      if (neverSyncedKey || bookEmpty(row.key, state[row.key])) {
+        if (row.doc !== null) state[row.key] = row.doc;
+        snapshot.book[row.key] = clone(row.doc);
+        applied++;
+        return;
+      }
+      if (mineKeys.indexOf(row.key) >= 0) { skipped++; return; }
       if (row.doc !== null) state[row.key] = row.doc;
       snapshot.book[row.key] = clone(row.doc);
       applied++;

@@ -18,14 +18,14 @@
 // in the runtime cache.
 // =========================================================
 
-const CACHE_VERSION = 'v4';   // v4: an empty remote day never overwrites local content
+const CACHE_VERSION = 'v5';   // v5: blank never overwrites populated, for book keys too
 const CACHE_NAME = `tally-book-${CACHE_VERSION}`;
 
 const APP_SHELL = [
     './',
     './index.html',
-    './app.js?v=v4',
-    './styles.css?v=v4',
+    './app.js?v=v5',
+    './styles.css?v=v5',
     './supabase.min.js?v=2.46.1',
     './manifest.json'
 ];
