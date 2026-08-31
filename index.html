@@ -1691,6 +1691,12 @@
                         <label style="display:inline-block; font-size:13px;">
                             <input type="checkbox" id="fdInvByLocation" style="width:auto; vertical-align:middle;" checked> By bay
                         </label>
+                        <label style="display:inline-block; font-size:13px;"
+                               title="Adds blank Redwing columns and the quantity/price split, so the printed sheet doubles as the tie-out worksheet.">
+                            <input type="checkbox" id="fdInvTieOut" style="width:auto; vertical-align:middle;"> Tie-out
+                        </label>
+                        <button id="fdInvPrintBtn">🖨 Print</button>
+                        <button id="fdInvPdfBtn">📄 PDF</button>
                         <button id="fdInvRefreshBtn">Refresh</button>
                     </div>
                 </div>
@@ -21132,6 +21138,8 @@ ${ranchBlocks}
     let fdOpenLots = [];     // open, non-test lots
     let fdPastures = [];
     let fdOnHand = [];       // feed_on_hand rows
+    let fdInvRows = [];      // exactly what the on-hand screen last rendered
+    let fdInvByLoc = true;
     let fdRefsLoaded = false;
     let fdUsageSheet = null; // { rows: [...] }
     let fdCountStatus = [];  // feed_location_count_status rows
@@ -21336,6 +21344,11 @@ ${ranchBlocks}
         }
         const rows = data || [];
         if (byLocation) fdOnHand = rows;
+        // The report prints what the screen is showing, from the same rows.
+        // Re-querying for the report is how a report starts disagreeing with
+        // the page it is printed from.
+        fdInvRows  = rows;
+        fdInvByLoc = byLocation;
 
         if (!rows.length) {
             $('fdInvSummary').innerHTML = '';
@@ -23214,6 +23227,8 @@ ${ranchBlocks}
     });
 
     $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);
+    $('fdInvPrintBtn').addEventListener('click', printFdOnHand);
+    $('fdInvPdfBtn').addEventListener('click', shareFdOnHandPdf);
     $('fdInvByLocation').addEventListener('change', loadFeedInventory);
 
     $('fdNewLocBtn').addEventListener('click', () => openFdLocModal(null));
@@ -23768,6 +23783,195 @@ ${ranchBlocks}
                     Fix the period on the feed-out row, or reverse and re-enter it. Nothing is lost — the dollars
                     are still on the ledger, they just have no day to sit on.</p>`;
         }
+    }
+
+    // ---- FEED ON HAND: PRINT AND PDF -------------------------------------
+    // One shaper feeds both outputs. Two copies of this arithmetic would
+    // drift, and the whole point of the report is that it agrees with the
+    // screen it was printed from.
+    function fdOnHandReport() {
+        const groups = [];
+        const byLoc = fdInvByLoc;
+        const key = r => byLoc ? (r.location_name || '—') : 'All bays';
+        const sorted = fdInvRows.slice().sort((a, b) =>
+            (byLoc ? (a.location_name || '').localeCompare(b.location_name || '') : 0) ||
+            (a.item_name || '').localeCompare(b.item_name || ''));
+
+        let g = null;
+        sorted.forEach(r => {
+            const k = key(r);
+            if (!g || g.name !== k) { g = { name: k, lines: [], lb: 0, usd: 0, unpriced: 0 }; groups.push(g); }
+            const item = fdItem(r.item_id);
+            const lb   = Number(r.qty_lb) || 0;
+            const usd  = Number(r.value_usd) || 0;
+            const perLb = r.avg_cost_per_lb != null ? Number(r.avg_cost_per_lb) : null;
+            g.lines.push({
+                name: r.item_name || '—',
+                units: fdInUnits(lb, item),
+                lb, usd, perLb,
+                rate: perLb != null ? fdRateInUnits(perLb, item) : '',
+                unpriced: Number(r.pending_cost_lb) || 0
+            });
+            g.lb += lb; g.usd += usd; g.unpriced += Number(r.pending_cost_lb) || 0;
+        });
+        const total = groups.reduce((t, x) => ({
+            lb: t.lb + x.lb, usd: t.usd + x.usd, unpriced: t.unpriced + x.unpriced
+        }), { lb: 0, usd: 0, unpriced: 0 });
+        return { groups, total, tie: $('fdInvTieOut').checked, byLoc };
+    }
+
+    // Why the tie-out splits the difference two ways: a gap against Redwing
+    // is never one thing. Pounds we do not agree on and a price we do not
+    // agree on need opposite fixes - one is a delivery or a feed-out nobody
+    // recorded, the other is a costing method. Netted into a single dollar
+    // variance they hide each other.
+    const FD_TIE_NOTE =
+        'Difference splits two ways. <b>Quantity</b> = (our lb &minus; Redwing lb) &times; our $/ton &divide; 2000. ' +
+        '<b>Price</b> = Redwing lb &times; (our $/ton &minus; Redwing $/ton) &divide; 2000. ' +
+        'The two add to the dollar difference. A quantity gap is a load or a feed-out one side never saw; ' +
+        'a price gap is a costing method, and neither fix works on the other.';
+
+    // Refs carry purchase_unit and lb_per_purchase_unit; without them every
+    // tons/bags line silently prints blank rather than failing loudly, so the
+    // report waits for them rather than trusting the tab to have loaded first.
+    async function printFdOnHand() {
+        await fdLoadRefs();
+        const rep = fdOnHandReport();
+        if (!rep.groups.length) { showAlert('fdInvAlert', 'Nothing on hand to report.'); return; }
+        const cols = 5 + (rep.tie ? 3 : 0);
+        const blank = rep.tie ? '<td class="blank"></td><td class="blank"></td><td class="blank"></td>' : '';
+
+        const body = rep.groups.map(g => `
+            ${rep.byLoc ? `<tr><td class="grp" colspan="${cols}">${escapeHtml(g.name)}</td></tr>` : ''}
+            ${g.lines.map(l => `<tr>
+                <td><b>${escapeHtml(l.name)}</b></td>
+                <td class="r">${fmtNum(l.lb)} lb${l.units ? `<div class="sub">${escapeHtml(l.units)}</div>` : ''}</td>
+                <td class="r">${l.perLb != null ? '$' + l.perLb.toFixed(4) + '/lb' : '<span class="warn">unpriced</span>'}
+                    ${l.rate ? `<div class="sub">${escapeHtml(l.rate)}</div>` : ''}</td>
+                <td class="r">${fmtMoney(l.usd)}</td>
+                <td class="r">${l.unpriced > 0 ? `<span class="warn">${fmtNum(l.unpriced)} lb</span>` : '—'}</td>
+                ${blank}
+            </tr>`).join('')}
+            ${rep.byLoc ? `<tr class="sub-total"><td>${escapeHtml(g.name)} subtotal</td>
+                <td class="r">${fmtNum(g.lb)} lb</td><td></td>
+                <td class="r">${fmtMoney(g.usd)}</td>
+                <td class="r">${g.unpriced > 0 ? fmtNum(g.unpriced) + ' lb' : '—'}</td>${blank}</tr>` : ''}
+        `).join('');
+
+        const w = window.open('', '_blank');
+        if (!w) { showAlert('fdInvAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Feed on hand — ${ranchToday()}</title>
+        <style>
+            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#111;}
+            h1{font-size:18px;margin:0 0 2px 0;}
+            .meta{color:#555;font-size:11.5px;margin-bottom:12px;}
+            table{border-collapse:collapse;width:100%;font-size:12.5px;}
+            th,td{border:1px solid #999;padding:4px 7px;text-align:left;vertical-align:top;}
+            th{background:#eee;font-size:10px;text-transform:uppercase;letter-spacing:.06em;}
+            td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;}
+            td.grp{background:#f2f2f2;font-size:10px;font-weight:700;padding:3px 7px;
+                   text-transform:uppercase;letter-spacing:.07em;color:#444;}
+            tr.sub-total td{background:#fafafa;font-weight:700;}
+            tr.grand td{border-top:2px solid #333;font-weight:700;font-size:13px;background:#f2f2f2;}
+            td.blank{background:#fcfcfc;}
+            .sub{color:#777;font-size:10px;}
+            .warn{color:#8a6d2a;}
+            .foot{margin-top:12px;color:#555;font-size:10.5px;line-height:1.45;}
+            @media print{ body{margin:11mm;} tr{break-inside:avoid;} thead{display:table-header-group;} }
+        </style></head><body>
+        <h1>Feed on hand${rep.tie ? ' — Redwing tie-out' : ''}</h1>
+        <div class="meta">JFR Ranch Co. Ltd. &nbsp;·&nbsp; as of ${ranchToday()}
+            &nbsp;·&nbsp; ${rep.byLoc ? 'by bay' : 'all bays combined'}
+            &nbsp;·&nbsp; FIFO layers at delivered cost</div>
+        <table>
+            <thead><tr>
+                <th>Item</th><th class="r">On hand</th><th class="r">Avg cost</th>
+                <th class="r">Value</th><th class="r">Unpriced</th>
+                ${rep.tie ? '<th class="r">Redwing lb</th><th class="r">Redwing $</th><th class="r">Difference</th>' : ''}
+            </tr></thead>
+            <tbody>${body}
+            <tr class="grand"><td>Total</td>
+                <td class="r">${fmtNum(rep.total.lb)} lb</td><td></td>
+                <td class="r">${fmtMoney(rep.total.usd)}</td>
+                <td class="r">${rep.total.unpriced > 0 ? fmtNum(rep.total.unpriced) + ' lb' : '—'}</td>
+                ${blank}</tr>
+            </tbody>
+        </table>
+        <div class="foot">
+            Value is what each load actually cost delivered, frozen on the layer. Pounds on an unpriced
+            load are counted but not valued &mdash; they are in <b>On hand</b> and not in <b>Value</b>.
+            ${rep.tie ? '<br>' + FD_TIE_NOTE : ''}
+        </div>
+        </body></html>`);
+        w.document.close();
+        w.focus();
+        setTimeout(() => w.print(), 250);
+    }
+
+    async function shareFdOnHandPdf() {
+        if (!pdfReady()) return;
+        await fdLoadRefs();
+        const rep = fdOnHandReport();
+        if (!rep.groups.length) { showAlert('fdInvAlert', 'Nothing on hand to report.'); return; }
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: rep.tie ? 'landscape' : 'portrait' });
+        doc.setFontSize(15);
+        doc.text('Feed on hand' + (rep.tie ? ' — Redwing tie-out' : ''), 14, 16);
+        doc.setFontSize(9);
+        doc.setTextColor(110);
+        doc.text(`JFR Ranch Co. Ltd.  ·  as of ${ranchToday()}  ·  ${rep.byLoc ? 'by bay' : 'all bays combined'}`, 14, 22);
+        doc.setTextColor(40);
+
+        const pad = rep.tie ? ['', '', ''] : [];
+        const head = [['Item', 'On hand', 'Avg cost', 'Value', 'Unpriced']
+                        .concat(rep.tie ? ['Redwing lb', 'Redwing $', 'Difference'] : [])];
+        const body = [];
+        rep.groups.forEach(g => {
+            if (rep.byLoc) body.push([{ content: g.name, colSpan: head[0].length,
+                                        styles: { fillColor: [242,242,242], fontStyle: 'bold', fontSize: 8 } }]);
+            g.lines.forEach(l => body.push([
+                l.name,
+                fmtNum(l.lb) + ' lb' + (l.units ? '\n' + l.units : ''),
+                (l.perLb != null ? '$' + l.perLb.toFixed(4) + '/lb' : 'unpriced')
+                    + (l.rate ? '\n' + l.rate : ''),
+                fmtMoney(l.usd),
+                l.unpriced > 0 ? fmtNum(l.unpriced) + ' lb' : '—'
+            ].concat(pad)));
+            if (rep.byLoc) body.push([
+                { content: g.name + ' subtotal', styles: { fontStyle: 'bold' } },
+                { content: fmtNum(g.lb) + ' lb', styles: { fontStyle: 'bold' } },
+                '',
+                { content: fmtMoney(g.usd), styles: { fontStyle: 'bold' } },
+                { content: g.unpriced > 0 ? fmtNum(g.unpriced) + ' lb' : '—', styles: { fontStyle: 'bold' } }
+            ].concat(pad));
+        });
+        body.push([
+            { content: 'Total', styles: { fontStyle: 'bold', fillColor: [242,242,242] } },
+            { content: fmtNum(rep.total.lb) + ' lb', styles: { fontStyle: 'bold', fillColor: [242,242,242] } },
+            { content: '', styles: { fillColor: [242,242,242] } },
+            { content: fmtMoney(rep.total.usd), styles: { fontStyle: 'bold', fillColor: [242,242,242] } },
+            { content: rep.total.unpriced > 0 ? fmtNum(rep.total.unpriced) + ' lb' : '—',
+              styles: { fontStyle: 'bold', fillColor: [242,242,242] } }
+        ].concat(rep.tie ? [{ content: '', styles: { fillColor: [242,242,242] } },
+                            { content: '', styles: { fillColor: [242,242,242] } },
+                            { content: '', styles: { fillColor: [242,242,242] } }] : []));
+
+        doc.autoTable({
+            startY: 27, head, body,
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [240,240,234], textColor: 30, fontStyle: 'bold' },
+            columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' },
+                            3: { halign: 'right' }, 4: { halign: 'right' },
+                            5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } }
+        });
+        if (rep.tie) {
+            doc.setFontSize(7.5);
+            doc.setTextColor(110);
+            doc.text(doc.splitTextToSize(FD_TIE_NOTE.replace(/<[^>]+>/g, '').replace(/&minus;/g, '-')
+                        .replace(/&times;/g, 'x').replace(/&divide;/g, '/'), 265),
+                     14, doc.lastAutoTable.finalY + 6);
+        }
+        await sharePdfFile(doc, `JFR-feed-on-hand-${ranchToday()}.pdf`, 'Feed on hand');
     }
 
     // ---- PRINTABLE COUNT SHEET -------------------------------------------
