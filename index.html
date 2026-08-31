@@ -23483,11 +23483,8 @@ ${ranchBlocks}
             const item = fdItem(o.item_id);
             const u = fdCountUnit(item);
             return `<tr>
-                <td><b>${escapeHtml(o.item_name)}</b>
-                    ${u ? `<div class="sub">count in <b>${escapeHtml(u.label.toUpperCase())}</b> &middot; 1 ${escapeHtml(u.label.replace(/s$/,''))} = ${fmtNum(u.per)} lb</div>` : ''}</td>
-                <td class="r">${u ? `<b>${fmtNum(o.qty_lb / u.per, 2)}</b> ${escapeHtml(u.label)}<br>` : ''}
-                    <span class="sub">${fmtNum(o.qty_lb)} lb</span></td>
-                <td class="blank"></td>
+                <td><b>${escapeHtml(o.item_name)}</b>${u ? `<span class="unit">${escapeHtml(u.label)}</span>` : ''}</td>
+                <td class="r">${u ? `<b>${fmtNum(o.qty_lb / u.per, 2)}</b> ${escapeHtml(u.label)}<br>` : ''}<span class="lb">${fmtNum(o.qty_lb)} lb</span></td>
                 <td class="blank"></td>
                 <td class="blank"></td>
             </tr>`;
@@ -23496,39 +23493,50 @@ ${ranchBlocks}
         if (!w) { showAlert('fdCtAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
         w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Count sheet — ${escapeHtml(loc.name)}</title>
         <style>
-            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:28px;color:#111;}
-            h1{font-size:19px;margin:0 0 2px 0;}
-            .meta{color:#666;font-size:12px;margin-bottom:16px;}
+            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#111;}
+            h1{font-size:18px;margin:0 0 2px 0;}
+            .meta{color:#555;font-size:11.5px;margin-bottom:12px;}
             table{border-collapse:collapse;width:100%;font-size:13px;}
-            th,td{border:1px solid #999;padding:7px 8px;text-align:left;vertical-align:top;}
-            th{background:#eee;font-size:11px;text-transform:uppercase;letter-spacing:.06em;}
+            th,td{border:1px solid #999;padding:5px 8px;text-align:left;vertical-align:top;}
+            th{background:#eee;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;}
             td.r{text-align:right;font-variant-numeric:tabular-nums;}
-            td.blank{width:92px;background:#fcfcfc;height:34px;}
-            th:first-child,td:first-child{width:31%;}
-            th:nth-child(2),td:nth-child(2){width:19%;}
+            /* The count box is wide because it is written in by hand in a
+               barn, and the row is tall for the same reason. */
+            td.blank{background:#fcfcfc;height:30px;}
+            th:first-child,td:first-child{width:30%;}
+            th:nth-child(2),td:nth-child(2){width:20%;}
+            th:nth-child(3),td:nth-child(3){width:26%;}
+            /* Pounds are the figure that has to be readable at arm's length
+               against a book value someone is deciding whether to believe. */
+            .lb{color:#222;font-size:12px;font-variant-numeric:tabular-nums;}
+            .unit{color:#666;font-size:10.5px;font-weight:400;margin-left:5px;
+                  text-transform:uppercase;letter-spacing:.04em;}
             .sub{color:#777;font-size:10.5px;}
-            .foot{margin-top:16px;color:#666;font-size:11px;line-height:1.5;}
-            .sign{margin-top:26px;font-size:12px;}
-            .sign span{display:inline-block;border-bottom:1px solid #666;width:210px;margin-left:6px;}
-            @media print{ body{margin:12mm;} }
+            .foot{margin-top:12px;color:#555;font-size:10.5px;line-height:1.45;}
+            .sign{margin-top:18px;font-size:12px;}
+            .sign span{display:inline-block;border-bottom:1px solid #666;width:200px;margin-left:6px;}
+            @media print{
+                body{margin:11mm;}
+                tr{break-inside:avoid;}
+                thead{display:table-header-group;}
+            }
         </style></head><body>
         <h1>Feed count — ${escapeHtml(loc.name)}</h1>
         <div class="meta">${escapeHtml(loc.kind)}${loc.is_bulk ? ' · bulk, estimate it' : ' · counted in whole units'}
             &nbsp;·&nbsp; printed ${ranchToday()}</div>
         <table>
             <thead><tr><th>Item</th><th style="text-align:right;">Book</th>
-                <th>Counted &mdash; tons / bags</th><th>or pounds</th><th>How judged</th></tr></thead>
-            <tbody>${rows || '<tr><td colspan="5">Nothing on the books in this location.</td></tr>'}
-            <tr><td class="blank"></td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
-            <tr><td class="blank"></td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
-            <tr><td class="blank"></td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
+                <th>Counted</th><th>How judged</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4">Nothing on the books in this location.</td></tr>'}
+            <tr><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
+            <tr><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
+            <tr><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
             </tbody>
         </table>
         <div class="foot">
-            <b>Fill in ONE of the two count columns per line</b> &mdash; tons or bags if that is how it was
-            judged, pounds if it was weighed. The app converts the other. Do not fill in both.<br>
-            Leave a line entirely blank and it is skipped, <b>not</b> treated as zero. To say a bay is
-            empty, write 0.<br>
+            Write the count in whatever unit it was judged in &mdash; <b>tons, bags or pounds</b> &mdash;
+            and say which. The app converts.<br>
+            A line left entirely blank is <b>skipped, not treated as zero</b>. To say a bay is empty, write 0.
             Blank rows at the bottom are for anything in the bay that is not on the books.
         </div>
         <div class="sign">Counted by <span></span> &nbsp;&nbsp; Date <span style="width:130px;"></span></div>
