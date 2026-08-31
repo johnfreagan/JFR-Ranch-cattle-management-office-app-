@@ -623,6 +623,22 @@
             border: 0; background: none; color: var(--danger, #d70015);
             font-size: 13px; font-weight: 700; padding: 2px 6px; cursor: pointer;
         }
+        .appr-edit {
+            border: 0; background: none; color: var(--accent, #007aff);
+            font-size: 13px; font-weight: 700; padding: 2px 6px; cursor: pointer;
+        }
+        .appr-edit:disabled { opacity: .35; cursor: default; }
+        .appr-flag.edited { background: #e8f0fe; color: #1a4fa0; }
+        /* The cowboy's original, kept visible beside the correction so the
+           office can see what was actually recorded in the pasture. */
+        .appr-orig { font-size: 11px; color: var(--text-muted, #6b6b70); margin-top: 2px; }
+        .aedit-grid {
+            display: grid; grid-template-columns: 120px 1fr; gap: 8px 10px; align-items: center;
+        }
+        .aedit-grid label { font-size: 12px; color: var(--text-muted, #6b6b70); }
+        .aedit-grid input, .aedit-grid select { width: 100%; }
+        .aedit-med { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+        .aedit-was { font-size: 11px; color: var(--text-muted, #6b6b70); margin: 8px 0 0; }
         .appr-section { margin-bottom: 20px; }
         .appr-section h3 {
             font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
@@ -2084,6 +2100,30 @@
             </div>
         </div>
     </main>
+</div>
+
+<!-- Correct a staged field entry before it is posted to the books.
+     Writes ONLY the resolved columns; `raw` stays exactly as the cowboy
+     recorded it, so the original account of what happened in the pasture
+     survives alongside the office's correction. -->
+<div class="modal-backdrop" id="apprEditModal">
+    <div class="modal" style="max-width: 560px;">
+        <h2 id="apprEditTitle">Correct field entry</h2>
+        <p class="muted" style="margin-bottom: 12px; font-size: 12px;">
+            Nothing here is in the books yet &mdash; this only changes what will be
+            posted when the entry is approved. The cowboy&rsquo;s original entry is kept.
+        </p>
+        <div id="apprEditAlert"></div>
+        <input type="hidden" id="apprEditId">
+
+        <div class="aedit-grid" id="apprEditFields"></div>
+        <p class="aedit-was" id="apprEditWas"></p>
+
+        <div class="modal-actions">
+            <button type="button" onclick="hideModal('apprEditModal')">Cancel</button>
+            <button type="button" class="primary" id="apprEditSaveBtn">Save correction</button>
+        </div>
+    </div>
 </div>
 
 <!-- Shipment money-only edit -->
@@ -6598,14 +6638,68 @@ window.addEventListener('unhandledrejection', function(e) {
             meds: byName(medRes.data, 'name'),
             medsById: (medRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
             lotsById: (lotsRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            actionsById: (actRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            pasturesById: (pastRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            ranchesById: (ranchRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            medsList: (medRes.data || []).filter(m => m.is_active)
+                        .sort((a, b) => a.name.localeCompare(b.name)),
+            actionsList: (actRes.data || []).filter(a => a.is_active !== false)
+                        .sort((a, b) => a.name.localeCompare(b.name)),
+            lotsList: (lotsRes.data || []).filter(l => !l.is_test)
+                        .sort((a, b) => a.lot_number.localeCompare(b.lot_number)),
+            ranchesList: (ranchRes.data || []).filter(r => r.is_active !== false)
+                        .sort((a, b) => a.name.localeCompare(b.name)),
             assignments: assignRes.data || []
         };
     }
 
     // Turn one staged row into everything the screen needs to show it.
     // Never invents a value: an unmatched name becomes an issue, not a guess.
+    // The office's corrections live in the RESOLVED COLUMNS, never in `raw`.
+    // `raw` is what the cowboy actually recorded and stays byte-for-byte his
+    // - it is the only account of what happened in the pasture. The columns
+    // (lot_id, pasture_id, to_pasture_id, field_action_id, tag_number,
+    // head_count, resolved_meds) exist precisely to carry the reviewed
+    // version, so an edit overrides rather than overwrites, and the two
+    // readings stay side by side for anyone auditing later.
+    function approvalOverride(entry, lk) {
+        const o = { stale: [] };
+        const raw = entry.raw || {};
+        // A dangling id means the row it pointed at is gone or closed since
+        // the edit. Falling back to inference would silently undo a decision
+        // the office already made, so say it instead.
+        const pick = (id, map, what) => {
+            if (!id) return undefined;
+            const hit = map[id];
+            if (!hit) { o.stale.push(what); return undefined; }
+            return hit;
+        };
+        o.lot       = pick(entry.lot_id, lk.lotsById, 'lot');
+        o.action    = pick(entry.field_action_id, lk.actionsById, 'action');
+        o.pasture   = pick(entry.pasture_id, lk.pasturesById, 'pasture');
+        o.toPasture = pick(entry.to_pasture_id, lk.pasturesById, 'to-pasture');
+        if (entry.head_count != null) o.head = entry.head_count;
+        if (entry.tag_number != null && String(entry.tag_number) !== '') o.tag = String(entry.tag_number);
+        if (Array.isArray(entry.resolved_meds)) o.meds = entry.resolved_meds;
+
+        // "Edited" must mean THE OFFICE changed something, not merely that a
+        // column is populated: the field app itself writes tag_number,
+        // head_count and event_datetime on every submission, so treating any
+        // value as an edit would badge every untouched row. The FK columns and
+        // resolved_meds are only ever written here, so their presence is the
+        // edit; tag and head have to be compared against what the cowboy sent.
+        const rawHead = parseInt(raw.headCount, 10);
+        o.edited = !!(entry.lot_id || entry.field_action_id || entry.pasture_id ||
+                      entry.to_pasture_id || Array.isArray(entry.resolved_meds))
+            || (o.head != null && !isNaN(rawHead) && o.head !== rawHead)
+            || (o.tag != null && String(raw.tagNumber || '') !== o.tag);
+        return o;
+    }
+
     function resolveApprovalEntry(entry, lk) {
         const raw = entry.raw || {};
+        const ov = approvalOverride(entry, lk);
+        const edited = ov.edited;
         // Both RPCs take a date, and deaths and moves have to be replayed in
         // event order. An entry whose timestamp never parsed cannot do either,
         // so it is blocked rather than posted with an empty date.
@@ -6618,6 +6712,9 @@ window.addEventListener('unhandledrejection', function(e) {
         const issues = [], warnings = [];
         const norm = v => String(v == null ? '' : v).trim().toLowerCase();
         const isMove = entry.entry_type === 'move';
+        // Surfaced before anything else: a correction that no longer resolves
+        // is a decision quietly lost, and the reviewer has to know.
+        ov.stale.forEach(w => issues.push(`the ${w} this entry was corrected to no longer exists or is closed — re-edit it`));
 
         const findPasture = (ranchTxt, pastTxt) => {
             const ranch = lk.ranches[norm(ranchTxt)] || null;
@@ -6634,77 +6731,106 @@ window.addEventListener('unhandledrejection', function(e) {
         // app never asks for one and lot_movements.lot_id is NOT NULL, so a
         // reviewer has to pick it. That is expected, not a data fault.
         if (isMove) {
-            const from = findPasture(raw.fromRanch, raw.fromPasture);
-            const to   = findPasture(raw.toRanch, raw.toPasture);
-            if (!from.pasture) issues.push(`from-pasture "${raw.fromRanch || ''} ${raw.fromPasture || ''}" not found`);
-            if (!to.pasture)   issues.push(`to-pasture "${raw.toRanch || ''} ${raw.toPasture || ''}" not found`);
-            const head = parseInt(raw.headCount, 10);
-            if (isNaN(head) || head <= 0) warnings.push('head count not given — uncounted move');
+            const fromTxt = findPasture(raw.fromRanch, raw.fromPasture);
+            const toTxt   = findPasture(raw.toRanch, raw.toPasture);
+            // An office edit wins over the field text on both ends.
+            const fromPasture = ov.pasture || fromTxt.pasture;
+            const toPasture   = ov.toPasture || toTxt.pasture;
+            const fromRanch = fromPasture ? (lk.ranchesById[fromPasture.ranch_id] || null) : fromTxt.ranch;
+            const toRanch   = toPasture ? (lk.ranchesById[toPasture.ranch_id] || null) : toTxt.ranch;
+            if (!fromPasture) issues.push(`from-pasture "${raw.fromRanch || ''} ${raw.fromPasture || ''}" not found — use Edit to set it`);
+            if (!toPasture)   issues.push(`to-pasture "${raw.toRanch || ''} ${raw.toPasture || ''}" not found — use Edit to set it`);
+            const rawHead = parseInt(raw.headCount, 10);
+            const head = ov.head != null ? ov.head : (isNaN(rawHead) ? null : rawHead);
+            if (head == null || head <= 0) warnings.push('head count not given — uncounted move');
 
-            // The field app never asks which lot is moving, and
-            // lot_movements.lot_id is NOT NULL. When the from-pasture holds
-            // exactly one open lot there is nothing to choose, so infer it and
-            // say so. Anything else has to be picked by the reviewer - moving
-            // the wrong lot's head is not a guess worth making.
-            let lot = null;
-            if (from.pasture) {
-                const here = lk.assignments.filter(a => a.pasture_id === from.pasture.id);
-                if (here.length === 1) {
-                    lot = lk.lotsById[here[0].lot_id] || null;
-                    if (lot) warnings.push(`lot ${lot.lot_number} inferred — only lot in ${from.pasture.name}`);
-                } else if (here.length === 0) {
-                    issues.push(`no open lot in ${from.ranch.name} – ${from.pasture.name}`);
-                } else {
-                    issues.push(`${here.length} lots in ${from.pasture.name} — pick which one moved`);
+            // lot_movements.lot_id is NOT NULL and the field app does not
+            // always ask, so the lot comes from one of three places, in
+            // order: the office's edit, an inference when the from-pasture
+            // holds exactly one open lot, or nowhere - and then it must be
+            // picked. Moving the wrong lot's head is not a guess worth making.
+            let lot = ov.lot || null;
+            if (fromPasture) {
+                const here = lk.assignments.filter(a => a.pasture_id === fromPasture.id);
+                if (!lot) {
+                    if (here.length === 1) {
+                        lot = lk.lotsById[here[0].lot_id] || null;
+                        if (lot) warnings.push(`lot ${lot.lot_number} inferred — only lot in ${fromPasture.name}`);
+                    } else if (here.length === 0) {
+                        issues.push(`no open lot in ${(fromRanch && fromRanch.name) || ''} – ${fromPasture.name}`);
+                    } else {
+                        const names = here.map(a => (lk.lotsById[a.lot_id] || {}).lot_number)
+                                          .filter(Boolean).join(', ');
+                        issues.push(`${here.length} lots in ${fromPasture.name} (${names}) — use Edit to say which one moved`);
+                    }
+                } else if (!here.some(a => a.lot_id === lot.id)) {
+                    issues.push(`lot ${lot.lot_number} is not in ${fromPasture.name}`);
                 }
             }
-            if (lot && head && head > 0) {
-                const a = lk.assignments.find(x => x.pasture_id === from.pasture.id && x.lot_id === lot.id);
+            if (lot && fromPasture && head && head > 0) {
+                const a = lk.assignments.find(x => x.pasture_id === fromPasture.id && x.lot_id === lot.id);
                 if (a && head > a.head_count) {
-                    issues.push(`${head} head exceeds the ${a.head_count} in that pasture`);
+                    issues.push(`${head} head exceeds the ${a.head_count} of lot ${lot.lot_number} in that pasture`);
                 }
             }
             if (missingWhen) issues.push('no usable date on this entry');
             return {
-                entry, raw, kind: 'move',
-                lot, ranch: from.ranch, pasture: from.pasture,
-                toRanch: to.ranch, toPasture: to.pasture,
-                head: isNaN(head) ? null : head,
+                entry, raw, kind: 'move', edited,
+                lot, ranch: fromRanch, pasture: fromPasture,
+                toRanch, toPasture,
+                head,
                 action: null, meds: [], isDead: false, notHauled: false,
                 issues, warnings, ready: issues.length === 0
             };
         }
 
         // ---- Doctoring and deaths ---------------------------------------
-        const lot = lk.lots[norm(raw.lotNumber)] || null;
-        if (!lot) issues.push(raw.lotNumber ? `lot "${raw.lotNumber}" not found on an open lot` : 'no lot given');
+        const lot = ov.lot || lk.lots[norm(raw.lotNumber)] || null;
+        if (!lot) issues.push(raw.lotNumber ? `lot "${raw.lotNumber}" not found on an open lot — use Edit to set it` : 'no lot given — use Edit to set it');
 
         // location is "Ranch - Pasture". Verified that no ranch or pasture
         // name contains a dash, so this split is safe.
         const locParts = String(raw.location || '').split(' - ');
-        const loc = locParts.length >= 2 ? findPasture(locParts[0], locParts[1]) : { ranch: null, pasture: null };
-        if (!loc.ranch) issues.push(`ranch "${locParts[0] || ''}" not found`);
-        else if (!loc.pasture) issues.push(`pasture "${locParts[1] || ''}" not found on ${loc.ranch.name}`);
+        const locTxt = locParts.length >= 2 ? findPasture(locParts[0], locParts[1]) : { ranch: null, pasture: null };
+        const pasture = ov.pasture || locTxt.pasture;
+        const ranch = pasture ? (lk.ranchesById[pasture.ranch_id] || null) : locTxt.ranch;
+        if (!pasture) {
+            if (!locTxt.ranch) issues.push(`ranch "${locParts[0] || ''}" not found — use Edit to set it`);
+            else issues.push(`pasture "${locParts[1] || ''}" not found on ${locTxt.ranch.name} — use Edit to set it`);
+        }
 
-        const action = lk.actions[norm(raw.treatmentType)] || null;
-        if (!action) issues.push(`action "${raw.treatmentType || ''}" not found`);
+        const action = ov.action || lk.actions[norm(raw.treatmentType)] || null;
+        if (!action) issues.push(`action "${raw.treatmentType || ''}" not found — use Edit to set it`);
+
+        const tag = ov.tag != null ? ov.tag : (raw.tagNumber || '');
 
         const meds = [];
-        for (let i = 1; i <= 3; i++) {
-            const name = raw['medication' + i];
-            const doseTxt = raw['dosage' + i];
-            if (!name && !doseTxt) continue;
-            const med = lk.meds[norm(name)] || null;
+        // An office edit replaces the med list wholesale: resolved_meds holds
+        // {position, medication_id, dose}. Anything not edited falls back to
+        // matching the cowboy's free text by name.
+        const medSrc = ov.meds
+            ? ov.meds.map(m => ({ position: m.position,
+                                  med: lk.medsById[m.medication_id] || null,
+                                  name: (lk.medsById[m.medication_id] || {}).name || '',
+                                  doseTxt: m.dose }))
+            : [1, 2, 3].map(i => ({ position: i, name: raw['medication' + i],
+                                    med: lk.meds[norm(raw['medication' + i])] || null,
+                                    doseTxt: raw['dosage' + i] }));
+        medSrc.forEach(src => {
+            const name = src.name;
+            const doseTxt = src.doseTxt;
+            if (!name && (doseTxt === '' || doseTxt == null)) return;
+            const med = src.med;
             const dose = doseTxt === '' || doseTxt == null ? null : Number(doseTxt);
             const unpriced = !!(med && med.cost_per_unit == null && med.cost_per_head == null);
-            if (!med && name) issues.push(`medication "${name}" not matched`);
+            if (!med && name) issues.push(`medication "${name}" not matched — use Edit to map it`);
             if (name && (dose == null || isNaN(dose))) issues.push(`dose for "${name}" is not a number`);
             // Cost is FROZEN at approval, so a null now stays null forever.
             // Flagged, not blocking - see the note above.
             if (unpriced) warnings.push(`${med.name} has no price — cost will post as $0`);
-            meds.push({ position: i, name: name || '', med,
+            meds.push({ position: src.position, name: name || '', med,
                         dose: (dose != null && !isNaN(dose)) ? dose : null, unpriced });
-        }
+        });
 
         if (missingWhen) issues.push('no usable date on this entry');
 
@@ -6715,7 +6841,7 @@ window.addEventListener('unhandledrejection', function(e) {
         if (isDead && !raw.drugOff) warnings.push('carcass disposal not answered');
 
         return {
-            entry, raw, lot, ranch: loc.ranch, pasture: loc.pasture, action, meds,
+            entry, raw, lot, ranch, pasture, action, meds, tag, edited,
             isDead, notHauled, issues, warnings,
             kind: isDead ? 'dead' : 'doctoring',
             ready: issues.length === 0
@@ -6727,7 +6853,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // trigger reject it would take the whole batch down with it.
     async function flagDuplicateApprovals(resolved) {
         const candidates = resolved.filter(r =>
-            r.kind === 'doctoring' && r.lot && r.action && r.action.once_per_animal && r.raw.tagNumber);
+            r.kind === 'doctoring' && r.lot && r.action && r.action.once_per_animal && r.tag);
         if (candidates.length === 0) return;
         const { data, error } = await supabase
             .from('doctoring_events')
@@ -6736,8 +6862,8 @@ window.addEventListener('unhandledrejection', function(e) {
         if (error) { console.warn('duplicate pre-check failed:', error); return; }
         const seen = new Set((data || []).map(d => `${d.tag_number}|${d.lot_id}|${d.field_action_id}`));
         candidates.forEach(r => {
-            if (seen.has(`${r.raw.tagNumber}|${r.lot.id}|${r.action.id}`)) {
-                r.issues.push(`tag ${r.raw.tagNumber} already has "${r.action.name}" on this lot`);
+            if (seen.has(`${r.tag}|${r.lot.id}|${r.action.id}`)) {
+                r.issues.push(`tag ${r.tag} already has "${r.action.name}" on this lot`);
                 r.duplicate = true;
                 r.ready = false;
             }
@@ -6750,7 +6876,9 @@ window.addEventListener('unhandledrejection', function(e) {
         try {
             const [entriesRes, lookups] = await Promise.all([
                 supabase.from('pending_field_entries')
-                    .select('id, entry_type, client_id, raw, status, review_notes, submitted_at, submitted_by, event_datetime')
+                    .select('id, entry_type, client_id, raw, status, review_notes, submitted_at, submitted_by, ' +
+                            'event_datetime, lot_id, pasture_id, to_pasture_id, field_action_id, ' +
+                            'tag_number, no_tag, head_count, resolved_meds')
                     .eq('status', 'pending')
                     .order('event_datetime', { ascending: true }),
                 loadApprovalLookups()
@@ -6802,7 +6930,7 @@ window.addEventListener('unhandledrejection', function(e) {
             html += `<div class="appr-section"><h3>⚠ Needs info (${blocked.length})</h3>`;
             blocked.slice().sort((a, b) =>
                 (entryDayKey(a) || '').localeCompare(entryDayKey(b) || '') ||
-                compareTags(a.raw.tagNumber, b.raw.tagNumber)
+                compareTags(a.tag, b.tag)
             ).forEach(r => { html += approvalRowHtml(r, true); });
             html += `</div>`;
         }
@@ -6840,7 +6968,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     Object.keys(byLot[lotKey]).sort().forEach(pastKey => {
                         html += `<div class="appr-pasture">${escapeHtml(pastKey)}</div>`;
                         byLot[lotKey][pastKey]
-                            .sort((a, b) => compareTags(a.raw.tagNumber, b.raw.tagNumber))
+                            .sort((a, b) => compareTags(a.tag, b.tag))
                             .forEach(r => { html += approvalRowHtml(r, false); });
                     });
                     html += `</div>`;
@@ -6857,7 +6985,7 @@ window.addEventListener('unhandledrejection', function(e) {
     function approvalRowHtml(r, showWhy) {
         const raw = r.raw;
         const isMove = r.kind === 'move';
-        const tag = isMove ? '—' : (raw.tagNumber || 'NT');
+        const tag = isMove ? '—' : (r.tag || 'NT');
         // Moves carry `date`; doctoring carries `dateTime`.
         const stamp = isMove ? raw.date : raw.dateTime;
         const when = stamp
@@ -6880,7 +7008,7 @@ window.addEventListener('unhandledrejection', function(e) {
             <div class="appr-row ${r.ready ? '' : 'blocked'}">
                 <input type="checkbox" class="appr-check" ${r.ready ? '' : 'disabled'} data-id="${r.entry.id}" title="${r.ready ? 'Select to approve' : 'Resolve the issues first'}">
                 <span class="appr-tag">${escapeHtml(String(tag))}</span>
-                <span class="appr-action">${escapeHtml(raw.treatmentType || (isMove ? 'Move' : ''))}</span>
+                <span class="appr-action">${escapeHtml((r.action && r.action.name) || raw.treatmentType || (isMove ? 'Move' : ''))}</span>
                 <span class="appr-detail">${detail}</span>
                 <input type="date" class="appr-date" data-id="${r.entry.id}"
                        value="${escapeHtml(String(r.entry.event_datetime || '').slice(0, 10))}"
@@ -6889,9 +7017,13 @@ window.addEventListener('unhandledrejection', function(e) {
                 <span class="appr-when">${escapeHtml(when)}</span>
                 <span class="appr-who">${escapeHtml(raw.recordedBy || '')}</span>
                 ${r.notHauled ? '<span class="appr-flag danger">not hauled off</span>' : ''}
+                ${r.edited ? '<span class="appr-flag edited" title="Corrected by the office. The cowboy\'s original entry is kept underneath.">edited</span>' : ''}
                 <input type="text" class="appr-note" data-id="${r.entry.id}"
                        placeholder="note…" value="${escapeHtml(r.entry.review_notes || '')}"
                        title="Saved on its own — use it to explain why an entry is being left for later.">
+                <button type="button" class="appr-edit" data-id="${r.entry.id}" data-perm="office"
+                        title="Correct this entry — lot, pasture, action, meds, head count"
+                        ${r.entry.status === 'pending' ? '' : 'disabled'}>✎</button>
                 <button type="button" class="appr-reject" data-id="${r.entry.id}" title="Reject and send back to the cowboy">✖</button>
                 ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
                 ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
@@ -6918,8 +7050,8 @@ window.addEventListener('unhandledrejection', function(e) {
         const raw = r.raw;
         const payload = {
             lot_id: r.lot.id,
-            tag_number: raw.tagNumber || '',
-            no_tag: !!r.entry.no_tag || /^NT\d*$/i.test(String(raw.tagNumber || '')),
+            tag_number: r.tag || '',
+            no_tag: !!r.entry.no_tag || /^NT\d*$/i.test(String(r.tag || '')),
             event_datetime: r.entry.event_datetime,
             field_action_id: r.action.id,
             pasture_id: r.pasture ? r.pasture.id : null,
@@ -6932,7 +7064,7 @@ window.addEventListener('unhandledrejection', function(e) {
         };
         const { data: evt, error } = await supabase
             .from('doctoring_events').insert(payload).select('id').single();
-        if (error) throw new Error(`tag ${raw.tagNumber}: ${error.message}`);
+        if (error) throw new Error(`tag ${r.tag}: ${error.message}`);
 
         const medRows = r.meds
             .filter(m => m.med && m.dose != null && m.dose > 0)
@@ -6951,7 +7083,7 @@ window.addEventListener('unhandledrejection', function(e) {
             if (medErr) {
                 // Undo the parent so a half-written event never survives.
                 await supabase.from('doctoring_events').delete().eq('id', evt.id);
-                throw new Error(`tag ${raw.tagNumber} meds: ${medErr.message}`);
+                throw new Error(`tag ${r.tag} meds: ${medErr.message}`);
             }
         }
         return { kind: 'doctoring_event', id: evt.id };
@@ -6969,13 +7101,13 @@ window.addEventListener('unhandledrejection', function(e) {
             p_lot_id: r.lot.id,
             p_pasture_id: r.pasture.id,
             p_head_count: 1,                    // a tagged death is one animal
-            p_tag_number: raw.tagNumber || null,
+            p_tag_number: r.tag || null,
             p_cause: null,                      // office fills cause in later
             p_event_date: String(r.entry.event_datetime || '').slice(0, 10),
             p_notes: noteBits.join(' · '),
             p_created_by: currentUser.id
         });
-        if (error) throw new Error(`tag ${raw.tagNumber} (death): ${error.message}`);
+        if (error) throw new Error(`tag ${r.tag} (death): ${error.message}`);
         return { kind: 'lot_event', id: data };
     }
 
@@ -7067,7 +7199,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 const { error } = await supabase.from('pending_field_entries')
                     .update({ status: 'approved', approved_ref: r.__ref, review_notes: approvalNoteFor(r.entry.id) })
                     .eq('id', r.entry.id);
-                if (error) throw new Error(`marking ${r.raw.tagNumber} approved: ${error.message}`);
+                if (error) throw new Error(`marking ${r.tag || 'move'} approved: ${error.message}`);
             }
 
             showAlert('globalAlert', `${ordered.length} entr${ordered.length === 1 ? 'y' : 'ies'} posted to the books.`, 'success');
@@ -7103,6 +7235,242 @@ window.addEventListener('unhandledrejection', function(e) {
     // twice - resolved in event_datetime, and verbatim in raw.dateTime - so
     // both move together or the screen and the payload start disagreeing.
     // The clock time is carried over untouched: only the day was wrong.
+    // ==========================================================
+    // CORRECTING A STAGED ENTRY
+    //
+    // The office edits the RESOLVED COLUMNS only. `raw` is never touched:
+    // it is the cowboy's own account and the only record of what he saw,
+    // and keeping it means a correction can always be compared against
+    // what was actually recorded. resolveApprovalEntry() prefers the
+    // columns, so an edit takes effect immediately on the next render.
+    //
+    // Every write is guarded .eq('status','pending') and asserts on the
+    // returned row, because an RLS refusal comes back as zero rows and no
+    // error - a save that silently changed nothing is the worst outcome
+    // on a screen whose whole job is getting the books right.
+    // ==========================================================
+    function apprPastureOptions(lk, ranchId, selectedId) {
+        const list = lk.pastures
+            .filter(p => p.ranch_id === ranchId && p.is_active !== false)
+            .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        return '<option value="">— pick —</option>' + list.map(p =>
+            `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+    }
+
+    function apprRanchOptions(lk, selectedId) {
+        return '<option value="">— pick —</option>' + lk.ranchesList.map(r =>
+            `<option value="${r.id}" ${r.id === selectedId ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('');
+    }
+
+    // Lots offered for a move are the ones ACTUALLY standing in the
+    // from-pasture, with their head, so the reviewer is choosing from what
+    // the books say is there rather than from every open lot on the ranch.
+    function apprLotOptionsForPasture(lk, pastureId, selectedId) {
+        const here = lk.assignments.filter(a => a.pasture_id === pastureId);
+        if (!here.length) {
+            return '<option value="">— no open lot in this pasture —</option>';
+        }
+        return '<option value="">— pick —</option>' + here.map(a => {
+            const lot = lk.lotsById[a.lot_id];
+            if (!lot) return '';
+            return `<option value="${lot.id}" ${lot.id === selectedId ? 'selected' : ''}>` +
+                   `${escapeHtml(lot.lot_number)} (${a.head_count} hd here)</option>`;
+        }).join('');
+    }
+
+    function apprLotOptionsAll(lk, selectedId) {
+        return '<option value="">— pick —</option>' + lk.lotsList.map(l =>
+            `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${escapeHtml(l.lot_number)}</option>`).join('');
+    }
+
+    function openApprovalEdit(id) {
+        const r = approvalsCache.entries.find(x => String(x.entry.id) === String(id));
+        if (!r) return;
+        if (r.entry.status !== 'pending') {
+            showAlert('globalAlert', 'Only a pending entry can be corrected.', 'error');
+            return;
+        }
+        const lk = approvalsCache.lookups;
+        const raw = r.raw;
+        $('apprEditId').value = id;
+        $('apprEditAlert').innerHTML = '';
+        const stamp = String(r.entry.event_datetime || '');
+        const day = stamp.slice(0, 10);
+
+        let html = '';
+        if (r.kind === 'move') {
+            $('apprEditTitle').textContent = 'Correct move';
+            const fromRanchId = r.pasture ? r.pasture.ranch_id : (r.ranch ? r.ranch.id : '');
+            const toRanchId   = r.toPasture ? r.toPasture.ranch_id : (r.toRanch ? r.toRanch.id : '');
+            html = `
+                <label for="aeDate">Date</label>
+                <input type="date" id="aeDate" value="${escapeHtml(day)}">
+                <label for="aeFromRanch">From ranch</label>
+                <select id="aeFromRanch">${apprRanchOptions(lk, fromRanchId)}</select>
+                <label for="aeFromPasture">From pasture</label>
+                <select id="aeFromPasture">${apprPastureOptions(lk, fromRanchId, r.pasture ? r.pasture.id : '')}</select>
+                <label for="aeLot">Lot moving</label>
+                <select id="aeLot">${apprLotOptionsForPasture(lk, r.pasture ? r.pasture.id : '', r.lot ? r.lot.id : '')}</select>
+                <label for="aeHead">Head</label>
+                <input type="number" id="aeHead" min="1" step="1" value="${r.head != null ? r.head : ''}">
+                <label for="aeToRanch">To ranch</label>
+                <select id="aeToRanch">${apprRanchOptions(lk, toRanchId)}</select>
+                <label for="aeToPasture">To pasture</label>
+                <select id="aeToPasture">${apprPastureOptions(lk, toRanchId, r.toPasture ? r.toPasture.id : '')}</select>`;
+            $('apprEditWas').innerHTML =
+                `Cowboy recorded: <b>${escapeHtml(raw.fromRanch || '')} ${escapeHtml(raw.fromPasture || '')}</b> → ` +
+                `<b>${escapeHtml(raw.toRanch || '')} ${escapeHtml(raw.toPasture || '')}</b>, ` +
+                `${escapeHtml(String(raw.headCount || '?'))} hd on ${escapeHtml(String(raw.date || ''))}` +
+                (raw.notes ? ` · “${escapeHtml(raw.notes)}”` : '');
+        } else {
+            $('apprEditTitle').textContent = r.isDead ? 'Correct death entry' : 'Correct doctoring entry';
+            const ranchId = r.pasture ? r.pasture.ranch_id : (r.ranch ? r.ranch.id : '');
+            const time = stamp.includes('T') ? new Date(stamp).toTimeString().slice(0, 5) : '';
+            const medRow = (pos) => {
+                const m = r.meds.find(x => x.position === pos);
+                const selId = m && m.med ? m.med.id : '';
+                const opts = '<option value="">— none —</option>' + lk.medsList.map(x =>
+                    `<option value="${x.id}" ${x.id === selId ? 'selected' : ''}>${escapeHtml(x.name)}` +
+                    `${x.cost_per_unit == null && x.cost_per_head == null ? ' (no price)' : ''}</option>`).join('');
+                return `
+                <label for="aeMed${pos}">Med ${pos}</label>
+                <div class="aedit-med">
+                    <select id="aeMed${pos}">${opts}</select>
+                    <input type="number" id="aeDose${pos}" step="0.1" min="0" placeholder="cc"
+                           value="${m && m.dose != null ? m.dose : ''}">
+                </div>`;
+            };
+            html = `
+                <label for="aeDate">Date</label>
+                <input type="date" id="aeDate" value="${escapeHtml(day)}">
+                <label for="aeTime">Time</label>
+                <input type="time" id="aeTime" value="${escapeHtml(time)}">
+                <label for="aeTag">Tag</label>
+                <input type="text" id="aeTag" value="${escapeHtml(String(r.tag || ''))}" placeholder="tag number, or NT">
+                <label for="aeLot">Lot</label>
+                <select id="aeLot">${apprLotOptionsAll(lk, r.lot ? r.lot.id : '')}</select>
+                <label for="aeFromRanch">Ranch</label>
+                <select id="aeFromRanch">${apprRanchOptions(lk, ranchId)}</select>
+                <label for="aeFromPasture">Pasture</label>
+                <select id="aeFromPasture">${apprPastureOptions(lk, ranchId, r.pasture ? r.pasture.id : '')}</select>
+                <label for="aeAction">Action</label>
+                <select id="aeAction">${'<option value="">— pick —</option>' + lk.actionsList.map(a =>
+                    `<option value="${a.id}" ${r.action && a.id === r.action.id ? 'selected' : ''}>${escapeHtml(a.name)}</option>`).join('')}</select>
+                ${medRow(1)}${medRow(2)}${medRow(3)}`;
+            $('apprEditWas').innerHTML =
+                `Cowboy recorded: tag <b>${escapeHtml(String(raw.tagNumber || 'NT'))}</b>, ` +
+                `lot <b>${escapeHtml(String(raw.lotNumber || '—'))}</b>, ` +
+                `<b>${escapeHtml(String(raw.location || '—'))}</b>, ` +
+                `<b>${escapeHtml(String(raw.treatmentType || '—'))}</b>` +
+                (raw.notes ? ` · “${escapeHtml(raw.notes)}”` : '');
+        }
+        $('apprEditFields').innerHTML = html;
+
+        // Ranch narrows pasture; the from-pasture narrows the lot list on a
+        // move, because which lots are standing there is the whole question.
+        const wire = (ranchSel, pastSel, thenLots) => {
+            const rs = $(ranchSel), ps = $(pastSel);
+            if (!rs || !ps) return;
+            rs.onchange = () => {
+                ps.innerHTML = apprPastureOptions(lk, rs.value, '');
+                if (thenLots) $('aeLot').innerHTML = apprLotOptionsForPasture(lk, '', '');
+            };
+            if (thenLots) {
+                ps.onchange = () => { $('aeLot').innerHTML = apprLotOptionsForPasture(lk, ps.value, ''); };
+            }
+        };
+        wire('aeFromRanch', 'aeFromPasture', r.kind === 'move');
+        wire('aeToRanch', 'aeToPasture', false);
+
+        showModal('apprEditModal');
+    }
+
+    async function saveApprovalEdit() {
+        const id = $('apprEditId').value;
+        const r = approvalsCache.entries.find(x => String(x.entry.id) === String(id));
+        if (!r) return;
+        const isMove = r.kind === 'move';
+        const val = elId => { const el = $(elId); return el ? el.value.trim() : ''; };
+
+        const day = val('aeDate');
+        if (!day) { showAlert('apprEditAlert', 'A date is required.', 'error'); return; }
+
+        const patch = {};
+        if (isMove) {
+            const fromP = val('aeFromPasture'), toP = val('aeToPasture'), lot = val('aeLot');
+            const head = parseInt(val('aeHead'), 10);
+            if (!fromP || !toP) { showAlert('apprEditAlert', 'Both pastures are required.', 'error'); return; }
+            if (fromP === toP)  { showAlert('apprEditAlert', 'From and to pasture are the same.', 'error'); return; }
+            if (!lot)           { showAlert('apprEditAlert', 'Pick the lot that moved — a movement cannot be recorded without one.', 'error'); return; }
+            if (isNaN(head) || head <= 0) { showAlert('apprEditAlert', 'Head must be a positive number.', 'error'); return; }
+            // Never let the office stage a move that would overdraw the
+            // pasture: the RPC would reject it mid-batch and take the whole
+            // approval down with it.
+            const lk = approvalsCache.lookups;
+            const a = lk.assignments.find(x => x.pasture_id === fromP && x.lot_id === lot);
+            if (!a) { showAlert('apprEditAlert', 'That lot is not standing in the from-pasture.', 'error'); return; }
+            if (head > a.head_count) {
+                showAlert('apprEditAlert', `Only ${a.head_count} head of that lot are in that pasture.`, 'error');
+                return;
+            }
+            Object.assign(patch, {
+                lot_id: lot, pasture_id: fromP, to_pasture_id: toP, head_count: head,
+                event_datetime: new Date(day + 'T00:00:00').toISOString()
+            });
+        } else {
+            const lot = val('aeLot'), past = val('aeFromPasture'), action = val('aeAction');
+            const tag = val('aeTag');
+            if (!lot)    { showAlert('apprEditAlert', 'A lot is required.', 'error'); return; }
+            if (!past)   { showAlert('apprEditAlert', 'A pasture is required.', 'error'); return; }
+            if (!action) { showAlert('apprEditAlert', 'An action is required.', 'error'); return; }
+            const meds = [];
+            for (let i = 1; i <= 3; i++) {
+                const mid = val('aeMed' + i);
+                const doseTxt = val('aeDose' + i);
+                if (!mid) continue;
+                const dose = doseTxt === '' ? null : Number(doseTxt);
+                if (dose == null || isNaN(dose)) {
+                    showAlert('apprEditAlert', `Med ${i} needs a dose in cc.`, 'error');
+                    return;
+                }
+                meds.push({ position: i, medication_id: mid, dose });
+            }
+            // Keep the recorded time of day. The box shows LOCAL time and the
+            // save reads it back as local, so the fallback has to be local too
+            // - slicing the UTC string here and treating it as local would
+            // shift the event by the timezone offset every time the field was
+            // left empty.
+            const oldStamp = String(r.entry.event_datetime || '');
+            const localHHMM = oldStamp ? new Date(oldStamp).toTimeString().slice(0, 5) : '00:00';
+            const time = val('aeTime') || localHHMM;
+            Object.assign(patch, {
+                lot_id: lot, pasture_id: past, field_action_id: action,
+                tag_number: tag || null,
+                no_tag: !tag || /^NT\d*$/i.test(tag),
+                resolved_meds: meds,
+                event_datetime: new Date(day + 'T' + time + ':00').toISOString()
+            });
+        }
+
+        try {
+            const { data, error } = await supabase
+                .from('pending_field_entries')
+                .update(patch)
+                .eq('id', id)
+                .eq('status', 'pending')      // never rewrite something already posted
+                .select('id');
+            if (error) throw error;
+            if (!data || !data.length) {
+                throw new Error('nothing was saved — the entry may have just been approved or rejected by someone else');
+            }
+            hideModal('apprEditModal');
+            showAlert('globalAlert', 'Correction saved.', 'success');
+            await loadApprovals();
+        } catch (err) {
+            showAlert('apprEditAlert', `Could not save: ${err.message || err}`, 'error');
+        }
+    }
+
     async function saveApprovalDate(id, newDay) {
         const row = approvalsCache.entries.find(r => String(r.entry.id) === String(id));
         if (!row) return;
@@ -9942,6 +10310,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('navReports').addEventListener('click', () => showReportsTab('active-lots'));
     $('navApprovals').addEventListener('click', showApprovalsTab);
     $('approvalsRefreshBtn').addEventListener('click', loadApprovals);
+    $('apprEditSaveBtn').addEventListener('click', saveApprovalEdit);
     $('approvalsApproveBtn').addEventListener('click', approveSelected);
 
     function refreshApprovalSelection() {
@@ -9959,6 +10328,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         }
     });
     $('approvalsContent').addEventListener('click', (e) => {
+        const ed = e.target.closest('.appr-edit');
+        if (ed) { openApprovalEdit(ed.dataset.id); return; }
         const rej = e.target.closest('.appr-reject');
         if (rej) { rejectApprovalEntry(rej.dataset.id); return; }
         const all = e.target.closest('.appr-day-all');
