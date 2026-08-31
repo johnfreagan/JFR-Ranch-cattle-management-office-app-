@@ -2608,6 +2608,17 @@ window.__bootTallyBook = function () {
     if (d.error) throw d.error;
     (d.data || []).forEach(function (row) {
       mark(row.updated_at);
+      /* An EMPTY remote day never replaces a local day that has content -
+         whatever is wrong upstream, deleting what is in front of the person
+         is not the recovery. This is asymmetric on purpose: clearing a day
+         deliberately is rare and easily redone, losing a day of entries is
+         not. Advancing the snapshot to the remote copy makes the local day
+         read as dirty, so the very next push repairs the server too. */
+      if (emptyDay(row.doc) && !emptyDay(state.days[row.day])) {
+        snapshot.days[row.day] = clone(row.doc);
+        skipped++;
+        return;
+      }
       /* Local wins only if there is actually something local to lose. */
       if (mine.indexOf(row.day) >= 0 && !emptyDay(state.days[row.day])) { skipped++; return; }
       /* Our own push comes back on the next pull. Applying it would repaint

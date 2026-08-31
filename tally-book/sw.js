@@ -18,14 +18,14 @@
 // in the runtime cache.
 // =========================================================
 
-const CACHE_VERSION = 'v3';   // v3: a device with nothing to push now still pulls
+const CACHE_VERSION = 'v4';   // v4: an empty remote day never overwrites local content
 const CACHE_NAME = `tally-book-${CACHE_VERSION}`;
 
 const APP_SHELL = [
     './',
     './index.html',
-    './app.js?v=v3',
-    './styles.css?v=v3',
+    './app.js?v=v4',
+    './styles.css?v=v4',
     './supabase.min.js?v=2.46.1',
     './manifest.json'
 ];
