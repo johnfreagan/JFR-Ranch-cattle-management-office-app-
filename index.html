@@ -6752,12 +6752,42 @@ window.addEventListener('unhandledrejection', function(e) {
             // because he was standing there; only an explicit office
             // correction beats it. Moving the wrong lot's head is not a
             // guess worth making.
+            // A mixed pasture cannot be split by eye, so the field app sends
+            // a per-lot split (v16+). It is the general form; a single lot is
+            // just a split of one. An office edit still replaces the whole
+            // thing with one lot, which is the escape hatch when the split
+            // turns out wrong.
+            let split = null;
+            if (!ov.lot && Array.isArray(raw.lotSplit) && raw.lotSplit.length) {
+                split = raw.lotSplit.map(x => ({
+                    lot: lk.lots[norm(x.lot)] || null, name: x.lot, head: parseInt(x.head, 10) || 0
+                }));
+                split.filter(x => !x.lot).forEach(x =>
+                    issues.push(`lot "${x.name}" from the field is not an open lot — use Edit to set it`));
+                split = split.filter(x => x.lot && x.head > 0);
+                if (!split.length) split = null;
+            }
+
             let lot = ov.lot || null;
-            if (!lot && raw.lotNumber) {
+            if (!lot && !split && raw.lotNumber) {
                 lot = lk.lots[norm(raw.lotNumber)] || null;
                 if (!lot) issues.push(`lot "${raw.lotNumber}" from the field is not an open lot — use Edit to set it`);
             }
-            if (fromPasture) {
+            if (fromPasture && split) {
+                // Every leg has to stand up on its own: the RPC runs once per
+                // lot and a single bad leg fails the batch mid-way.
+                split.forEach(x => {
+                    const a = lk.assignments.find(y => y.pasture_id === fromPasture.id && y.lot_id === x.lot.id);
+                    if (!a) issues.push(`lot ${x.lot.lot_number} is not in ${fromPasture.name}`);
+                    else if (x.head > a.head_count) {
+                        issues.push(`${x.head} head of ${x.lot.lot_number} exceeds the ${a.head_count} in ${fromPasture.name}`);
+                    }
+                });
+                const splitSum = split.reduce((t, x) => t + x.head, 0);
+                if (head != null && head !== splitSum) {
+                    issues.push(`the lot split adds to ${splitSum} but the move says ${head} head`);
+                }
+            } else if (fromPasture) {
                 const here = lk.assignments.filter(a => a.pasture_id === fromPasture.id);
                 if (!lot) {
                     if (here.length === 1) {
@@ -6774,7 +6804,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     issues.push(`lot ${lot.lot_number} is not in ${fromPasture.name}`);
                 }
             }
-            if (lot && fromPasture && head && head > 0) {
+            if (lot && !split && fromPasture && head && head > 0) {
                 const a = lk.assignments.find(x => x.pasture_id === fromPasture.id && x.lot_id === lot.id);
                 if (a && head > a.head_count) {
                     issues.push(`${head} head exceeds the ${a.head_count} of lot ${lot.lot_number} in that pasture`);
@@ -6782,7 +6812,7 @@ window.addEventListener('unhandledrejection', function(e) {
             }
             if (missingWhen) issues.push('no usable date on this entry');
             return {
-                entry, raw, kind: 'move', edited,
+                entry, raw, kind: 'move', edited, split,
                 lot, ranch: fromRanch, pasture: fromPasture,
                 toRanch, toPasture,
                 head,
@@ -7002,10 +7032,15 @@ window.addEventListener('unhandledrejection', function(e) {
                     : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
             : '';
 
+        const lotBit = isMove
+            ? (r.split
+                ? ' · ' + r.split.map(x => `${escapeHtml(x.lot.lot_number)} ${x.head}`).join(' + ')
+                : (r.lot ? ` · ${escapeHtml(r.lot.lot_number)}` : ''))
+            : '';
         const detail = isMove
             ? `${escapeHtml(raw.fromRanch || '')} ${escapeHtml(raw.fromPasture || '')} → ` +
               `${escapeHtml(raw.toRanch || '')} ${escapeHtml(raw.toPasture || '')} · ` +
-              `${r.head != null ? r.head + ' hd' : '<span class="appr-flag">uncounted</span>'}`
+              `${r.head != null ? r.head + ' hd' : '<span class="appr-flag">uncounted</span>'}` + lotBit
             : (r.meds.length
                 ? r.meds.map(m => `${escapeHtml(m.name)}${m.dose != null ? ' ' + m.dose + 'cc' : ''}` +
                                   (m.unpriced ? ' <span class="appr-flag">no price</span>' : '')).join(', ')
@@ -7118,19 +7153,39 @@ window.addEventListener('unhandledrejection', function(e) {
         return { kind: 'lot_event', id: data };
     }
 
+    // Returns an ARRAY of refs: a move off a mixed pasture is one movement
+    // per lot, and each has to be reversible on its own. record_move_with_
+    // pasture stays the only thing doing head math — nothing here
+    // reimplements it.
     async function postMoveEntry(r) {
         const raw = r.raw;
-        const { data, error } = await supabase.rpc('record_move_with_pasture', {
-            p_lot_id: r.lot.id,
-            p_from_pasture_id: r.pasture.id,
-            p_to_pasture_id: r.toPasture.id,
-            p_head_count: r.head,
-            p_move_date: String(r.entry.event_datetime || '').slice(0, 10),
-            p_notes: [raw.notes, '(from field app)'].filter(Boolean).join(' · '),
-            p_recorded_by: currentUser.id
-        });
-        if (error) throw new Error(`move ${raw.fromPasture} → ${raw.toPasture}: ${error.message}`);
-        return { kind: 'lot_movement', id: data };
+        const legs = r.split
+            ? r.split.map(x => ({ lot: x.lot, head: x.head }))
+            : [{ lot: r.lot, head: r.head }];
+        const refs = [];
+        for (const leg of legs) {
+            const note = [raw.notes,
+                          r.split ? `lot ${leg.lot.lot_number}, ${leg.head} of ${r.head} head` : null,
+                          '(from field app)'].filter(Boolean).join(' · ');
+            const { data, error } = await supabase.rpc('record_move_with_pasture', {
+                p_lot_id: leg.lot.id,
+                p_from_pasture_id: r.pasture.id,
+                p_to_pasture_id: r.toPasture.id,
+                p_head_count: leg.head,
+                p_move_date: String(r.entry.event_datetime || '').slice(0, 10),
+                p_notes: note,
+                p_recorded_by: currentUser.id
+            });
+            if (error) {
+                // Hand back what already posted so the batch rollback can
+                // unwind the earlier legs of this same move too.
+                const err = new Error(`move ${raw.fromPasture} → ${raw.toPasture} (lot ${leg.lot.lot_number}): ${error.message}`);
+                err.partial = refs;
+                throw err;
+            }
+            refs.push({ kind: 'lot_movement', id: data });
+        }
+        return refs;
     }
 
     async function rollbackPosted(posted) {
@@ -7194,11 +7249,22 @@ window.addEventListener('unhandledrejection', function(e) {
         const posted = [];
         try {
             for (const r of ordered) {
-                const ref = r.kind === 'dead' ? await postDeathEntry(r)
-                          : r.kind === 'move' ? await postMoveEntry(r)
-                          : await postDoctoringEntry(r);
-                posted.push(ref);
-                r.__ref = ref;
+                let refs;
+                try {
+                    refs = [].concat(r.kind === 'dead' ? await postDeathEntry(r)
+                                   : r.kind === 'move' ? await postMoveEntry(r)
+                                   : await postDoctoringEntry(r));
+                } catch (e) {
+                    // A multi-lot move can fail half-posted. Its completed
+                    // legs are already in the books, so they must join the
+                    // rollback list before the error goes up.
+                    if (e.partial) posted.push(...e.partial);
+                    throw e;
+                }
+                posted.push(...refs);
+                // One ref stays an object so every existing reader keeps
+                // working; a multi-lot move records the array.
+                r.__ref = refs.length === 1 ? refs[0] : refs;
             }
 
             // Only once every row is in the books do we mark the queue.
@@ -11835,9 +11901,14 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                     .select('approved_ref, raw').eq('status', 'approved')
                     .gte('event_datetime', minIso).lt('event_datetime', endIso);
                 (appr || []).forEach(a => {
-                    const ref = a.approved_ref && a.approved_ref.id;
                     const who = a.raw && a.raw.recordedBy;
-                    if (ref && who) byRef[ref] = who;
+                    if (!who) return;
+                    // A multi-lot move posts one movement per lot, so
+                    // approved_ref is an ARRAY there. Reading only .id would
+                    // silently drop the attribution on exactly those rows.
+                    [].concat(a.approved_ref || []).forEach(ref => {
+                        if (ref && ref.id) byRef[ref.id] = who;
+                    });
                 });
             }
 

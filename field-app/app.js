@@ -969,57 +969,6 @@ function populateMoveDropdowns() {
     });
 }
 
-document.getElementById('moveFromRanch').onchange = function() {
-    updateMovePastures(this.value, 'moveFromPasture');
-    refreshMoveLots();
-};
-document.getElementById('moveToRanch').onchange = function() { updateMovePastures(this.value, 'moveToPasture'); };
-document.getElementById('moveFromPasture').onchange = function() { refreshMoveLots(); };
-
-// Which lot is moving. lot_movements.lot_id is NOT NULL, so a move without
-// one cannot be posted at all - it sits in the office queue until somebody
-// guesses. Five pastures currently hold more than one lot, and once the
-// cattle have been mixed nobody can tell afterwards which of them moved, so
-// this has to be asked here, at the gate, while it is still knowable.
-// One lot standing there means there is nothing to choose: it is filled in
-// and the reason is shown rather than presented as a question.
-function refreshMoveLots(keepValue) {
-    const sel = document.getElementById('moveLot');
-    const hint = document.getElementById('moveLotHint');
-    if (!sel) return;
-    const ranch = String(document.getElementById('moveFromRanch').value || '').trim();
-    const past = String(document.getElementById('moveFromPasture').value || '').trim();
-    const label = ranch && past ? `${ranch} - ${past}` : '';
-    const here = (label && pastureLotsMap[label]) || [];
-
-    if (!label) {
-        sel.innerHTML = '<option value="">Pick From pasture first...</option>';
-        hint.style.display = 'none';
-        return;
-    }
-    if (here.length === 0) {
-        // The books show nothing standing there. Not a blocker - the cattle
-        // are real and the move happened - but the office must be told.
-        sel.innerHTML = '<option value="">— books show no lot here —</option>';
-        hint.textContent = 'The books show no open lot in this pasture. The office will sort it out.';
-        hint.style.display = 'block';
-        return;
-    }
-    const opts = here.map(x =>
-        `<option value="${x.lot}">${x.lot}${x.head != null ? ` (${x.head} hd)` : ''}</option>`).join('');
-    if (here.length === 1) {
-        sel.innerHTML = opts;
-        sel.value = here[0].lot;
-        hint.textContent = `Only lot in ${past}.`;
-        hint.style.display = 'block';
-    } else {
-        sel.innerHTML = '<option value="">Select Lot...</option>' + opts;
-        hint.textContent = `${here.length} lots are in ${past} — say which one is moving.`;
-        hint.style.display = 'block';
-    }
-    if (keepValue && Array.from(sel.options).some(o => o.value === keepValue)) sel.value = keepValue;
-}
-
 function updateMovePastures(prop, targetId) {
     const target = document.getElementById(targetId);
     target.disabled = false;
@@ -1039,6 +988,153 @@ function updateMovePastures(prop, targetId) {
         + uniquePastures.map(p => `<option value="${p}">${p}</option>`).join('');
 }
 
+document.getElementById('moveFromRanch').onchange = function() {
+    updateMovePastures(this.value, 'moveFromPasture');
+    moveSplitTouched = false;      // a new pasture means new lots; start clean
+    renderMoveSplit();
+};
+document.getElementById('moveToRanch').onchange = function() { updateMovePastures(this.value, 'moveToPasture'); };
+document.getElementById('moveFromPasture').onchange = function() {
+    moveSplitTouched = false;
+    renderMoveSplit();
+};
+// Typing the head count re-spreads it, until somebody edits a lot box by hand.
+document.getElementById('moveHeadCount').addEventListener('input', () => {
+    autoFillMoveSplit();
+    updateMoveSplitTotal();
+});
+
+// WHICH LOTS ARE MOVING
+//
+// lot_movements.lot_id is NOT NULL, so a move has to name a lot. Four
+// pastures currently hold more than one lot - Steele/Front Native carries
+// 416 head as 37X:241 and 37X-F:175 - and once cattle are mixed, cutting 50
+// off the gate gives nobody a way to tell how many of each went. So the
+// form asks for a SPLIT rather than a single lot.
+//
+// The default is pro-rata on what the books say is standing there, which is
+// the best available guess for a random cut and always sums exactly (largest
+// remainder). It is a starting point, not an answer: any box can be typed
+// over when the cowboy actually knows.
+//
+// This is safe to estimate because a move does not touch the money. Head-days
+// come from lot_daily_head, which is built from invoices, receipts, deaths
+// and sales and never reads a pasture - so cost of gain, feed, treatment and
+// closeout are all identical whichever way the split falls. What it does
+// decide is which pasture each lot's head are recorded in, and that matters
+// later: when those cattle are SOLD off the far pasture, the sale allocates
+// to whatever lot the books say is standing there.
+let moveSplitTouched = false;
+
+function moveLotsHere() {
+    const ranch = String(document.getElementById('moveFromRanch').value || '').trim();
+    const past = String(document.getElementById('moveFromPasture').value || '').trim();
+    const label = ranch && past ? `${ranch} - ${past}` : '';
+    return { label, past, here: (label && pastureLotsMap[label]) || [] };
+}
+
+// Largest remainder, so the parts always sum to the whole exactly. Rounding
+// each share independently and dumping the residual on the last lot would
+// work too, but always parks the error on whichever lot happens to be last.
+function proRata(total, weights) {
+    const sum = weights.reduce((a, b) => a + b, 0);
+    if (!sum || !total) return weights.map(() => 0);
+    const exact = weights.map(w => (total * w) / sum);
+    const base = exact.map(Math.floor);
+    let short = total - base.reduce((a, b) => a + b, 0);
+    const order = exact.map((e, i) => ({ i, frac: e - Math.floor(e) }))
+                       .sort((a, b) => b.frac - a.frac);
+    for (let k = 0; k < order.length && short > 0; k++, short--) base[order[k].i]++;
+    return base;
+}
+
+function renderMoveSplit(preset) {
+    const box = document.getElementById('moveLotSplit');
+    const hint = document.getElementById('moveLotHint');
+    if (!box) return;
+    const { label, past, here } = moveLotsHere();
+
+    if (!label) {
+        box.innerHTML = '<div class="muted">Pick the From ranch and pasture first.</div>';
+        hint.style.display = 'none';
+        return;
+    }
+    if (here.length === 0) {
+        // The books show nothing standing there. Not a blocker - the cattle
+        // are real and the move happened - but the office must be told.
+        box.innerHTML = '<div class="muted">The books show no open lot in this pasture. Save anyway; the office will sort it out.</div>';
+        hint.style.display = 'none';
+        return;
+    }
+    box.innerHTML = here.map((x, i) => `
+        <div class="lot-split-row">
+            <span class="lot-split-name">${x.lot}<small class="muted"> ${x.head} hd here</small></span>
+            <input type="number" class="lot-split-head" data-lot="${x.lot}" data-avail="${x.head}"
+                   min="0" max="${x.head}" step="1" inputmode="numeric" placeholder="0"
+                   value="${preset && preset[x.lot] != null ? preset[x.lot] : ''}">
+        </div>`).join('') + '<div class="lot-split-total" id="moveSplitTotal"></div>';
+
+    box.querySelectorAll('.lot-split-head').forEach(el => {
+        el.addEventListener('input', () => { moveSplitTouched = true; updateMoveSplitTotal(); });
+    });
+
+    hint.textContent = here.length === 1
+        ? `Only lot in ${past}.`
+        : `${here.length} lots are mixed in ${past} — split the head between them.`;
+    hint.style.display = 'block';
+    if (!preset) autoFillMoveSplit();
+    updateMoveSplitTotal();
+}
+
+// Fill the boxes from the head count: the whole lot when there is only one,
+// pro-rata when they are mixed. Never overwrites what somebody typed.
+function autoFillMoveSplit() {
+    if (moveSplitTouched) return;
+    const total = parseInt(document.getElementById('moveHeadCount').value, 10);
+    const rows = [...document.querySelectorAll('.lot-split-head')];
+    if (!rows.length) return;
+    if (isNaN(total) || total <= 0) { rows.forEach(r => { r.value = ''; }); updateMoveSplitTotal(); return; }
+    if (rows.length === 1) { rows[0].value = total; updateMoveSplitTotal(); return; }
+    const share = proRata(total, rows.map(r => Number(r.dataset.avail) || 0));
+    rows.forEach((r, i) => { r.value = share[i] || 0; });
+    updateMoveSplitTotal();
+}
+
+function moveSplitValues() {
+    return [...document.querySelectorAll('.lot-split-head')].map(el => ({
+        lot: el.dataset.lot,
+        avail: Number(el.dataset.avail) || 0,
+        head: parseInt(el.value, 10) || 0
+    }));
+}
+
+function updateMoveSplitTotal() {
+    const el = document.getElementById('moveSplitTotal');
+    if (!el) return;
+    const vals = moveSplitValues();
+    const sum = vals.reduce((a, b) => a + b.head, 0);
+    const stated = parseInt(document.getElementById('moveHeadCount').value, 10);
+    const over = vals.filter(v => v.head > v.avail);
+    if (over.length) {
+        el.className = 'lot-split-total bad';
+        el.textContent = over.map(v => `Only ${v.avail} head of ${v.lot} are in this pasture`).join(' · ');
+        return;
+    }
+    if (!isNaN(stated) && stated > 0 && sum !== stated) {
+        el.className = 'lot-split-total bad';
+        el.textContent = `${sum} of ${stated} head allocated — ${sum < stated ? (stated - sum) + ' short' : (sum - stated) + ' over'}`;
+        return;
+    }
+    el.className = 'lot-split-total ok';
+    el.textContent = sum > 0 ? `${sum} head allocated` : '';
+}
+
+// Kept for the edit path: restore a saved split, or a single saved lot.
+function refreshMoveLots(saved) {
+    moveSplitTouched = !!saved;
+    renderMoveSplit(saved || null);
+}
+
 movesForm.addEventListener('submit', function(e) {
     e.preventDefault();
 
@@ -1055,17 +1151,31 @@ movesForm.addEventListener('submit', function(e) {
         return; 
     }
 
-    // Only insist on a lot when the books actually offer a choice. If they
+    // Only insist on lots when the books actually offer a choice. If they
     // show nothing standing in that pasture there is nothing to pick, and
     // blocking the save would strand a real move on the phone.
-    const lotSel = document.getElementById('moveLot');
-    const lotVal = String(lotSel.value || '').trim();
     const here = pastureLotsMap[`${String(fromR).trim()} - ${String(fromP).trim()}`] || [];
-    if (!lotVal && here.length > 0) {
-        showToast('🛑 Say which lot is moving', 'error', 3000);
-        lotSel.focus();
-        return;
+    const split = moveSplitValues().filter(v => v.head > 0);
+    const splitSum = split.reduce((a, b) => a + b.head, 0);
+    if (here.length > 0) {
+        if (!split.length) {
+            showToast('🛑 Say how many head of each lot are moving', 'error', 3500);
+            return;
+        }
+        const over = split.find(v => v.head > v.avail);
+        if (over) {
+            showToast(`🛑 Only ${over.avail} head of ${over.lot} are in this pasture`, 'error', 4000);
+            return;
+        }
+        // The stated head and the split must agree, or the office receives a
+        // move whose parts do not add up to its own total.
+        const stated = parseInt(count, 10);
+        if (!isNaN(stated) && stated > 0 && stated !== splitSum) {
+            showToast(`🛑 Lots add to ${splitSum}, head count says ${stated}`, 'error', 4000);
+            return;
+        }
     }
+    const lotVal = split.length === 1 ? split[0].lot : '';
 
     const moveData = {
         type: 'move',
@@ -1075,14 +1185,19 @@ movesForm.addEventListener('submit', function(e) {
         fromPasture: fromP,
         toRanch: toR,
         toPasture: toP,
+        // lotNumber stays set for the ordinary one-lot move so the office
+        // path and every older record keep working unchanged; lotSplit is
+        // the general form and wins when present.
         lotNumber: lotVal,
-        headCount: count || "0",
+        lotSplit: split.map(v => ({ lot: v.lot, head: v.head })),
+        headCount: String(splitSum || parseInt(count, 10) || 0),
         notes: document.getElementById('moveNotes').value,
         recordedBy: moveRecordedByInput.value.trim()
     };
 
-    const countMsg = count ? `${count} Head` : "Uncounted Head";
-    if(!confirm(`Confirm Move:\n${lotVal ? 'Lot ' + lotVal + '\n' : ''}${countMsg}\nFrom: ${fromP}\nTo: ${toP}`)) return;
+    const countMsg = splitSum ? `${splitSum} Head` : (count ? `${count} Head` : "Uncounted Head");
+    const splitMsg = split.length ? split.map(v => `${v.lot}: ${v.head}`).join('\n') + '\n' : '';
+    if(!confirm(`Confirm Move:\n${splitMsg}${countMsg}\nFrom: ${fromP}\nTo: ${toP}`)) return;
 
     const saveMoveBtn = document.getElementById('saveMoveBtn');
     isSubmittingMove = true;
@@ -1105,9 +1220,10 @@ movesForm.addEventListener('submit', function(e) {
     showToast(`🚚 Move saved: ${fromP} → ${toP}`, 'success', 2000);
     updateDailySummary();
     movesForm.reset();
-    // reset() leaves the lot picker holding options for a pasture that is no
-    // longer selected; rebuild it from the (now empty) form.
-    refreshMoveLots();
+    // reset() leaves the split rows holding lots for a pasture that is no
+    // longer selected; rebuild from the (now empty) form.
+    moveSplitTouched = false;
+    renderMoveSplit();
     document.getElementById('moveDate').valueAsDate = new Date();
     moveRecordedByInput.value = localStorage.getItem('crewMemberName'); 
 
@@ -1146,9 +1262,15 @@ window.editMoveLocal = function(id) {
         document.getElementById('moveToPasture').value = String(m.toPasture).trim();
     }
     
-    // Rebuild the lot list for the loaded from-pasture, keeping what was
-    // recorded if it is still standing there.
-    refreshMoveLots(String(m.lotNumber || '').trim());
+    // Rebuild the split for the loaded from-pasture, restoring what was
+    // recorded. An older record carries a single lotNumber and no split.
+    const saved = {};
+    if (Array.isArray(m.lotSplit) && m.lotSplit.length) {
+        m.lotSplit.forEach(x => { saved[x.lot] = x.head; });
+    } else if (m.lotNumber) {
+        saved[String(m.lotNumber).trim()] = parseInt(m.headCount, 10) || 0;
+    }
+    refreshMoveLots(Object.keys(saved).length ? saved : null);
 
     document.getElementById('moveHeadCount').value = m.headCount || "";
     document.getElementById('moveNotes').value = m.notes || "";
@@ -2311,7 +2433,9 @@ function renderMoveRow(m) {
         <td>${m.date} ${statusCell(m)}</td>
         <td>${m.fromRanch} - ${m.fromPasture}</td>
         <td>${m.toRanch} - ${m.toPasture}</td>
-        <td>${m.lotNumber ? '<b>' + m.lotNumber + '</b>' : '<span class="muted">not said</span>'}</td>
+        <td>${Array.isArray(m.lotSplit) && m.lotSplit.length
+                ? m.lotSplit.map(x => `<b>${x.lot}</b> ${x.head}`).join('<br>')
+                : (m.lotNumber ? '<b>' + m.lotNumber + '</b>' : '<span class="muted">not said</span>')}</td>
         <td>${m.headCount || '0'}</td>
         <td>${m.notes || '-'}</td>
         <td>${rowActions(m, 'move')}</td>
@@ -2445,7 +2569,11 @@ function buildDayReport(docRows, moveRows, deadRows, stagedRows, pastureLabelByI
         const who = e.raw && e.raw.recordedBy;
         if (!who) return;
         if (e.client_id) whoByClientId[String(e.client_id)] = who;
-        if (e.approved_ref && e.approved_ref.id) whoByRowId[String(e.approved_ref.id)] = who;
+        // approved_ref is an array for a multi-lot move (one movement per
+        // lot); reading only .id would lose the crew name on those rows.
+        [].concat(e.approved_ref || []).forEach(ref => {
+            if (ref && ref.id) whoByRowId[String(ref.id)] = who;
+        });
     });
     const bookWho = (row) =>
         whoByRowId[String(row.id)] ||

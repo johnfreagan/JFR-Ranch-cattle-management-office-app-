@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <title>Beta Cattle Tracker</title>
-    <link rel="stylesheet" href="styles.css?v=v15">
+    <link rel="stylesheet" href="styles.css?v=v16">
     <style>
         @media (max-width: 600px) {
             .mobile-row { flex-direction: row !important; gap: 8px !important; }
@@ -146,7 +146,7 @@
 // has to keep working without app.js.
 // ---------------------------------------------------------------------
 (function () {
-    var BUILD = 'v15';
+    var BUILD = 'v16';
     window.__FIELD_BUILD = BUILD;
 
     var reported = false;
@@ -237,7 +237,7 @@
             <span>App stuck or not loading right?</span>
             <button type="button" id="loginResetBtn">Reset app</button>
         </div>
-        <div class="build-stamp">build v15</div>
+        <div class="build-stamp">build v16</div>
     </form>
 </div>
 
@@ -419,14 +419,14 @@
         </div>
         <div class="form-row mobile-row">
             <div class="form-group" style="flex: 1;">
-                <label>Lot Moving:</label>
-                <select id="moveLot" title="Which lot is moving. Filled in for you when only one lot is standing in the From pasture."><option value="">Pick From pasture first...</option></select>
-                <small id="moveLotHint" class="muted" style="display:none;"></small>
+                <label>Head Count:</label>
+                <input type="number" id="moveHeadCount" placeholder="Number of head" inputmode="numeric">
             </div>
-            <div class="form-group" style="flex: 1;">
-                <label>Head Count (Optional):</label>
-                <input type="number" id="moveHeadCount" placeholder="Number of head">
-            </div>
+        </div>
+        <div class="form-group">
+            <label>Lots Moving:</label>
+            <div id="moveLotSplit" class="lot-split"></div>
+            <small id="moveLotHint" class="muted" style="display:none;"></small>
         </div>
         <div class="form-row mobile-row">
             <div class="form-group" style="flex: 1;">
@@ -734,6 +734,6 @@
      same-origin assets, so a CDN copy would leave the app dead offline on a
      cold start - which is exactly when a phone in a pasture needs it. -->
 <script src="supabase.min.js?v=2.46.1"></script>
-<script src="app.js?v=v15"></script>
+<script src="app.js?v=v16"></script>
 </body>
 </html>
