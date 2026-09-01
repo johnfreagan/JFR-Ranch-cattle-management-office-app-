@@ -521,11 +521,12 @@ done.
   COUNT SHEET too, which is the real payoff: counting in walk order instead
   of alphabetical order is what makes a count go quickly and stops lines
   being skipped.
-- **Too many buttons at the top of the Feed screens.** Inventory alone now
-  carries By bay, Tie-out, Print, PDF, Refresh. Counts carries a location
-  picker, a first-count checkbox, Count sheet and + Count a bay. Consolidate -
-  a single overflow/kebab for the print-and-export set would leave only the
-  action that matters on each screen.
+- **Too many buttons at the top of the Feed screens.** DONE for the sub-tab
+  bar 2026-09-01, to John's sketch: twelve flat tabs grouped to six. Still
+  open on the CARDS themselves - Current Inventory carries By bay, Tie-out,
+  Print, PDF and Refresh; Counts carries a location picker, a first-count
+  checkbox, Count sheet and + Count a bay. A kebab for the print-and-export
+  set would leave only the action that matters on each screen.
 
 ## 17. Feed-out dry run — PASSED 2026-09-01
 

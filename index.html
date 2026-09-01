@@ -140,6 +140,24 @@
             background: white; color: var(--accent);
             box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
+        /* A group is a sub-tab that opens a short menu. The bar keeps its pill
+           shape, so a group reads as one more tab rather than a new control. */
+        .sub-group { position: relative; display: inline-flex; }
+        .sub-group .group-btn { white-space: nowrap; }
+        .sub-group .caret { font-size: 9px; opacity: .55; margin-left: 2px; }
+        .sub-group.open .caret { opacity: 1; }
+        .group-menu {
+            display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+            background: white; border: 1px solid var(--border, #ddd); border-radius: 10px;
+            box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 4px; min-width: 190px;
+        }
+        .sub-group.open .group-menu { display: block; }
+        .group-menu .sub-tab {
+            display: block; width: 100%; text-align: left; border-radius: 7px;
+            padding: 7px 12px; white-space: nowrap;
+        }
+        .group-menu .sub-tab:hover { background: #f2f1ec; }
+        .group-menu .sub-tab.hidden { display: none; }
         .needs-sev { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
         .needs-sev.alert { color: var(--danger, #b02a2a); }
         .needs-sev.warn  { color: #b58900; }
@@ -794,18 +812,40 @@
              ordering spine, so meds join them without a second screen. -->
         <div class="inv-tabrow hidden" id="invTabRow" data-perm="office">
             <div class="sub-tabs" id="feedSubtabs">
-                <button class="sub-tab active" data-subtab="needs"      data-material="all">Needs Attention</button>
-                <button class="sub-tab"        data-subtab="orders"     data-material="all">Orders</button>
-                <button class="sub-tab"        data-subtab="receipts"   data-material="all">Deliveries</button>
-                <button class="sub-tab"        data-subtab="invoices"   data-material="all">Invoices</button>
-                <button class="sub-tab"        data-subtab="inventory"  data-material="feed">On Hand</button>
-                <button class="sub-tab"        data-subtab="usage"      data-material="feed">Feed Out</button>
-                <button class="sub-tab"        data-subtab="batches"    data-material="feed">Batches</button>
-                <button class="sub-tab"        data-subtab="counts"     data-material="feed">Counts</button>
-                <button class="sub-tab"        data-subtab="cost"       data-material="feed">Cost</button>
-                <button class="sub-tab"        data-subtab="redwing"    data-material="feed">Redwing</button>
-                <button class="sub-tab"        data-subtab="items"      data-material="feed">Items</button>
-                <button class="sub-tab"        data-subtab="locations"  data-material="feed">Locations</button>
+                <button class="sub-tab active" data-subtab="needs"     data-material="all">Needs Attention</button>
+                <button class="sub-tab"        data-subtab="inventory" data-material="feed">Current Inventory</button>
+                <button class="sub-tab"        data-subtab="usage"     data-material="feed">Feed Out</button>
+
+                <div class="sub-group" data-group="purchases">
+                    <button type="button" class="sub-tab group-btn">Purchases <span class="caret">▾</span></button>
+                    <div class="group-menu">
+                        <button class="sub-tab" data-subtab="orders"   data-material="all">Orders</button>
+                        <button class="sub-tab" data-subtab="receipts" data-material="all">Deliveries</button>
+                        <button class="sub-tab" data-subtab="invoices" data-material="all">Invoices</button>
+                    </div>
+                </div>
+
+                <div class="sub-group" data-group="reports" data-material="feed">
+                    <button type="button" class="sub-tab group-btn">Reports <span class="caret">▾</span></button>
+                    <div class="group-menu">
+                        <button class="sub-tab" data-subtab="redwing" data-rw="feed"     data-material="feed">Feed Application</button>
+                        <button class="sub-tab" data-subtab="redwing" data-rw="mineral"  data-material="feed">Mineral Application</button>
+                        <button class="sub-tab" data-subtab="redwing" data-rw="variance" data-material="feed">Variance account</button>
+                        <button class="sub-tab" data-subtab="redwing" data-rw="roll"     data-material="feed">Inventory roll-forward</button>
+                        <button class="sub-tab" data-subtab="redwing" data-rw=""         data-material="feed">All four together</button>
+                    </div>
+                </div>
+
+                <div class="sub-group" data-group="settings" data-material="feed">
+                    <button type="button" class="sub-tab group-btn">Settings <span class="caret">▾</span></button>
+                    <div class="group-menu">
+                        <button class="sub-tab" data-subtab="items"     data-material="feed">Items</button>
+                        <button class="sub-tab" data-subtab="locations" data-material="feed">Locations</button>
+                        <button class="sub-tab" data-subtab="counts"    data-material="feed">Counts</button>
+                        <button class="sub-tab" data-subtab="batches"   data-material="feed">Batches</button>
+                        <button class="sub-tab" data-subtab="cost"      data-material="feed">Cost</button>
+                    </div>
+                </div>
             </div>
             <div class="mat-chip" id="invMaterialChip">
                 <button type="button" data-material="feed" class="active">Feed</button>
@@ -21950,8 +21990,22 @@ ${ranchBlocks}
         // A sub-tab marked for one material is not merely disabled on the
         // others - it is not there. Feed Out means nothing for meds.
         $('feedSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            if (b.classList.contains('group-btn')) return;   // driven by its children
             const m = b.dataset.material || 'all';
             b.classList.toggle('hidden', m !== 'all' && m !== invMaterial);
+        });
+        // A group with nothing left in it is not an empty menu, it is gone.
+        $('feedSubtabs').querySelectorAll('.sub-group').forEach(g => {
+            const any = [...g.querySelectorAll('.group-menu .sub-tab')]
+                .some(b => !b.classList.contains('hidden'));
+            g.classList.toggle('hidden', !any);
+            if (!any) g.classList.remove('open');
+        });
+    }
+
+    function fdCloseSubGroups(except) {
+        $('feedSubtabs').querySelectorAll('.sub-group').forEach(g => {
+            if (g !== except) g.classList.remove('open');
         });
     }
 
@@ -21966,8 +22020,23 @@ ${ranchBlocks}
         const btn = $('feedSubtabs').querySelector(`.sub-tab[data-subtab="${subtab}"]`);
         if (!btn || btn.classList.contains('hidden')) subtab = 'needs';
         $('feedSubtabs').querySelectorAll('.sub-tab').forEach(b => {
-            b.classList.toggle('active', b.dataset.subtab === subtab);
+            if (b.classList.contains('group-btn')) return;
+            b.classList.toggle('active',
+                b.dataset.subtab === subtab
+                && (b.dataset.rw === undefined || (b.dataset.rw || '') === (fdRwOnly || '')));
         });
+        // The group button carries the active child's name, so the bar still
+        // says where you are once the menu is shut.
+        $('feedSubtabs').querySelectorAll('.sub-group').forEach(g => {
+            const hit = g.querySelector('.group-menu .sub-tab.active');
+            const btn = g.querySelector('.group-btn');
+            const base = g.dataset.group.charAt(0).toUpperCase() + g.dataset.group.slice(1);
+            btn.classList.toggle('active', !!hit);
+            btn.innerHTML = (hit ? escapeHtml(base) + ' &middot; ' + escapeHtml(hit.textContent.trim())
+                                 : escapeHtml(base))
+                          + ' <span class="caret">&#9662;</span>';
+        });
+        fdCloseSubGroups();
 
         // The four shared screens read the ordering spine, which carries both
         // materials. Meds have no stock ledger yet, so on that chip they say
@@ -24891,8 +24960,25 @@ ${ranchBlocks}
     // ---- WIRING ----------------------------------------------------------
     $('navInventory').addEventListener('click', () => showInventoryTab('needs'));
     $('feedSubtabs').addEventListener('click', (e) => {
+        const grp = e.target.closest('.group-btn');
+        if (grp) {
+            const g = grp.closest('.sub-group');
+            const wasOpen = g.classList.contains('open');
+            fdCloseSubGroups();
+            g.classList.toggle('open', !wasOpen);
+            return;
+        }
         const btn = e.target.closest('.sub-tab');
-        if (btn) showInventoryTab(btn.dataset.subtab);
+        if (!btn) return;
+        // Reports are the one Redwing screen showing a single section; the
+        // menu carries which. Blank means all four, as before.
+        if (btn.dataset.rw !== undefined) fdRwOnly = btn.dataset.rw || null;
+        showInventoryTab(btn.dataset.subtab);
+    });
+    // Anywhere else on the page shuts an open menu. Without this the menu
+    // stays open behind whatever you just navigated to.
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#feedSubtabs')) fdCloseSubGroups();
     });
 
     $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);
@@ -25572,6 +25658,7 @@ ${ranchBlocks}
     ];
 
     let fdRwData = null;
+    let fdRwOnly = null;      // 'feed' | 'mineral' | 'variance' | 'roll' | null = all four
 
     function fdRwBoxOf(itemId) {
         const it = fdItem(itemId);
@@ -25857,20 +25944,21 @@ ${ranchBlocks}
             Set it on the item (Feed → Items) or these pounds silently never reach Redwing.
             Shown here rather than dropped, for exactly that reason.</div>` : '';
 
+        const want = id => !fdRwOnly || fdRwOnly === id;
         $('fdRwContent').innerHTML = warn +
             `<div class="muted" style="font-size:12px;">Period ${period}</div>` +
-            fdRwSection('feed', 'Feed Application — bulk commodities',
+            (want('feed') ? fdRwSection('feed', 'Feed Application — bulk commodities',
                 'One block per lot, in the order of the Redwing Feed Application screen. Type the $ box and the lbs box from the same row.',
-                fdRwApplicationHtml('feed')) +
-            fdRwSection('mineral', 'Mineral Application — from consumption',
+                fdRwApplicationHtml('feed')) : '') +
+            (want('mineral') ? fdRwSection('mineral', 'Mineral Application — from consumption',
                 'Mineral is not fed off a ticket; nobody records a bag going to a pasture. These pounds come from the physical count, allocated across open lots by head-days, which is what a mineral count variance means.',
-                fdRwApplicationHtml('mineral')) +
-            fdRwSection('variance', 'Variance account — shrink and found feed',
+                fdRwApplicationHtml('mineral')) : '') +
+            (want('variance') ? fdRwSection('variance', 'Variance account — shrink and found feed',
                 'Never charged to a lot. Barn shrink is the cost of handling feed, not of feeding a particular set of cattle.',
-                fdRwVarianceHtml()) +
-            fdRwSection('roll', 'Inventory roll-forward',
+                fdRwVarianceHtml()) : '') +
+            (want('roll') ? fdRwSection('roll', 'Inventory roll-forward',
                 'Beginning, purchases, usage, shrink, ending — the proof that the period&rsquo;s movement explains the change in what is standing in the barn.',
-                fdRwRollHtml());
+                fdRwRollHtml()) : '');
     }
 
     // ---- print / pdf / copy ----------------------------------------------
