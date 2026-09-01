@@ -40,6 +40,7 @@ DECLARE
     v_bad      integer;
     v_before   numeric;
     v_after    numeric;
+    v_expect   numeric;
     r          record;
     bad        text;
 BEGIN
@@ -68,6 +69,14 @@ BEGIN
 
     SELECT COALESCE(SUM(qty_lb_remaining),0) INTO v_before FROM public.feed_receipts;
 
+    -- How much SHOULD come back: the count's own variances, captured now
+    -- because the count is deleted before the check runs. Derived rather
+    -- than hard-coded - the variances are fractional (1,282,302.53 lb, not
+    -- 1,282,302) and an equality against a rounded literal would raise and
+    -- roll back a reversal that had actually worked.
+    SELECT COALESCE(SUM(-variance_lb),0) INTO v_expect
+      FROM public.feed_count_lines WHERE count_id = v_count_id;
+
     -- 1. Put the pounds back on the layers they came off.
     FOR r IN
         SELECT cl.adjustment_usage_id AS usage_id, i.name
@@ -85,8 +94,9 @@ BEGIN
 
     -- 3. Prove the barn is whole again.
     SELECT COALESCE(SUM(qty_lb_remaining),0) INTO v_after FROM public.feed_receipts;
-    IF v_after - v_before <> 1282302 THEN
-        RAISE EXCEPTION 'Expected 1,282,302 lb restored, got %. Rolling back.', v_after - v_before;
+    IF abs((v_after - v_before) - v_expect) > 0.01 THEN
+        RAISE EXCEPTION 'Expected % lb restored, got %. Rolling back.',
+              round(v_expect,2), round(v_after - v_before,2);
     END IF;
 
     SELECT string_agg(x.name || ' = ' || round(x.lb) || ' lb (want ' || x.want || ')', '; ')
@@ -100,7 +110,7 @@ BEGIN
           JOIN public.feed_receipts r2 ON r2.item_id = i.id
          GROUP BY i.name, v.want
       ) x
-     WHERE round(x.lb) <> x.want;
+     WHERE abs(x.lb - x.want) > 0.01;
     IF bad IS NOT NULL THEN
         RAISE EXCEPTION 'Barn did not come back whole: %', bad;
     END IF;
