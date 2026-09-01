@@ -1113,6 +1113,7 @@
                 <div class="card-header">
                     <h2 id="pastureDetailName">—</h2>
                     <div>
+                        <button id="settlePastureBtn" data-perm="office" title="Enter a physical count and correct the per-lot split against it.">Settle counts</button>
                         <button id="archivePastureBtn" data-perm="office">Archive</button>
                         <button id="editPastureBtn" data-perm="office" class="primary">Edit</button>
                     </div>
@@ -2133,6 +2134,56 @@
             </div>
         </div>
     </main>
+</div>
+
+<!-- Settle a pasture against a physical count.
+     A move off a mixed pasture is split pro-rata, so the per-lot numbers are
+     an estimate until somebody counts. This turns a count into the PAIRED
+     MOVES that correct it: head a lot does not really have here go to where
+     they actually are, and head it is short come from there. Every leg goes
+     through record_move_with_pasture, so nothing here reimplements head
+     math and each lot's assignments keep summing to its head_current. -->
+<div class="modal-backdrop" id="settlePastureModal">
+    <div class="modal" style="max-width: 700px;">
+        <h2 id="settlePastureTitle">Settle pasture</h2>
+        <p class="muted" style="margin-bottom: 12px; font-size: 12px;">
+            Enter what you actually counted. The books&rsquo; split is an estimate carried
+            forward from earlier moves &mdash; this replaces it with the count and records
+            the moves that make the change honest.
+        </p>
+        <div id="settlePastureAlert"></div>
+        <input type="hidden" id="settlePastureId">
+
+        <table style="font-size:13px; margin-bottom: 10px;">
+            <thead>
+                <tr>
+                    <th>Lot</th>
+                    <th style="width:90px;">Books say</th>
+                    <th style="width:110px;">Counted</th>
+                    <th style="width:80px;">Change</th>
+                    <th>Offset against</th>
+                </tr>
+            </thead>
+            <tbody id="settlePastureRows"></tbody>
+        </table>
+
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+            <select id="settleAddLot" style="max-width:260px;"></select>
+            <button type="button" id="settleAddLotBtn">Add a lot that is here</button>
+        </div>
+
+        <div id="settlePastureTotals" style="font-size:13px; font-weight:600; margin-bottom:10px;"></div>
+
+        <div class="form-group">
+            <label for="settlePastureNote">Note (goes on every move recorded)</label>
+            <input type="text" id="settlePastureNote" placeholder="e.g. counted at the gate 9/1">
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" onclick="hideModal('settlePastureModal')">Cancel</button>
+            <button type="button" class="primary" id="settlePastureSaveBtn">Record the count</button>
+        </div>
+    </div>
 </div>
 
 <!-- Correct a staged field entry before it is posted to the books.
@@ -7351,6 +7402,284 @@ window.addEventListener('unhandledrejection', function(e) {
     // both move together or the screen and the payload start disagreeing.
     // The clock time is carried over untouched: only the day was wrong.
     // ==========================================================
+    // SETTLING A PASTURE AGAINST A PHYSICAL COUNT
+    //
+    // Cattle from several lots run together and a move off a mixed pasture is
+    // split pro-rata, so the per-lot numbers in a pasture are an estimate. The
+    // estimate costs nothing while the pasture is full — lot_daily_head is
+    // built from invoices, receipts, deaths and sales and never reads a
+    // pasture — but a SALE allocates real dollars per (lot, pasture), so a
+    // split that drifted wrong bills the wrong lot the moment cattle leave.
+    //
+    // The correction is NOT an edit of the numbers. A lot's assignments must
+    // keep summing to its head_current, so taking 2 head of lot A out of this
+    // pasture means lot A gains 2 somewhere else. Every change is therefore a
+    // PAIRED MOVE through record_move_with_pasture, which already does the
+    // head math and opens a destination assignment when there is none.
+    //
+    // The case that cannot be fixed here: a lot short of head in this pasture
+    // whose other pastures hold none to bring in. Those head are dead or sold,
+    // so the error is in an allocation already made, not in where cattle are
+    // standing. That is refused by name rather than fudged.
+    let settleState = null;
+
+    async function openSettlePasture(pastureId) {
+        const [pastRes, hereRes, allRes, pastureListRes, lotsRes] = await Promise.all([
+            supabase.from('pastures').select('id, name, ranch_id, ranches(name)').eq('id', pastureId).single(),
+            supabase.from('lot_pasture_assignments')
+                .select('id, lot_id, head_count, notes, lots!inner(lot_number, is_test, closed_at)')
+                .eq('pasture_id', pastureId).is('moved_out', null),
+            // Every open assignment, so a counterparty pasture can be offered
+            // and checked for the head it would have to give up.
+            supabase.from('lot_pasture_assignments')
+                .select('lot_id, pasture_id, head_count, pastures!inner(name, ranches!inner(name))')
+                .is('moved_out', null),
+            supabase.from('pastures').select('id, name, is_active, ranches!inner(name)').eq('is_active', true),
+            supabase.from('lots').select('id, lot_number, is_test').is('closed_at', null)
+        ]);
+        const err = [pastRes, hereRes, allRes, pastureListRes, lotsRes].find(r => r.error);
+        if (err) { showAlert('globalAlert', 'Could not open the count: ' + err.error.message, 'error'); return; }
+
+        const label = p => `${p.ranches ? p.ranches.name + ' – ' : ''}${p.name}`;
+        const here = (hereRes.data || [])
+            .filter(a => a.lots && !a.lots.is_test)
+            .map(a => ({ lot_id: a.lot_id, lot_number: a.lots.lot_number, book: Number(a.head_count) || 0 }))
+            .sort((a, b) => b.book - a.book);
+
+        const elsewhereByLot = {};
+        (allRes.data || []).forEach(a => {
+            if (a.pasture_id === pastureId) return;
+            (elsewhereByLot[a.lot_id] = elsewhereByLot[a.lot_id] || []).push({
+                pasture_id: a.pasture_id, head: Number(a.head_count) || 0, label: label(a.pastures)
+            });
+        });
+        Object.values(elsewhereByLot).forEach(list => list.sort((a, b) => b.head - a.head));
+
+        settleState = {
+            pastureId,
+            pastureLabel: label(pastRes.data),
+            here,
+            elsewhereByLot,
+            pastures: (pastureListRes.data || []).filter(p => p.id !== pastureId)
+                        .map(p => ({ id: p.id, label: label(p) }))
+                        .sort((a, b) => a.label.localeCompare(b.label)),
+            openLots: (lotsRes.data || []).filter(l => !l.is_test)
+                        .sort((a, b) => a.lot_number.localeCompare(b.lot_number))
+        };
+
+        $('settlePastureId').value = pastureId;
+        $('settlePastureTitle').textContent = `Settle ${settleState.pastureLabel}`;
+        $('settlePastureAlert').innerHTML = '';
+        $('settlePastureNote').value = '';
+        renderSettleRows();
+        showModal('settlePastureModal');
+    }
+
+    function settleCounterpartyOptions(lotId, needIn) {
+        const st = settleState;
+        if (needIn) {
+            // Head have to come FROM somewhere this lot actually stands.
+            const src = st.elsewhereByLot[lotId] || [];
+            if (!src.length) return null;          // nothing to draw on — refuse later
+            return src.map(x => `<option value="${x.pasture_id}">${escapeHtml(x.label)} (${x.head} hd)</option>`).join('');
+        }
+        // Head leaving here can go anywhere; lead with where this lot already is.
+        const known = (st.elsewhereByLot[lotId] || []).map(x => x.pasture_id);
+        const lead = (st.elsewhereByLot[lotId] || [])
+            .map(x => `<option value="${x.pasture_id}">${escapeHtml(x.label)} (${x.head} hd)</option>`).join('');
+        const rest = st.pastures.filter(p => known.indexOf(p.id) === -1)
+            .map(p => `<option value="${p.id}">${escapeHtml(p.label)}</option>`).join('');
+        return lead + rest;
+    }
+
+    function renderSettleRows() {
+        const st = settleState;
+        $('settlePastureRows').innerHTML = st.here.map(r => `
+            <tr data-lot="${r.lot_id}">
+                <td><strong>${escapeHtml(r.lot_number)}</strong></td>
+                <td class="num">${r.book}</td>
+                <td><input type="number" class="settle-count" data-lot="${r.lot_id}" min="0" step="1"
+                           value="${r.counted != null ? r.counted : r.book}" style="width:90px; text-align:right;"></td>
+                <td class="settle-delta" data-lot="${r.lot_id}"></td>
+                <td class="settle-cp" data-lot="${r.lot_id}"></td>
+            </tr>`).join('');
+
+        const taken = st.here.map(r => r.lot_id);
+        $('settleAddLot').innerHTML = '<option value="">— a lot that is here but not on the books —</option>'
+            + st.openLots.filter(l => taken.indexOf(l.id) === -1)
+                .map(l => `<option value="${l.id}">${escapeHtml(l.lot_number)}</option>`).join('');
+
+        $('settlePastureRows').querySelectorAll('.settle-count').forEach(el => {
+            el.addEventListener('input', recomputeSettle);
+        });
+        recomputeSettle();
+    }
+
+    function settleRowValues() {
+        return settleState.here.map(r => {
+            const el = document.querySelector(`.settle-count[data-lot="${r.lot_id}"]`);
+            const counted = el ? (el.value === '' ? null : parseInt(el.value, 10)) : r.book;
+            return { ...r, counted: (counted == null || isNaN(counted)) ? null : counted };
+        });
+    }
+
+    function recomputeSettle() {
+        const st = settleState;
+        const rows = settleRowValues();
+        const bookTotal = rows.reduce((t, r) => t + r.book, 0);
+        const countTotal = rows.reduce((t, r) => t + (r.counted || 0), 0);
+
+        rows.forEach(r => {
+            const delta = (r.counted || 0) - r.book;
+            const dEl = document.querySelector(`.settle-delta[data-lot="${r.lot_id}"]`);
+            const cEl = document.querySelector(`.settle-cp[data-lot="${r.lot_id}"]`);
+            if (dEl) {
+                dEl.innerHTML = delta === 0 ? '<span class="muted">—</span>'
+                    : `<strong style="color:${delta > 0 ? '#1b7a34' : '#d70015'}">${delta > 0 ? '+' : ''}${delta}</strong>`;
+            }
+            if (!cEl) return;
+            if (delta === 0) { cEl.innerHTML = '<span class="muted">—</span>'; return; }
+            const opts = settleCounterpartyOptions(r.lot_id, delta > 0);
+            if (!opts) {
+                // The refusal that matters: nowhere to bring these head from.
+                cEl.innerHTML = `<span style="color:#d70015; font-size:12px;">` +
+                    `${r.lot_number} has no head in any other pasture — these were sold or died, ` +
+                    `so this is a sale allocation to fix, not a move.</span>`;
+                return;
+            }
+            const keep = cEl.querySelector('select') ? cEl.querySelector('select').value : '';
+            cEl.innerHTML = `<select class="settle-cp-sel" data-lot="${r.lot_id}" style="max-width:230px;">${opts}</select>
+                             <div class="muted" style="font-size:11px;">${delta > 0 ? 'bring ' + delta + ' from' : 'send ' + (-delta) + ' to'}</div>`;
+            if (keep) { const sel = cEl.querySelector('select'); if ([...sel.options].some(o => o.value === keep)) sel.value = keep; }
+        });
+
+        const el = $('settlePastureTotals');
+        if (countTotal === bookTotal) {
+            const changed = rows.filter(r => (r.counted || 0) !== r.book).length;
+            el.innerHTML = changed
+                ? `<span style="color:#1b7a34;">${countTotal} head counted, matches the books. ${changed} lot${changed === 1 ? '' : 's'} to correct.</span>`
+                : `<span style="color:#1b7a34;">${countTotal} head counted, and the split already matches. Recording this marks the pasture verified.</span>`;
+        } else {
+            el.innerHTML = `<span style="color:#d70015;">${countTotal} counted against ${bookTotal} on the books — ` +
+                `${countTotal < bookTotal ? (bookTotal - countTotal) + ' short' : (countTotal - bookTotal) + ' over'}. ` +
+                `A pasture total that does not tie is a death, sale or move that never got recorded, ` +
+                `not a split to re-cut. Fix that first.</span>`;
+        }
+    }
+
+    // Marker written onto every assignment in a settled pasture. Kept as a
+    // dated tag inside `notes` rather than a new column: it is genuinely
+    // useful audit text on its own, and it needs no migration against a live
+    // production schema. The Anomalies check reads it to stop nagging about a
+    // pasture somebody has already counted.
+    const SETTLE_TAG = /\[counted (\d{4}-\d{2}-\d{2})\]/;
+
+    async function saveSettlePasture() {
+        const st = settleState;
+        if (!st) return;
+        const rows = settleRowValues();
+        const bookTotal = rows.reduce((t, r) => t + r.book, 0);
+        const countTotal = rows.reduce((t, r) => t + (r.counted || 0), 0);
+
+        if (rows.some(r => r.counted == null)) {
+            showAlert('settlePastureAlert', 'Every lot needs a counted number — use 0 for a lot that is not there.', 'error');
+            return;
+        }
+        if (countTotal !== bookTotal) {
+            showAlert('settlePastureAlert',
+                `The count totals ${countTotal} against ${bookTotal} on the books. That gap is a death, sale or ` +
+                `move that was never recorded — record it first, then settle the split.`, 'error');
+            return;
+        }
+
+        const legs = [];
+        for (const r of rows) {
+            const delta = r.counted - r.book;
+            if (delta === 0) continue;
+            const sel = document.querySelector(`.settle-cp-sel[data-lot="${r.lot_id}"]`);
+            if (!sel || !sel.value) {
+                showAlert('settlePastureAlert',
+                    `${r.lot_number} is ${Math.abs(delta)} head ${delta > 0 ? 'short on the books' : 'over on the books'} ` +
+                    `and has no other pasture to ${delta > 0 ? 'draw from' : 'send them to'}. ` +
+                    `Those head are already sold or dead, so this is a sale allocation to correct, not a move.`, 'error');
+                return;
+            }
+            if (delta > 0) {
+                // Bring head IN: verify the source really holds them, or the
+                // RPC would fail part-way through a multi-leg correction.
+                const src = (st.elsewhereByLot[r.lot_id] || []).find(x => x.pasture_id === sel.value);
+                if (!src || src.head < delta) {
+                    showAlert('settlePastureAlert',
+                        `${r.lot_number} needs ${delta} head from ${src ? src.label : 'that pasture'}, which holds ` +
+                        `${src ? src.head : 0}.`, 'error');
+                    return;
+                }
+                legs.push({ lot_id: r.lot_id, lot_number: r.lot_number, from: sel.value, to: st.pastureId, head: delta });
+            } else {
+                legs.push({ lot_id: r.lot_id, lot_number: r.lot_number, from: st.pastureId, to: sel.value, head: -delta });
+            }
+        }
+
+        const note = $('settlePastureNote').value.trim();
+        const today = ranchToday();
+        const btn = $('settlePastureSaveBtn');
+        btn.disabled = true; btn.textContent = 'Recording…';
+
+        const posted = [];
+        try {
+            for (const leg of legs) {
+                const { data, error } = await supabase.rpc('record_move_with_pasture', {
+                    p_lot_id: leg.lot_id,
+                    p_from_pasture_id: leg.from,
+                    p_to_pasture_id: leg.to,
+                    p_head_count: leg.head,
+                    p_move_date: today,
+                    p_notes: [`Pasture count correction (${st.pastureLabel})`, note].filter(Boolean).join(' · '),
+                    p_recorded_by: currentUser.id
+                });
+                if (error) throw new Error(`${leg.lot_number}: ${error.message}`);
+                posted.push(data);
+            }
+
+            // Stamp the pasture as counted. Done after the moves so a failed
+            // correction never leaves a pasture looking verified.
+            const stamp = `[counted ${today}]` + (note ? ' ' + note : '');
+            const { data: asg, error: asgErr } = await supabase
+                .from('lot_pasture_assignments')
+                .select('id, notes').eq('pasture_id', st.pastureId).is('moved_out', null);
+            if (asgErr) throw asgErr;
+            for (const a of (asg || [])) {
+                const prev = (a.notes || '').replace(SETTLE_TAG, '').trim();
+                const { error } = await supabase.from('lot_pasture_assignments')
+                    .update({ notes: [prev, stamp].filter(Boolean).join(' · ') })
+                    .eq('id', a.id).select('id');
+                if (error) throw error;
+            }
+
+            hideModal('settlePastureModal');
+            showAlert('globalAlert', legs.length
+                ? `${st.pastureLabel} settled — ${legs.length} correction${legs.length === 1 ? '' : 's'} recorded as moves.`
+                : `${st.pastureLabel} verified against the count; nothing needed changing.`, 'success');
+            btn.disabled = false; btn.textContent = 'Record the count';
+            if (typeof loadAnomaliesReport === 'function' &&
+                !$('reportAnomaliesView').classList.contains('hidden')) loadAnomaliesReport();
+        } catch (err) {
+            // Unwind whatever already posted, so a half-corrected pasture
+            // never survives the failure.
+            const failed = [];
+            for (const id of posted.slice().reverse()) {
+                const { error } = await supabase.rpc('delete_move_event', { p_movement_id: id });
+                if (error) failed.push(`${id}: ${error.message}`);
+            }
+            btn.disabled = false; btn.textContent = 'Record the count';
+            showAlert('settlePastureAlert', failed.length
+                ? `Failed: ${err.message}. ROLLBACK INCOMPLETE — these moves are still in the books and need ` +
+                  `attention: ${failed.join('; ')}`
+                : `Failed and rolled back — nothing was changed. ${err.message}`, 'error');
+        }
+    }
+
+    // ==========================================================
     // CORRECTING A STAGED ENTRY
     //
     // The office edits the RESOLVED COLUMNS only. `raw` is never touched:
@@ -10426,6 +10755,18 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('navApprovals').addEventListener('click', showApprovalsTab);
     $('approvalsRefreshBtn').addEventListener('click', loadApprovals);
     $('apprEditSaveBtn').addEventListener('click', saveApprovalEdit);
+    $('settlePastureSaveBtn').addEventListener('click', saveSettlePasture);
+    $('settleAddLotBtn').addEventListener('click', () => {
+        const sel = $('settleAddLot');
+        const lotId = sel.value;
+        if (!lotId || !settleState) return;
+        const lot = settleState.openLots.find(l => l.id === lotId);
+        if (!lot || settleState.here.some(r => r.lot_id === lotId)) return;
+        // Books say none of this lot is here, so its whole counted number is
+        // a gain and has to come from a pasture that actually holds it.
+        settleState.here.push({ lot_id: lotId, lot_number: lot.lot_number, book: 0, counted: 0 });
+        renderSettleRows();
+    });
     $('approvalsApproveBtn').addEventListener('click', approveSelected);
 
     function refreshApprovalSelection() {
@@ -10525,7 +10866,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             // pasture_id and names come along for the stranded-head checks:
             // those findings belong to a PASTURE, not to a lot.
             supabase.from('lot_pasture_assignments')
-                .select('lot_id, head_count, pasture_id, moved_in, pastures!inner(name, ranches!inner(name))')
+                .select('lot_id, head_count, pasture_id, moved_in, notes, pastures!inner(name, ranches!inner(name))')
                 .is('moved_out', null),
             supabase.from('delivery_receipts').select('id, lot_id, head_count, tag_start, tag_end'),
             // Feed checks. Crew cannot read these; RLS returns zero rows and
@@ -10784,6 +11125,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 lot_number: lotNumById[a.lot_id] || '?',
                 head: Number(a.head_count) || 0,
                 moved_in: a.moved_in,
+                notes: a.notes,
                 pasture_id: a.pasture_id,
                 label: `${a.pastures.ranches ? a.pastures.ranches.name + ' – ' : ''}${a.pastures.name}`
             }));
@@ -10793,8 +11135,28 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             (byPasture[r.pasture_id] = byPasture[r.pasture_id] || { label: r.label, rows: [] }).rows.push(r);
         });
 
+        // A pasture somebody has already counted is not a finding. The marker
+        // is the dated [counted YYYY-MM-DD] tag the settle screen writes onto
+        // every assignment in the pasture; it goes stale so the prompt comes
+        // back if cattle have moved since.
+        const COUNT_GOOD_FOR_DAYS = 45;
+        const countedRecently = (rows) => {
+            if (!rows.length) return false;
+            return rows.every(r => {
+                const m = /\[counted (\d{4}-\d{2}-\d{2})\]/.exec(r.notes || '');
+                if (!m) return false;
+                const age = (Date.parse(ranchToday() + 'T00:00:00Z') - Date.parse(m[1] + 'T00:00:00Z')) / 86400000;
+                // A negative age is a count dated ahead of the ranch's own
+                // day — timezone skew between whoever typed it and
+                // ranchToday(). It is still a count, so it counts; only an
+                // OLD one goes stale.
+                return age <= COUNT_GOOD_FOR_DAYS;
+            });
+        };
+
         const pastureFindings = [];
         Object.values(byPasture).forEach(p => {
+            if (countedRecently(p.rows)) return;
             const head = p.rows.reduce((t, r) => t + r.head, 0);
             const lots = p.rows.length;
             const listed = p.rows.slice().sort((a, b) => b.head - a.head)
@@ -10804,6 +11166,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             const countable = lots > 1 && head > 0 && head <= SETTLE_AT;
             if (countable) {
                 pastureFindings.push({
+                    pasture_id: p.rows[0].pasture_id,
                     severity: 'medium',
                     title: 'Mixed pasture small enough to count',
                     detail: `${p.label} holds ${head} head as ${lots} lots (${listed}). ` +
@@ -10828,6 +11191,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 const inn = Number(st.head_in) || 0;
                 if (r.head > 0 && r.head <= RESIDUE_AT && sold > 0 && inn > 0 && (sold / inn) >= 0.5) {
                     pastureFindings.push({
+                        pasture_id: r.pasture_id,
                         severity: cur <= RESIDUE_AT ? 'medium' : 'low',
                         title: 'Stranded head left in a pasture',
                         detail: `${p.label} still carries ${r.head} head of ${r.lot_number}, a lot that is ` +
@@ -10878,7 +11242,9 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                         <tr>
                             <td>${severityBadge(f.severity)}</td>
                             <td><strong>${escapeHtml(f.title)}</strong></td>
-                            <td>${escapeHtml(f.detail)}</td>
+                            <td>${escapeHtml(f.detail)}
+                                <div style="margin-top:4px;"><a href="#" data-settle="${f.pasture_id}"
+                                   style="font-size:12px;">Settle against a count →</a></div></td>
                         </tr>`).join('')}</tbody>
                 </table>
             </div>` : '';
@@ -10960,6 +11326,9 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         }).join('');
 
         $('reportAnomaliesContent').innerHTML = banner + pastureBlock + bayBlock + lotSections;
+        $('reportAnomaliesContent').querySelectorAll('a[data-settle]').forEach(a => {
+            a.addEventListener('click', e => { e.preventDefault(); openSettlePasture(a.dataset.settle); });
+        });
     }
 
     async function loadYardSheetReport() {
@@ -15801,6 +16170,10 @@ ${ranchBlocks}
     $('editPastureBtn').addEventListener('click', () => {
         if (currentPasture) openPastureModal(currentPasture);
     });
+    $('settlePastureBtn').addEventListener('click', () => {
+        if (currentPasture) openSettlePasture(currentPasture.id);
+    });
+
     $('archivePastureBtn').addEventListener('click', async () => {
         if (!currentPasture) return;
         const reactivating = !currentPasture.is_active;

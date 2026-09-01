@@ -489,9 +489,32 @@ animal belongs to which lot.
   lot B inside one pasture breaks A's invariant (its assignments would no
   longer sum to its `head_current`) unless the offsetting 3 head are moved the
   other way somewhere else. The honest correction is a PAIRED move between the
-  two pastures the mix-up spans. If the offsetting head were already sold, the
-  error is in the sale allocation and no move can fix it — that needs a
-  deliberate decision, not a button.
+  two pastures the mix-up spans.
+
+### Settling a pasture against a count (pasture detail → Settle counts)
+
+`openSettlePasture()` turns a physical count into those paired moves. Every
+change goes through `record_move_with_pasture`, so nothing reimplements head
+math and each lot's assignments keep summing to its `head_current`.
+
+- **The pasture TOTAL is not up for negotiation.** A count that does not tie to
+  the books is a death, sale or move that was never recorded — a different
+  problem — so it is refused rather than absorbed into the split.
+- **A lot short of head here, with none standing in any other pasture, is
+  refused by name.** Those head are dead or sold, so the error is in an
+  allocation already made and no move can reach it. This is the one case the
+  screen cannot fix, and it says so instead of fudging.
+- A failure part-way unwinds with `delete_move_event`, so a half-corrected
+  pasture never survives.
+- **`[counted YYYY-MM-DD]` in `lot_pasture_assignments.notes` is the verified
+  marker**, written on every open assignment in the pasture after a successful
+  settle. The Anomalies check reads it and goes quiet for 45 days. Deliberately
+  a note rather than a new column: it needs no migration against a live schema
+  and reads as audit text on its own. It must be present on EVERY assignment in
+  the pasture — a partial marker does not suppress.
+- The freshness test tolerates a NEGATIVE age. A count dated ahead of
+  `ranchToday()` is timezone skew between whoever typed it and the ranch day,
+  not a reason to keep nagging.
 
 ### Anomalies: pastures that will not go to zero
 
