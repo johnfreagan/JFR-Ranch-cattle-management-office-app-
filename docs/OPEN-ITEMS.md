@@ -526,3 +526,29 @@ done.
   picker, a first-count checkbox, Count sheet and + Count a bay. Consolidate -
   a single overflow/kebab for the print-and-export set would leave only the
   action that matters on each screen.
+
+## 17. Feed-out dry run — PASSED 2026-09-01
+
+Run against a replica of the live Commodity Barn (production's exact
+layers, quantities and unit costs) rather than the live books, because the
+opening prices are still provisional and a feed-out FREEZES cost against
+whatever price is standing. The replica exercises the same RPCs on the same
+schema, so the only thing it does not prove is the browser form.
+
+1. **Future period refused.** `post_feed_usage` rejected 9/1-9/7 on 9/1:
+   *period_end has not happened yet*. The guard works.
+2. **FIFO drew by DATE, not by price.** DDG had two layers - 8/17 at
+   $0.1250 and 8/30 at $0.1225. Feeding 60,000 lb took the OLDER and more
+   expensive layer first: 51,660 @ $0.1250 = $6,457.50, then 8,340 @
+   $0.1225 = $1,021.65. Total $7,479.15 across two layers.
+3. **Cost froze correctly.** Corn 44,100 lb @ $0.07907499873 = $3,487.21.
+4. **Routed to the right boxes.** 36-27 / `Corn` / 44,100 lb / $3,487.21 and
+   36-27 / `DDGS` / 60,000 lb / $7,479.15 on the Feed Application report.
+5. **The reversal restored a layer consumed to EXACTLY ZERO.** The DDG 8/17
+   layer went to 0.00 and came back to 51,660 - not 103,320. That is the
+   `delete_death_event` trap in feed form and it is the single most
+   important line in this test.
+6. Every layer back to its starting figure; 0 usage rows, 0 cost rows.
+
+Still unproven: the browser form itself (this went through the RPCs
+directly). The first real week is that test.
