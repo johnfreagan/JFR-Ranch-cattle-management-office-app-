@@ -816,14 +816,7 @@
                 <button class="sub-tab"        data-subtab="inventory" data-material="feed">Current Inventory</button>
                 <button class="sub-tab"        data-subtab="usage"     data-material="feed">Feed Out</button>
 
-                <div class="sub-group" data-group="purchases">
-                    <button type="button" class="sub-tab group-btn">Purchases <span class="caret">▾</span></button>
-                    <div class="group-menu">
-                        <button class="sub-tab" data-subtab="orders"   data-material="all">Orders</button>
-                        <button class="sub-tab" data-subtab="receipts" data-material="all">Deliveries</button>
-                        <button class="sub-tab" data-subtab="invoices" data-material="all">Invoices</button>
-                    </div>
-                </div>
+                <button class="sub-tab" data-subtab="purchases" data-material="all">Purchases</button>
 
                 <div class="sub-group" data-group="reports" data-material="feed">
                     <button type="button" class="sub-tab group-btn">Reports <span class="caret">▾</span></button>
@@ -1786,6 +1779,44 @@
         </div>
 
         <!-- Orders: the document above the delivery. -->
+        <!-- Purchases: ordered, delivered and invoiced are three STATES of one
+             load, not three subjects. One list, filtered. -->
+        <div id="invPurchasesView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Purchases</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="primary" id="invPuNewDeliveryBtn">+ Delivery</button>
+                        <div class="kebab-wrap">
+                            <button class="kebab-btn" id="invPuMenuBtn" title="More">⋯</button>
+                            <div id="invPuMenu" class="kebab-menu hidden">
+                                <button class="kebab-item" id="invPuNewOrderBtn">+ Order</button>
+                                <button class="kebab-item" id="invPuNewInvoiceBtn">+ Invoice</button>
+                                <button class="kebab-item" id="invPuRefreshBtn">↻ Refresh</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 10px 0;">
+                    One row per <b>bought</b> load, from the day it is ordered to the day the bill is
+                    matched. Opening balances, count adjustments and transfers are not purchases and
+                    are not here.
+                    An order is <b>optional</b> &mdash; a load that turns up unannounced is still recordable and
+                    shows as <i>unordered</i>. What an order buys you is the price, so feed never reads free
+                    while the bill is in the post. <b>Freight belongs in the cost.</b>
+                </p>
+                <div class="mat-chip" id="invPuFilter" style="margin-bottom:12px;">
+                    <button type="button" data-pu="all" class="active">All</button>
+                    <button type="button" data-pu="expected">Expected</button>
+                    <button type="button" data-pu="unpriced">Unpriced</button>
+                    <button type="button" data-pu="awaiting">Awaiting invoice</button>
+                    <button type="button" data-pu="complete">Complete</button>
+                </div>
+                <div id="invPuAlert"></div>
+                <div id="invPuContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
         <div id="invOrdersView" class="hidden" data-perm="office">
             <div class="card">
                 <div class="card-header">
@@ -6911,7 +6942,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
-         'feedBatchesView', 'feedCostView', 'feedRedwingView',
+         'feedBatchesView', 'feedCostView', 'feedRedwingView', 'invPurchasesView',
          'feedItemsView', 'feedLocationsView',
          'invNeedsView', 'invOrdersView', 'invInvoicesView', 'invMedsPlaceholderView'].forEach(id => {
             const el = $(id);
@@ -22074,7 +22105,7 @@ ${ranchBlocks}
         // The four shared screens read the ordering spine, which carries both
         // materials. Meds have no stock ledger yet, so on that chip they say
         // so rather than showing an empty feed screen.
-        if (invMaterial === 'med' && !['needs','orders','receipts','invoices'].includes(subtab)) {
+        if (invMaterial === 'med' && !['needs','purchases','orders','receipts','invoices'].includes(subtab)) {
             $('invMedsPlaceholderView').classList.remove('hidden');
             return;
         }
@@ -22082,6 +22113,11 @@ ${ranchBlocks}
         if (subtab === 'needs') {
             $('invNeedsView').classList.remove('hidden');
             loadInvNeeds();
+            return;
+        }
+        if (subtab === 'purchases') {
+            $('invPurchasesView').classList.remove('hidden');
+            loadInvPurchases();
             return;
         }
         if (subtab === 'orders') {
@@ -22313,6 +22349,162 @@ ${ranchBlocks}
     }
 
     // ---- ORDERS ----------------------------------------------------------
+    // ==========================================================
+    // PURCHASES - one list, three states
+    // ==========================================================
+    // Ordered, delivered and invoiced are not three subjects. They are the
+    // life of one load, and splitting them across three screens meant that
+    // "where is that corn?" could not be answered anywhere. An order line
+    // that has not been delivered is a row here too, so the list reads
+    // forward in time rather than only backward from arrival.
+    let invPuFilter = 'all';
+
+    const INV_PU_STATES = {
+        expected: { label: 'Expected',         cls: 'muted' },
+        unpriced: { label: 'Unpriced',         cls: 'warn'  },
+        awaiting: { label: 'Awaiting invoice', cls: 'warn'  },
+        complete: { label: 'Complete',         cls: 'ok'    }
+    };
+
+    async function loadInvPurchases() {
+        clearAlert('invPuAlert');
+        $('invPuContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        let oq = supabase.from('supply_order_line_status').select('*').is('closed_at', null);
+        if (invMaterial !== 'all') oq = oq.eq('item_kind', invMaterial);
+        const [ord, rec] = await Promise.all([
+            oq.limit(300),
+            supabase.from('feed_receipts')
+                .select('*, feed_items(name, purchase_unit, lb_per_purchase_unit), feed_storage_locations(name)')
+                .order('receipt_date', { ascending: false })
+                .order('created_at', { ascending: false })
+                .limit(300)
+        ]);
+        const err = ord.error || rec.error;
+        if (err) { $('invPuContent').innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`; return; }
+
+        const rows = [];
+
+        // Still to come. A reminder-only line has no quantity, so "how much
+        // is outstanding" is not a question it can answer - it says so.
+        (ord.data || []).forEach(o => {
+            const outstanding = o.is_reminder_only
+                ? null : (Number(o.ordered_lb) || 0) - (Number(o.received_lb) || 0);
+            if (!o.is_reminder_only && outstanding <= 0) return;   // fully delivered
+            rows.push({
+                state: 'expected', sort: o.expected_delivery_date || o.order_date,
+                date: o.expected_delivery_date || o.order_date,
+                dateNote: o.expected_delivery_date ? 'due' : 'ordered',
+                item: o.item_name, bay: o.destination_name, vendor: o.vendor_name,
+                qty: outstanding, reminder: !!o.is_reminder_only,
+                rate: o.price_unknown ? null : o.price_per_purchase_unit,
+                rateUnit: o.purchase_unit, value: null, invoice: null,
+                late: o.days_overdue, open: () => invOpenOrder(o.order_id)
+            });
+        });
+
+        (rec.data || []).forEach(r => {
+            const item = r.feed_items || {};
+            // An opening balance, a count adjustment, a transfer or a batch
+            // output is a layer that appeared without anybody buying it.
+            // Listing them here buries the handful of rows this screen exists
+            // for under a pile that needs nothing. They belong on Current
+            // Inventory and Counts, where they already are.
+            if (r.source !== 'purchase') return;
+            const purchase = true;
+            const state = r.cost_pending ? 'unpriced'
+                        : (purchase && !r.invoice_id && !r.paperwork_done) ? 'awaiting'
+                        : 'complete';
+            rows.push({
+                state, sort: r.receipt_date, date: r.receipt_date,
+                dateNote: purchase ? '' : (r.source === 'transfer_in' ? 'transfer in'
+                        : r.source === 'batch_out' ? 'from a batch'
+                        : r.source === 'opening_balance' ? 'opening' : 'count adjustment'),
+                item: item.name, bay: (r.feed_storage_locations || {}).name, vendor: r.vendor,
+                qty: Number(r.qty_lb) || 0, reminder: false,
+                rate: r.cost_pending ? null : r.unit_cost_per_lb, rateUnit: 'lb',
+                value: r.cost_pending ? null : r.total_cost,
+                invoice: r.invoice_number || null,
+                remaining: Number(r.qty_lb_remaining) || 0,
+                ageDays: r.receipt_date ? Math.round(
+                    (new Date(ranchToday()) - new Date(r.receipt_date)) / 86400000) : null,
+                open: () => invOpenDelivery(r.id)
+            });
+        });
+
+        rows.sort((a, b) => String(b.sort || '').localeCompare(String(a.sort || '')));
+        invPuRender(rows);
+    }
+
+    function invPuRender(all) {
+        const counts = { all: all.length };
+        Object.keys(INV_PU_STATES).forEach(k => counts[k] = all.filter(r => r.state === k).length);
+        $('invPuFilter').querySelectorAll('button').forEach(b => {
+            const k = b.dataset.pu;
+            b.classList.toggle('active', k === invPuFilter);
+            const base = b.textContent.replace(/\s*\(\d+\)$/, '');
+            b.textContent = counts[k] ? `${base} (${counts[k]})` : base;
+        });
+
+        const rows = invPuFilter === 'all' ? all : all.filter(r => r.state === invPuFilter);
+        if (!rows.length) {
+            $('invPuContent').innerHTML = `<div class="empty">${
+                invPuFilter === 'all' ? 'Nothing ordered or delivered yet. Start with <b>+ Delivery</b>.'
+                : 'Nothing in that state.'}</div>`;
+            return;
+        }
+
+        const body = rows.map((r, i) => {
+            const st = INV_PU_STATES[r.state];
+            const colour = st.cls === 'warn' ? 'color:#b58900;'
+                         : st.cls === 'ok' ? 'color:#1a6b3c;' : '';
+            // Age only earns its place where it is a prompt to act. "Awaiting
+            // invoice - 34 days" is a phone call; on a complete load it is noise.
+            const age = r.state === 'awaiting' && r.ageDays > 0
+                ? `<div class="muted" style="font-size:11px;">${r.ageDays} day${r.ageDays === 1 ? '' : 's'}</div>` : '';
+            return `<tr class="clickable" data-pu-i="${i}">
+                <td style="${colour}white-space:nowrap;"><b>${escapeHtml(st.label)}</b>${age}
+                    ${r.late != null ? `<div style="color:#b58900;font-size:11px;">${r.late}d late</div>` : ''}</td>
+                <td style="white-space:nowrap;">${fmtDate(r.date)}
+                    ${r.dateNote ? `<div class="muted" style="font-size:11px;">${escapeHtml(r.dateNote)}</div>` : ''}</td>
+                <td><strong>${escapeHtml(r.item || '—')}</strong>
+                    ${r.bay ? `<div class="muted" style="font-size:11px;">${escapeHtml(r.bay)}</div>` : ''}</td>
+                <td class="muted" style="font-size:12px;">${escapeHtml(r.vendor || '—')}</td>
+                <td class="num">${r.reminder ? '<span class="muted">reminder</span>'
+                    : r.qty != null ? fmtNum(r.qty) + ' lb' : '—'}
+                    ${r.remaining != null && r.qty > r.remaining
+                        ? `<div class="muted" style="font-size:11px;">${fmtNum(r.remaining)} left</div>` : ''}</td>
+                <td class="num">${r.rate != null
+                    ? '$' + Number(r.rate).toFixed(r.rateUnit === 'lb' ? 4 : 2) + '/' + escapeHtml(r.rateUnit || 'unit')
+                    : (r.state === 'unpriced' ? '<span style="color:#b58900;">⚠ no price</span>' : '—')}</td>
+                <td class="num">${r.value != null ? fmtMoney(r.value) : '—'}</td>
+                <td class="muted" style="font-size:12px;">${escapeHtml(r.invoice || '—')}</td>
+            </tr>`;
+        }).join('');
+
+        $('invPuContent').innerHTML = `
+            <table><thead><tr>
+                <th>Status</th><th>Date</th><th>Item</th><th>Vendor</th>
+                <th class="num">Quantity</th><th class="num">Price</th>
+                <th class="num">Value</th><th>Invoice</th>
+            </tr></thead><tbody>${body}</tbody></table>`;
+        $('invPuContent').querySelectorAll('[data-pu-i]').forEach(tr => {
+            tr.addEventListener('click', () => rows[Number(tr.dataset.puI)].open());
+        });
+    }
+
+    async function invOpenOrder(id) {
+        await fdLoadRefs(); await invLoadVendors();
+        const { data } = await supabase.from('supply_orders')
+            .select('*, supply_order_lines(*)').eq('id', id).maybeSingle();
+        if (data) openInvOrderModal(data, data.supply_order_lines || []);
+    }
+    async function invOpenDelivery(id) {
+        await fdPrepReceiptModal();
+        const { data } = await supabase.from('feed_receipts').select('*').eq('id', id).maybeSingle();
+        if (data) openFdReceiptModal(data);
+    }
+
     async function loadInvOrders() {
         clearAlert('invOrdAlert');
         $('invOrdContent').innerHTML = '<div class="empty">Loading…</div>';
@@ -25012,6 +25204,24 @@ ${ranchBlocks}
     // stays open behind whatever you just navigated to.
     document.addEventListener('click', (e) => {
         if (!e.target.closest('#feedSubtabs')) fdCloseSubGroups();
+    });
+
+    bindKebab('invPuMenuBtn', 'invPuMenu');
+    $('invPuNewDeliveryBtn').addEventListener('click', async () => {
+        await fdPrepReceiptModal(); openFdReceiptModal(null);
+    });
+    $('invPuNewOrderBtn').addEventListener('click', async () => {
+        await fdLoadRefs(); await invLoadVendors(); openInvOrderModal(null, []);
+    });
+    $('invPuNewInvoiceBtn').addEventListener('click', async () => {
+        await invLoadVendors(); openInvInvoiceModal(null, []);
+    });
+    $('invPuRefreshBtn').addEventListener('click', loadInvPurchases);
+    $('invPuFilter').addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-pu]');
+        if (!b) return;
+        invPuFilter = b.dataset.pu;
+        loadInvPurchases();
     });
 
     $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);

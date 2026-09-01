@@ -553,3 +553,31 @@ schema, so the only thing it does not prove is the browser form.
 
 Still unproven: the browser form itself (this went through the RPCs
 directly). The first real week is that test.
+
+## 18. Purchases merged to one screen (2026-09-01)
+
+Orders, Deliveries and Invoices were three tabs. They are not three
+subjects - they are three states of ONE load, and split across three
+screens the question "where is that corn?" could not be answered
+anywhere. Now one list, filtered by state:
+
+  Expected · Unpriced · Awaiting invoice · Complete
+
+An order line not yet delivered is a row, so the list reads FORWARD in
+time rather than only backward from arrival. The two old checkboxes
+("Unpriced only", "Paperwork outstanding") became states in the same
+filter, which is what they always were.
+
+**Only bought loads appear.** An opening balance, count adjustment,
+transfer or batch output is a layer that arrived without anybody buying
+it; on the fixture they were 8 of 15 rows and buried the ones needing
+action. They live on Current Inventory and Counts.
+
+The three modals are untouched - only the lists merged - so the risk
+was in the reading, not the writing.
+
+STILL TO DECIDE after John's first real order: whether the loss of a
+standalone invoice LIST matters. An invoice is visible per-load in the
+Invoice column and opens from there, but "show me every bill we have
+entered" now has no home. Left out deliberately to find out if it is
+missed.
