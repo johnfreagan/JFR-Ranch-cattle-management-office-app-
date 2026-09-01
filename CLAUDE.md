@@ -489,9 +489,32 @@ animal belongs to which lot.
   lot B inside one pasture breaks A's invariant (its assignments would no
   longer sum to its `head_current`) unless the offsetting 3 head are moved the
   other way somewhere else. The honest correction is a PAIRED move between the
-  two pastures the mix-up spans. If the offsetting head were already sold, the
-  error is in the sale allocation and no move can fix it — that needs a
-  deliberate decision, not a button.
+  two pastures the mix-up spans.
+
+### Settling a pasture against a count (pasture detail → Settle counts)
+
+`openSettlePasture()` turns a physical count into those paired moves. Every
+change goes through `record_move_with_pasture`, so nothing reimplements head
+math and each lot's assignments keep summing to its `head_current`.
+
+- **The pasture TOTAL is not up for negotiation.** A count that does not tie to
+  the books is a death, sale or move that was never recorded — a different
+  problem — so it is refused rather than absorbed into the split.
+- **A lot short of head here, with none standing in any other pasture, is
+  refused by name.** Those head are dead or sold, so the error is in an
+  allocation already made and no move can reach it. This is the one case the
+  screen cannot fix, and it says so instead of fudging.
+- A failure part-way unwinds with `delete_move_event`, so a half-corrected
+  pasture never survives.
+- **`[counted YYYY-MM-DD]` in `lot_pasture_assignments.notes` is the verified
+  marker**, written on every open assignment in the pasture after a successful
+  settle. The Anomalies check reads it and goes quiet for 45 days. Deliberately
+  a note rather than a new column: it needs no migration against a live schema
+  and reads as audit text on its own. It must be present on EVERY assignment in
+  the pasture — a partial marker does not suppress.
+- The freshness test tolerates a NEGATIVE age. A count dated ahead of
+  `ranchToday()` is timezone skew between whoever typed it and the ranch day,
+  not a reason to keep nagging.
 
 ### Anomalies: pastures that will not go to zero
 
@@ -664,6 +687,137 @@ rules:
 - **`post_feed_usage` gained `p_batch_id` and was DROPped and recreated**, not
   overloaded — PostgREST resolves an RPC by argument names and two overloads
   make that ambiguous. The verify block asserts exactly one exists.
+
+## Inventory flow: order → delivery → invoice (wave 1 live 2026-08-31)
+
+Migration: `docs/sql/2026-08-31_inventory_flow.sql`. All 23 decisions with the
+reasoning and the rejected alternatives: `docs/inventory-flow-design.md`.
+Office+owner only. **The `Feed` tab is now `Inventory`.**
+
+```
+reorder signal ─▶ supply_orders ─▶ supply_order_lines ─┐ (one line, many loads)
+                                                        ▼
+vendors                                          feed_receipts  ← THE FIFO LAYER
+                                                        │  costed at the ORDERED price
+                                                        ▼
+                                supply_invoices ─▶ supply_invoice_receipts
+                                                        │  difference only
+                                                        ▼
+                                                feed_price_variance
+```
+
+- **One spine, two ledgers.** `supply_order_lines` carries `item_kind` plus
+  `feed_item_id` / `medication_id` with a CHECK that exactly one is set. Meds
+  join as a receiving handler, not a second set of screens. Ordering,
+  invoicing and the worklist are shared; consumption and costing are not.
+- **A delivered load is costed at the ORDERED price**, so feed stops reading
+  free until the bill arrives — which was the status quo and is the same
+  `SUM()`-ignores-NULL failure the feed module was built to avoid.
+  `cost_pending` is now the flagged exception, not the normal path.
+- **When the invoice differs, the layer is corrected GOING FORWARD and the
+  already-consumed difference is booked to `feed_price_variance`.**
+  `feed_usage_costs` is never rewritten. Restating frozen costs would reopen
+  closed lots and prior fiscal years exactly the way editing a drug price
+  does — processing cost with a slower fuse.
+- **The invoice adjustment rides on `feed_receipts.other_cost`**, whose `>= 0`
+  check is relaxed because a bill can come in low. `total_cost` and
+  `unit_cost_per_lb` are generated from the three cost columns and FIFO reads
+  `unit_cost_per_lb`, so one of them has to move; `product_cost` and
+  `freight_cost` keep saying what was agreed. The audit trail lives on
+  `supply_invoice_receipts` (what the bill said) and `feed_price_variance`
+  (what it cost us), not on that column.
+- **A load that arrived UNPRICED takes the other path.** Its usage costs are
+  NULL holes, not frozen numbers, so matching an invoice fills them through
+  the existing `recost_pending_usage()` and writes NO variance row.
+- **Orders are optional in the schema and leading in the screen.**
+  `feed_receipts.order_line_id` is nullable. Requiring it would have people
+  typing fake orders to record a load that turned up unannounced — into the
+  very table the reorder alerts read from. An unordered load shows as an
+  exception instead.
+- **A line with `qty_lb` NULL is a REMINDER-ONLY line** — "Mark ordered" with
+  nothing else typed. That is the whole med workflow John described. Any
+  receipt for that item auto-closes it, so there is nothing to tidy.
+- **`record_feed_delivery()` is the only way a new layer is created from the
+  app.** The insert, the order-line close and the reminder close are one
+  atomic step, and a field-app caller later is a caller, not a second
+  implementation. Editing a delivery is still an ordinary UPDATE — it moves
+  no order state.
+- **Deleting a delivery reopens the line it closed** (`fdReopenOrderLineIfEmpty`),
+  but only when nothing else is left on the line AND the app closed it on
+  delivery. A line closed by hand — "that's all they're bringing" — was a
+  decision, not a side effect. **This lives in the app, not in
+  `delete_feed_receipt`; move it into the RPC next time that RPC is touched.**
+- **An invoice can be created and deleted, not re-allocated.** Same posture as
+  a saved shipment. `delete_supply_invoice` refuses once variance has been
+  booked, because unwinding it would leave frozen usage costs at the invoice
+  price while the layer went back to the ordered one.
+- **Tie out first, allocate only on a difference.** If the bill matches the
+  sum of what those loads expected to cost, every load keeps exactly its own
+  number and nothing is booked. Otherwise the difference spreads pro-rata by
+  pounds (largest-remainder, sums EXACTLY) or is typed per load.
+- **This is NOT accounts payable.** Redwing owns the payable. No due dates, no
+  payment status, no aging, no check numbers.
+
+### The one list
+
+`inventory_needs_attention` (view) is the single definition behind the
+Needs Attention sub-tab, the count badge on the Inventory tab, and the 7am
+email in wave 3. Ten row kinds; four of them (`bay_short`, `premix_short`,
+`count_overdue`, `feed_unallocated`) already existed and were merely
+ungathered.
+
+- **A row appears because a FIELD IS EMPTY, not because someone wrote a note.**
+  A reminder you must remember to set is a reminder for the days you did not
+  need one, and it never clears itself. `paperwork_done` is the one deliberate
+  "stop asking", recording who decided and when.
+- `source` auto-exempts: `count_adjustment`, `transfer_in`, `batch_out` and
+  `opening_balance` never expect a ticket or a bill.
+- **Rows age visibly.** *Awaiting invoice — 34 days* is a phone call;
+  *— 3 days* is the post.
+
+### Inventory tab layout
+
+**Sub-tabs are the ACTIVITY; the material chip is what you are doing it to.**
+Feed shows eleven sub-tabs, Meds shows the four material-agnostic ones.
+Adding fuel or parts later is a chip and a `data-material` attribute, not
+another screen. Materials-as-sub-tabs was rejected: Orders under Feed and
+Orders under Meds are two screens, and a vendor billing both on one invoice
+would have nowhere to file it.
+
+- `Loads In` became **Deliveries**; the old `Inventory` sub-tab became **On Hand**.
+- **The medications catalog stays under Animal Health.** Dose, `round_up_to`,
+  price and protocol membership are a doctoring tool read by the field app's
+  pickers. Inventory → Meds will hold the *stock*. One drug, two screens.
+
+### Day-one data lesson (worth keeping)
+
+The vendor seed crashed on `vendors_name_uniq` because it deduped with
+`DISTINCT btrim(vendor)` against a unique index on `lower(name)` — three
+capitalisations of "Beginning Inventory" survived and collided. **A seed
+feeding a case-insensitive index must dedupe the way the index does.**
+
+The quieter half mattered more: the marker exclusion list had been written
+from a snapshot taken an hour earlier, and five hand-entered opening balances
+had appeared since. They would not have crashed anything — they would have
+nagged for a weight ticket forever. The verify block now asserts that no
+bookkeeping marker became a vendor.
+
+### Wave 2 and 3 — decided, not built
+
+- **Wave 2, reorder.** `on_hand ≤ greatest(floor_qty, daily_burn × (lead_time +
+  safety))`; blank means silent, so silage never alerts. Burn comes off
+  `lot_feed_daily`'s spread — never off `usage_date`, or a weekly ticket reads
+  as a Friday spike — over `least(21, days since first usage)`, suppressed
+  below 7 days. The alert is DERIVED; only `was_low_at_last_check`,
+  `last_notified_at` and `snoozed_until` are stored. Notify on the transition
+  into low, re-notify every 7 days, zero-on-hand breaks a snooze.
+  It goes second because **it cannot be tested before there is a week of real
+  feed-out to sanity-check the computed lb/day against.**
+- **Wave 3, the 7am email.** The app writes to a `notification_outbox`; a
+  sender decides how it travels, so a failed send is a visible row rather than
+  a silent nothing. Same machinery OPEN-ITEMS #7 needs for the daily report.
+  Blocked on John: a Resend account with a verified domain, and `pg_cron` +
+  `pg_net` enabled. 7:00am pinned to `America/Chicago`.
 
 ## Tally Book (built 2026-08-28, ported the same day)
 
