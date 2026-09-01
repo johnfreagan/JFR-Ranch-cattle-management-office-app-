@@ -1853,13 +1853,18 @@
                         <label style="display:inline-block; font-size:13px;">
                             <input type="checkbox" id="fdInvByLocation" style="width:auto; vertical-align:middle;" checked> By bay
                         </label>
-                        <label style="display:inline-block; font-size:13px;"
-                               title="Adds blank Redwing columns and the quantity/price split, so the printed sheet doubles as the tie-out worksheet.">
-                            <input type="checkbox" id="fdInvTieOut" style="width:auto; vertical-align:middle;"> Tie-out
-                        </label>
-                        <button id="fdInvPrintBtn">🖨 Print</button>
-                        <button id="fdInvPdfBtn">📄 PDF</button>
-                        <button id="fdInvRefreshBtn">Refresh</button>
+                        <div class="kebab-wrap">
+                            <button class="kebab-btn" id="fdInvMenuBtn" title="Print, export, refresh">⋯</button>
+                            <div id="fdInvMenu" class="kebab-menu hidden">
+                                <button class="kebab-item" id="fdInvPrintBtn">🖨 Print</button>
+                                <button class="kebab-item" id="fdInvPdfBtn">📄 PDF</button>
+                                <button class="kebab-item" id="fdInvTieOutBtn"
+                                        title="Blank Redwing columns and the quantity/price split, so the sheet doubles as the tie-out worksheet.">
+                                    📊 Print the Redwing tie-out</button>
+                                <button class="kebab-item" id="fdInvRefreshBtn">↻ Refresh</button>
+                            </div>
+                        </div>
+                        <input type="checkbox" id="fdInvTieOut" class="hidden">
                     </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
@@ -1972,11 +1977,18 @@
                 <div class="card-header">
                     <h2>Physical counts</h2>
                     <div style="display:flex; gap:8px; align-items:center;">
-                        <select id="fdCtPrintLoc" style="max-width:180px;"><option value="">— Print sheet for —</option></select>
-                        <label style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;"
-                               title="Lists every item that belongs in this location, including ones the books show nothing of. Use it for the first count of a bay; after that the sheet lists what is actually on the books.">
-                            <input type="checkbox" id="fdCtPrintAll"> first count</label>
-                        <button id="fdCtPrintBtn">🖨 Count sheet</button>
+                        <div class="kebab-wrap">
+                            <button class="kebab-btn" id="fdCtMenuBtn" title="Print a count sheet">⋯</button>
+                            <div id="fdCtMenu" class="kebab-menu hidden" style="min-width:240px;">
+                                <div style="padding:6px 8px 4px;">
+                                    <select id="fdCtPrintLoc" style="width:100%;"><option value="">— Print sheet for —</option></select>
+                                </div>
+                                <label class="kebab-item" style="cursor:pointer;"
+                                       title="Lists every item that belongs in this location, including ones the books show nothing of. Use it for a bay's first count; after that the sheet lists what is on the books.">
+                                    <input type="checkbox" id="fdCtPrintAll" style="width:auto; vertical-align:middle;"> first count &mdash; list every item</label>
+                                <button class="kebab-item" id="fdCtPrintBtn">🖨 Print the count sheet</button>
+                            </div>
+                        </div>
                         <button class="primary" id="fdNewCountBtn">+ Count a bay</button>
                     </div>
                 </div>
@@ -5319,6 +5331,27 @@ window.addEventListener('unhandledrejection', function(e) {
     // ==========================================================
     // KEBAB MENU — toggle, outside-click dismiss
     // ==========================================================
+    function bindKebab(btnId, menuId, opts) {
+        const btn = document.getElementById(btnId);
+        const menu = document.getElementById(menuId);
+        if (!btn || !menu) return;
+        btn.addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('hidden'); });
+        menu.addEventListener('click', (e) => {
+            // A menu holding a filter must not shut the moment the filter is
+            // ticked - the person is about to press the button underneath it.
+            if (opts && opts.keepOpenOn && e.target.closest(opts.keepOpenOn)) return;
+            menu.classList.add('hidden');
+        });
+        document.addEventListener('click', (e) => {
+            if (menu.classList.contains('hidden')) return;
+            if (e.target === btn || btn.contains(e.target)) return;
+            if (menu.contains(e.target)) return;
+            menu.classList.add('hidden');
+        });
+    }
+    bindKebab('fdInvMenuBtn', 'fdInvMenu');
+    bindKebab('fdCtMenuBtn', 'fdCtMenu', { keepOpenOn: 'select, label, input' });
+
     (function bindLotMenu() {
         const btn = document.getElementById('lotMenuBtn');
         const menu = document.getElementById('lotMenu');
@@ -24982,7 +25015,12 @@ ${ranchBlocks}
     });
 
     $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);
-    $('fdInvPrintBtn').addEventListener('click', printFdOnHand);
+    $('fdInvPrintBtn').addEventListener('click', () => {
+        $('fdInvTieOut').checked = false; printFdOnHand();
+    });
+    $('fdInvTieOutBtn').addEventListener('click', () => {
+        $('fdInvTieOut').checked = true; printFdOnHand();
+    });
     $('fdRwRunBtn').addEventListener('click', loadFdRedwing);
     $('fdRwWeekBtn').addEventListener('click', () => {
         const w = fdRwLastWeek();
@@ -24996,7 +25034,9 @@ ${ranchBlocks}
         else if (b.dataset.fdRwPdf) shareFdRwPdf(b.dataset.fdRwPdf);
         else copyFdRwSection(b.dataset.fdRwCopy);
     });
-    $('fdInvPdfBtn').addEventListener('click', shareFdOnHandPdf);
+    $('fdInvPdfBtn').addEventListener('click', () => {
+        $('fdInvTieOut').checked = false; shareFdOnHandPdf();
+    });
     $('fdInvByLocation').addEventListener('change', loadFeedInventory);
 
     $('fdNewLocBtn').addEventListener('click', () => openFdLocModal(null));
