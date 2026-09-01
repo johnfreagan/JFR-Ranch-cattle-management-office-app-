@@ -149,6 +149,40 @@ tr:last-child td {
 }
 
 /* --- ACTION BUTTONS FOR TABLES (EDIT/DEL) --- */
+/* Small grey helper text — the move form's lot hint and "not said" in the
+   history table. Was being used before it existed. */
+.muted { color: #8e8e93; font-size: 11px; }
+#moveLotHint { display: block; margin-top: 4px; }
+
+/* Where a staged entry stands with the office. "in books" means approved
+   and no longer editable from the phone. */
+.row-status {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 1px 5px; border-radius: 4px; vertical-align: middle;
+    text-transform: uppercase; letter-spacing: .03em;
+}
+.row-status.approved { background: #e5fceb; color: #1b7a34; }
+.row-status.rejected { background: #ffeaea; color: #d70015; }
+
+/* Head-per-lot split on the move form. One row per lot standing in the
+   From pasture; a mixed pasture cannot be split by eye, so the boxes are
+   pre-filled pro-rata and typed over when the cowboy actually knows. */
+.lot-split { border: 1px solid #d1d1d6; border-radius: 8px; padding: 4px 8px; }
+.lot-split-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 6px 0; border-bottom: 1px solid #f0f0f2;
+}
+.lot-split-row:last-of-type { border-bottom: 0; }
+.lot-split-name { font-weight: 600; font-size: 15px; }
+.lot-split-head {
+    width: 90px; flex: 0 0 90px; text-align: right;
+    padding: 8px; font-size: 16px;   /* 16px stops iOS zooming on focus */
+    border: 1px solid #d1d1d6; border-radius: 6px;
+}
+.lot-split-total { font-size: 12px; padding: 6px 0 2px; font-weight: 600; }
+.lot-split-total.ok  { color: #1b7a34; }
+.lot-split-total.bad { color: #d70015; }
+
 .action-buttons { 
     display: flex; 
     gap: 8px; 

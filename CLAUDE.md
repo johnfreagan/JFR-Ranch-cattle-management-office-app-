@@ -465,6 +465,74 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
   (2026-08-26) after weighing the real fix — dollar-free views plus a
   field-app test pass — as not worth the effort.
 
+### Mixed pastures: the pro-rata split and what it costs (2026-08-31)
+
+Cattle from several lots run together, so a move off a mixed pasture is split
+**pro-rata on what the books show standing there**, largest-remainder so the
+parts sum exactly. John's call, and the right one: nobody can tell by eye which
+animal belongs to which lot.
+
+- **The split touches no money.** `lot_daily_head` — which every head-day, cost
+  of gain, feed, treatment and closeout figure is built on — comes from
+  invoices, receipts, deaths and sales. It never reads a pasture or a movement.
+  A move also leaves every lot's total head unchanged, so the head-math
+  invariant holds whichever way the split falls.
+- **What it does decide is which pasture each lot's head sit in, and that bites
+  at the SALE.** `sale_sources` is per (lot, pasture): a draw off a pasture
+  allocates real dollars to whatever lot the books claim is standing there. A
+  split that drifted wrong quietly bills the wrong lot.
+- **The error is self-correcting only if caught before the pasture empties.**
+  John's rule: "we generally can't get a handle on what lots are left until we
+  get to 20-30 head left and we can then leave the appropriate head in lot."
+  The Anomalies report fires at exactly that point — see below.
+- **A pasture-level re-split is NOT a free edit.** Moving 3 head from lot A to
+  lot B inside one pasture breaks A's invariant (its assignments would no
+  longer sum to its `head_current`) unless the offsetting 3 head are moved the
+  other way somewhere else. The honest correction is a PAIRED move between the
+  two pastures the mix-up spans.
+
+### Settling a pasture against a count (pasture detail → Settle counts)
+
+`openSettlePasture()` turns a physical count into those paired moves. Every
+change goes through `record_move_with_pasture`, so nothing reimplements head
+math and each lot's assignments keep summing to its `head_current`.
+
+- **The pasture TOTAL is not up for negotiation.** A count that does not tie to
+  the books is a death, sale or move that was never recorded — a different
+  problem — so it is refused rather than absorbed into the split.
+- **A lot short of head here, with none standing in any other pasture, is
+  refused by name.** Those head are dead or sold, so the error is in an
+  allocation already made and no move can reach it. This is the one case the
+  screen cannot fix, and it says so instead of fudging.
+- A failure part-way unwinds with `delete_move_event`, so a half-corrected
+  pasture never survives.
+- **`[counted YYYY-MM-DD]` in `lot_pasture_assignments.notes` is the verified
+  marker**, written on every open assignment in the pasture after a successful
+  settle. The Anomalies check reads it and goes quiet for 45 days. Deliberately
+  a note rather than a new column: it needs no migration against a live schema
+  and reads as audit text on its own. It must be present on EVERY assignment in
+  the pasture — a partial marker does not suppress.
+- The freshness test tolerates a NEGATIVE age. A count dated ahead of
+  `ranchToday()` is timezone skew between whoever typed it and the ranch day,
+  not a reason to keep nagging.
+
+### Anomalies: pastures that will not go to zero
+
+Three checks, all in `loadAnomaliesReport()`:
+
+1. **Mixed pasture small enough to count** (medium) — 2+ lots and ≤ 30 head.
+   The moment John's rule says the tags can be read and the split settled.
+2. **Stranded head left in a pasture** (medium/low) — ≤ 3 head of a lot that is
+   ≥ 50% sold. The one- and two-head slivers that never leave. Suppressed when
+   the pasture already flagged as countable, or it repeats the same instruction
+   once per lot.
+3. **Last head scattered across pastures** (low, on the lot) — a lot at ≤ 30
+   head spread over 2+ pastures.
+
+`severityBadge` is declared ABOVE the pasture block on purpose: the block
+renders first, and a `const` used before its declaration throws at runtime with
+nothing in a parse check to catch it.
+
 ### Moves tab (multi-lot moves)
 
 - The lot-detail "+ Move" moves one lot; the **Moves** tab records a whole

@@ -2478,7 +2478,11 @@ window.__bootTallyBook = function () {
   }
   function autoSync() {
     if (autoOff || !state.settings.auto) return;
-    if (state.updatedAt <= syncedAt) return;
+    /* Deliberately NOT gated on "is there anything to push". A device with
+       nothing of its own to send still has to PULL, and gating here is what
+       made the laptop sit on an empty book while the phone's entries were
+       already in Postgres: nothing local was dirty, so it never asked.
+       The rate limit below is what stops this becoming chatter. */
     if (busy()) { scheduleAuto(); return; }
     var wait = SYNC_GAP - (Date.now() - lastSyncAt);
     if (wait > 0) { clearTimeout(idleT); idleT = setTimeout(autoSync, wait); return; }
@@ -2509,9 +2513,47 @@ window.__bootTallyBook = function () {
   function ser(v) { return JSON.stringify(v === undefined ? null : v); }
   function clone(v) { return v === undefined ? null : JSON.parse(JSON.stringify(v)); }
 
+  /* paintAll() calls day(sel), which CREATES {entries:[],reflect:""} for
+     whatever day you are looking at. That placeholder is not something you
+     typed, and treating it as local work is what kept the laptop showing an
+     empty page: opening the app minted an empty "today", the pull saw a
+     locally dirty day and refused to overwrite it, and the phone's real
+     entries were declined every single sync. */
+  /* "Has anything actually been written here?" - by content, not by shape.
+     months is an object of six month keys even when the future log is
+     untouched, so counting keys would call it populated and let a blank
+     one overwrite a real one. */
+  function bookEmpty(key, v) {
+    if (v === null || v === undefined) return true;
+    if (Array.isArray(v)) return v.length === 0;
+    if (typeof v === "object") {
+      var ks = Object.keys(v);
+      if (!ks.length) return true;
+      if (key === "months") {
+        return ks.every(function (k) {
+          var m = v[k];
+          return !m || !m.entries || !m.entries.length;
+        });
+      }
+      return false;
+    }
+    return false;
+  }
+
+  function emptyDay(doc) {
+    if (!doc) return true;
+    if (doc.entries && doc.entries.length) return false;
+    return !(doc.reflect && doc.reflect.trim());
+  }
+
   function dirtyDays() {
     return Object.keys(state.days).filter(function (k) {
-      return ser(state.days[k]) !== ser(snapshot.days[k]);
+      if (ser(state.days[k]) === ser(snapshot.days[k])) return false;
+      /* Never push a placeholder we invented ourselves - it would land as an
+         empty row on top of a day another device had filled in. Emptying a
+         day you HAD written still counts, because then it is in the snapshot. */
+      if (emptyDay(state.days[k]) && !(k in snapshot.days)) return false;
+      return true;
     });
   }
   function dirtyBookKeys() {
@@ -2572,10 +2614,53 @@ window.__bootTallyBook = function () {
     var mine = dirtyDays(), mineKeys = dirtyBookKeys();
     var applied = 0, skipped = 0;
 
+    /* The watermark is the newest updated_at we have actually SEEN, not the
+       time on this device. updated_at is stamped by Postgres; a laptop clock
+       running a few minutes fast would otherwise write a watermark into the
+       future and skip every row the phone wrote in between - permanently,
+       and silently. */
+    var seen = snapshot.pulledAt;
+    function mark(ts) {
+      if (!ts) return;
+      if (!seen || Date.parse(ts) > Date.parse(seen)) seen = ts;
+    }
+
     var d = await sb.from("tally_days").select("day,doc,updated_at").gt("updated_at", since);
     if (d.error) throw d.error;
     (d.data || []).forEach(function (row) {
-      if (mine.indexOf(row.day) >= 0) { skipped++; return; }
+      mark(row.updated_at);
+      /* An EMPTY remote day never replaces a local day that has content -
+         whatever is wrong upstream, deleting what is in front of the person
+         is not the recovery. This is asymmetric on purpose: clearing a day
+         deliberately is rare and easily redone, losing a day of entries is
+         not. Advancing the snapshot to the remote copy makes the local day
+         read as dirty, so the very next push repairs the server too. */
+      if (emptyDay(row.doc) && !emptyDay(state.days[row.day])) {
+        snapshot.days[row.day] = clone(row.doc);
+        skipped++;
+        return;
+      }
+      /* A day this device has never synced cannot outrank the server: it
+         has no history to be "ahead" of. This is the fresh-device case -
+         everything looks locally dirty against an empty snapshot, so
+         without this the pull refuses the real book and the push then
+         writes defaults over it. */
+      var neverSynced = !(row.day in snapshot.days);
+      if (neverSynced && !emptyDay(row.doc)) {
+        state.days[row.day] = row.doc;
+        snapshot.days[row.day] = clone(row.doc);
+        applied++;
+        return;
+      }
+      /* Local wins only if there is actually something local to lose. */
+      if (mine.indexOf(row.day) >= 0 && !emptyDay(state.days[row.day])) { skipped++; return; }
+      /* Our own push comes back on the next pull. Applying it would repaint
+         the screen for no reason - and a repaint mid-sentence eats the
+         caret - so an identical doc only advances the snapshot. */
+      if (ser(state.days[row.day]) === ser(row.doc)) {
+        snapshot.days[row.day] = clone(row.doc);
+        return;
+      }
       state.days[row.day] = row.doc;
       snapshot.days[row.day] = clone(row.doc);
       applied++;
@@ -2584,13 +2669,34 @@ window.__bootTallyBook = function () {
     var b = await sb.from("tally_book").select("key,doc,updated_at").gt("updated_at", since);
     if (b.error) throw b.error;
     (b.data || []).forEach(function (row) {
+      mark(row.updated_at);
+      if (ser(state[row.key]) === ser(row.doc)) {
+        snapshot.book[row.key] = clone(row.doc);
+        return;
+      }
+      /* Never let a blank value overwrite a populated one - this is what
+         emptied John's collections on 2026-08-31: a device with no
+         snapshot pushed its defaults over two real lists. Advancing the
+         snapshot marks ours dirty so the next push repairs the server. */
+      if (bookEmpty(row.key, row.doc) && !bookEmpty(row.key, state[row.key])) {
+        snapshot.book[row.key] = clone(row.doc);
+        skipped++;
+        return;
+      }
+      var neverSyncedKey = !(row.key in snapshot.book);
+      if (neverSyncedKey || bookEmpty(row.key, state[row.key])) {
+        if (row.doc !== null) state[row.key] = row.doc;
+        snapshot.book[row.key] = clone(row.doc);
+        applied++;
+        return;
+      }
       if (mineKeys.indexOf(row.key) >= 0) { skipped++; return; }
       if (row.doc !== null) state[row.key] = row.doc;
       snapshot.book[row.key] = clone(row.doc);
       applied++;
     });
 
-    snapshot.pulledAt = new Date().toISOString();
+    snapshot.pulledAt = seen || snapshot.pulledAt;
     saveSnapshot();
     if (applied) {
       try { localStorage.setItem(LS, JSON.stringify(state)); } catch (e) { /* quota */ }
@@ -2609,8 +2715,6 @@ window.__bootTallyBook = function () {
       if (!auto) toast("No signal — saved here, it'll go up when you're back.");
       return;
     }
-    if (state.updatedAt <= syncedAt && auto && !dirtyDays().length && !dirtyBookKeys().length) return;
-
     syncing = true; paintDot();
     try {
       var got = await pullChanges();
@@ -2769,9 +2873,16 @@ window.__bootTallyBook = function () {
     if (e.key === "/" && !editing()) { e.preventDefault(); show("day"); $("capText").focus(); }
   });
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState !== "hidden") return;
     if (autoOff || !state.settings.auto) return;
-    if (state.updatedAt <= syncedAt) return;
+    if (document.visibilityState === "hidden") {
+      /* leaving: push what this device is holding, if anything */
+      if (state.updatedAt <= syncedAt) return;
+      clearTimeout(idleT);
+      sync(true);
+      return;
+    }
+    /* coming back: pull. Picking the laptop up after a day of capture on the
+       phone is exactly when the book is most likely to be stale. */
     clearTimeout(idleT);
     sync(true);
   });

@@ -649,6 +649,22 @@
             border: 0; background: none; color: var(--danger, #d70015);
             font-size: 13px; font-weight: 700; padding: 2px 6px; cursor: pointer;
         }
+        .appr-edit {
+            border: 0; background: none; color: var(--accent, #007aff);
+            font-size: 13px; font-weight: 700; padding: 2px 6px; cursor: pointer;
+        }
+        .appr-edit:disabled { opacity: .35; cursor: default; }
+        .appr-flag.edited { background: #e8f0fe; color: #1a4fa0; }
+        /* The cowboy's original, kept visible beside the correction so the
+           office can see what was actually recorded in the pasture. */
+        .appr-orig { font-size: 11px; color: var(--text-muted, #6b6b70); margin-top: 2px; }
+        .aedit-grid {
+            display: grid; grid-template-columns: 120px 1fr; gap: 8px 10px; align-items: center;
+        }
+        .aedit-grid label { font-size: 12px; color: var(--text-muted, #6b6b70); }
+        .aedit-grid input, .aedit-grid select { width: 100%; }
+        .aedit-med { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+        .aedit-was { font-size: 11px; color: var(--text-muted, #6b6b70); margin: 8px 0 0; }
         .appr-section { margin-bottom: 20px; }
         .appr-section h3 {
             font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
@@ -787,6 +803,7 @@
                 <button class="sub-tab"        data-subtab="batches"    data-material="feed">Batches</button>
                 <button class="sub-tab"        data-subtab="counts"     data-material="feed">Counts</button>
                 <button class="sub-tab"        data-subtab="cost"       data-material="feed">Cost</button>
+                <button class="sub-tab"        data-subtab="redwing"    data-material="feed">Redwing</button>
                 <button class="sub-tab"        data-subtab="items"      data-material="feed">Items</button>
                 <button class="sub-tab"        data-subtab="locations"  data-material="feed">Locations</button>
             </div>
@@ -1134,6 +1151,7 @@
                 <div class="card-header">
                     <h2 id="pastureDetailName">—</h2>
                     <div>
+                        <button id="settlePastureBtn" data-perm="office" title="Enter a physical count and correct the per-lot split against it.">Settle counts</button>
                         <button id="archivePastureBtn" data-perm="office">Archive</button>
                         <button id="editPastureBtn" data-perm="office" class="primary">Edit</button>
                     </div>
@@ -1795,6 +1813,12 @@
                         <label style="display:inline-block; font-size:13px;">
                             <input type="checkbox" id="fdInvByLocation" style="width:auto; vertical-align:middle;" checked> By bay
                         </label>
+                        <label style="display:inline-block; font-size:13px;"
+                               title="Adds blank Redwing columns and the quantity/price split, so the printed sheet doubles as the tie-out worksheet.">
+                            <input type="checkbox" id="fdInvTieOut" style="width:auto; vertical-align:middle;"> Tie-out
+                        </label>
+                        <button id="fdInvPrintBtn">🖨 Print</button>
+                        <button id="fdInvPdfBtn">📄 PDF</button>
                         <button id="fdInvRefreshBtn">Refresh</button>
                     </div>
                 </div>
@@ -1909,6 +1933,9 @@
                     <h2>Physical counts</h2>
                     <div style="display:flex; gap:8px; align-items:center;">
                         <select id="fdCtPrintLoc" style="max-width:180px;"><option value="">— Print sheet for —</option></select>
+                        <label style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;"
+                               title="Lists every item that belongs in this location, including ones the books show nothing of. Use it for the first count of a bay; after that the sheet lists what is actually on the books.">
+                            <input type="checkbox" id="fdCtPrintAll"> first count</label>
                         <button id="fdCtPrintBtn">🖨 Count sheet</button>
                         <button class="primary" id="fdNewCountBtn">+ Count a bay</button>
                     </div>
@@ -1993,6 +2020,29 @@
         </div>
 
         <!-- Items: the catalog. No price column, deliberately. -->
+        <!-- Redwing: the four postings that come out of a week of feed -->
+        <div id="feedRedwingView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Post to Redwing</h2>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <input type="date" id="fdRwFrom" style="max-width:150px;">
+                        <span class="muted">to</span>
+                        <input type="date" id="fdRwTo" style="max-width:150px;">
+                        <button id="fdRwWeekBtn" title="Jump to the last completed Monday-Sunday week">Last week</button>
+                        <button class="primary" id="fdRwRunBtn">Run</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    One week of feed becomes four postings. Each section below is laid out in the order of the
+                    Redwing screen it is typed into, so it is read straight down. Pounds and dollars are the app&rsquo;s
+                    &mdash; the app is the system of record for feed on hand, and Redwing receives its dollars.
+                </p>
+                <div id="fdRwAlert"></div>
+                <div id="fdRwContent"><div class="empty">Pick a period and press Run.</div></div>
+            </div>
+        </div>
+
         <div id="feedItemsView" class="hidden" data-perm="office">
             <div class="card">
                 <div class="card-header">
@@ -2208,6 +2258,80 @@
             </div>
         </div>
     </main>
+</div>
+
+<!-- Settle a pasture against a physical count.
+     A move off a mixed pasture is split pro-rata, so the per-lot numbers are
+     an estimate until somebody counts. This turns a count into the PAIRED
+     MOVES that correct it: head a lot does not really have here go to where
+     they actually are, and head it is short come from there. Every leg goes
+     through record_move_with_pasture, so nothing here reimplements head
+     math and each lot's assignments keep summing to its head_current. -->
+<div class="modal-backdrop" id="settlePastureModal">
+    <div class="modal" style="max-width: 700px;">
+        <h2 id="settlePastureTitle">Settle pasture</h2>
+        <p class="muted" style="margin-bottom: 12px; font-size: 12px;">
+            Enter what you actually counted. The books&rsquo; split is an estimate carried
+            forward from earlier moves &mdash; this replaces it with the count and records
+            the moves that make the change honest.
+        </p>
+        <div id="settlePastureAlert"></div>
+        <input type="hidden" id="settlePastureId">
+
+        <table style="font-size:13px; margin-bottom: 10px;">
+            <thead>
+                <tr>
+                    <th>Lot</th>
+                    <th style="width:90px;">Books say</th>
+                    <th style="width:110px;">Counted</th>
+                    <th style="width:80px;">Change</th>
+                    <th>Offset against</th>
+                </tr>
+            </thead>
+            <tbody id="settlePastureRows"></tbody>
+        </table>
+
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+            <select id="settleAddLot" style="max-width:260px;"></select>
+            <button type="button" id="settleAddLotBtn">Add a lot that is here</button>
+        </div>
+
+        <div id="settlePastureTotals" style="font-size:13px; font-weight:600; margin-bottom:10px;"></div>
+
+        <div class="form-group">
+            <label for="settlePastureNote">Note (goes on every move recorded)</label>
+            <input type="text" id="settlePastureNote" placeholder="e.g. counted at the gate 9/1">
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" onclick="hideModal('settlePastureModal')">Cancel</button>
+            <button type="button" class="primary" id="settlePastureSaveBtn">Record the count</button>
+        </div>
+    </div>
+</div>
+
+<!-- Correct a staged field entry before it is posted to the books.
+     Writes ONLY the resolved columns; `raw` stays exactly as the cowboy
+     recorded it, so the original account of what happened in the pasture
+     survives alongside the office's correction. -->
+<div class="modal-backdrop" id="apprEditModal">
+    <div class="modal" style="max-width: 560px;">
+        <h2 id="apprEditTitle">Correct field entry</h2>
+        <p class="muted" style="margin-bottom: 12px; font-size: 12px;">
+            Nothing here is in the books yet &mdash; this only changes what will be
+            posted when the entry is approved. The cowboy&rsquo;s original entry is kept.
+        </p>
+        <div id="apprEditAlert"></div>
+        <input type="hidden" id="apprEditId">
+
+        <div class="aedit-grid" id="apprEditFields"></div>
+        <p class="aedit-was" id="apprEditWas"></p>
+
+        <div class="modal-actions">
+            <button type="button" onclick="hideModal('apprEditModal')">Cancel</button>
+            <button type="button" class="primary" id="apprEditSaveBtn">Save correction</button>
+        </div>
+    </div>
 </div>
 
 <!-- Shipment money-only edit -->
@@ -2568,9 +2692,9 @@
                         <option value="Corrid Crumbles"><option value="(old)Premix"><option value="BatchTransPre">
                         <option value="TranPremix"><option value="24Corn/Sorg Silage"><option value="25Corn Silage">
                         <option value="SoyHull"><option value="Molasses"><option value="Salt"><option value="Limiter">
-                        <option value="Ranly"><option value="Redman Bag Salt"><option value="ADM Master Gain">
+                        <option value="Redman Bag Salt"><option value="ADM Master Gain">
                         <option value="IGR Master Gain"><option value="MLS Tubs"><option value="Purina Min">
-                        <option value="One Grass"><option value="Ranly Mixing Min">
+                        <option value="Ranly Mixing Min">
                     </datalist>
                     <div class="muted" style="font-size:11px; margin-top:2px;">Several items may share one box &mdash; the export sums them.</div>
                 </div>
@@ -2719,9 +2843,18 @@
             </p>
             <div class="form-grid" style="margin-bottom:6px;">
                 <div>
-                    <label for="fdRcProductCost">Product ($)</label>
+                    <label for="fdRcProductRate">Product <span id="fdRcRateLabel" class="muted">($/ton)</span></label>
+                    <input type="number" step="0.0001" min="0" id="fdRcProductRate" placeholder="e.g. 158.15">
+                </div>
+                <div>
+                    <label for="fdRcProductCost">Product (total $)</label>
                     <input type="number" step="0.01" min="0" id="fdRcProductCost">
                 </div>
+            </div>
+            <div class="muted" style="font-size:11px; margin-bottom:10px;" id="fdRcRateHint">
+                Type either one and the other fills in. Tickets quote a rate; invoices quote a total.
+            </div>
+            <div class="form-grid" style="margin-bottom:6px;">
                 <div>
                     <label for="fdRcFreightCost">Freight ($)</label>
                     <input type="number" step="0.01" min="0" id="fdRcFreightCost">
@@ -6705,7 +6838,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
-         'feedBatchesView', 'feedCostView',
+         'feedBatchesView', 'feedCostView', 'feedRedwingView',
          'feedItemsView', 'feedLocationsView',
          'invNeedsView', 'invOrdersView', 'invInvoicesView', 'invMedsPlaceholderView'].forEach(id => {
             const el = $(id);
@@ -6862,14 +6995,68 @@ window.addEventListener('unhandledrejection', function(e) {
             meds: byName(medRes.data, 'name'),
             medsById: (medRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
             lotsById: (lotsRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            actionsById: (actRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            pasturesById: (pastRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            ranchesById: (ranchRes.data || []).reduce((m, x) => (m[x.id] = x, m), {}),
+            medsList: (medRes.data || []).filter(m => m.is_active)
+                        .sort((a, b) => a.name.localeCompare(b.name)),
+            actionsList: (actRes.data || []).filter(a => a.is_active !== false)
+                        .sort((a, b) => a.name.localeCompare(b.name)),
+            lotsList: (lotsRes.data || []).filter(l => !l.is_test)
+                        .sort((a, b) => a.lot_number.localeCompare(b.lot_number)),
+            ranchesList: (ranchRes.data || []).filter(r => r.is_active !== false)
+                        .sort((a, b) => a.name.localeCompare(b.name)),
             assignments: assignRes.data || []
         };
     }
 
     // Turn one staged row into everything the screen needs to show it.
     // Never invents a value: an unmatched name becomes an issue, not a guess.
+    // The office's corrections live in the RESOLVED COLUMNS, never in `raw`.
+    // `raw` is what the cowboy actually recorded and stays byte-for-byte his
+    // - it is the only account of what happened in the pasture. The columns
+    // (lot_id, pasture_id, to_pasture_id, field_action_id, tag_number,
+    // head_count, resolved_meds) exist precisely to carry the reviewed
+    // version, so an edit overrides rather than overwrites, and the two
+    // readings stay side by side for anyone auditing later.
+    function approvalOverride(entry, lk) {
+        const o = { stale: [] };
+        const raw = entry.raw || {};
+        // A dangling id means the row it pointed at is gone or closed since
+        // the edit. Falling back to inference would silently undo a decision
+        // the office already made, so say it instead.
+        const pick = (id, map, what) => {
+            if (!id) return undefined;
+            const hit = map[id];
+            if (!hit) { o.stale.push(what); return undefined; }
+            return hit;
+        };
+        o.lot       = pick(entry.lot_id, lk.lotsById, 'lot');
+        o.action    = pick(entry.field_action_id, lk.actionsById, 'action');
+        o.pasture   = pick(entry.pasture_id, lk.pasturesById, 'pasture');
+        o.toPasture = pick(entry.to_pasture_id, lk.pasturesById, 'to-pasture');
+        if (entry.head_count != null) o.head = entry.head_count;
+        if (entry.tag_number != null && String(entry.tag_number) !== '') o.tag = String(entry.tag_number);
+        if (Array.isArray(entry.resolved_meds)) o.meds = entry.resolved_meds;
+
+        // "Edited" must mean THE OFFICE changed something, not merely that a
+        // column is populated: the field app itself writes tag_number,
+        // head_count and event_datetime on every submission, so treating any
+        // value as an edit would badge every untouched row. The FK columns and
+        // resolved_meds are only ever written here, so their presence is the
+        // edit; tag and head have to be compared against what the cowboy sent.
+        const rawHead = parseInt(raw.headCount, 10);
+        o.edited = !!(entry.lot_id || entry.field_action_id || entry.pasture_id ||
+                      entry.to_pasture_id || Array.isArray(entry.resolved_meds))
+            || (o.head != null && !isNaN(rawHead) && o.head !== rawHead)
+            || (o.tag != null && String(raw.tagNumber || '') !== o.tag);
+        return o;
+    }
+
     function resolveApprovalEntry(entry, lk) {
         const raw = entry.raw || {};
+        const ov = approvalOverride(entry, lk);
+        const edited = ov.edited;
         // Both RPCs take a date, and deaths and moves have to be replayed in
         // event order. An entry whose timestamp never parsed cannot do either,
         // so it is blocked rather than posted with an empty date.
@@ -6882,6 +7069,9 @@ window.addEventListener('unhandledrejection', function(e) {
         const issues = [], warnings = [];
         const norm = v => String(v == null ? '' : v).trim().toLowerCase();
         const isMove = entry.entry_type === 'move';
+        // Surfaced before anything else: a correction that no longer resolves
+        // is a decision quietly lost, and the reviewer has to know.
+        ov.stale.forEach(w => issues.push(`the ${w} this entry was corrected to no longer exists or is closed — re-edit it`));
 
         const findPasture = (ranchTxt, pastTxt) => {
             const ranch = lk.ranches[norm(ranchTxt)] || null;
@@ -6898,77 +7088,143 @@ window.addEventListener('unhandledrejection', function(e) {
         // app never asks for one and lot_movements.lot_id is NOT NULL, so a
         // reviewer has to pick it. That is expected, not a data fault.
         if (isMove) {
-            const from = findPasture(raw.fromRanch, raw.fromPasture);
-            const to   = findPasture(raw.toRanch, raw.toPasture);
-            if (!from.pasture) issues.push(`from-pasture "${raw.fromRanch || ''} ${raw.fromPasture || ''}" not found`);
-            if (!to.pasture)   issues.push(`to-pasture "${raw.toRanch || ''} ${raw.toPasture || ''}" not found`);
-            const head = parseInt(raw.headCount, 10);
-            if (isNaN(head) || head <= 0) warnings.push('head count not given — uncounted move');
+            const fromTxt = findPasture(raw.fromRanch, raw.fromPasture);
+            const toTxt   = findPasture(raw.toRanch, raw.toPasture);
+            // An office edit wins over the field text on both ends.
+            const fromPasture = ov.pasture || fromTxt.pasture;
+            const toPasture   = ov.toPasture || toTxt.pasture;
+            const fromRanch = fromPasture ? (lk.ranchesById[fromPasture.ranch_id] || null) : fromTxt.ranch;
+            const toRanch   = toPasture ? (lk.ranchesById[toPasture.ranch_id] || null) : toTxt.ranch;
+            if (!fromPasture) issues.push(`from-pasture "${raw.fromRanch || ''} ${raw.fromPasture || ''}" not found — use Edit to set it`);
+            if (!toPasture)   issues.push(`to-pasture "${raw.toRanch || ''} ${raw.toPasture || ''}" not found — use Edit to set it`);
+            const rawHead = parseInt(raw.headCount, 10);
+            const head = ov.head != null ? ov.head : (isNaN(rawHead) ? null : rawHead);
+            if (head == null || head <= 0) warnings.push('head count not given — uncounted move');
 
-            // The field app never asks which lot is moving, and
-            // lot_movements.lot_id is NOT NULL. When the from-pasture holds
-            // exactly one open lot there is nothing to choose, so infer it and
-            // say so. Anything else has to be picked by the reviewer - moving
-            // the wrong lot's head is not a guess worth making.
-            let lot = null;
-            if (from.pasture) {
-                const here = lk.assignments.filter(a => a.pasture_id === from.pasture.id);
-                if (here.length === 1) {
-                    lot = lk.lotsById[here[0].lot_id] || null;
-                    if (lot) warnings.push(`lot ${lot.lot_number} inferred — only lot in ${from.pasture.name}`);
-                } else if (here.length === 0) {
-                    issues.push(`no open lot in ${from.ranch.name} – ${from.pasture.name}`);
-                } else {
-                    issues.push(`${here.length} lots in ${from.pasture.name} — pick which one moved`);
+            // lot_movements.lot_id is NOT NULL, so the lot comes from one of
+            // four places, best first: the office's edit, what the cowboy
+            // said at the gate (field app v15 asks), an inference when the
+            // from-pasture holds exactly one open lot, or nowhere - and then
+            // it must be picked. The cowboy's answer outranks inference
+            // because he was standing there; only an explicit office
+            // correction beats it. Moving the wrong lot's head is not a
+            // guess worth making.
+            // A mixed pasture cannot be split by eye, so the field app sends
+            // a per-lot split (v16+). It is the general form; a single lot is
+            // just a split of one. An office edit still replaces the whole
+            // thing with one lot, which is the escape hatch when the split
+            // turns out wrong.
+            let split = null;
+            if (!ov.lot && Array.isArray(raw.lotSplit) && raw.lotSplit.length) {
+                split = raw.lotSplit.map(x => ({
+                    lot: lk.lots[norm(x.lot)] || null, name: x.lot, head: parseInt(x.head, 10) || 0
+                }));
+                split.filter(x => !x.lot).forEach(x =>
+                    issues.push(`lot "${x.name}" from the field is not an open lot — use Edit to set it`));
+                split = split.filter(x => x.lot && x.head > 0);
+                if (!split.length) split = null;
+            }
+
+            let lot = ov.lot || null;
+            if (!lot && !split && raw.lotNumber) {
+                lot = lk.lots[norm(raw.lotNumber)] || null;
+                if (!lot) issues.push(`lot "${raw.lotNumber}" from the field is not an open lot — use Edit to set it`);
+            }
+            if (fromPasture && split) {
+                // Every leg has to stand up on its own: the RPC runs once per
+                // lot and a single bad leg fails the batch mid-way.
+                split.forEach(x => {
+                    const a = lk.assignments.find(y => y.pasture_id === fromPasture.id && y.lot_id === x.lot.id);
+                    if (!a) issues.push(`lot ${x.lot.lot_number} is not in ${fromPasture.name}`);
+                    else if (x.head > a.head_count) {
+                        issues.push(`${x.head} head of ${x.lot.lot_number} exceeds the ${a.head_count} in ${fromPasture.name}`);
+                    }
+                });
+                const splitSum = split.reduce((t, x) => t + x.head, 0);
+                if (head != null && head !== splitSum) {
+                    issues.push(`the lot split adds to ${splitSum} but the move says ${head} head`);
+                }
+            } else if (fromPasture) {
+                const here = lk.assignments.filter(a => a.pasture_id === fromPasture.id);
+                if (!lot) {
+                    if (here.length === 1) {
+                        lot = lk.lotsById[here[0].lot_id] || null;
+                        if (lot) warnings.push(`lot ${lot.lot_number} inferred — only lot in ${fromPasture.name}`);
+                    } else if (here.length === 0) {
+                        issues.push(`no open lot in ${(fromRanch && fromRanch.name) || ''} – ${fromPasture.name}`);
+                    } else {
+                        const names = here.map(a => (lk.lotsById[a.lot_id] || {}).lot_number)
+                                          .filter(Boolean).join(', ');
+                        issues.push(`${here.length} lots in ${fromPasture.name} (${names}) — use Edit to say which one moved`);
+                    }
+                } else if (!here.some(a => a.lot_id === lot.id)) {
+                    issues.push(`lot ${lot.lot_number} is not in ${fromPasture.name}`);
                 }
             }
-            if (lot && head && head > 0) {
-                const a = lk.assignments.find(x => x.pasture_id === from.pasture.id && x.lot_id === lot.id);
+            if (lot && !split && fromPasture && head && head > 0) {
+                const a = lk.assignments.find(x => x.pasture_id === fromPasture.id && x.lot_id === lot.id);
                 if (a && head > a.head_count) {
-                    issues.push(`${head} head exceeds the ${a.head_count} in that pasture`);
+                    issues.push(`${head} head exceeds the ${a.head_count} of lot ${lot.lot_number} in that pasture`);
                 }
             }
             if (missingWhen) issues.push('no usable date on this entry');
             return {
-                entry, raw, kind: 'move',
-                lot, ranch: from.ranch, pasture: from.pasture,
-                toRanch: to.ranch, toPasture: to.pasture,
-                head: isNaN(head) ? null : head,
+                entry, raw, kind: 'move', edited, split,
+                lot, ranch: fromRanch, pasture: fromPasture,
+                toRanch, toPasture,
+                head,
                 action: null, meds: [], isDead: false, notHauled: false,
                 issues, warnings, ready: issues.length === 0
             };
         }
 
         // ---- Doctoring and deaths ---------------------------------------
-        const lot = lk.lots[norm(raw.lotNumber)] || null;
-        if (!lot) issues.push(raw.lotNumber ? `lot "${raw.lotNumber}" not found on an open lot` : 'no lot given');
+        const lot = ov.lot || lk.lots[norm(raw.lotNumber)] || null;
+        if (!lot) issues.push(raw.lotNumber ? `lot "${raw.lotNumber}" not found on an open lot — use Edit to set it` : 'no lot given — use Edit to set it');
 
         // location is "Ranch - Pasture". Verified that no ranch or pasture
         // name contains a dash, so this split is safe.
         const locParts = String(raw.location || '').split(' - ');
-        const loc = locParts.length >= 2 ? findPasture(locParts[0], locParts[1]) : { ranch: null, pasture: null };
-        if (!loc.ranch) issues.push(`ranch "${locParts[0] || ''}" not found`);
-        else if (!loc.pasture) issues.push(`pasture "${locParts[1] || ''}" not found on ${loc.ranch.name}`);
+        const locTxt = locParts.length >= 2 ? findPasture(locParts[0], locParts[1]) : { ranch: null, pasture: null };
+        const pasture = ov.pasture || locTxt.pasture;
+        const ranch = pasture ? (lk.ranchesById[pasture.ranch_id] || null) : locTxt.ranch;
+        if (!pasture) {
+            if (!locTxt.ranch) issues.push(`ranch "${locParts[0] || ''}" not found — use Edit to set it`);
+            else issues.push(`pasture "${locParts[1] || ''}" not found on ${locTxt.ranch.name} — use Edit to set it`);
+        }
 
-        const action = lk.actions[norm(raw.treatmentType)] || null;
-        if (!action) issues.push(`action "${raw.treatmentType || ''}" not found`);
+        const action = ov.action || lk.actions[norm(raw.treatmentType)] || null;
+        if (!action) issues.push(`action "${raw.treatmentType || ''}" not found — use Edit to set it`);
+
+        const tag = ov.tag != null ? ov.tag : (raw.tagNumber || '');
 
         const meds = [];
-        for (let i = 1; i <= 3; i++) {
-            const name = raw['medication' + i];
-            const doseTxt = raw['dosage' + i];
-            if (!name && !doseTxt) continue;
-            const med = lk.meds[norm(name)] || null;
+        // An office edit replaces the med list wholesale: resolved_meds holds
+        // {position, medication_id, dose}. Anything not edited falls back to
+        // matching the cowboy's free text by name.
+        const medSrc = ov.meds
+            ? ov.meds.map(m => ({ position: m.position,
+                                  med: lk.medsById[m.medication_id] || null,
+                                  name: (lk.medsById[m.medication_id] || {}).name || '',
+                                  doseTxt: m.dose }))
+            : [1, 2, 3].map(i => ({ position: i, name: raw['medication' + i],
+                                    med: lk.meds[norm(raw['medication' + i])] || null,
+                                    doseTxt: raw['dosage' + i] }));
+        medSrc.forEach(src => {
+            const name = src.name;
+            const doseTxt = src.doseTxt;
+            if (!name && (doseTxt === '' || doseTxt == null)) return;
+            const med = src.med;
             const dose = doseTxt === '' || doseTxt == null ? null : Number(doseTxt);
             const unpriced = !!(med && med.cost_per_unit == null && med.cost_per_head == null);
-            if (!med && name) issues.push(`medication "${name}" not matched`);
+            if (!med && name) issues.push(`medication "${name}" not matched — use Edit to map it`);
             if (name && (dose == null || isNaN(dose))) issues.push(`dose for "${name}" is not a number`);
             // Cost is FROZEN at approval, so a null now stays null forever.
             // Flagged, not blocking - see the note above.
             if (unpriced) warnings.push(`${med.name} has no price — cost will post as $0`);
-            meds.push({ position: i, name: name || '', med,
+            meds.push({ position: src.position, name: name || '', med,
                         dose: (dose != null && !isNaN(dose)) ? dose : null, unpriced });
-        }
+        });
 
         if (missingWhen) issues.push('no usable date on this entry');
 
@@ -6979,7 +7235,7 @@ window.addEventListener('unhandledrejection', function(e) {
         if (isDead && !raw.drugOff) warnings.push('carcass disposal not answered');
 
         return {
-            entry, raw, lot, ranch: loc.ranch, pasture: loc.pasture, action, meds,
+            entry, raw, lot, ranch, pasture, action, meds, tag, edited,
             isDead, notHauled, issues, warnings,
             kind: isDead ? 'dead' : 'doctoring',
             ready: issues.length === 0
@@ -6991,7 +7247,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // trigger reject it would take the whole batch down with it.
     async function flagDuplicateApprovals(resolved) {
         const candidates = resolved.filter(r =>
-            r.kind === 'doctoring' && r.lot && r.action && r.action.once_per_animal && r.raw.tagNumber);
+            r.kind === 'doctoring' && r.lot && r.action && r.action.once_per_animal && r.tag);
         if (candidates.length === 0) return;
         const { data, error } = await supabase
             .from('doctoring_events')
@@ -7000,8 +7256,8 @@ window.addEventListener('unhandledrejection', function(e) {
         if (error) { console.warn('duplicate pre-check failed:', error); return; }
         const seen = new Set((data || []).map(d => `${d.tag_number}|${d.lot_id}|${d.field_action_id}`));
         candidates.forEach(r => {
-            if (seen.has(`${r.raw.tagNumber}|${r.lot.id}|${r.action.id}`)) {
-                r.issues.push(`tag ${r.raw.tagNumber} already has "${r.action.name}" on this lot`);
+            if (seen.has(`${r.tag}|${r.lot.id}|${r.action.id}`)) {
+                r.issues.push(`tag ${r.tag} already has "${r.action.name}" on this lot`);
                 r.duplicate = true;
                 r.ready = false;
             }
@@ -7014,7 +7270,9 @@ window.addEventListener('unhandledrejection', function(e) {
         try {
             const [entriesRes, lookups] = await Promise.all([
                 supabase.from('pending_field_entries')
-                    .select('id, entry_type, client_id, raw, status, review_notes, submitted_at, submitted_by, event_datetime')
+                    .select('id, entry_type, client_id, raw, status, review_notes, submitted_at, submitted_by, ' +
+                            'event_datetime, lot_id, pasture_id, to_pasture_id, field_action_id, ' +
+                            'tag_number, no_tag, head_count, resolved_meds')
                     .eq('status', 'pending')
                     .order('event_datetime', { ascending: true }),
                 loadApprovalLookups()
@@ -7066,7 +7324,7 @@ window.addEventListener('unhandledrejection', function(e) {
             html += `<div class="appr-section"><h3>⚠ Needs info (${blocked.length})</h3>`;
             blocked.slice().sort((a, b) =>
                 (entryDayKey(a) || '').localeCompare(entryDayKey(b) || '') ||
-                compareTags(a.raw.tagNumber, b.raw.tagNumber)
+                compareTags(a.tag, b.tag)
             ).forEach(r => { html += approvalRowHtml(r, true); });
             html += `</div>`;
         }
@@ -7104,7 +7362,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     Object.keys(byLot[lotKey]).sort().forEach(pastKey => {
                         html += `<div class="appr-pasture">${escapeHtml(pastKey)}</div>`;
                         byLot[lotKey][pastKey]
-                            .sort((a, b) => compareTags(a.raw.tagNumber, b.raw.tagNumber))
+                            .sort((a, b) => compareTags(a.tag, b.tag))
                             .forEach(r => { html += approvalRowHtml(r, false); });
                     });
                     html += `</div>`;
@@ -7121,7 +7379,7 @@ window.addEventListener('unhandledrejection', function(e) {
     function approvalRowHtml(r, showWhy) {
         const raw = r.raw;
         const isMove = r.kind === 'move';
-        const tag = isMove ? '—' : (raw.tagNumber || 'NT');
+        const tag = isMove ? '—' : (r.tag || 'NT');
         // Moves carry `date`; doctoring carries `dateTime`.
         const stamp = isMove ? raw.date : raw.dateTime;
         const when = stamp
@@ -7131,10 +7389,15 @@ window.addEventListener('unhandledrejection', function(e) {
                     : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
             : '';
 
+        const lotBit = isMove
+            ? (r.split
+                ? ' · ' + r.split.map(x => `${escapeHtml(x.lot.lot_number)} ${x.head}`).join(' + ')
+                : (r.lot ? ` · ${escapeHtml(r.lot.lot_number)}` : ''))
+            : '';
         const detail = isMove
             ? `${escapeHtml(raw.fromRanch || '')} ${escapeHtml(raw.fromPasture || '')} → ` +
               `${escapeHtml(raw.toRanch || '')} ${escapeHtml(raw.toPasture || '')} · ` +
-              `${r.head != null ? r.head + ' hd' : '<span class="appr-flag">uncounted</span>'}`
+              `${r.head != null ? r.head + ' hd' : '<span class="appr-flag">uncounted</span>'}` + lotBit
             : (r.meds.length
                 ? r.meds.map(m => `${escapeHtml(m.name)}${m.dose != null ? ' ' + m.dose + 'cc' : ''}` +
                                   (m.unpriced ? ' <span class="appr-flag">no price</span>' : '')).join(', ')
@@ -7144,7 +7407,7 @@ window.addEventListener('unhandledrejection', function(e) {
             <div class="appr-row ${r.ready ? '' : 'blocked'}">
                 <input type="checkbox" class="appr-check" ${r.ready ? '' : 'disabled'} data-id="${r.entry.id}" title="${r.ready ? 'Select to approve' : 'Resolve the issues first'}">
                 <span class="appr-tag">${escapeHtml(String(tag))}</span>
-                <span class="appr-action">${escapeHtml(raw.treatmentType || (isMove ? 'Move' : ''))}</span>
+                <span class="appr-action">${escapeHtml((r.action && r.action.name) || raw.treatmentType || (isMove ? 'Move' : ''))}</span>
                 <span class="appr-detail">${detail}</span>
                 <input type="date" class="appr-date" data-id="${r.entry.id}"
                        value="${escapeHtml(String(r.entry.event_datetime || '').slice(0, 10))}"
@@ -7153,9 +7416,13 @@ window.addEventListener('unhandledrejection', function(e) {
                 <span class="appr-when">${escapeHtml(when)}</span>
                 <span class="appr-who">${escapeHtml(raw.recordedBy || '')}</span>
                 ${r.notHauled ? '<span class="appr-flag danger">not hauled off</span>' : ''}
+                ${r.edited ? '<span class="appr-flag edited" title="Corrected by the office. The cowboy\'s original entry is kept underneath.">edited</span>' : ''}
                 <input type="text" class="appr-note" data-id="${r.entry.id}"
                        placeholder="note…" value="${escapeHtml(r.entry.review_notes || '')}"
                        title="Saved on its own — use it to explain why an entry is being left for later.">
+                <button type="button" class="appr-edit" data-id="${r.entry.id}" data-perm="office"
+                        title="Correct this entry — lot, pasture, action, meds, head count"
+                        ${r.entry.status === 'pending' ? '' : 'disabled'}>✎</button>
                 <button type="button" class="appr-reject" data-id="${r.entry.id}" title="Reject and send back to the cowboy">✖</button>
                 ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
                 ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
@@ -7182,8 +7449,8 @@ window.addEventListener('unhandledrejection', function(e) {
         const raw = r.raw;
         const payload = {
             lot_id: r.lot.id,
-            tag_number: raw.tagNumber || '',
-            no_tag: !!r.entry.no_tag || /^NT\d*$/i.test(String(raw.tagNumber || '')),
+            tag_number: r.tag || '',
+            no_tag: !!r.entry.no_tag || /^NT\d*$/i.test(String(r.tag || '')),
             event_datetime: r.entry.event_datetime,
             field_action_id: r.action.id,
             pasture_id: r.pasture ? r.pasture.id : null,
@@ -7196,7 +7463,7 @@ window.addEventListener('unhandledrejection', function(e) {
         };
         const { data: evt, error } = await supabase
             .from('doctoring_events').insert(payload).select('id').single();
-        if (error) throw new Error(`tag ${raw.tagNumber}: ${error.message}`);
+        if (error) throw new Error(`tag ${r.tag}: ${error.message}`);
 
         const medRows = r.meds
             .filter(m => m.med && m.dose != null && m.dose > 0)
@@ -7215,7 +7482,7 @@ window.addEventListener('unhandledrejection', function(e) {
             if (medErr) {
                 // Undo the parent so a half-written event never survives.
                 await supabase.from('doctoring_events').delete().eq('id', evt.id);
-                throw new Error(`tag ${raw.tagNumber} meds: ${medErr.message}`);
+                throw new Error(`tag ${r.tag} meds: ${medErr.message}`);
             }
         }
         return { kind: 'doctoring_event', id: evt.id };
@@ -7233,29 +7500,49 @@ window.addEventListener('unhandledrejection', function(e) {
             p_lot_id: r.lot.id,
             p_pasture_id: r.pasture.id,
             p_head_count: 1,                    // a tagged death is one animal
-            p_tag_number: raw.tagNumber || null,
+            p_tag_number: r.tag || null,
             p_cause: null,                      // office fills cause in later
             p_event_date: String(r.entry.event_datetime || '').slice(0, 10),
             p_notes: noteBits.join(' · '),
             p_created_by: currentUser.id
         });
-        if (error) throw new Error(`tag ${raw.tagNumber} (death): ${error.message}`);
+        if (error) throw new Error(`tag ${r.tag} (death): ${error.message}`);
         return { kind: 'lot_event', id: data };
     }
 
+    // Returns an ARRAY of refs: a move off a mixed pasture is one movement
+    // per lot, and each has to be reversible on its own. record_move_with_
+    // pasture stays the only thing doing head math — nothing here
+    // reimplements it.
     async function postMoveEntry(r) {
         const raw = r.raw;
-        const { data, error } = await supabase.rpc('record_move_with_pasture', {
-            p_lot_id: r.lot.id,
-            p_from_pasture_id: r.pasture.id,
-            p_to_pasture_id: r.toPasture.id,
-            p_head_count: r.head,
-            p_move_date: String(r.entry.event_datetime || '').slice(0, 10),
-            p_notes: [raw.notes, '(from field app)'].filter(Boolean).join(' · '),
-            p_recorded_by: currentUser.id
-        });
-        if (error) throw new Error(`move ${raw.fromPasture} → ${raw.toPasture}: ${error.message}`);
-        return { kind: 'lot_movement', id: data };
+        const legs = r.split
+            ? r.split.map(x => ({ lot: x.lot, head: x.head }))
+            : [{ lot: r.lot, head: r.head }];
+        const refs = [];
+        for (const leg of legs) {
+            const note = [raw.notes,
+                          r.split ? `lot ${leg.lot.lot_number}, ${leg.head} of ${r.head} head` : null,
+                          '(from field app)'].filter(Boolean).join(' · ');
+            const { data, error } = await supabase.rpc('record_move_with_pasture', {
+                p_lot_id: leg.lot.id,
+                p_from_pasture_id: r.pasture.id,
+                p_to_pasture_id: r.toPasture.id,
+                p_head_count: leg.head,
+                p_move_date: String(r.entry.event_datetime || '').slice(0, 10),
+                p_notes: note,
+                p_recorded_by: currentUser.id
+            });
+            if (error) {
+                // Hand back what already posted so the batch rollback can
+                // unwind the earlier legs of this same move too.
+                const err = new Error(`move ${raw.fromPasture} → ${raw.toPasture} (lot ${leg.lot.lot_number}): ${error.message}`);
+                err.partial = refs;
+                throw err;
+            }
+            refs.push({ kind: 'lot_movement', id: data });
+        }
+        return refs;
     }
 
     async function rollbackPosted(posted) {
@@ -7319,11 +7606,22 @@ window.addEventListener('unhandledrejection', function(e) {
         const posted = [];
         try {
             for (const r of ordered) {
-                const ref = r.kind === 'dead' ? await postDeathEntry(r)
-                          : r.kind === 'move' ? await postMoveEntry(r)
-                          : await postDoctoringEntry(r);
-                posted.push(ref);
-                r.__ref = ref;
+                let refs;
+                try {
+                    refs = [].concat(r.kind === 'dead' ? await postDeathEntry(r)
+                                   : r.kind === 'move' ? await postMoveEntry(r)
+                                   : await postDoctoringEntry(r));
+                } catch (e) {
+                    // A multi-lot move can fail half-posted. Its completed
+                    // legs are already in the books, so they must join the
+                    // rollback list before the error goes up.
+                    if (e.partial) posted.push(...e.partial);
+                    throw e;
+                }
+                posted.push(...refs);
+                // One ref stays an object so every existing reader keeps
+                // working; a multi-lot move records the array.
+                r.__ref = refs.length === 1 ? refs[0] : refs;
             }
 
             // Only once every row is in the books do we mark the queue.
@@ -7331,7 +7629,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 const { error } = await supabase.from('pending_field_entries')
                     .update({ status: 'approved', approved_ref: r.__ref, review_notes: approvalNoteFor(r.entry.id) })
                     .eq('id', r.entry.id);
-                if (error) throw new Error(`marking ${r.raw.tagNumber} approved: ${error.message}`);
+                if (error) throw new Error(`marking ${r.tag || 'move'} approved: ${error.message}`);
             }
 
             showAlert('globalAlert', `${ordered.length} entr${ordered.length === 1 ? 'y' : 'ies'} posted to the books.`, 'success');
@@ -7367,6 +7665,520 @@ window.addEventListener('unhandledrejection', function(e) {
     // twice - resolved in event_datetime, and verbatim in raw.dateTime - so
     // both move together or the screen and the payload start disagreeing.
     // The clock time is carried over untouched: only the day was wrong.
+    // ==========================================================
+    // SETTLING A PASTURE AGAINST A PHYSICAL COUNT
+    //
+    // Cattle from several lots run together and a move off a mixed pasture is
+    // split pro-rata, so the per-lot numbers in a pasture are an estimate. The
+    // estimate costs nothing while the pasture is full — lot_daily_head is
+    // built from invoices, receipts, deaths and sales and never reads a
+    // pasture — but a SALE allocates real dollars per (lot, pasture), so a
+    // split that drifted wrong bills the wrong lot the moment cattle leave.
+    //
+    // The correction is NOT an edit of the numbers. A lot's assignments must
+    // keep summing to its head_current, so taking 2 head of lot A out of this
+    // pasture means lot A gains 2 somewhere else. Every change is therefore a
+    // PAIRED MOVE through record_move_with_pasture, which already does the
+    // head math and opens a destination assignment when there is none.
+    //
+    // The case that cannot be fixed here: a lot short of head in this pasture
+    // whose other pastures hold none to bring in. Those head are dead or sold,
+    // so the error is in an allocation already made, not in where cattle are
+    // standing. That is refused by name rather than fudged.
+    let settleState = null;
+
+    async function openSettlePasture(pastureId) {
+        const [pastRes, hereRes, allRes, pastureListRes, lotsRes] = await Promise.all([
+            supabase.from('pastures').select('id, name, ranch_id, ranches(name)').eq('id', pastureId).single(),
+            supabase.from('lot_pasture_assignments')
+                .select('id, lot_id, head_count, notes, lots!inner(lot_number, is_test, closed_at)')
+                .eq('pasture_id', pastureId).is('moved_out', null),
+            // Every open assignment, so a counterparty pasture can be offered
+            // and checked for the head it would have to give up.
+            supabase.from('lot_pasture_assignments')
+                .select('lot_id, pasture_id, head_count, pastures!inner(name, ranches!inner(name))')
+                .is('moved_out', null),
+            supabase.from('pastures').select('id, name, is_active, ranches!inner(name)').eq('is_active', true),
+            supabase.from('lots').select('id, lot_number, is_test').is('closed_at', null)
+        ]);
+        const err = [pastRes, hereRes, allRes, pastureListRes, lotsRes].find(r => r.error);
+        if (err) { showAlert('globalAlert', 'Could not open the count: ' + err.error.message, 'error'); return; }
+
+        const label = p => `${p.ranches ? p.ranches.name + ' – ' : ''}${p.name}`;
+        const here = (hereRes.data || [])
+            .filter(a => a.lots && !a.lots.is_test)
+            .map(a => ({ lot_id: a.lot_id, lot_number: a.lots.lot_number, book: Number(a.head_count) || 0 }))
+            .sort((a, b) => b.book - a.book);
+
+        const elsewhereByLot = {};
+        (allRes.data || []).forEach(a => {
+            if (a.pasture_id === pastureId) return;
+            (elsewhereByLot[a.lot_id] = elsewhereByLot[a.lot_id] || []).push({
+                pasture_id: a.pasture_id, head: Number(a.head_count) || 0, label: label(a.pastures)
+            });
+        });
+        Object.values(elsewhereByLot).forEach(list => list.sort((a, b) => b.head - a.head));
+
+        settleState = {
+            pastureId,
+            pastureLabel: label(pastRes.data),
+            here,
+            elsewhereByLot,
+            pastures: (pastureListRes.data || []).filter(p => p.id !== pastureId)
+                        .map(p => ({ id: p.id, label: label(p) }))
+                        .sort((a, b) => a.label.localeCompare(b.label)),
+            openLots: (lotsRes.data || []).filter(l => !l.is_test)
+                        .sort((a, b) => a.lot_number.localeCompare(b.lot_number))
+        };
+
+        $('settlePastureId').value = pastureId;
+        $('settlePastureTitle').textContent = `Settle ${settleState.pastureLabel}`;
+        $('settlePastureAlert').innerHTML = '';
+        $('settlePastureNote').value = '';
+        renderSettleRows();
+        showModal('settlePastureModal');
+    }
+
+    function settleCounterpartyOptions(lotId, needIn) {
+        const st = settleState;
+        if (needIn) {
+            // Head have to come FROM somewhere this lot actually stands.
+            const src = st.elsewhereByLot[lotId] || [];
+            if (!src.length) return null;          // nothing to draw on — refuse later
+            return src.map(x => `<option value="${x.pasture_id}">${escapeHtml(x.label)} (${x.head} hd)</option>`).join('');
+        }
+        // Head leaving here can go anywhere; lead with where this lot already is.
+        const known = (st.elsewhereByLot[lotId] || []).map(x => x.pasture_id);
+        const lead = (st.elsewhereByLot[lotId] || [])
+            .map(x => `<option value="${x.pasture_id}">${escapeHtml(x.label)} (${x.head} hd)</option>`).join('');
+        const rest = st.pastures.filter(p => known.indexOf(p.id) === -1)
+            .map(p => `<option value="${p.id}">${escapeHtml(p.label)}</option>`).join('');
+        return lead + rest;
+    }
+
+    function renderSettleRows() {
+        const st = settleState;
+        $('settlePastureRows').innerHTML = st.here.map(r => `
+            <tr data-lot="${r.lot_id}">
+                <td><strong>${escapeHtml(r.lot_number)}</strong></td>
+                <td class="num">${r.book}</td>
+                <td><input type="number" class="settle-count" data-lot="${r.lot_id}" min="0" step="1"
+                           value="${r.counted != null ? r.counted : r.book}" style="width:90px; text-align:right;"></td>
+                <td class="settle-delta" data-lot="${r.lot_id}"></td>
+                <td class="settle-cp" data-lot="${r.lot_id}"></td>
+            </tr>`).join('');
+
+        const taken = st.here.map(r => r.lot_id);
+        $('settleAddLot').innerHTML = '<option value="">— a lot that is here but not on the books —</option>'
+            + st.openLots.filter(l => taken.indexOf(l.id) === -1)
+                .map(l => `<option value="${l.id}">${escapeHtml(l.lot_number)}</option>`).join('');
+
+        $('settlePastureRows').querySelectorAll('.settle-count').forEach(el => {
+            el.addEventListener('input', recomputeSettle);
+        });
+        recomputeSettle();
+    }
+
+    function settleRowValues() {
+        return settleState.here.map(r => {
+            const el = document.querySelector(`.settle-count[data-lot="${r.lot_id}"]`);
+            const counted = el ? (el.value === '' ? null : parseInt(el.value, 10)) : r.book;
+            return { ...r, counted: (counted == null || isNaN(counted)) ? null : counted };
+        });
+    }
+
+    function recomputeSettle() {
+        const st = settleState;
+        const rows = settleRowValues();
+        const bookTotal = rows.reduce((t, r) => t + r.book, 0);
+        const countTotal = rows.reduce((t, r) => t + (r.counted || 0), 0);
+
+        rows.forEach(r => {
+            const delta = (r.counted || 0) - r.book;
+            const dEl = document.querySelector(`.settle-delta[data-lot="${r.lot_id}"]`);
+            const cEl = document.querySelector(`.settle-cp[data-lot="${r.lot_id}"]`);
+            if (dEl) {
+                dEl.innerHTML = delta === 0 ? '<span class="muted">—</span>'
+                    : `<strong style="color:${delta > 0 ? '#1b7a34' : '#d70015'}">${delta > 0 ? '+' : ''}${delta}</strong>`;
+            }
+            if (!cEl) return;
+            if (delta === 0) { cEl.innerHTML = '<span class="muted">—</span>'; return; }
+            const opts = settleCounterpartyOptions(r.lot_id, delta > 0);
+            if (!opts) {
+                // The refusal that matters: nowhere to bring these head from.
+                cEl.innerHTML = `<span style="color:#d70015; font-size:12px;">` +
+                    `${r.lot_number} has no head in any other pasture — these were sold or died, ` +
+                    `so this is a sale allocation to fix, not a move.</span>`;
+                return;
+            }
+            const keep = cEl.querySelector('select') ? cEl.querySelector('select').value : '';
+            cEl.innerHTML = `<select class="settle-cp-sel" data-lot="${r.lot_id}" style="max-width:230px;">${opts}</select>
+                             <div class="muted" style="font-size:11px;">${delta > 0 ? 'bring ' + delta + ' from' : 'send ' + (-delta) + ' to'}</div>`;
+            if (keep) { const sel = cEl.querySelector('select'); if ([...sel.options].some(o => o.value === keep)) sel.value = keep; }
+        });
+
+        const el = $('settlePastureTotals');
+        if (countTotal === bookTotal) {
+            const changed = rows.filter(r => (r.counted || 0) !== r.book).length;
+            el.innerHTML = changed
+                ? `<span style="color:#1b7a34;">${countTotal} head counted, matches the books. ${changed} lot${changed === 1 ? '' : 's'} to correct.</span>`
+                : `<span style="color:#1b7a34;">${countTotal} head counted, and the split already matches. Recording this marks the pasture verified.</span>`;
+        } else {
+            el.innerHTML = `<span style="color:#d70015;">${countTotal} counted against ${bookTotal} on the books — ` +
+                `${countTotal < bookTotal ? (bookTotal - countTotal) + ' short' : (countTotal - bookTotal) + ' over'}. ` +
+                `A pasture total that does not tie is a death, sale or move that never got recorded, ` +
+                `not a split to re-cut. Fix that first.</span>`;
+        }
+    }
+
+    // Marker written onto every assignment in a settled pasture. Kept as a
+    // dated tag inside `notes` rather than a new column: it is genuinely
+    // useful audit text on its own, and it needs no migration against a live
+    // production schema. The Anomalies check reads it to stop nagging about a
+    // pasture somebody has already counted.
+    const SETTLE_TAG = /\[counted (\d{4}-\d{2}-\d{2})\]/;
+
+    async function saveSettlePasture() {
+        const st = settleState;
+        if (!st) return;
+        const rows = settleRowValues();
+        const bookTotal = rows.reduce((t, r) => t + r.book, 0);
+        const countTotal = rows.reduce((t, r) => t + (r.counted || 0), 0);
+
+        if (rows.some(r => r.counted == null)) {
+            showAlert('settlePastureAlert', 'Every lot needs a counted number — use 0 for a lot that is not there.', 'error');
+            return;
+        }
+        if (countTotal !== bookTotal) {
+            showAlert('settlePastureAlert',
+                `The count totals ${countTotal} against ${bookTotal} on the books. That gap is a death, sale or ` +
+                `move that was never recorded — record it first, then settle the split.`, 'error');
+            return;
+        }
+
+        const legs = [];
+        for (const r of rows) {
+            const delta = r.counted - r.book;
+            if (delta === 0) continue;
+            const sel = document.querySelector(`.settle-cp-sel[data-lot="${r.lot_id}"]`);
+            if (!sel || !sel.value) {
+                showAlert('settlePastureAlert',
+                    `${r.lot_number} is ${Math.abs(delta)} head ${delta > 0 ? 'short on the books' : 'over on the books'} ` +
+                    `and has no other pasture to ${delta > 0 ? 'draw from' : 'send them to'}. ` +
+                    `Those head are already sold or dead, so this is a sale allocation to correct, not a move.`, 'error');
+                return;
+            }
+            if (delta > 0) {
+                // Bring head IN: verify the source really holds them, or the
+                // RPC would fail part-way through a multi-leg correction.
+                const src = (st.elsewhereByLot[r.lot_id] || []).find(x => x.pasture_id === sel.value);
+                if (!src || src.head < delta) {
+                    showAlert('settlePastureAlert',
+                        `${r.lot_number} needs ${delta} head from ${src ? src.label : 'that pasture'}, which holds ` +
+                        `${src ? src.head : 0}.`, 'error');
+                    return;
+                }
+                legs.push({ lot_id: r.lot_id, lot_number: r.lot_number, from: sel.value, to: st.pastureId, head: delta });
+            } else {
+                legs.push({ lot_id: r.lot_id, lot_number: r.lot_number, from: st.pastureId, to: sel.value, head: -delta });
+            }
+        }
+
+        const note = $('settlePastureNote').value.trim();
+        const today = ranchToday();
+        const btn = $('settlePastureSaveBtn');
+        btn.disabled = true; btn.textContent = 'Recording…';
+
+        const posted = [];
+        try {
+            for (const leg of legs) {
+                const { data, error } = await supabase.rpc('record_move_with_pasture', {
+                    p_lot_id: leg.lot_id,
+                    p_from_pasture_id: leg.from,
+                    p_to_pasture_id: leg.to,
+                    p_head_count: leg.head,
+                    p_move_date: today,
+                    p_notes: [`Pasture count correction (${st.pastureLabel})`, note].filter(Boolean).join(' · '),
+                    p_recorded_by: currentUser.id
+                });
+                if (error) throw new Error(`${leg.lot_number}: ${error.message}`);
+                posted.push(data);
+            }
+
+            // Stamp the pasture as counted. Done after the moves so a failed
+            // correction never leaves a pasture looking verified.
+            const stamp = `[counted ${today}]` + (note ? ' ' + note : '');
+            const { data: asg, error: asgErr } = await supabase
+                .from('lot_pasture_assignments')
+                .select('id, notes').eq('pasture_id', st.pastureId).is('moved_out', null);
+            if (asgErr) throw asgErr;
+            for (const a of (asg || [])) {
+                const prev = (a.notes || '').replace(SETTLE_TAG, '').trim();
+                const { error } = await supabase.from('lot_pasture_assignments')
+                    .update({ notes: [prev, stamp].filter(Boolean).join(' · ') })
+                    .eq('id', a.id).select('id');
+                if (error) throw error;
+            }
+
+            hideModal('settlePastureModal');
+            showAlert('globalAlert', legs.length
+                ? `${st.pastureLabel} settled — ${legs.length} correction${legs.length === 1 ? '' : 's'} recorded as moves.`
+                : `${st.pastureLabel} verified against the count; nothing needed changing.`, 'success');
+            btn.disabled = false; btn.textContent = 'Record the count';
+            if (typeof loadAnomaliesReport === 'function' &&
+                !$('reportAnomaliesView').classList.contains('hidden')) loadAnomaliesReport();
+        } catch (err) {
+            // Unwind whatever already posted, so a half-corrected pasture
+            // never survives the failure.
+            const failed = [];
+            for (const id of posted.slice().reverse()) {
+                const { error } = await supabase.rpc('delete_move_event', { p_movement_id: id });
+                if (error) failed.push(`${id}: ${error.message}`);
+            }
+            btn.disabled = false; btn.textContent = 'Record the count';
+            showAlert('settlePastureAlert', failed.length
+                ? `Failed: ${err.message}. ROLLBACK INCOMPLETE — these moves are still in the books and need ` +
+                  `attention: ${failed.join('; ')}`
+                : `Failed and rolled back — nothing was changed. ${err.message}`, 'error');
+        }
+    }
+
+    // ==========================================================
+    // CORRECTING A STAGED ENTRY
+    //
+    // The office edits the RESOLVED COLUMNS only. `raw` is never touched:
+    // it is the cowboy's own account and the only record of what he saw,
+    // and keeping it means a correction can always be compared against
+    // what was actually recorded. resolveApprovalEntry() prefers the
+    // columns, so an edit takes effect immediately on the next render.
+    //
+    // Every write is guarded .eq('status','pending') and asserts on the
+    // returned row, because an RLS refusal comes back as zero rows and no
+    // error - a save that silently changed nothing is the worst outcome
+    // on a screen whose whole job is getting the books right.
+    // ==========================================================
+    function apprPastureOptions(lk, ranchId, selectedId) {
+        const list = lk.pastures
+            .filter(p => p.ranch_id === ranchId && p.is_active !== false)
+            .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        return '<option value="">— pick —</option>' + list.map(p =>
+            `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+    }
+
+    function apprRanchOptions(lk, selectedId) {
+        return '<option value="">— pick —</option>' + lk.ranchesList.map(r =>
+            `<option value="${r.id}" ${r.id === selectedId ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('');
+    }
+
+    // Lots offered for a move are the ones ACTUALLY standing in the
+    // from-pasture, with their head, so the reviewer is choosing from what
+    // the books say is there rather than from every open lot on the ranch.
+    function apprLotOptionsForPasture(lk, pastureId, selectedId) {
+        const here = lk.assignments.filter(a => a.pasture_id === pastureId);
+        if (!here.length) {
+            return '<option value="">— no open lot in this pasture —</option>';
+        }
+        return '<option value="">— pick —</option>' + here.map(a => {
+            const lot = lk.lotsById[a.lot_id];
+            if (!lot) return '';
+            return `<option value="${lot.id}" ${lot.id === selectedId ? 'selected' : ''}>` +
+                   `${escapeHtml(lot.lot_number)} (${a.head_count} hd here)</option>`;
+        }).join('');
+    }
+
+    function apprLotOptionsAll(lk, selectedId) {
+        return '<option value="">— pick —</option>' + lk.lotsList.map(l =>
+            `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${escapeHtml(l.lot_number)}</option>`).join('');
+    }
+
+    function openApprovalEdit(id) {
+        const r = approvalsCache.entries.find(x => String(x.entry.id) === String(id));
+        if (!r) return;
+        if (r.entry.status !== 'pending') {
+            showAlert('globalAlert', 'Only a pending entry can be corrected.', 'error');
+            return;
+        }
+        const lk = approvalsCache.lookups;
+        const raw = r.raw;
+        $('apprEditId').value = id;
+        $('apprEditAlert').innerHTML = '';
+        const stamp = String(r.entry.event_datetime || '');
+        const day = stamp.slice(0, 10);
+
+        let html = '';
+        if (r.kind === 'move') {
+            $('apprEditTitle').textContent = 'Correct move';
+            const fromRanchId = r.pasture ? r.pasture.ranch_id : (r.ranch ? r.ranch.id : '');
+            const toRanchId   = r.toPasture ? r.toPasture.ranch_id : (r.toRanch ? r.toRanch.id : '');
+            html = `
+                <label for="aeDate">Date</label>
+                <input type="date" id="aeDate" value="${escapeHtml(day)}">
+                <label for="aeFromRanch">From ranch</label>
+                <select id="aeFromRanch">${apprRanchOptions(lk, fromRanchId)}</select>
+                <label for="aeFromPasture">From pasture</label>
+                <select id="aeFromPasture">${apprPastureOptions(lk, fromRanchId, r.pasture ? r.pasture.id : '')}</select>
+                <label for="aeLot">Lot moving</label>
+                <select id="aeLot">${apprLotOptionsForPasture(lk, r.pasture ? r.pasture.id : '', r.lot ? r.lot.id : '')}</select>
+                <label for="aeHead">Head</label>
+                <input type="number" id="aeHead" min="1" step="1" value="${r.head != null ? r.head : ''}">
+                <label for="aeToRanch">To ranch</label>
+                <select id="aeToRanch">${apprRanchOptions(lk, toRanchId)}</select>
+                <label for="aeToPasture">To pasture</label>
+                <select id="aeToPasture">${apprPastureOptions(lk, toRanchId, r.toPasture ? r.toPasture.id : '')}</select>`;
+            $('apprEditWas').innerHTML =
+                `Cowboy recorded: <b>${escapeHtml(raw.fromRanch || '')} ${escapeHtml(raw.fromPasture || '')}</b> → ` +
+                `<b>${escapeHtml(raw.toRanch || '')} ${escapeHtml(raw.toPasture || '')}</b>, ` +
+                `${escapeHtml(String(raw.headCount || '?'))} hd on ${escapeHtml(String(raw.date || ''))}` +
+                (raw.notes ? ` · “${escapeHtml(raw.notes)}”` : '');
+        } else {
+            $('apprEditTitle').textContent = r.isDead ? 'Correct death entry' : 'Correct doctoring entry';
+            const ranchId = r.pasture ? r.pasture.ranch_id : (r.ranch ? r.ranch.id : '');
+            const time = stamp.includes('T') ? new Date(stamp).toTimeString().slice(0, 5) : '';
+            const medRow = (pos) => {
+                const m = r.meds.find(x => x.position === pos);
+                const selId = m && m.med ? m.med.id : '';
+                const opts = '<option value="">— none —</option>' + lk.medsList.map(x =>
+                    `<option value="${x.id}" ${x.id === selId ? 'selected' : ''}>${escapeHtml(x.name)}` +
+                    `${x.cost_per_unit == null && x.cost_per_head == null ? ' (no price)' : ''}</option>`).join('');
+                return `
+                <label for="aeMed${pos}">Med ${pos}</label>
+                <div class="aedit-med">
+                    <select id="aeMed${pos}">${opts}</select>
+                    <input type="number" id="aeDose${pos}" step="0.1" min="0" placeholder="cc"
+                           value="${m && m.dose != null ? m.dose : ''}">
+                </div>`;
+            };
+            html = `
+                <label for="aeDate">Date</label>
+                <input type="date" id="aeDate" value="${escapeHtml(day)}">
+                <label for="aeTime">Time</label>
+                <input type="time" id="aeTime" value="${escapeHtml(time)}">
+                <label for="aeTag">Tag</label>
+                <input type="text" id="aeTag" value="${escapeHtml(String(r.tag || ''))}" placeholder="tag number, or NT">
+                <label for="aeLot">Lot</label>
+                <select id="aeLot">${apprLotOptionsAll(lk, r.lot ? r.lot.id : '')}</select>
+                <label for="aeFromRanch">Ranch</label>
+                <select id="aeFromRanch">${apprRanchOptions(lk, ranchId)}</select>
+                <label for="aeFromPasture">Pasture</label>
+                <select id="aeFromPasture">${apprPastureOptions(lk, ranchId, r.pasture ? r.pasture.id : '')}</select>
+                <label for="aeAction">Action</label>
+                <select id="aeAction">${'<option value="">— pick —</option>' + lk.actionsList.map(a =>
+                    `<option value="${a.id}" ${r.action && a.id === r.action.id ? 'selected' : ''}>${escapeHtml(a.name)}</option>`).join('')}</select>
+                ${medRow(1)}${medRow(2)}${medRow(3)}`;
+            $('apprEditWas').innerHTML =
+                `Cowboy recorded: tag <b>${escapeHtml(String(raw.tagNumber || 'NT'))}</b>, ` +
+                `lot <b>${escapeHtml(String(raw.lotNumber || '—'))}</b>, ` +
+                `<b>${escapeHtml(String(raw.location || '—'))}</b>, ` +
+                `<b>${escapeHtml(String(raw.treatmentType || '—'))}</b>` +
+                (raw.notes ? ` · “${escapeHtml(raw.notes)}”` : '');
+        }
+        $('apprEditFields').innerHTML = html;
+
+        // Ranch narrows pasture; the from-pasture narrows the lot list on a
+        // move, because which lots are standing there is the whole question.
+        const wire = (ranchSel, pastSel, thenLots) => {
+            const rs = $(ranchSel), ps = $(pastSel);
+            if (!rs || !ps) return;
+            rs.onchange = () => {
+                ps.innerHTML = apprPastureOptions(lk, rs.value, '');
+                if (thenLots) $('aeLot').innerHTML = apprLotOptionsForPasture(lk, '', '');
+            };
+            if (thenLots) {
+                ps.onchange = () => { $('aeLot').innerHTML = apprLotOptionsForPasture(lk, ps.value, ''); };
+            }
+        };
+        wire('aeFromRanch', 'aeFromPasture', r.kind === 'move');
+        wire('aeToRanch', 'aeToPasture', false);
+
+        showModal('apprEditModal');
+    }
+
+    async function saveApprovalEdit() {
+        const id = $('apprEditId').value;
+        const r = approvalsCache.entries.find(x => String(x.entry.id) === String(id));
+        if (!r) return;
+        const isMove = r.kind === 'move';
+        const val = elId => { const el = $(elId); return el ? el.value.trim() : ''; };
+
+        const day = val('aeDate');
+        if (!day) { showAlert('apprEditAlert', 'A date is required.', 'error'); return; }
+
+        const patch = {};
+        if (isMove) {
+            const fromP = val('aeFromPasture'), toP = val('aeToPasture'), lot = val('aeLot');
+            const head = parseInt(val('aeHead'), 10);
+            if (!fromP || !toP) { showAlert('apprEditAlert', 'Both pastures are required.', 'error'); return; }
+            if (fromP === toP)  { showAlert('apprEditAlert', 'From and to pasture are the same.', 'error'); return; }
+            if (!lot)           { showAlert('apprEditAlert', 'Pick the lot that moved — a movement cannot be recorded without one.', 'error'); return; }
+            if (isNaN(head) || head <= 0) { showAlert('apprEditAlert', 'Head must be a positive number.', 'error'); return; }
+            // Never let the office stage a move that would overdraw the
+            // pasture: the RPC would reject it mid-batch and take the whole
+            // approval down with it.
+            const lk = approvalsCache.lookups;
+            const a = lk.assignments.find(x => x.pasture_id === fromP && x.lot_id === lot);
+            if (!a) { showAlert('apprEditAlert', 'That lot is not standing in the from-pasture.', 'error'); return; }
+            if (head > a.head_count) {
+                showAlert('apprEditAlert', `Only ${a.head_count} head of that lot are in that pasture.`, 'error');
+                return;
+            }
+            Object.assign(patch, {
+                lot_id: lot, pasture_id: fromP, to_pasture_id: toP, head_count: head,
+                event_datetime: new Date(day + 'T00:00:00').toISOString()
+            });
+        } else {
+            const lot = val('aeLot'), past = val('aeFromPasture'), action = val('aeAction');
+            const tag = val('aeTag');
+            if (!lot)    { showAlert('apprEditAlert', 'A lot is required.', 'error'); return; }
+            if (!past)   { showAlert('apprEditAlert', 'A pasture is required.', 'error'); return; }
+            if (!action) { showAlert('apprEditAlert', 'An action is required.', 'error'); return; }
+            const meds = [];
+            for (let i = 1; i <= 3; i++) {
+                const mid = val('aeMed' + i);
+                const doseTxt = val('aeDose' + i);
+                if (!mid) continue;
+                const dose = doseTxt === '' ? null : Number(doseTxt);
+                if (dose == null || isNaN(dose)) {
+                    showAlert('apprEditAlert', `Med ${i} needs a dose in cc.`, 'error');
+                    return;
+                }
+                meds.push({ position: i, medication_id: mid, dose });
+            }
+            // Keep the recorded time of day. The box shows LOCAL time and the
+            // save reads it back as local, so the fallback has to be local too
+            // - slicing the UTC string here and treating it as local would
+            // shift the event by the timezone offset every time the field was
+            // left empty.
+            const oldStamp = String(r.entry.event_datetime || '');
+            const localHHMM = oldStamp ? new Date(oldStamp).toTimeString().slice(0, 5) : '00:00';
+            const time = val('aeTime') || localHHMM;
+            Object.assign(patch, {
+                lot_id: lot, pasture_id: past, field_action_id: action,
+                tag_number: tag || null,
+                no_tag: !tag || /^NT\d*$/i.test(tag),
+                resolved_meds: meds,
+                event_datetime: new Date(day + 'T' + time + ':00').toISOString()
+            });
+        }
+
+        try {
+            const { data, error } = await supabase
+                .from('pending_field_entries')
+                .update(patch)
+                .eq('id', id)
+                .eq('status', 'pending')      // never rewrite something already posted
+                .select('id');
+            if (error) throw error;
+            if (!data || !data.length) {
+                throw new Error('nothing was saved — the entry may have just been approved or rejected by someone else');
+            }
+            hideModal('apprEditModal');
+            showAlert('globalAlert', 'Correction saved.', 'success');
+            await loadApprovals();
+        } catch (err) {
+            showAlert('apprEditAlert', `Could not save: ${err.message || err}`, 'error');
+        }
+    }
+
     async function saveApprovalDate(id, newDay) {
         const row = approvalsCache.entries.find(r => String(r.entry.id) === String(id));
         if (!row) return;
@@ -9232,7 +10044,7 @@ window.addEventListener('unhandledrejection', function(e) {
             `<td class="${[1,2,3,5].includes(i) ? 'r' : ''}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
 
         // Landscape: twelve columns will not fit portrait at a readable size.
-        w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(acctFilename('pdf'))}</title>
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(acctFilename('pdf'))}</title>
 <style>
     @page { size: landscape; margin: 10mm; }
     body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; color: #1a1a1a; }
@@ -10206,6 +11018,19 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('navReports').addEventListener('click', () => showReportsTab('active-lots'));
     $('navApprovals').addEventListener('click', showApprovalsTab);
     $('approvalsRefreshBtn').addEventListener('click', loadApprovals);
+    $('apprEditSaveBtn').addEventListener('click', saveApprovalEdit);
+    $('settlePastureSaveBtn').addEventListener('click', saveSettlePasture);
+    $('settleAddLotBtn').addEventListener('click', () => {
+        const sel = $('settleAddLot');
+        const lotId = sel.value;
+        if (!lotId || !settleState) return;
+        const lot = settleState.openLots.find(l => l.id === lotId);
+        if (!lot || settleState.here.some(r => r.lot_id === lotId)) return;
+        // Books say none of this lot is here, so its whole counted number is
+        // a gain and has to come from a pasture that actually holds it.
+        settleState.here.push({ lot_id: lotId, lot_number: lot.lot_number, book: 0, counted: 0 });
+        renderSettleRows();
+    });
     $('approvalsApproveBtn').addEventListener('click', approveSelected);
 
     function refreshApprovalSelection() {
@@ -10223,6 +11048,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         }
     });
     $('approvalsContent').addEventListener('click', (e) => {
+        const ed = e.target.closest('.appr-edit');
+        if (ed) { openApprovalEdit(ed.dataset.id); return; }
         const rej = e.target.closest('.appr-reject');
         if (rej) { rejectApprovalEntry(rej.dataset.id); return; }
         const all = e.target.closest('.appr-day-all');
@@ -10300,7 +11127,11 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                bayRes, premixRes, settingsRes] = await Promise.all([
             supabase.from('lot_status').select('lot_id, lot_number, head_in, head_in_invoiced, head_in_received, head_pending_invoice, head_dead, head_sold, head_current, closed_at'),
             supabase.from('lots').select('id, is_test, closed_at, lot_number, assumed_nonfeed_cog_per_day'),
-            supabase.from('lot_pasture_assignments').select('lot_id, head_count').is('moved_out', null),
+            // pasture_id and names come along for the stranded-head checks:
+            // those findings belong to a PASTURE, not to a lot.
+            supabase.from('lot_pasture_assignments')
+                .select('lot_id, head_count, pasture_id, moved_in, notes, pastures!inner(name, ranches!inner(name))')
+                .is('moved_out', null),
             supabase.from('delivery_receipts').select('id, lot_id, head_count, tag_start, tag_end'),
             // Feed checks. Crew cannot read these; RLS returns zero rows and
             // no error, so the section simply does not appear for them.
@@ -10342,6 +11173,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         (assignmentsRes.data || []).forEach(a => {
             pastureSumByLot[a.lot_id] = (pastureSumByLot[a.lot_id] || 0) + (Number(a.head_count) || 0);
         });
+
+        // Keyed on lot_id — lot_status is keyed on lot_id, NOT id.
+        const statusByLotId = {};
+        (statusRes.data || []).forEach(st => { statusByLotId[st.lot_id] = st; });
+        const lotNumById = {};
+        (lotsRes.data || []).forEach(l => { lotNumById[l.id] = l.lot_number; });
 
         const tagCountByReceipt = {};
         (tagsRes.data || []).forEach(t => {
@@ -10513,6 +11350,169 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             });
         }
 
+        // Declared here rather than beside the lot sections: the pasture
+        // block below renders first and a `const` used before its declaration
+        // throws, which no parse check would catch.
+        const severityBadge = sev => {
+            const color = sev === 'high' ? 'background: #fbeaea; color: #8a2a2a;'
+                       : sev === 'medium' ? 'background: #fff3d6; color: #8a4d2a;'
+                       : sev === 'low' ? 'background: #f0f0f0; color: #555;'
+                       : 'background: #e8f0f5; color: #2a5278;';
+            return `<span style="font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 500; ${color}">${sev}</span>`;
+        };
+
+        // ==========================================================
+        // A PASTURE THAT WILL NOT GO TO ZERO
+        //
+        // Cattle from several lots get run together, and a move off a mixed
+        // pasture is split pro-rata because nobody can tell by eye which
+        // animal belongs to which lot. That estimate is harmless while the
+        // pasture is full - a move touches no money, and lot_daily_head is
+        // built from invoices, receipts, deaths and sales and never reads a
+        // pasture. It stops being harmless as the pasture draws down: the
+        // books keep a residue of whichever lots the arithmetic left behind,
+        // and the next SALE off that pasture allocates real dollars to
+        // whatever lot the books claim is standing there.
+        //
+        // John's rule (2026-08-31): "we generally can't get a handle on what
+        // lots are left until we get to 20-30 head left and we can then leave
+        // the appropriate head in lot." So the check fires at exactly that
+        // point - not as an error, but as a prompt that this pasture is now
+        // small enough to count.
+        const SETTLE_AT = 30;      // head, per John's 20-30 window
+        const RESIDUE_AT = 3;      // a one-, two- or three-head leftover
+
+        const pastureRows = (assignmentsRes.data || [])
+            .filter(a => !isTestById[a.lot_id] && a.pastures)
+            .map(a => ({
+                lot_id: a.lot_id,
+                lot_number: lotNumById[a.lot_id] || '?',
+                head: Number(a.head_count) || 0,
+                moved_in: a.moved_in,
+                notes: a.notes,
+                pasture_id: a.pasture_id,
+                label: `${a.pastures.ranches ? a.pastures.ranches.name + ' – ' : ''}${a.pastures.name}`
+            }));
+
+        const byPasture = {};
+        pastureRows.forEach(r => {
+            (byPasture[r.pasture_id] = byPasture[r.pasture_id] || { label: r.label, rows: [] }).rows.push(r);
+        });
+
+        // A pasture somebody has already counted is not a finding. The marker
+        // is the dated [counted YYYY-MM-DD] tag the settle screen writes onto
+        // every assignment in the pasture; it goes stale so the prompt comes
+        // back if cattle have moved since.
+        const COUNT_GOOD_FOR_DAYS = 45;
+        const countedRecently = (rows) => {
+            if (!rows.length) return false;
+            return rows.every(r => {
+                const m = /\[counted (\d{4}-\d{2}-\d{2})\]/.exec(r.notes || '');
+                if (!m) return false;
+                const age = (Date.parse(ranchToday() + 'T00:00:00Z') - Date.parse(m[1] + 'T00:00:00Z')) / 86400000;
+                // A negative age is a count dated ahead of the ranch's own
+                // day — timezone skew between whoever typed it and
+                // ranchToday(). It is still a count, so it counts; only an
+                // OLD one goes stale.
+                return age <= COUNT_GOOD_FOR_DAYS;
+            });
+        };
+
+        const pastureFindings = [];
+        Object.values(byPasture).forEach(p => {
+            if (countedRecently(p.rows)) return;
+            const head = p.rows.reduce((t, r) => t + r.head, 0);
+            const lots = p.rows.length;
+            const listed = p.rows.slice().sort((a, b) => b.head - a.head)
+                .map(r => `${r.lot_number} ${r.head}`).join(', ');
+
+            // 1. Mixed and now countable — the moment the split can be settled.
+            const countable = lots > 1 && head > 0 && head <= SETTLE_AT;
+            if (countable) {
+                pastureFindings.push({
+                    pasture_id: p.rows[0].pasture_id,
+                    severity: 'medium',
+                    title: 'Mixed pasture small enough to count',
+                    detail: `${p.label} holds ${head} head as ${lots} lots (${listed}). ` +
+                            `That split is an estimate carried forward from earlier moves. ` +
+                            `At this size the tags can be read: count what is actually there and ` +
+                            `correct the books before the next draw sells off the wrong lot.`
+                });
+            }
+
+            // 2. A residue of one or two head of a lot that is otherwise gone.
+            //    This is what "will not go to zero" looks like: the pasture
+            //    empties out and a sliver of some lot stays behind forever.
+            // Once a pasture is flagged countable, listing each sliver in it
+            // separately just repeats the same instruction four times. The
+            // finding above already names every lot and its head.
+            if (countable) return;
+            p.rows.forEach(r => {
+                const st = statusByLotId[r.lot_id];
+                if (!st) return;
+                const sold = Number(st.head_sold) || 0;
+                const cur = Number(st.head_current) || 0;
+                const inn = Number(st.head_in) || 0;
+                if (r.head > 0 && r.head <= RESIDUE_AT && sold > 0 && inn > 0 && (sold / inn) >= 0.5) {
+                    pastureFindings.push({
+                        pasture_id: r.pasture_id,
+                        severity: cur <= RESIDUE_AT ? 'medium' : 'low',
+                        title: 'Stranded head left in a pasture',
+                        detail: `${p.label} still carries ${r.head} head of ${r.lot_number}, a lot that is ` +
+                                `${Math.round((sold / inn) * 100)}% sold with ${cur} head left in total. ` +
+                                `A sliver like this is usually a pro-rata split that went the wrong way ` +
+                                `earlier, not cattle actually standing there. Verify before the lot is closed.`
+                    });
+                }
+            });
+        });
+
+        // 3. Lot-level: a nearly-sold lot scattered in small pieces. Each
+        //    piece is a separate chance for the next draw to bill the wrong
+        //    lot, so it belongs on the lot as well as on the pasture.
+        const piecesByLot = {};
+        pastureRows.forEach(r => {
+            (piecesByLot[r.lot_id] = piecesByLot[r.lot_id] || []).push(r);
+        });
+        Object.keys(piecesByLot).forEach(lotId => {
+            const pieces = piecesByLot[lotId];
+            const st = statusByLotId[lotId];
+            if (!st || closedAtById[lotId]) return;
+            const cur = Number(st.head_current) || 0;
+            if (pieces.length >= 2 && cur > 0 && cur <= SETTLE_AT) {
+                findings.push({
+                    lot_id: lotId,
+                    lot_number: st.lot_number,
+                    severity: 'low',
+                    title: 'Last head scattered across pastures',
+                    detail: `${cur} head left, spread over ${pieces.length} pastures ` +
+                            `(${pieces.slice().sort((a, b) => b.head - a.head)
+                                 .map(p => `${p.label} ${p.head}`).join(', ')}). ` +
+                            `Each piece is a separate chance for the next draw to bill the wrong lot. ` +
+                            `Count them and consolidate.`
+                });
+            }
+        });
+
+        const pastureBlock = pastureFindings.length ? `
+            <div style="margin-bottom:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+                    <h4 style="margin:0;">Pastures</h4>
+                    <span class="muted" style="font-size:12px;">${pastureFindings.length} to settle</span>
+                </div>
+                <table style="font-size:13px;">
+                    <thead><tr><th style="width:60px;">Severity</th><th>Finding</th><th>Detail</th></tr></thead>
+                    <tbody>${pastureFindings.map(f => `
+                        <tr>
+                            <td>${severityBadge(f.severity)}</td>
+                            <td><strong>${escapeHtml(f.title)}</strong></td>
+                            <td>${escapeHtml(f.detail)}
+                                <div style="margin-top:4px;"><a href="#" data-settle="${f.pasture_id}"
+                                   style="font-size:12px;">Settle against a count →</a></div></td>
+                        </tr>`).join('')}</tbody>
+                </table>
+            </div>` : '';
+
         const bayBlock = overdueBays.length ? `
             <div style="margin-bottom:16px;">
                 <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
@@ -10535,7 +11535,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 </table>
             </div>` : '';
 
-        if (findings.length === 0 && !bayBlock) {
+        if (findings.length === 0 && !bayBlock && !pastureBlock) {
             $('reportAnomaliesContent').innerHTML = '<div class="empty">✓ No anomalies detected across active lots. Everything ties out.</div>';
             return;
         }
@@ -10551,22 +11551,17 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const counts = { high: 0, medium: 0, low: 0, info: 0 };
         findings.forEach(f => { counts[f.severity] = (counts[f.severity] || 0) + 1; });
 
-        const severityBadge = sev => {
-            const color = sev === 'high' ? 'background: #fbeaea; color: #8a2a2a;'
-                       : sev === 'medium' ? 'background: #fff3d6; color: #8a4d2a;'
-                       : sev === 'low' ? 'background: #f0f0f0; color: #555;'
-                       : 'background: #e8f0f5; color: #2a5278;';
-            return `<span style="font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 500; ${color}">${sev}</span>`;
-        };
-
         const banner = `
             <div class="alert" style="background: ${counts.high > 0 ? '#fbeaea' : counts.medium > 0 ? '#fff3d6' : '#e8f0f5'}; border: 1px solid ${counts.high > 0 ? '#c54545' : counts.medium > 0 ? '#d4a017' : '#5a8db9'}; color: #333; padding: 10px; margin-bottom: 12px; border-radius: var(--radius); font-size: 13px;">
-                <strong>${findings.length} finding${findings.length === 1 ? '' : 's'} across ${Object.keys(byLot).length} lot${Object.keys(byLot).length === 1 ? '' : 's'}</strong>${
-                    overdueBays.length ? ` · <strong>${overdueBays.length} bay${overdueBays.length === 1 ? '' : 's'} overdue for a count</strong>` : ''} ·
-                ${counts.high > 0 ? `${counts.high} high` : ''}
-                ${counts.medium > 0 ? ` · ${counts.medium} medium` : ''}
-                ${counts.low > 0 ? ` · ${counts.low} low` : ''}
-                ${counts.info > 0 ? ` · ${counts.info} info` : ''}
+                ${[
+                    `<strong>${findings.length} finding${findings.length === 1 ? '' : 's'} across ${Object.keys(byLot).length} lot${Object.keys(byLot).length === 1 ? '' : 's'}</strong>`,
+                    pastureFindings.length ? `<strong>${pastureFindings.length} pasture${pastureFindings.length === 1 ? '' : 's'} to settle</strong>` : '',
+                    overdueBays.length ? `<strong>${overdueBays.length} bay${overdueBays.length === 1 ? '' : 's'} overdue for a count</strong>` : '',
+                    counts.high > 0 ? `${counts.high} high` : '',
+                    counts.medium > 0 ? `${counts.medium} medium` : '',
+                    counts.low > 0 ? `${counts.low} low` : '',
+                    counts.info > 0 ? `${counts.info} info` : ''
+                ].filter(Boolean).join(' · ')}
             </div>
         `;
 
@@ -10594,7 +11589,10 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             `;
         }).join('');
 
-        $('reportAnomaliesContent').innerHTML = banner + bayBlock + lotSections;
+        $('reportAnomaliesContent').innerHTML = banner + pastureBlock + bayBlock + lotSections;
+        $('reportAnomaliesContent').querySelectorAll('a[data-settle]').forEach(a => {
+            a.addEventListener('click', e => { e.preventDefault(); openSettlePasture(a.dataset.settle); });
+        });
     }
 
     async function loadYardSheetReport() {
@@ -11263,7 +12261,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         const w = window.open('', '_blank');
         if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
-        w.document.write(`<!DOCTYPE html><html><head><title>Fresh Cattle — Doctoring Eligibility</title>
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Fresh Cattle — Doctoring Eligibility</title>
 <style>
     body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 32px; color: #1a1a1a; }
     h1 { font-size: 20px; margin: 0 0 2px 0; }
@@ -11721,9 +12719,14 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                     .select('approved_ref, raw').eq('status', 'approved')
                     .gte('event_datetime', minIso).lt('event_datetime', endIso);
                 (appr || []).forEach(a => {
-                    const ref = a.approved_ref && a.approved_ref.id;
                     const who = a.raw && a.raw.recordedBy;
-                    if (ref && who) byRef[ref] = who;
+                    if (!who) return;
+                    // A multi-lot move posts one movement per lot, so
+                    // approved_ref is an ARRAY there. Reading only .id would
+                    // silently drop the attribution on exactly those rows.
+                    [].concat(a.approved_ref || []).forEach(ref => {
+                        if (ref && ref.id) byRef[ref.id] = who;
+                    });
                 });
             }
 
@@ -12080,7 +13083,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         const w = window.open('', '_blank');
         if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
-        w.document.write(`<!DOCTYPE html><html><head><title>Daily Report — ${escapeHtml(dfrLongDate(model.day))}</title>
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Daily Report — ${escapeHtml(dfrLongDate(model.day))}</title>
 <style>
     body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 32px; color: #1a1a1a; }
     h1 { font-size: 20px; margin: 0 0 2px 0; }
@@ -14238,7 +15241,7 @@ ${body}
 
         const w = window.open('', '_blank');
         if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
-        w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(receivingSheetTitle())}</title>
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(receivingSheetTitle())}</title>
 <style>
     body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 32px; color: #1a1a1a; }
     h1 { font-size: 20px; margin: 0 0 2px 0; }
@@ -15070,6 +16073,7 @@ ${body}
             const html = `<!DOCTYPE html>
 <html>
 <head>
+<meta charset="utf-8">
 <title>JFR Ranch — Pasture Directory</title>
 <style>
     body { font-family: -apple-system, system-ui, sans-serif; padding: 30px 40px; color: #222; max-width: 850px; margin: 0 auto; }
@@ -15430,6 +16434,10 @@ ${ranchBlocks}
     $('editPastureBtn').addEventListener('click', () => {
         if (currentPasture) openPastureModal(currentPasture);
     });
+    $('settlePastureBtn').addEventListener('click', () => {
+        if (currentPasture) openSettlePasture(currentPasture.id);
+    });
+
     $('archivePastureBtn').addEventListener('click', async () => {
         if (!currentPasture) return;
         const reactivating = !currentPasture.is_active;
@@ -20791,6 +21799,8 @@ ${ranchBlocks}
     let fdOpenLots = [];     // open, non-test lots
     let fdPastures = [];
     let fdOnHand = [];       // feed_on_hand rows
+    let fdInvRows = [];      // exactly what the on-hand screen last rendered
+    let fdInvByLoc = true;
     let fdRefsLoaded = false;
     let fdUsageSheet = null; // { rows: [...] }
     let fdCountStatus = [];  // feed_location_count_status rows
@@ -20815,6 +21825,32 @@ ${ranchBlocks}
 
     // Pounds shown in the unit the ticket is written in, because "15.8 ton"
     // is what a person recognises and 31,630 lb is what the database holds.
+    // What a count is written in for this item. Bulk commodities are weighed
+    // and get TONS beside pounds; sacks are counted and get BAGS. Both boxes
+    // are live and each fills the other, so whichever way the barn is walked
+    // the books still get pounds.
+    function fdCountUnit(item) {
+        if (!item || !item.lb_per_purchase_unit) return null;
+        const per = Number(item.lb_per_purchase_unit);
+        if (!(per > 0) || item.purchase_unit === 'lb') return null;
+        const label = item.purchase_unit === 'ton' ? 'tons'
+                    : item.purchase_unit === 'bag' ? 'bags'
+                    : item.purchase_unit === 'cwt' ? 'cwt'
+                    : item.purchase_unit;
+        return { label, per, isBags: item.purchase_unit === 'bag' };
+    }
+
+    // A cost rate in the unit the feed is BOUGHT in. PB and every seller
+    // quote $/ton; $0.0791/lb is the same number nobody checks a ticket
+    // against. Sacks get $/bag for the same reason.
+    function fdRateInUnits(perLb, item) {
+        if (perLb == null || !item || !item.lb_per_purchase_unit) return '';
+        if (item.purchase_unit === 'lb') return '';
+        const per = Number(item.lb_per_purchase_unit);
+        if (!(per > 0)) return '';
+        return fmtMoney(Number(perLb) * per) + '/' + item.purchase_unit;
+    }
+
     function fdInUnits(lb, item) {
         if (lb == null || !item || !item.lb_per_purchase_unit) return '';
         const u = Number(lb) / Number(item.lb_per_purchase_unit);
@@ -20994,6 +22030,9 @@ ${ranchBlocks}
         } else if (subtab === 'cost') {
             $('feedCostView').classList.remove('hidden');
             loadFeedCost();
+        } else if (subtab === 'redwing') {
+            $('feedRedwingView').classList.remove('hidden');
+            initFdRedwing();
         } else if (subtab === 'items') {
             $('feedItemsView').classList.remove('hidden');
             loadFeedItems();
@@ -21744,6 +22783,11 @@ ${ranchBlocks}
         }
         const rows = data || [];
         if (byLocation) fdOnHand = rows;
+        // The report prints what the screen is showing, from the same rows.
+        // Re-querying for the report is how a report starts disagreeing with
+        // the page it is printed from.
+        fdInvRows  = rows;
+        fdInvByLoc = byLocation;
 
         if (!rows.length) {
             $('fdInvSummary').innerHTML = '';
@@ -21796,7 +22840,11 @@ ${ranchBlocks}
                 <td class="num">${fmtNum(r.qty_lb)} lb
                     ${item && item.purchase_unit !== 'lb'
                         ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdInUnits(r.qty_lb, item))}</div>` : ''}</td>
-                <td class="num">${r.avg_cost_per_lb != null ? '$' + Number(r.avg_cost_per_lb).toFixed(4) + '/lb' : '—'}</td>
+                <td class="num">${r.avg_cost_per_lb != null
+                        ? '$' + Number(r.avg_cost_per_lb).toFixed(4) + '/lb'
+                          + (fdRateInUnits(r.avg_cost_per_lb, item)
+                             ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdRateInUnits(r.avg_cost_per_lb, item))}</div>` : '')
+                        : '—'}</td>
                 <td class="num">${fmtMoney(r.value_usd)}</td>
                 <td class="num">${Number(r.pending_cost_lb) > 0
                         ? `<span style="color:#b58900;">⚠ ${fmtNum(r.pending_cost_lb)} lb</span>` : '—'}</td>
@@ -22246,6 +23294,7 @@ ${ranchBlocks}
         $('fdRcInvoice').value      = r ? (r.invoice_number || '') : '';
         $('fdRcQtyUnits').value     = r && r.qty_purchase_units != null ? r.qty_purchase_units : '';
         $('fdRcQtyLb').value        = r ? r.qty_lb : '';
+        $('fdRcProductRate').value  = '';   // derived below from the stored total
         $('fdRcProductCost').value  = r && r.product_cost != null ? r.product_cost : '';
         $('fdRcFreightCost').value  = r && r.freight_cost != null ? r.freight_cost : '';
         $('fdRcOtherCost').value    = r && r.other_cost != null ? r.other_cost : '';
@@ -22291,11 +23340,25 @@ ${ranchBlocks}
             $('fdRcQtyLb').value = l.remaining_lb;
             fdSyncUnitsFromQty();
         }
-        hint.innerHTML = l.price_unknown
-            ? 'This order line has <b>no agreed price</b>. Enter the cost here, or tick "Price not known yet".'
-            : `Costed at <b>$${Number(l.price_per_purchase_unit).toFixed(4)}/${escapeHtml(l.purchase_unit || 'unit')}</b> ` +
-              `&mdash; leave the cost boxes blank and the price comes off the order.`;
-        fdUpdateReceiptCost();
+        if (l.price_unknown) {
+            hint.innerHTML = 'This order line has <b>no agreed price</b>. Enter the cost here, or tick "Price not known yet".';
+            fdUpdateReceiptCost();
+            return;
+        }
+
+        // Put the agreed price in the RATE box rather than leaving the cost
+        // blank for the RPC to work out. Two reasons, and the second is the
+        // one that matters: the operator gets to see and correct the number
+        // before saving, and the rate box bills against GROSS pounds where a
+        // shrink allowance is in play, which is what the seller actually
+        // charged. The RPC would divide the agreed price over the smaller
+        // BOOKED figure and under-bill a shrunk load - narrow, but silage is
+        // exactly the case it would hit.
+        $('fdRcProductRate').value = Number(l.price_per_purchase_unit).toFixed(4);
+        fdSyncCostFromRate();
+        hint.innerHTML = `Ordered at <b>$${Number(l.price_per_purchase_unit).toFixed(4)}/` +
+            `${escapeHtml(l.purchase_unit || 'unit')}</b> &mdash; the total is filled in from the ticket weight. ` +
+            `Change either box if the load came in at a different price.`;
     }
 
     // The entry haircut. Silage is booked at gross x (1 - allowance) holding
@@ -22339,12 +23402,70 @@ ${ranchBlocks}
         fdUpdateReceiptCost();
     }
 
-    function fdUpdateReceiptCost() {
+    // The pounds a seller's rate is quoted AGAINST. With a shrink allowance
+    // the invoice is written on the GROSS off the scale - the haircut is
+    // ours, and the full purchase cost is deliberately held against the
+    // smaller booked figure. Dividing by booked pounds here would quietly
+    // inflate the rate we show back at the person typing the invoice.
+    function fdRcRateBasisLb() {
+        const gross = parseFloat($('fdRcGrossQty').value);
+        if (gross > 0 && !$('fdRcShrinkBlock').classList.contains('hidden')) return gross;
+        const lb = parseFloat($('fdRcQtyLb').value);
+        return lb > 0 ? lb : null;
+    }
+
+    // Rate <-> total, in whichever direction the person is typing. The box
+    // the caret is in is never rewritten; doing so eats the cursor mid-number.
+    function fdSyncCostFromRate() { fdSyncReceiptCost('rate'); }
+    function fdSyncRateFromCost() { fdSyncReceiptCost('total'); }
+    function fdSyncReceiptCost(driver) {
+        const item  = fdItem($('fdRcItem').value);
+        const per   = item ? Number(item.lb_per_purchase_unit) : 0;
+        const basis = fdRcRateBasisLb();
+        if (per > 0 && basis) {
+            const units = basis / per;
+            if (driver !== 'rate') {
+                const total = parseFloat($('fdRcProductCost').value);
+                $('fdRcProductRate').value = total > 0 ? +(total / units).toFixed(4) : '';
+            }
+            if (driver !== 'total') {
+                const rate = parseFloat($('fdRcProductRate').value);
+                $('fdRcProductCost').value = rate > 0 ? +(rate * units).toFixed(2) : '';
+            }
+        }
+        fdUpdateReceiptCost(driver);
+    }
+
+    function fdUpdateReceiptCost(driver) {
         const item = fdItem($('fdRcItem').value);
         $('fdRcUnitLabel').textContent = item ? '(' + item.purchase_unit + ')' : '';
+        const unit = item && item.purchase_unit !== 'lb' ? item.purchase_unit : 'lb';
+        $('fdRcRateLabel').textContent = '($/' + unit + ')';
         const lb = parseFloat($('fdRcQtyLb').value);
         const pending = $('fdRcCostPending').checked;
-        ['fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost'].forEach(id => { $(id).disabled = pending; });
+        ['fdRcProductRate', 'fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost']
+            .forEach(id => { $(id).disabled = pending; });
+
+        // Keep the pair honest when something OTHER than the two cost boxes
+        // moves - a different item, new pounds, a shrink figure. Whichever
+        // box the person last touched is the one that survives.
+        if (!pending && !driver) {
+            const per = item ? Number(item.lb_per_purchase_unit) : 0;
+            const basis = fdRcRateBasisLb();
+            const total = parseFloat($('fdRcProductCost').value);
+            if (per > 0 && basis && total > 0) {
+                $('fdRcProductRate').value = +(total / (basis / per)).toFixed(4);
+            }
+        }
+
+        const grossBasis = !$('fdRcShrinkBlock').classList.contains('hidden')
+                        && parseFloat($('fdRcGrossQty').value) > 0;
+        $('fdRcRateHint').innerHTML = 'Type either one and the other fills in. '
+            + 'Tickets quote a rate; invoices quote a total.'
+            + (grossBasis
+                ? ' The rate is read against <b>gross</b> pounds, which is what the seller billed &mdash;'
+                  + ' the shrink haircut is ours, so the full cost stays on the booked pounds.'
+                : '');
 
         if (pending) {
             $('fdRcCostDisplay').innerHTML =
@@ -22359,8 +23480,11 @@ ${ranchBlocks}
         }
         const perLb = total / lb;
         const perUnit = item ? perLb * Number(item.lb_per_purchase_unit) : null;
+        // Delivered is product + freight + other over the BOOKED pounds. It is
+        // deliberately not the same number as the rate box above, which is the
+        // seller's price for the product alone.
         $('fdRcCostDisplay').innerHTML =
-            `Delivered: <b>$${perLb.toFixed(4)}/lb</b>` +
+            `Delivered (incl. freight): <b>$${perLb.toFixed(4)}/lb</b>` +
             (perUnit != null && item.purchase_unit !== 'lb'
                 ? ` &middot; <b>${fmtMoney(perUnit)}/${escapeHtml(item.purchase_unit)}</b>` : '') +
             ` &middot; total ${fmtMoney(total)}`;
@@ -23488,6 +24612,7 @@ ${ranchBlocks}
                 item_name: o.item_name,
                 book_qty_lb: Number(o.qty_lb) || 0,
                 counted: '',
+                counted_units: '',
                 method: (loc && loc.is_bulk) ? 'estimated' : 'counted_bags',
                 bags: '',
                 note: ''
@@ -23497,6 +24622,7 @@ ${ranchBlocks}
         const rowHtml = l => {
             const item = fdItem(l.item_id);
             const consumes = item && item.count_variance_meaning === 'consumption';
+            const u = fdCountUnit(item);
             return `<tr>
                 <td><strong>${escapeHtml(l.item_name)}</strong>
                     ${item && item.purchase_unit !== 'lb'
@@ -23504,22 +24630,27 @@ ${ranchBlocks}
                     <div class="muted" style="font-size:11px;">${consumes
                         ? 'short of book &rarr; <b>consumption</b>, split to lots by head-days'
                         : 'short of book &rarr; <b>shrink</b>, charged to no lot'}</div></td>
-                <td class="num">${fmtNum(l.book_qty_lb)} lb</td>
+                <td class="num">${u ? `<b>${fmtNum(l.book_qty_lb / u.per, 2)}</b> ${u.label}<br>` : ''}<span class="muted">${fmtNum(l.book_qty_lb)} lb</span></td>
                 <td><select data-fd-ct-method="${l.item_id}">
                         <option value="estimated"${l.method === 'estimated' ? ' selected' : ''}>Estimated</option>
                         <option value="counted_bags"${l.method === 'counted_bags' ? ' selected' : ''}>Counted (bags)</option>
                         <option value="measured"${l.method === 'measured' ? ' selected' : ''}>Measured</option>
                     </select></td>
-                <td><input type="number" step="0.01" min="0" data-fd-ct-qty="${l.item_id}" placeholder="lb" style="max-width:120px;"></td>
-                <td><input type="text" data-fd-ct-note="${l.item_id}" placeholder="how it was judged" style="max-width:160px;"></td>
+                <td>${u ? `<input type="number" step="0.01" min="0" data-fd-ct-units="${l.item_id}"
+                        placeholder="${u.label}" style="max-width:92px;">
+                        <div class="muted" style="font-size:11px;">${u.label}</div>`
+                      : '<span class="muted" style="font-size:11px;">&mdash;</span>'}</td>
+                <td><input type="number" step="0.01" min="0" data-fd-ct-qty="${l.item_id}" placeholder="lb" style="max-width:106px;"></td>
+                <td><input type="text" data-fd-ct-note="${l.item_id}" placeholder="how it was judged" style="max-width:140px;"></td>
             </tr>`;
         };
 
         $('fdCtLines').innerHTML = `
             <table>
-                <thead><tr><th>Item</th><th class="num">Book</th><th>Method</th><th>Counted (lb)</th><th>Note</th></tr></thead>
+                <thead><tr><th>Item</th><th class="num">Book</th><th>Method</th>
+                    <th>Counted</th><th>Counted (lb)</th><th>Note</th></tr></thead>
                 <tbody id="fdCtLineBody">${fdCountState.lines.map(rowHtml).join('') ||
-                    '<tr><td colspan="5" class="muted" style="font-size:12px;">Nothing on the books here yet.</td></tr>'}</tbody>
+                    '<tr><td colspan="6" class="muted" style="font-size:12px;">Nothing on the books here yet.</td></tr>'}</tbody>
             </table>
             ${others.length ? `<div style="margin-top:10px;">
                 <label for="fdCtAddItem" style="font-size:13px;">Also count something not on the books here</label>
@@ -23532,7 +24663,31 @@ ${ranchBlocks}
             $('fdCtLines').querySelectorAll('[data-fd-ct-qty]').forEach(inp => {
                 inp.oninput = () => {
                     const l = fdCountState.lines.find(x => x.item_id === inp.dataset.fdCtQty);
-                    if (l) l.counted = inp.value;
+                    if (!l) return;
+                    l.counted = inp.value;
+                    // Fill the unit box from pounds, but never while the person
+                    // is typing in it - that would fight the caret.
+                    const u = fdCountUnit(fdItem(l.item_id));
+                    const box = $('fdCtLines').querySelector(`[data-fd-ct-units="${l.item_id}"]`);
+                    if (u && box && document.activeElement !== box) {
+                        const lb = parseFloat(inp.value);
+                        box.value = (lb > 0) ? String(Math.round(lb / u.per * 10000) / 10000) : '';
+                        l.counted_units = box.value;
+                    }
+                };
+            });
+            $('fdCtLines').querySelectorAll('[data-fd-ct-units]').forEach(inp => {
+                inp.oninput = () => {
+                    const l = fdCountState.lines.find(x => x.item_id === inp.dataset.fdCtUnits);
+                    if (!l) return;
+                    l.counted_units = inp.value;
+                    const u = fdCountUnit(fdItem(l.item_id));
+                    const box = $('fdCtLines').querySelector(`[data-fd-ct-qty="${l.item_id}"]`);
+                    const n = parseFloat(inp.value);
+                    if (u && box) {
+                        box.value = (n >= 0 && !isNaN(n)) ? String(Math.round(n * u.per * 100) / 100) : '';
+                        l.counted = box.value;
+                    }
                 };
             });
             $('fdCtLines').querySelectorAll('[data-fd-ct-method]').forEach(sel => {
@@ -23554,7 +24709,8 @@ ${ranchBlocks}
                 if (fdCountState.lines.some(l => l.item_id === item.id)) { add.value = ''; return; }
                 fdCountState.lines.push({
                     item_id: item.id, item_name: item.name, book_qty_lb: 0,
-                    counted: '', method: item.is_counted ? 'counted_bags' : 'estimated', bags: '', note: ''
+                    counted: '', counted_units: '',
+                    method: item.is_counted ? 'counted_bags' : 'estimated', bags: '', note: ''
                 });
                 const tbody = $('fdCtLineBody');
                 if (tbody) {
@@ -23576,8 +24732,9 @@ ${ranchBlocks}
         const zeroBtn = $('fdCtZeroAllBtn');
         if (zeroBtn) zeroBtn.onclick = () => {
             if (!fdCountState || !fdCountState.lines.length) return;
-            fdCountState.lines.forEach(l => { l.counted = '0'; });
+            fdCountState.lines.forEach(l => { l.counted = '0'; l.counted_units = '0'; });
             $('fdCtLines').querySelectorAll('[data-fd-ct-qty]').forEach(inp => { inp.value = '0'; });
+            $('fdCtLines').querySelectorAll('[data-fd-ct-units]').forEach(inp => { inp.value = '0'; });
             const book = fdCountState.lines.reduce((t, l) => t + (Number(l.book_qty_lb) || 0), 0);
             const note = $('fdCtZeroNote');
             if (note) {
@@ -23621,13 +24778,22 @@ ${ranchBlocks}
             }
             const countId = ins.data[0].id;
 
-            const lineRows = filled.map(l => ({
-                count_id: countId,
-                item_id: l.item_id,
-                counted_qty_lb: parseFloat(l.counted),
-                method: l.method,
-                estimate_note: l.note || null
-            }));
+            const lineRows = filled.map(l => {
+                // bags_counted has been on the table since the start and was
+                // never populated. A sack count is a different KIND of fact
+                // from an estimated weight, and the variance report has to be
+                // able to tell them apart.
+                const u = fdCountUnit(fdItem(l.item_id));
+                const units = parseFloat(l.counted_units);
+                return {
+                    count_id: countId,
+                    item_id: l.item_id,
+                    counted_qty_lb: parseFloat(l.counted),
+                    bags_counted: (u && u.isBags && units >= 0 && !isNaN(units)) ? units : null,
+                    method: l.method,
+                    estimate_note: l.note || null
+                };
+            });
             const linesRes = await supabase.from('feed_count_lines').insert(lineRows).select();
             if (linesRes.error) {
                 // Leave nothing half-built behind.
@@ -23663,6 +24829,21 @@ ${ranchBlocks}
     });
 
     $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);
+    $('fdInvPrintBtn').addEventListener('click', printFdOnHand);
+    $('fdRwRunBtn').addEventListener('click', loadFdRedwing);
+    $('fdRwWeekBtn').addEventListener('click', () => {
+        const w = fdRwLastWeek();
+        $('fdRwFrom').value = w.from; $('fdRwTo').value = w.to;
+        loadFdRedwing();
+    });
+    $('fdRwContent').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-fd-rw-print],[data-fd-rw-pdf],[data-fd-rw-copy]');
+        if (!b) return;
+        if (b.dataset.fdRwPrint) printFdRwSection(b.dataset.fdRwPrint);
+        else if (b.dataset.fdRwPdf) shareFdRwPdf(b.dataset.fdRwPdf);
+        else copyFdRwSection(b.dataset.fdRwCopy);
+    });
+    $('fdInvPdfBtn').addEventListener('click', shareFdOnHandPdf);
     $('fdInvByLocation').addEventListener('change', loadFeedInventory);
 
     $('fdNewLocBtn').addEventListener('click', () => openFdLocModal(null));
@@ -23699,9 +24880,11 @@ ${ranchBlocks}
     $('fdRcShrinkPct').addEventListener('input', fdApplyShrink);
     $('fdRcQtyUnits').addEventListener('input', fdSyncQtyFromUnits);
     $('fdRcQtyLb').addEventListener('input', fdSyncUnitsFromQty);
-    ['fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost'].forEach(id =>
-        $(id).addEventListener('input', fdUpdateReceiptCost));
-    $('fdRcCostPending').addEventListener('change', fdUpdateReceiptCost);
+    $('fdRcProductRate').addEventListener('input', fdSyncCostFromRate);
+    $('fdRcProductCost').addEventListener('input', fdSyncRateFromCost);
+    ['fdRcFreightCost', 'fdRcOtherCost'].forEach(id =>
+        $(id).addEventListener('input', () => fdUpdateReceiptCost()));
+    $('fdRcCostPending').addEventListener('change', () => fdUpdateReceiptCost());
 
     // ---- ordering spine --------------------------------------------------
     $('invMaterialChip').addEventListener('click', (e) => {
@@ -24298,55 +25481,740 @@ ${ranchBlocks}
         }
     }
 
+    // ==========================================================
+    // REDWING: the four postings that come out of a week of feed
+    // ==========================================================
+    // Redwing's two entry screens are FIXED FORMS - a $ box and a lbs box
+    // per commodity, typed by hand. That layout is the whole reason the
+    // Salt line reads -5,457 lb carrying +$1,999.18: two boxes, no
+    // arithmetic between them, and nothing to catch a number typed into
+    // one and not the other. These reports exist to be read straight down
+    // the screen so the two boxes are always filled from the same row.
+    //
+    // Box order below IS the screen order, not alphabetical. Re-sorting it
+    // would defeat the point.
+    const FD_RW_FEED_BOXES = [
+        'Corn', 'DDGS', 'Peanut Hulls', 'Cottonseed Hulls', 'WCS',
+        'Penchlor', 'Corrid Crumbles', '(old)Premix', 'BatchTransPre',
+        'TranPremix', '24Corn/Sorg Silage', '25Corn Silage', 'SoyHull',
+        'Molasses', 'Salt', 'Limiter'
+    ];
+    const FD_RW_MIN_BOXES = [
+        'Redman Bag Salt', 'ADM Master Gain', 'IGR Master Gain',
+        'MLS Tubs', 'Purina Min', 'One Grass', 'Ranly Mixing Min'
+    ];
+
+    let fdRwData = null;
+
+    function fdRwBoxOf(itemId) {
+        const it = fdItem(itemId);
+        return it && it.redwing_template_field ? it.redwing_template_field : null;
+    }
+    function fdRwTemplateOf(box) {
+        if (FD_RW_FEED_BOXES.includes(box)) return 'feed';
+        if (FD_RW_MIN_BOXES.includes(box)) return 'mineral';
+        return null;
+    }
+
+    // Last completed Monday-Sunday. The ranch runs Mon-Sun and the sheet is
+    // pulled Monday morning for the week just finished, so on any day the
+    // useful default is the last week that is actually over.
+    function fdRwLastWeek() {
+        const t = new Date(ranchToday() + 'T12:00:00');
+        const dow = (t.getDay() + 6) % 7;              // 0 = Monday
+        const sun = new Date(t); sun.setDate(t.getDate() - dow - 1);
+        const mon = new Date(sun); mon.setDate(sun.getDate() - 6);
+        const iso = d => d.toISOString().slice(0, 10);
+        return { from: iso(mon), to: iso(sun) };
+    }
+
+    function initFdRedwing() {
+        if (!$('fdRwFrom').value) {
+            const w = fdRwLastWeek();
+            $('fdRwFrom').value = w.from;
+            $('fdRwTo').value   = w.to;
+        }
+        if (fdRwData) renderFdRedwing(); else loadFdRedwing();
+    }
+
+    async function loadFdRedwing() {
+        clearAlert('fdRwAlert');
+        const from = $('fdRwFrom').value, to = $('fdRwTo').value;
+        if (!from || !to) { showAlert('fdRwAlert', 'Pick both dates.'); return; }
+        if (from > to)    { showAlert('fdRwAlert', 'The start date is after the end date.'); return; }
+        $('fdRwContent').innerHTML = '<div class="empty">Loading…</div>';
+        await fdLoadRefs();
+
+        // Usage inside the period, and EVERY receipt and usage row ever, because
+        // the roll-forward's opening balance is arithmetic over all history:
+        // a FIFO layer records what is left now, not what was there in June.
+        const [usg, rec, allU] = await Promise.all([
+            supabase.from('feed_usage_detail').select('*')
+                .gte('usage_date', from).lte('usage_date', to),
+            supabase.from('feed_receipts').select('id,item_id,receipt_date,qty_lb,product_cost,freight_cost,other_cost,cost_pending,source'),
+            supabase.from('feed_usage').select('id,item_id,usage_date,qty_lb,destination_type,is_short')
+        ]);
+        const err = usg.error || rec.error || allU.error;
+        if (err) {
+            $('fdRwContent').innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`;
+            return;
+        }
+        fdRwData = { from, to, usage: usg.data || [], receipts: rec.data || [], allUsage: allU.data || [] };
+        renderFdRedwing();
+    }
+
+    // ---- the four datasets ------------------------------------------------
+    function fdRwBuild() {
+        const d = fdRwData;
+        const cost = r => Number(r.cost_usd) || 0;
+
+        // 1 + 2. What went to a lot, grouped by lot then by Redwing box.
+        const lots = {};
+        const unmapped = [];
+        d.usage.filter(u => u.destination_type === 'lot').forEach(u => {
+            const box = fdRwBoxOf(u.item_id);
+            const tpl = box ? fdRwTemplateOf(box) : null;
+            if (!tpl) { unmapped.push(u); return; }
+            const L = lots[u.lot_number] || (lots[u.lot_number] = { feed: {}, mineral: {} });
+            const bucket = L[tpl];
+            const b = bucket[box] || (bucket[box] = { lb: 0, usd: 0, pending: 0, items: new Set(), sources: new Set() });
+            b.lb += Number(u.qty_lb) || 0;
+            b.usd += cost(u);
+            b.pending += Number(u.pending_cost_lines) || 0;
+            b.items.add(u.item_name);
+            b.sources.add(u.source);
+        });
+
+        // 3. Variance account. Shrink is feed the books had and the bay did
+        // not; found feed is the reverse. They are two sides of ONE account -
+        // its balance is how good the allowances are - so they belong on one
+        // report, netted, never split into two unrelated entries.
+        const varRows = {};
+        d.usage.filter(u => u.destination_type === 'adjustment').forEach(u => {
+            const v = varRows[u.item_name] || (varRows[u.item_name] = { shrinkLb: 0, shrinkUsd: 0, foundLb: 0, foundUsd: 0 });
+            v.shrinkLb += Number(u.qty_lb) || 0;
+            v.shrinkUsd += cost(u);
+        });
+        d.receipts.filter(r => r.source === 'count_adjustment'
+                            && r.receipt_date >= d.from && r.receipt_date <= d.to).forEach(r => {
+            const it = fdItem(r.item_id);
+            const nm = it ? it.name : '—';
+            const v = varRows[nm] || (varRows[nm] = { shrinkLb: 0, shrinkUsd: 0, foundLb: 0, foundUsd: 0 });
+            v.foundLb += Number(r.qty_lb) || 0;
+            v.foundUsd += (Number(r.product_cost) || 0) + (Number(r.freight_cost) || 0) + (Number(r.other_cost) || 0);
+        });
+
+        // 4. Roll-forward. Opening is not stored anywhere - it is receipts
+        // minus usage up to the day before. Both sides are flows, so the
+        // identity below is true by construction and any break in it means a
+        // row was written that neither side counted.
+        const roll = {};
+        const touch = id => {
+            const it = fdItem(id);
+            return roll[id] || (roll[id] = { name: it ? it.name : '—', item: it,
+                                             begin: 0, purch: 0, found: 0, batchIn: 0,
+                                             toLots: 0, shrink: 0, batchOut: 0, xfer: 0 });
+        };
+        d.receipts.forEach(r => {
+            const R = touch(r.item_id);
+            const q = Number(r.qty_lb) || 0;
+            if (r.receipt_date < d.from) { R.begin += q; return; }
+            if (r.receipt_date > d.to) return;
+            if (r.source === 'count_adjustment') R.found += q;
+            else if (r.source === 'batch') R.batchIn += q;
+            else if (r.source === 'transfer') R.xfer += q;
+            else R.purch += q;
+        });
+        d.allUsage.forEach(u => {
+            const R = touch(u.item_id);
+            const q = Number(u.qty_lb) || 0;
+            if (u.usage_date < d.from) { R.begin -= q; return; }
+            if (u.usage_date > d.to) return;
+            if (u.destination_type === 'adjustment') R.shrink += q;
+            else if (u.destination_type === 'batch') R.batchOut += q;
+            else if (u.destination_type === 'transfer') R.xfer -= q;
+            else R.toLots += q;
+        });
+        Object.values(roll).forEach(R => {
+            R.end = R.begin + R.purch + R.found + R.batchIn + R.xfer
+                  - R.toLots - R.shrink - R.batchOut;
+        });
+
+        return { lots, unmapped, varRows, roll };
+    }
+
+    // ---- rendering --------------------------------------------------------
+    const fdRwLb  = n => fmtNum(Math.round((Number(n) || 0) * 100) / 100, 2);
+    const fdRwUsd = n => fmtMoney(Number(n) || 0);
+
+    function fdRwSection(id, title, note, inner) {
+        return `<div class="card" style="margin-top:14px;">
+            <div class="card-header">
+                <h3 style="margin:0;">${escapeHtml(title)}</h3>
+                <div style="display:flex; gap:6px;">
+                    <button data-fd-rw-print="${id}">🖨 Print</button>
+                    <button data-fd-rw-pdf="${id}">📄 PDF</button>
+                    <button data-fd-rw-copy="${id}">⧉ Copy rows</button>
+                </div>
+            </div>
+            <p class="muted" style="font-size:11.5px; margin:-4px 0 10px 0;">${note}</p>
+            ${inner}
+        </div>`;
+    }
+
+    // A lot at a time, because that is one trip through the Redwing screen.
+    function fdRwApplicationHtml(which) {
+        const { lots } = fdRwBuild();
+        const boxes = which === 'feed' ? FD_RW_FEED_BOXES : FD_RW_MIN_BOXES;
+        const names = Object.keys(lots).filter(n => Object.keys(lots[n][which]).length).sort();
+        if (!names.length) return '<div class="empty">Nothing to post for this period.</div>';
+        return names.map(lotNo => {
+            const bucket = lots[lotNo][which];
+            let tLb = 0, tUsd = 0, pending = 0;
+            const rows = boxes.filter(b => bucket[b]).map(b => {
+                const v = bucket[b];
+                tLb += v.lb; tUsd += v.usd; pending += v.pending;
+                return `<tr>
+                    <td>${escapeHtml(b)}${v.items.size > 1 || !v.items.has(b)
+                        ? `<div class="muted" style="font-size:11px;">${escapeHtml([...v.items].join(' + '))}</div>` : ''}</td>
+                    <td class="num">${fdRwUsd(v.usd)}${v.pending > 0
+                        ? ' <span style="color:#b58900;" title="an unpriced load is in here">⚠</span>' : ''}</td>
+                    <td class="num">${fdRwLb(v.lb)}</td>
+                </tr>`;
+            }).join('');
+            return `<div style="margin-bottom:16px;">
+                <div style="font-weight:600; margin-bottom:4px;">Production Center ${escapeHtml(lotNo)}</div>
+                <table><thead><tr><th>Box</th><th class="num">$</th><th class="num">lbs</th></tr></thead>
+                <tbody>${rows}
+                <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                    <td>${which === 'feed' ? 'Total $ Fed / Total lbs Fed' : 'Total $ Min Out / Total lbs Min Out'}</td>
+                    <td class="num">${fdRwUsd(tUsd)}</td><td class="num">${fdRwLb(tLb)}</td></tr>
+                </tbody></table>
+                ${pending > 0 ? `<div class="muted" style="font-size:11px; color:#b58900;">
+                    ⚠ An unpriced load is inside these dollars. Price it before posting, or Redwing takes a
+                    number that will change underneath it.</div>` : ''}
+            </div>`;
+        }).join('');
+    }
+
+    function fdRwVarianceHtml() {
+        const { varRows } = fdRwBuild();
+        const names = Object.keys(varRows).sort();
+        if (!names.length) return '<div class="empty">No shrink or found feed in this period.</div>';
+        let nLb = 0, nUsd = 0;
+        const rows = names.map(n => {
+            const v = varRows[n];
+            const netLb = v.foundLb - v.shrinkLb, netUsd = v.foundUsd - v.shrinkUsd;
+            nLb += netLb; nUsd += netUsd;
+            return `<tr><td>${escapeHtml(n)}</td>
+                <td class="num">${v.shrinkLb ? fdRwLb(v.shrinkLb) : '—'}</td>
+                <td class="num">${v.shrinkUsd ? fdRwUsd(v.shrinkUsd) : '—'}</td>
+                <td class="num">${v.foundLb ? fdRwLb(v.foundLb) : '—'}</td>
+                <td class="num">${v.foundUsd ? fdRwUsd(v.foundUsd) : '—'}</td>
+                <td class="num">${fdRwLb(netLb)}</td>
+                <td class="num">${fdRwUsd(netUsd)}</td></tr>`;
+        }).join('');
+        return `<table><thead><tr><th>Item</th>
+            <th class="num" colspan="2">Shrink</th><th class="num" colspan="2">Found</th>
+            <th class="num" colspan="2">Net to variance</th></tr>
+            <tr><th></th><th class="num">lbs</th><th class="num">$</th>
+            <th class="num">lbs</th><th class="num">$</th>
+            <th class="num">lbs</th><th class="num">$</th></tr></thead>
+            <tbody>${rows}
+            <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                <td>Net to the variance account</td><td colspan="4"></td>
+                <td class="num">${fdRwLb(nLb)}</td><td class="num">${fdRwUsd(nUsd)}</td></tr>
+            </tbody></table>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+            A negative net is shrink &mdash; feed the books had and the bay did not. A positive net is found feed.
+            Both sides go to the <b>same</b> account: its balance is how good the shrink allowances are, and
+            posting found feed anywhere else makes that balance meaningless.</p>`;
+    }
+
+    function fdRwRollHtml() {
+        const { roll } = fdRwBuild();
+        const rows = Object.values(roll)
+            .filter(R => R.begin || R.purch || R.found || R.toLots || R.shrink || R.batchIn || R.batchOut || R.xfer || R.end)
+            .sort((a, b) => a.name.localeCompare(b.name));
+        if (!rows.length) return '<div class="empty">No movement and no opening balance in this period.</div>';
+        const T = rows.reduce((t, R) => ({
+            begin: t.begin + R.begin, purch: t.purch + R.purch, found: t.found + R.found,
+            toLots: t.toLots + R.toLots, shrink: t.shrink + R.shrink, other: t.other + R.batchIn - R.batchOut + R.xfer,
+            end: t.end + R.end
+        }), { begin: 0, purch: 0, found: 0, toLots: 0, shrink: 0, other: 0, end: 0 });
+        const live = fdOnHand.reduce((s, o) => s + (Number(o.qty_lb) || 0), 0);
+        const tiesLive = fdRwData.to >= ranchToday();
+        const body = rows.map(R => {
+            const other = R.batchIn - R.batchOut + R.xfer;
+            return `<tr><td><strong>${escapeHtml(R.name)}</strong></td>
+                <td class="num">${fdRwLb(R.begin)}</td>
+                <td class="num">${R.purch ? fdRwLb(R.purch) : '—'}</td>
+                <td class="num">${R.found ? fdRwLb(R.found) : '—'}</td>
+                <td class="num">${R.toLots ? fdRwLb(R.toLots) : '—'}</td>
+                <td class="num">${R.shrink ? fdRwLb(R.shrink) : '—'}</td>
+                <td class="num">${other ? fdRwLb(other) : '—'}</td>
+                <td class="num"><strong${R.end < -0.005 ? ' style="color:#b58900;" title="more was fed than was ever received"' : ''}>${fdRwLb(R.end)}</strong>${R.end < -0.005 ? ' ⚠' : ''}</td></tr>`;
+        }).join('');
+        return `<table><thead><tr><th>Item</th>
+            <th class="num">Beginning</th><th class="num">Purchases</th><th class="num">Found</th>
+            <th class="num">Fed to lots</th><th class="num">Shrink</th><th class="num">Batch/transfer</th>
+            <th class="num">Ending</th></tr></thead>
+            <tbody>${body}
+            <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                <td>Total lb</td><td class="num">${fdRwLb(T.begin)}</td><td class="num">${fdRwLb(T.purch)}</td>
+                <td class="num">${fdRwLb(T.found)}</td><td class="num">${fdRwLb(T.toLots)}</td>
+                <td class="num">${fdRwLb(T.shrink)}</td><td class="num">${fdRwLb(T.other)}</td>
+                <td class="num">${fdRwLb(T.end)}</td></tr>
+            </tbody></table>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+            Beginning + purchases + found &minus; fed &minus; shrink &plusmn; batch/transfer = ending, by construction:
+            both sides are flows and neither is a stored balance.
+            ${rows.some(R => R.end < -0.005) ? `<br><span style="color:#b58900;">⚠ An item ends NEGATIVE.
+            More was fed than was ever received: a delivery was never entered, or a feed-out is on the wrong
+            item. Fix it before posting &mdash; a negative ending posts a credit to inventory.</span>` : ''}
+            ${tiesLive ? (Math.abs(T.end - live) < 0.5
+                ? `Ending ties to the live on-hand of <b>${fmtNum(live)} lb</b>.`
+                : `<span style="color:#b58900;">⚠ Ending is ${fdRwLb(T.end)} lb but the live on-hand is
+                   ${fmtNum(live)} lb. A layer or a usage row exists that one side is not counting &mdash;
+                   do not post from this until it is found.</span>`) : ''}</p>`;
+    }
+
+    function renderFdRedwing() {
+        const d = fdRwData;
+        const { unmapped } = fdRwBuild();
+        const period = `${fmtDate(d.from)} &ndash; ${fmtDate(d.to)}`;
+        const warn = unmapped.length ? `<div class="alert warn" style="margin-bottom:12px;">
+            <b>${unmapped.length} feed-out row${unmapped.length === 1 ? '' : 's'} cannot be posted.</b>
+            ${escapeHtml([...new Set(unmapped.map(u => u.item_name))].join(', '))} —
+            ${unmapped.length === 1 ? 'this item has' : 'these items have'} no Redwing box set.
+            Set it on the item (Feed → Items) or these pounds silently never reach Redwing.
+            Shown here rather than dropped, for exactly that reason.</div>` : '';
+
+        $('fdRwContent').innerHTML = warn +
+            `<div class="muted" style="font-size:12px;">Period ${period}</div>` +
+            fdRwSection('feed', 'Feed Application — bulk commodities',
+                'One block per lot, in the order of the Redwing Feed Application screen. Type the $ box and the lbs box from the same row.',
+                fdRwApplicationHtml('feed')) +
+            fdRwSection('mineral', 'Mineral Application — from consumption',
+                'Mineral is not fed off a ticket; nobody records a bag going to a pasture. These pounds come from the physical count, allocated across open lots by head-days, which is what a mineral count variance means.',
+                fdRwApplicationHtml('mineral')) +
+            fdRwSection('variance', 'Variance account — shrink and found feed',
+                'Never charged to a lot. Barn shrink is the cost of handling feed, not of feeding a particular set of cattle.',
+                fdRwVarianceHtml()) +
+            fdRwSection('roll', 'Inventory roll-forward',
+                'Beginning, purchases, usage, shrink, ending — the proof that the period&rsquo;s movement explains the change in what is standing in the barn.',
+                fdRwRollHtml());
+    }
+
+    // ---- print / pdf / copy ----------------------------------------------
+    // Each output is generated from the SAME html the screen is showing, so a
+    // printed sheet and the screen it came from cannot disagree. The three
+    // buttons differ only in where the table ends up.
+    const FD_RW_TITLES = {
+        feed:     'Feed Application — bulk commodities',
+        mineral:  'Mineral Application — from consumption',
+        variance: 'Variance account — shrink and found feed',
+        roll:     'Inventory roll-forward'
+    };
+    // The item hint under a box name is there to be READ on paper; in a copied
+    // row or a PDF cell it just runs into the box name ("CornCorn hopper bin")
+    // and the box name is the only part anyone types. Drop it for both.
+    function fdRwCellText(el) {
+        const c = el.cloneNode(true);
+        c.querySelectorAll('.muted').forEach(m => m.remove());
+        return c.textContent.replace(/\s+/g, ' ').trim();
+    }
+
+    function fdRwSectionHtml(id) {
+        return id === 'feed'     ? fdRwApplicationHtml('feed')
+             : id === 'mineral'  ? fdRwApplicationHtml('mineral')
+             : id === 'variance' ? fdRwVarianceHtml()
+             :                     fdRwRollHtml();
+    }
+
+    function printFdRwSection(id) {
+        const w = window.open('', '_blank');
+        if (!w) { showAlert('fdRwAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
+        const wide = id === 'variance' || id === 'roll';
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+        <title>${escapeHtml(FD_RW_TITLES[id])} — ${fdRwData.from} to ${fdRwData.to}</title>
+        <style>
+            @page{size:${wide ? 'landscape' : 'portrait'};}
+            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#111;}
+            h1{font-size:17px;margin:0 0 2px 0;}
+            .meta{color:#555;font-size:11.5px;margin-bottom:12px;}
+            table{border-collapse:collapse;width:100%;font-size:12px;margin-bottom:10px;}
+            th,td{border:1px solid #999;padding:4px 7px;text-align:left;}
+            th{background:#eee;font-size:10px;text-transform:uppercase;letter-spacing:.05em;}
+            td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+            .muted{color:#666;font-size:10.5px;}
+            .empty{color:#666;font-style:italic;}
+            @media print{ body{margin:11mm;} tr{break-inside:avoid;} thead{display:table-header-group;} }
+        </style></head><body>
+        <h1>${escapeHtml(FD_RW_TITLES[id])}</h1>
+        <div class="meta">JFR Ranch Co. Ltd. &nbsp;·&nbsp; ${fmtDate(fdRwData.from)} &ndash; ${fmtDate(fdRwData.to)}
+            &nbsp;·&nbsp; printed ${ranchToday()}</div>
+        ${fdRwSectionHtml(id)}
+        </body></html>`);
+        w.document.close();
+        w.focus();
+        setTimeout(() => w.print(), 250);
+    }
+
+    async function shareFdRwPdf(id) {
+        if (!pdfReady()) return;
+        const wide = id === 'variance' || id === 'roll';
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: wide ? 'landscape' : 'portrait' });
+        doc.setFontSize(14);
+        doc.text(FD_RW_TITLES[id].replace(/—/g, '-'), 14, 16);
+        doc.setFontSize(9); doc.setTextColor(110);
+        doc.text(`JFR Ranch Co. Ltd.  ·  ${fdRwData.from} to ${fdRwData.to}`, 14, 22);
+        doc.setTextColor(40);
+        // Walk the rendered tables rather than rebuilding them, so the PDF is
+        // the same document as the screen and the print sheet.
+        const host = document.createElement('div');
+        host.innerHTML = fdRwSectionHtml(id);
+        let y = 27;
+        host.querySelectorAll('table').forEach((tbl, n) => {
+            const cap = tbl.previousElementSibling;
+            if (cap && !cap.matches('table')) {
+                doc.setFontSize(10);
+                doc.text(cap.textContent.trim(), 14, y);
+                y += 5;
+            }
+            const head = [...tbl.querySelectorAll('thead tr')].map(tr => [...tr.children].map(th => ({
+                content: fdRwCellText(th), colSpan: th.colSpan > 1 ? th.colSpan : 1 })));
+            const body = [...tbl.querySelectorAll('tbody tr')].map(tr => [...tr.children].map(fdRwCellText));
+            doc.autoTable({
+                startY: y, head, body,
+                styles: { fontSize: 8, cellPadding: 2 },
+                headStyles: { fillColor: [240, 240, 234], textColor: 30, fontStyle: 'bold' },
+                columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' },
+                                4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' },
+                                7: { halign: 'right' } }
+            });
+            y = doc.lastAutoTable.finalY + 8;
+        });
+        await sharePdfFile(doc, `JFR-${id}-${fdRwData.from}-to-${fdRwData.to}.pdf`, FD_RW_TITLES[id]);
+    }
+
+    // Tab-separated, which is what actually saves the typing: it pastes into
+    // a spreadsheet as columns.
+    async function copyFdRwSection(id) {
+        const host = document.createElement('div');
+        host.innerHTML = fdRwSectionHtml(id);
+        const lines = [];
+        host.querySelectorAll('table').forEach(tbl => {
+            const cap = tbl.previousElementSibling;
+            if (cap && !cap.matches('table')) lines.push(cap.textContent.trim());
+            tbl.querySelectorAll('tr').forEach(tr =>
+                lines.push([...tr.children].map(fdRwCellText).join('\t')));
+            lines.push('');
+        });
+        try {
+            await navigator.clipboard.writeText(lines.join('\n'));
+            showAlert('fdRwAlert', 'Rows copied — paste into the spreadsheet or straight down the Redwing screen.', 'success');
+        } catch (err) {
+            showAlert('fdRwAlert', 'The browser would not let the page write to the clipboard. Use Print instead.');
+        }
+    }
+
+    // ---- FEED ON HAND: PRINT AND PDF -------------------------------------
+    // One shaper feeds both outputs. Two copies of this arithmetic would
+    // drift, and the whole point of the report is that it agrees with the
+    // screen it was printed from.
+    function fdOnHandReport() {
+        const groups = [];
+        const byLoc = fdInvByLoc;
+        const key = r => byLoc ? (r.location_name || '—') : 'All bays';
+        const sorted = fdInvRows.slice().sort((a, b) =>
+            (byLoc ? (a.location_name || '').localeCompare(b.location_name || '') : 0) ||
+            (a.item_name || '').localeCompare(b.item_name || ''));
+
+        let g = null;
+        sorted.forEach(r => {
+            const k = key(r);
+            if (!g || g.name !== k) { g = { name: k, lines: [], lb: 0, usd: 0, unpriced: 0 }; groups.push(g); }
+            const item = fdItem(r.item_id);
+            const lb   = Number(r.qty_lb) || 0;
+            const usd  = Number(r.value_usd) || 0;
+            const perLb = r.avg_cost_per_lb != null ? Number(r.avg_cost_per_lb) : null;
+            g.lines.push({
+                name: r.item_name || '—',
+                units: fdInUnits(lb, item),
+                lb, usd, perLb,
+                rate: perLb != null ? fdRateInUnits(perLb, item) : '',
+                unpriced: Number(r.pending_cost_lb) || 0
+            });
+            g.lb += lb; g.usd += usd; g.unpriced += Number(r.pending_cost_lb) || 0;
+        });
+        const total = groups.reduce((t, x) => ({
+            lb: t.lb + x.lb, usd: t.usd + x.usd, unpriced: t.unpriced + x.unpriced
+        }), { lb: 0, usd: 0, unpriced: 0 });
+        return { groups, total, tie: $('fdInvTieOut').checked, byLoc };
+    }
+
+    // Why the tie-out splits the difference two ways: a gap against Redwing
+    // is never one thing. Pounds we do not agree on and a price we do not
+    // agree on need opposite fixes - one is a delivery or a feed-out nobody
+    // recorded, the other is a costing method. Netted into a single dollar
+    // variance they hide each other.
+    const FD_TIE_NOTE =
+        'Difference splits two ways. <b>Quantity</b> = (our lb &minus; Redwing lb) &times; our $/ton &divide; 2000. ' +
+        '<b>Price</b> = Redwing lb &times; (our $/ton &minus; Redwing $/ton) &divide; 2000. ' +
+        'The two add to the dollar difference. A quantity gap is a load or a feed-out one side never saw; ' +
+        'a price gap is a costing method, and neither fix works on the other.';
+
+    // Refs carry purchase_unit and lb_per_purchase_unit; without them every
+    // tons/bags line silently prints blank rather than failing loudly, so the
+    // report waits for them rather than trusting the tab to have loaded first.
+    async function printFdOnHand() {
+        await fdLoadRefs();
+        const rep = fdOnHandReport();
+        if (!rep.groups.length) { showAlert('fdInvAlert', 'Nothing on hand to report.'); return; }
+        const cols = 5 + (rep.tie ? 3 : 0);
+        const blank = rep.tie ? '<td class="blank"></td><td class="blank"></td><td class="blank"></td>' : '';
+
+        const body = rep.groups.map(g => `
+            ${rep.byLoc ? `<tr><td class="grp" colspan="${cols}">${escapeHtml(g.name)}</td></tr>` : ''}
+            ${g.lines.map(l => `<tr>
+                <td><b>${escapeHtml(l.name)}</b></td>
+                <td class="r">${fmtNum(l.lb)} lb${l.units ? `<div class="sub">${escapeHtml(l.units)}</div>` : ''}</td>
+                <td class="r">${l.perLb != null ? '$' + l.perLb.toFixed(4) + '/lb' : '<span class="warn">unpriced</span>'}
+                    ${l.rate ? `<div class="sub">${escapeHtml(l.rate)}</div>` : ''}</td>
+                <td class="r">${fmtMoney(l.usd)}</td>
+                <td class="r">${l.unpriced > 0 ? `<span class="warn">${fmtNum(l.unpriced)} lb</span>` : '—'}</td>
+                ${blank}
+            </tr>`).join('')}
+            ${rep.byLoc ? `<tr class="sub-total"><td>${escapeHtml(g.name)} subtotal</td>
+                <td class="r">${fmtNum(g.lb)} lb</td><td></td>
+                <td class="r">${fmtMoney(g.usd)}</td>
+                <td class="r">${g.unpriced > 0 ? fmtNum(g.unpriced) + ' lb' : '—'}</td>${blank}</tr>` : ''}
+        `).join('');
+
+        const w = window.open('', '_blank');
+        if (!w) { showAlert('fdInvAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Feed on hand — ${ranchToday()}</title>
+        <style>
+            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#111;}
+            h1{font-size:18px;margin:0 0 2px 0;}
+            .meta{color:#555;font-size:11.5px;margin-bottom:12px;}
+            table{border-collapse:collapse;width:100%;font-size:12.5px;}
+            th,td{border:1px solid #999;padding:4px 7px;text-align:left;vertical-align:top;}
+            th{background:#eee;font-size:10px;text-transform:uppercase;letter-spacing:.06em;}
+            td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;}
+            td.grp{background:#f2f2f2;font-size:10px;font-weight:700;padding:3px 7px;
+                   text-transform:uppercase;letter-spacing:.07em;color:#444;}
+            tr.sub-total td{background:#fafafa;font-weight:700;}
+            tr.grand td{border-top:2px solid #333;font-weight:700;font-size:13px;background:#f2f2f2;}
+            td.blank{background:#fcfcfc;}
+            .sub{color:#777;font-size:10px;}
+            .warn{color:#8a6d2a;}
+            .foot{margin-top:12px;color:#555;font-size:10.5px;line-height:1.45;}
+            @media print{ body{margin:11mm;} tr{break-inside:avoid;} thead{display:table-header-group;} }
+        </style></head><body>
+        <h1>Feed on hand${rep.tie ? ' — Redwing tie-out' : ''}</h1>
+        <div class="meta">JFR Ranch Co. Ltd. &nbsp;·&nbsp; as of ${ranchToday()}
+            &nbsp;·&nbsp; ${rep.byLoc ? 'by bay' : 'all bays combined'}
+            &nbsp;·&nbsp; FIFO layers at delivered cost</div>
+        <table>
+            <thead><tr>
+                <th>Item</th><th class="r">On hand</th><th class="r">Avg cost</th>
+                <th class="r">Value</th><th class="r">Unpriced</th>
+                ${rep.tie ? '<th class="r">Redwing lb</th><th class="r">Redwing $</th><th class="r">Difference</th>' : ''}
+            </tr></thead>
+            <tbody>${body}
+            <tr class="grand"><td>Total</td>
+                <td class="r">${fmtNum(rep.total.lb)} lb</td><td></td>
+                <td class="r">${fmtMoney(rep.total.usd)}</td>
+                <td class="r">${rep.total.unpriced > 0 ? fmtNum(rep.total.unpriced) + ' lb' : '—'}</td>
+                ${blank}</tr>
+            </tbody>
+        </table>
+        <div class="foot">
+            Value is what each load actually cost delivered, frozen on the layer. Pounds on an unpriced
+            load are counted but not valued &mdash; they are in <b>On hand</b> and not in <b>Value</b>.
+            ${rep.tie ? '<br>' + FD_TIE_NOTE : ''}
+        </div>
+        </body></html>`);
+        w.document.close();
+        w.focus();
+        setTimeout(() => w.print(), 250);
+    }
+
+    async function shareFdOnHandPdf() {
+        if (!pdfReady()) return;
+        await fdLoadRefs();
+        const rep = fdOnHandReport();
+        if (!rep.groups.length) { showAlert('fdInvAlert', 'Nothing on hand to report.'); return; }
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: rep.tie ? 'landscape' : 'portrait' });
+        doc.setFontSize(15);
+        doc.text('Feed on hand' + (rep.tie ? ' — Redwing tie-out' : ''), 14, 16);
+        doc.setFontSize(9);
+        doc.setTextColor(110);
+        doc.text(`JFR Ranch Co. Ltd.  ·  as of ${ranchToday()}  ·  ${rep.byLoc ? 'by bay' : 'all bays combined'}`, 14, 22);
+        doc.setTextColor(40);
+
+        const pad = rep.tie ? ['', '', ''] : [];
+        const head = [['Item', 'On hand', 'Avg cost', 'Value', 'Unpriced']
+                        .concat(rep.tie ? ['Redwing lb', 'Redwing $', 'Difference'] : [])];
+        const body = [];
+        rep.groups.forEach(g => {
+            if (rep.byLoc) body.push([{ content: g.name, colSpan: head[0].length,
+                                        styles: { fillColor: [242,242,242], fontStyle: 'bold', fontSize: 8 } }]);
+            g.lines.forEach(l => body.push([
+                l.name,
+                fmtNum(l.lb) + ' lb' + (l.units ? '\n' + l.units : ''),
+                (l.perLb != null ? '$' + l.perLb.toFixed(4) + '/lb' : 'unpriced')
+                    + (l.rate ? '\n' + l.rate : ''),
+                fmtMoney(l.usd),
+                l.unpriced > 0 ? fmtNum(l.unpriced) + ' lb' : '—'
+            ].concat(pad)));
+            if (rep.byLoc) body.push([
+                { content: g.name + ' subtotal', styles: { fontStyle: 'bold' } },
+                { content: fmtNum(g.lb) + ' lb', styles: { fontStyle: 'bold' } },
+                '',
+                { content: fmtMoney(g.usd), styles: { fontStyle: 'bold' } },
+                { content: g.unpriced > 0 ? fmtNum(g.unpriced) + ' lb' : '—', styles: { fontStyle: 'bold' } }
+            ].concat(pad));
+        });
+        body.push([
+            { content: 'Total', styles: { fontStyle: 'bold', fillColor: [242,242,242] } },
+            { content: fmtNum(rep.total.lb) + ' lb', styles: { fontStyle: 'bold', fillColor: [242,242,242] } },
+            { content: '', styles: { fillColor: [242,242,242] } },
+            { content: fmtMoney(rep.total.usd), styles: { fontStyle: 'bold', fillColor: [242,242,242] } },
+            { content: rep.total.unpriced > 0 ? fmtNum(rep.total.unpriced) + ' lb' : '—',
+              styles: { fontStyle: 'bold', fillColor: [242,242,242] } }
+        ].concat(rep.tie ? [{ content: '', styles: { fillColor: [242,242,242] } },
+                            { content: '', styles: { fillColor: [242,242,242] } },
+                            { content: '', styles: { fillColor: [242,242,242] } }] : []));
+
+        doc.autoTable({
+            startY: 27, head, body,
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [240,240,234], textColor: 30, fontStyle: 'bold' },
+            columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' },
+                            3: { halign: 'right' }, 4: { halign: 'right' },
+                            5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } }
+        });
+        if (rep.tie) {
+            doc.setFontSize(7.5);
+            doc.setTextColor(110);
+            doc.text(doc.splitTextToSize(FD_TIE_NOTE.replace(/<[^>]+>/g, '').replace(/&minus;/g, '-')
+                        .replace(/&times;/g, 'x').replace(/&divide;/g, '/'), 265),
+                     14, doc.lastAutoTable.finalY + 6);
+        }
+        await sharePdfFile(doc, `JFR-feed-on-hand-${ranchToday()}.pdf`, 'Feed on hand');
+    }
+
     // ---- PRINTABLE COUNT SHEET -------------------------------------------
     // What you carry to the bay: book quantity printed, a blank to write in.
     // Book is printed on purpose — arguing with a number in front of you is
     // how an estimate gets anchored, and a bay count is an estimate.
-    function printFdCountSheet(locId) {
+    // Categories print in this order, and MINERAL IS ONE BLOCK. A person
+    // walking a pallet counts all the mineral, then all the sacked feed -
+    // not alphabetically, which interleaves them.
+    const FD_SHEET_GROUPS = [
+        ['bulk_commodity', 'Bulk commodity'],
+        ['bagged_feed',    'Bagged feed'],
+        ['additive',       'Additive'],
+        ['mineral',        'Mineral']
+    ];
+
+    function printFdCountSheet(locId, everyItem) {
         const loc = fdLoc(locId);
         if (!loc) return;
         const here = fdOnHand.filter(o => o.location_id === locId)
-            .sort((a, b) => (a.item_name || '').localeCompare(b.item_name || ''));
-        const rows = here.map(o => {
+            .map(o => ({ item_id: o.item_id, item_name: o.item_name, qty_lb: Number(o.qty_lb) || 0 }));
+        // The FIRST count has to list items the books have never carried
+        // here - a bay that has always read zero is exactly the one nobody
+        // has ever verified. Every count after this one lists what is on
+        // the books, because by then the books are the thing being checked.
+        if (everyItem) {
+            const seen = new Set(here.map(o => o.item_id));
+            fdItems.filter(i => i.is_active && !seen.has(i.id) && i.default_location_id === locId)
+                   .forEach(i => here.push({ item_id: i.id, item_name: i.name, qty_lb: 0 }));
+        }
+        // Bulk is weighed, so the sheet asks for TONS with pounds beside it.
+        // Sacks are counted, so it asks for BAGS. Both columns are there
+        // either way - whichever one gets written in, the other is arithmetic
+        // and the app does it. Writing a tonnage into a pounds column is the
+        // single easiest way to put a 2,000x error into the books.
+        const line = (o) => {
             const item = fdItem(o.item_id);
-            const units = item && item.purchase_unit !== 'lb' ? fdInUnits(o.qty_lb, item) : '';
+            const u = fdCountUnit(item);
             return `<tr>
-                <td>${escapeHtml(o.item_name)}${units ? `<div class="sub">${escapeHtml(units)} on the books</div>` : ''}</td>
-                <td class="r">${fmtNum(o.qty_lb)}</td>
+                <td><b>${escapeHtml(o.item_name)}</b>${u ? `<span class="unit">${escapeHtml(u.label)}</span>` : ''}</td>
+                <td class="r">${u ? `<b>${fmtNum(o.qty_lb / u.per, 2)}</b> ${escapeHtml(u.label)}<br>` : ''}<span class="lb">${fmtNum(o.qty_lb)} lb</span></td>
                 <td class="blank"></td>
                 <td class="blank"></td>
             </tr>`;
-        }).join('');
+        };
+        // A group heading only earns its line when there is more than one
+        // group on the sheet. A pallet holding nothing but mineral does not
+        // need to be told so.
+        const byGroup = FD_SHEET_GROUPS.map(([key, label]) => [label,
+            here.filter(o => (fdItem(o.item_id) || {}).item_type === key)
+                .sort((a, b) => (a.item_name || '').localeCompare(b.item_name || ''))]);
+        const other = here.filter(o => !FD_SHEET_GROUPS.some(g => g[0] === (fdItem(o.item_id) || {}).item_type))
+                          .sort((a, b) => (a.item_name || '').localeCompare(b.item_name || ''));
+        if (other.length) byGroup.push(['Other', other]);
+        const used = byGroup.filter(g => g[1].length);
+        const rows = used.map(([label, list]) =>
+            (used.length > 1 ? `<tr><td class="grp" colspan="4">${escapeHtml(label)}</td></tr>` : '')
+            + list.map(line).join('')).join('');
         const w = window.open('', '_blank');
         if (!w) { showAlert('fdCtAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
-        w.document.write(`<!doctype html><html><head><title>Count sheet — ${escapeHtml(loc.name)}</title>
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Count sheet — ${escapeHtml(loc.name)}</title>
         <style>
-            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:28px;color:#111;}
-            h1{font-size:19px;margin:0 0 2px 0;}
-            .meta{color:#666;font-size:12px;margin-bottom:16px;}
+            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#111;}
+            h1{font-size:18px;margin:0 0 2px 0;}
+            .meta{color:#555;font-size:11.5px;margin-bottom:12px;}
             table{border-collapse:collapse;width:100%;font-size:13px;}
-            th,td{border:1px solid #999;padding:7px 8px;text-align:left;vertical-align:top;}
-            th{background:#eee;font-size:11px;text-transform:uppercase;letter-spacing:.06em;}
+            th,td{border:1px solid #999;padding:5px 8px;text-align:left;vertical-align:top;}
+            th{background:#eee;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;}
             td.r{text-align:right;font-variant-numeric:tabular-nums;}
-            td.blank{width:110px;background:#fcfcfc;}
+            /* The count box is wide because it is written in by hand in a
+               barn, and the row is tall for the same reason. */
+            td.blank{background:#fcfcfc;height:30px;}
+            th:first-child,td:first-child{width:30%;}
+            th:nth-child(2),td:nth-child(2){width:20%;}
+            th:nth-child(3),td:nth-child(3){width:26%;}
+            /* Pounds are the figure that has to be readable at arm's length
+               against a book value someone is deciding whether to believe. */
+            .lb{color:#222;font-size:12px;font-variant-numeric:tabular-nums;}
+            .unit{color:#666;font-size:10.5px;font-weight:400;margin-left:5px;
+                  text-transform:uppercase;letter-spacing:.04em;}
             .sub{color:#777;font-size:10.5px;}
-            .foot{margin-top:16px;color:#666;font-size:11px;line-height:1.5;}
-            .sign{margin-top:26px;font-size:12px;}
-            .sign span{display:inline-block;border-bottom:1px solid #666;width:210px;margin-left:6px;}
-            @media print{ body{margin:12mm;} }
+            td.grp{background:#f2f2f2;font-size:10px;font-weight:700;padding:3px 8px;
+                   text-transform:uppercase;letter-spacing:.07em;color:#444;}
+            .foot{margin-top:12px;color:#555;font-size:10.5px;line-height:1.45;}
+            .sign{margin-top:18px;font-size:12px;}
+            .sign span{display:inline-block;border-bottom:1px solid #666;width:200px;margin-left:6px;}
+            @media print{
+                body{margin:11mm;}
+                tr{break-inside:avoid;}
+                thead{display:table-header-group;}
+            }
         </style></head><body>
         <h1>Feed count — ${escapeHtml(loc.name)}</h1>
         <div class="meta">${escapeHtml(loc.kind)}${loc.is_bulk ? ' · bulk, estimate it' : ' · counted in whole units'}
-            &nbsp;·&nbsp; printed ${ranchToday()}</div>
+            &nbsp;·&nbsp; printed ${ranchToday()}${everyItem ? ' &nbsp;·&nbsp; <b>first count — every item listed, on the books or not</b>' : ''}</div>
         <table>
-            <thead><tr><th>Item</th><th style="text-align:right;">Book (lb)</th><th>Counted (lb)</th><th>How judged</th></tr></thead>
+            <thead><tr><th>Item</th><th style="text-align:right;">Book</th>
+                <th>Counted</th><th>How judged</th></tr></thead>
             <tbody>${rows || '<tr><td colspan="4">Nothing on the books in this location.</td></tr>'}
-            <tr><td>&nbsp;</td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td></tr>
-            <tr><td>&nbsp;</td><td class="r">&nbsp;</td><td class="blank"></td><td class="blank"></td></tr>
+            <tr><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
+            <tr><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
+            <tr><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>
             </tbody>
         </table>
         <div class="foot">
-            Leave a line blank and it is skipped, not treated as zero.<br>
+            Write the count in whatever unit it was judged in &mdash; <b>tons, bags or pounds</b> &mdash;
+            and say which. The app converts.<br>
+            A line left entirely blank is <b>skipped, not treated as zero</b>. To say a bay is empty, write 0.
             Blank rows at the bottom are for anything in the bay that is not on the books.
         </div>
         <div class="sign">Counted by <span></span> &nbsp;&nbsp; Date <span style="width:130px;"></span></div>
@@ -24383,7 +26251,7 @@ ${ranchBlocks}
     $('fdCtPrintBtn').addEventListener('click', () => {
         const locId = $('fdCtPrintLoc').value;
         if (!locId) { showAlert('fdCtAlert', 'Pick which location the sheet is for.'); return; }
-        printFdCountSheet(locId);
+        printFdCountSheet(locId, $('fdCtPrintAll').checked);
     });
 
     $('fdCostRefreshBtn').addEventListener('click', loadFeedCost);

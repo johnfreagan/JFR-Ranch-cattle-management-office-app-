@@ -113,6 +113,12 @@ let tagLocationMap = loadJSON('betaCattleTagLocations', {});
 // outside their lot's range), so the range is a last-ditch fallback only.
 let tagLotMap = loadJSON('betaCattleTagLots', {});
 
+// "Ranch - Pasture" -> [{lot, head}] standing there. Drives the move form's
+// lot picker: lot_movements.lot_id is NOT NULL, and a pasture holding two
+// lots (Shop/Bull Trap holds 37X-1 and 59X) cannot be resolved after the
+// fact — the cowboy at the gate is the only one who knows which moved.
+let pastureLotsMap = loadJSON('betaCattlePastureLots', {});
+
 // tag number -> { why, places } for tags whose location is NOT knowable.
 // The books track pasture per LOT, not per animal, so a load that turned out
 // into two pastures leaves every tag on it genuinely ambiguous. Saying that
@@ -923,7 +929,7 @@ historyTabBtn.onclick = () => switchTab('history');
 // synced under an older schema has a current betaLastSyncDate but is
 // missing the new data entirely, and would otherwise sit there looking
 // synced while tag lookups quietly returned nothing.
-const DATA_SCHEMA_VERSION = 6;
+const DATA_SCHEMA_VERSION = 7;
 
 function checkDailySync() {
     const lastSync = localStorage.getItem('betaLastSyncDate');
@@ -963,9 +969,6 @@ function populateMoveDropdowns() {
     });
 }
 
-document.getElementById('moveFromRanch').onchange = function() { updateMovePastures(this.value, 'moveFromPasture'); };
-document.getElementById('moveToRanch').onchange = function() { updateMovePastures(this.value, 'moveToPasture'); };
-
 function updateMovePastures(prop, targetId) {
     const target = document.getElementById(targetId);
     target.disabled = false;
@@ -985,6 +988,153 @@ function updateMovePastures(prop, targetId) {
         + uniquePastures.map(p => `<option value="${p}">${p}</option>`).join('');
 }
 
+document.getElementById('moveFromRanch').onchange = function() {
+    updateMovePastures(this.value, 'moveFromPasture');
+    moveSplitTouched = false;      // a new pasture means new lots; start clean
+    renderMoveSplit();
+};
+document.getElementById('moveToRanch').onchange = function() { updateMovePastures(this.value, 'moveToPasture'); };
+document.getElementById('moveFromPasture').onchange = function() {
+    moveSplitTouched = false;
+    renderMoveSplit();
+};
+// Typing the head count re-spreads it, until somebody edits a lot box by hand.
+document.getElementById('moveHeadCount').addEventListener('input', () => {
+    autoFillMoveSplit();
+    updateMoveSplitTotal();
+});
+
+// WHICH LOTS ARE MOVING
+//
+// lot_movements.lot_id is NOT NULL, so a move has to name a lot. Four
+// pastures currently hold more than one lot - Steele/Front Native carries
+// 416 head as 37X:241 and 37X-F:175 - and once cattle are mixed, cutting 50
+// off the gate gives nobody a way to tell how many of each went. So the
+// form asks for a SPLIT rather than a single lot.
+//
+// The default is pro-rata on what the books say is standing there, which is
+// the best available guess for a random cut and always sums exactly (largest
+// remainder). It is a starting point, not an answer: any box can be typed
+// over when the cowboy actually knows.
+//
+// This is safe to estimate because a move does not touch the money. Head-days
+// come from lot_daily_head, which is built from invoices, receipts, deaths
+// and sales and never reads a pasture - so cost of gain, feed, treatment and
+// closeout are all identical whichever way the split falls. What it does
+// decide is which pasture each lot's head are recorded in, and that matters
+// later: when those cattle are SOLD off the far pasture, the sale allocates
+// to whatever lot the books say is standing there.
+let moveSplitTouched = false;
+
+function moveLotsHere() {
+    const ranch = String(document.getElementById('moveFromRanch').value || '').trim();
+    const past = String(document.getElementById('moveFromPasture').value || '').trim();
+    const label = ranch && past ? `${ranch} - ${past}` : '';
+    return { label, past, here: (label && pastureLotsMap[label]) || [] };
+}
+
+// Largest remainder, so the parts always sum to the whole exactly. Rounding
+// each share independently and dumping the residual on the last lot would
+// work too, but always parks the error on whichever lot happens to be last.
+function proRata(total, weights) {
+    const sum = weights.reduce((a, b) => a + b, 0);
+    if (!sum || !total) return weights.map(() => 0);
+    const exact = weights.map(w => (total * w) / sum);
+    const base = exact.map(Math.floor);
+    let short = total - base.reduce((a, b) => a + b, 0);
+    const order = exact.map((e, i) => ({ i, frac: e - Math.floor(e) }))
+                       .sort((a, b) => b.frac - a.frac);
+    for (let k = 0; k < order.length && short > 0; k++, short--) base[order[k].i]++;
+    return base;
+}
+
+function renderMoveSplit(preset) {
+    const box = document.getElementById('moveLotSplit');
+    const hint = document.getElementById('moveLotHint');
+    if (!box) return;
+    const { label, past, here } = moveLotsHere();
+
+    if (!label) {
+        box.innerHTML = '<div class="muted">Pick the From ranch and pasture first.</div>';
+        hint.style.display = 'none';
+        return;
+    }
+    if (here.length === 0) {
+        // The books show nothing standing there. Not a blocker - the cattle
+        // are real and the move happened - but the office must be told.
+        box.innerHTML = '<div class="muted">The books show no open lot in this pasture. Save anyway; the office will sort it out.</div>';
+        hint.style.display = 'none';
+        return;
+    }
+    box.innerHTML = here.map((x, i) => `
+        <div class="lot-split-row">
+            <span class="lot-split-name">${x.lot}<small class="muted"> ${x.head} hd here</small></span>
+            <input type="number" class="lot-split-head" data-lot="${x.lot}" data-avail="${x.head}"
+                   min="0" max="${x.head}" step="1" inputmode="numeric" placeholder="0"
+                   value="${preset && preset[x.lot] != null ? preset[x.lot] : ''}">
+        </div>`).join('') + '<div class="lot-split-total" id="moveSplitTotal"></div>';
+
+    box.querySelectorAll('.lot-split-head').forEach(el => {
+        el.addEventListener('input', () => { moveSplitTouched = true; updateMoveSplitTotal(); });
+    });
+
+    hint.textContent = here.length === 1
+        ? `Only lot in ${past}.`
+        : `${here.length} lots are mixed in ${past} — split the head between them.`;
+    hint.style.display = 'block';
+    if (!preset) autoFillMoveSplit();
+    updateMoveSplitTotal();
+}
+
+// Fill the boxes from the head count: the whole lot when there is only one,
+// pro-rata when they are mixed. Never overwrites what somebody typed.
+function autoFillMoveSplit() {
+    if (moveSplitTouched) return;
+    const total = parseInt(document.getElementById('moveHeadCount').value, 10);
+    const rows = [...document.querySelectorAll('.lot-split-head')];
+    if (!rows.length) return;
+    if (isNaN(total) || total <= 0) { rows.forEach(r => { r.value = ''; }); updateMoveSplitTotal(); return; }
+    if (rows.length === 1) { rows[0].value = total; updateMoveSplitTotal(); return; }
+    const share = proRata(total, rows.map(r => Number(r.dataset.avail) || 0));
+    rows.forEach((r, i) => { r.value = share[i] || 0; });
+    updateMoveSplitTotal();
+}
+
+function moveSplitValues() {
+    return [...document.querySelectorAll('.lot-split-head')].map(el => ({
+        lot: el.dataset.lot,
+        avail: Number(el.dataset.avail) || 0,
+        head: parseInt(el.value, 10) || 0
+    }));
+}
+
+function updateMoveSplitTotal() {
+    const el = document.getElementById('moveSplitTotal');
+    if (!el) return;
+    const vals = moveSplitValues();
+    const sum = vals.reduce((a, b) => a + b.head, 0);
+    const stated = parseInt(document.getElementById('moveHeadCount').value, 10);
+    const over = vals.filter(v => v.head > v.avail);
+    if (over.length) {
+        el.className = 'lot-split-total bad';
+        el.textContent = over.map(v => `Only ${v.avail} head of ${v.lot} are in this pasture`).join(' · ');
+        return;
+    }
+    if (!isNaN(stated) && stated > 0 && sum !== stated) {
+        el.className = 'lot-split-total bad';
+        el.textContent = `${sum} of ${stated} head allocated — ${sum < stated ? (stated - sum) + ' short' : (sum - stated) + ' over'}`;
+        return;
+    }
+    el.className = 'lot-split-total ok';
+    el.textContent = sum > 0 ? `${sum} head allocated` : '';
+}
+
+// Kept for the edit path: restore a saved split, or a single saved lot.
+function refreshMoveLots(saved) {
+    moveSplitTouched = !!saved;
+    renderMoveSplit(saved || null);
+}
+
 movesForm.addEventListener('submit', function(e) {
     e.preventDefault();
 
@@ -1001,6 +1151,32 @@ movesForm.addEventListener('submit', function(e) {
         return; 
     }
 
+    // Only insist on lots when the books actually offer a choice. If they
+    // show nothing standing in that pasture there is nothing to pick, and
+    // blocking the save would strand a real move on the phone.
+    const here = pastureLotsMap[`${String(fromR).trim()} - ${String(fromP).trim()}`] || [];
+    const split = moveSplitValues().filter(v => v.head > 0);
+    const splitSum = split.reduce((a, b) => a + b.head, 0);
+    if (here.length > 0) {
+        if (!split.length) {
+            showToast('🛑 Say how many head of each lot are moving', 'error', 3500);
+            return;
+        }
+        const over = split.find(v => v.head > v.avail);
+        if (over) {
+            showToast(`🛑 Only ${over.avail} head of ${over.lot} are in this pasture`, 'error', 4000);
+            return;
+        }
+        // The stated head and the split must agree, or the office receives a
+        // move whose parts do not add up to its own total.
+        const stated = parseInt(count, 10);
+        if (!isNaN(stated) && stated > 0 && stated !== splitSum) {
+            showToast(`🛑 Lots add to ${splitSum}, head count says ${stated}`, 'error', 4000);
+            return;
+        }
+    }
+    const lotVal = split.length === 1 ? split[0].lot : '';
+
     const moveData = {
         type: 'move',
         id: editingMoveId || "M-" + Date.now(),
@@ -1009,13 +1185,19 @@ movesForm.addEventListener('submit', function(e) {
         fromPasture: fromP,
         toRanch: toR,
         toPasture: toP,
-        headCount: count || "0",
+        // lotNumber stays set for the ordinary one-lot move so the office
+        // path and every older record keep working unchanged; lotSplit is
+        // the general form and wins when present.
+        lotNumber: lotVal,
+        lotSplit: split.map(v => ({ lot: v.lot, head: v.head })),
+        headCount: String(splitSum || parseInt(count, 10) || 0),
         notes: document.getElementById('moveNotes').value,
         recordedBy: moveRecordedByInput.value.trim()
     };
 
-    const countMsg = count ? `${count} Head` : "Uncounted Head";
-    if(!confirm(`Confirm Move:\n${countMsg}\nFrom: ${fromP}\nTo: ${toP}`)) return;
+    const countMsg = splitSum ? `${splitSum} Head` : (count ? `${count} Head` : "Uncounted Head");
+    const splitMsg = split.length ? split.map(v => `${v.lot}: ${v.head}`).join('\n') + '\n' : '';
+    if(!confirm(`Confirm Move:\n${splitMsg}${countMsg}\nFrom: ${fromP}\nTo: ${toP}`)) return;
 
     const saveMoveBtn = document.getElementById('saveMoveBtn');
     isSubmittingMove = true;
@@ -1038,6 +1220,10 @@ movesForm.addEventListener('submit', function(e) {
     showToast(`🚚 Move saved: ${fromP} → ${toP}`, 'success', 2000);
     updateDailySummary();
     movesForm.reset();
+    // reset() leaves the split rows holding lots for a pasture that is no
+    // longer selected; rebuild from the (now empty) form.
+    moveSplitTouched = false;
+    renderMoveSplit();
     document.getElementById('moveDate').valueAsDate = new Date();
     moveRecordedByInput.value = localStorage.getItem('crewMemberName'); 
 
@@ -1051,7 +1237,14 @@ movesForm.addEventListener('submit', function(e) {
 window.editMoveLocal = function(id) {
     const m = movesRecords.find(rec => String(rec.id) === String(id));
     if (!m) return;
-    
+    // An approved entry is already in the books and its raw payload is
+    // immutable server-side, so a re-send would be refused. Say so here
+    // rather than letting the cowboy retype it into a rejection.
+    if (m._status === 'approved') {
+        showToast('Already approved and in the books — ask the office to change it', 'error', 4000);
+        return;
+    }
+
     editingMoveId = String(id);
     switchTab('moves'); 
     
@@ -1069,6 +1262,16 @@ window.editMoveLocal = function(id) {
         document.getElementById('moveToPasture').value = String(m.toPasture).trim();
     }
     
+    // Rebuild the split for the loaded from-pasture, restoring what was
+    // recorded. An older record carries a single lotNumber and no split.
+    const saved = {};
+    if (Array.isArray(m.lotSplit) && m.lotSplit.length) {
+        m.lotSplit.forEach(x => { saved[x.lot] = x.head; });
+    } else if (m.lotNumber) {
+        saved[String(m.lotNumber).trim()] = parseInt(m.headCount, 10) || 0;
+    }
+    refreshMoveLots(Object.keys(saved).length ? saved : null);
+
     document.getElementById('moveHeadCount').value = m.headCount || "";
     document.getElementById('moveNotes').value = m.notes || "";
     
@@ -1356,7 +1559,7 @@ async function pullCloudData() {
             // A lot usually spans several pastures, so location can only be
             // inferred when it sits in exactly one.
             sb.from('lot_pasture_assignments')
-              .select('lot_id, pasture_id, moved_out, pastures!inner(name, ranches!inner(name))')
+              .select('lot_id, pasture_id, head_count, moved_out, pastures!inner(name, ranches!inner(name))')
               .is('moved_out', null),
             // Where each delivery receipt's cattle were turned out. Combined
             // with lot_tags.delivery_receipt_id this is the only per-ANIMAL
@@ -1437,8 +1640,14 @@ async function pullCloudData() {
 
         // Rebuild the app's own record shape straight out of `raw` — it is
         // the submitted payload verbatim, so no back-conversion is needed.
-        const cloudRecords = entries.filter(e => e.entry_type === 'doctoring').map(e => e.raw);
-        const cloudMoves   = entries.filter(e => e.entry_type === 'move').map(e => e.raw);
+        // `raw` is the submitted payload verbatim, so the app's own record
+        // shape needs no back-conversion. The one thing carried alongside it
+        // is the review status: an APPROVED entry is in the books and its raw
+        // payload is immutable in the DB, so offering Edit on it would build
+        // a re-send the server is guaranteed to reject.
+        const withStatus = (e) => Object.assign({}, e.raw, { _status: e.status || 'pending' });
+        const cloudRecords = entries.filter(e => e.entry_type === 'doctoring').map(withStatus);
+        const cloudMoves   = entries.filter(e => e.entry_type === 'move').map(withStatus);
 
         // The dose string feeds triggerMedAutoFill(), which splits on '/'
         // to mean rate-per-basis and otherwise treats it as a flat dose.
@@ -1515,11 +1724,31 @@ async function pullCloudData() {
             (destsByReceipt[d.receipt_id] = destsByReceipt[d.receipt_id] || []).push(d.pasture_id);
         });
 
+        // Open, non-test lots by id. Declared here because the pasture->lots
+        // map below needs it; the later lotNumberById is the same thing built
+        // further down for the doctoring history and is left alone.
+        const lotNumberByIdEarly = {};
+        (lotsRes.data || []).forEach(l => { if (!l.is_test) lotNumberByIdEarly[l.id] = l.lot_number; });
+
         // lot -> set of pastures it is currently open in
         const openPastureIdsByLot = {};
         (assignRes.data || []).forEach(a => {
             (openPastureIdsByLot[a.lot_id] = openPastureIdsByLot[a.lot_id] || []).push(a.pasture_id);
         });
+
+        // "Ranch - Pasture" -> the lots standing there, with head. This is
+        // what lets the move form ask which lot is moving: the cowboy at the
+        // gate knows, and the office two days later is guessing from a map.
+        const pastureLots = {};
+        (assignRes.data || []).forEach(a => {
+            const label = a.pastures && a.pastures.ranches
+                ? `${a.pastures.ranches.name} - ${a.pastures.name}` : null;
+            const lot = lotNumberByIdEarly[a.lot_id];
+            if (!label || !lot) return;
+            (pastureLots[label] = pastureLots[label] || []).push({ lot, head: a.head_count });
+        });
+        Object.keys(pastureLots).forEach(k =>
+            pastureLots[k].sort((x, y) => String(x.lot).localeCompare(String(y.lot))));
 
         const tagLocations = {};
         const tagLots = {};
@@ -1571,6 +1800,10 @@ async function pullCloudData() {
         // transient network blip into a device that could no longer resolve
         // any tag. Keeping the previous data is always better than keeping
         // nothing.
+        if (!assignRes.error) {
+            pastureLotsMap = pastureLots;
+            safeSetItem('betaCattlePastureLots', JSON.stringify(pastureLotsMap));
+        }
         if (tagFetchOk) {
             tagLocationMap = tagLocations;
             tagLotMap = tagLots;
@@ -2120,17 +2353,22 @@ document.getElementById('recallActionBtn').onclick = function() {
 // =========================================================
 // TABLE RENDERING (Only shown on History Tab)
 // =========================================================
-function getYesterdayMidnight() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    return yesterday;
+// How far back the history tab reaches. Two days was too short to be
+// useful: a move entered on Saturday had already dropped off the list by
+// Monday morning, which is exactly when somebody notices it needs fixing.
+// A week covers a weekend plus the Monday it gets looked at.
+const HISTORY_DAYS = 7;
+
+function getHistoryCutoff() {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (HISTORY_DAYS - 1));
+    return d;
 }
 
 function updateRecentList() {
     recordTableBody.innerHTML = '';
-    const cutoff = getYesterdayMidnight();
+    const cutoff = getHistoryCutoff();
     const recentRecords = records.filter(r => {
         if (!r.dateTime) return false;
         const recDate = new Date(r.dateTime.split('T')[0] + "T00:00:00");
@@ -2143,7 +2381,7 @@ function updateRecentList() {
 
 function updateMovesList() {
     movesTableBody.innerHTML = '';
-    const cutoff = getYesterdayMidnight();
+    const cutoff = getHistoryCutoff();
     const recentMoves = movesRecords.filter(m => {
         if (!m.date) return false;
         const mDate = new Date(m.date.split('T')[0] + "T00:00:00");
@@ -2158,36 +2396,49 @@ function renderDoctoringRow(r) {
     const tr = document.createElement('tr');
     const drugOffTag = r.drugOff ? `<b style="color:#d70015;">[Drug off: ${r.drugOff}]</b> ` : '';
     tr.innerHTML = `
-        <td><b>${r.tagNumber}</b></td>
+        <td><b>${r.tagNumber}</b> ${statusCell(r)}</td>
         <td>${String(r.dateTime).replace('T', ' ')}</td>
         <td>${r.treatmentType}</td>
         <td>${r.location}</td>
         <td>${r.medication1} <small>${r.dosage1}</small></td>
         <td>${drugOffTag}${r.notes || ''}</td>
-        <td>
-            <div class="action-buttons">
-                <button type="button" class="edit-btn" title="Load this record into the form to edit it." onclick="editLocal('${r.id}')">Edit</button>
-                <button type="button" id="del-${r.id}" class="delete-btn" title="Delete this record. You'll be asked to confirm." onclick="confirmDelete('${r.id}', 'doctoring')">Del</button>
-            </div>
-        </td>
+        <td>${rowActions(r, 'doctoring')}</td>
     `;
     recordTableBody.appendChild(tr);
+}
+
+// An approved entry is in the books: the server refuses any change to its
+// raw payload, so Edit and Del are shown disabled with the reason rather
+// than offered and then rejected.
+function statusCell(rec) {
+    if (rec._status === 'approved') return '<span class="row-status approved">in books</span>';
+    if (rec._status === 'rejected') return '<span class="row-status rejected">rejected</span>';
+    return '';
+}
+
+function rowActions(rec, kind) {
+    if (rec._status === 'approved') {
+        return '<span class="muted" style="font-size:11px;">approved &mdash; office only</span>';
+    }
+    return `
+            <div class="action-buttons">
+                <button type="button" class="edit-btn" title="Load this record into the form to edit it." onclick="${kind === 'move' ? 'editMoveLocal' : 'editLocal'}('${rec.id}')">Edit</button>
+                <button type="button" id="del-${rec.id}" class="delete-btn" title="Delete this record. You'll be asked to confirm." onclick="confirmDelete('${rec.id}', '${kind}')">Del</button>
+            </div>`;
 }
 
 function renderMoveRow(m) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-        <td>${m.date}</td>
+        <td>${m.date} ${statusCell(m)}</td>
         <td>${m.fromRanch} - ${m.fromPasture}</td>
         <td>${m.toRanch} - ${m.toPasture}</td>
+        <td>${Array.isArray(m.lotSplit) && m.lotSplit.length
+                ? m.lotSplit.map(x => `<b>${x.lot}</b> ${x.head}`).join('<br>')
+                : (m.lotNumber ? '<b>' + m.lotNumber + '</b>' : '<span class="muted">not said</span>')}</td>
         <td>${m.headCount || '0'}</td>
         <td>${m.notes || '-'}</td>
-        <td>
-            <div class="action-buttons">
-                <button type="button" class="edit-btn" title="Load this move into the form to edit it." onclick="editMoveLocal('${m.id}')">Edit</button>
-                <button type="button" id="del-${m.id}" class="delete-btn" title="Delete this move. You'll be asked to confirm." onclick="confirmDelete('${m.id}', 'move')">Del</button>
-            </div>
-        </td>
+        <td>${rowActions(m, 'move')}</td>
     `;
     movesTableBody.appendChild(tr);
 }
@@ -2195,7 +2446,11 @@ function renderMoveRow(m) {
 window.editLocal = function(id) {
     const r = records.find(rec => String(rec.id) === String(id));
     if (!r) return;
-    
+    if (r._status === 'approved') {
+        showToast('Already approved and in the books — ask the office to change it', 'error', 4000);
+        return;
+    }
+
     editingRecordId = String(id);
     switchTab('doctoring');
     
@@ -2314,7 +2569,11 @@ function buildDayReport(docRows, moveRows, deadRows, stagedRows, pastureLabelByI
         const who = e.raw && e.raw.recordedBy;
         if (!who) return;
         if (e.client_id) whoByClientId[String(e.client_id)] = who;
-        if (e.approved_ref && e.approved_ref.id) whoByRowId[String(e.approved_ref.id)] = who;
+        // approved_ref is an array for a multi-lot move (one movement per
+        // lot); reading only .id would lose the crew name on those rows.
+        [].concat(e.approved_ref || []).forEach(ref => {
+            if (ref && ref.id) whoByRowId[String(ref.id)] = who;
+        });
     });
     const bookWho = (row) =>
         whoByRowId[String(row.id)] ||
@@ -2615,7 +2874,7 @@ const RESET_KEYS = [
     'betaCattleRecords', 'betaCattleMoves', 'betaCattleMeds', 'betaCattleLocs',
     'betaCattleLots', 'betaCattleProtocols', 'betaCattleLocks',
     'betaCattleBooksHistory', 'betaCattleTagLocations', 'betaCattleTagLots',
-    'betaCattleTagRanges', 'betaCattleTagCandidates',
+    'betaCattleTagRanges', 'betaCattleTagCandidates', 'betaCattlePastureLots',
     'betaCattleSyncQueue', 'betaCattleTombstones', 'betaCattleRejected',
     'betaLastSyncDate', 'betaCattleDataVersion', 'betaCattleDayReport'
     // 'crewMemberName' is deliberately kept - it is a convenience, not state,
