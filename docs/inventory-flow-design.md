@@ -20,8 +20,9 @@ Companion documents: `feed-design-decisions.md`, `commodity-feed-inventory-plan.
 `sql/2026-08-27_feed_inventory.sql`, `sql/2026-08-27_feed_phase4_premix.sql`,
 `sql/2026-08-28_feed_decisions.sql`.
 
-**Status:** DECIDED 2026-08-31, NOT YET BUILT. Wave 1 migration is
-`sql/2026-08-31_inventory_flow.sql`.
+**Status:** wave 1 schema **APPLIED 2026-08-31** —
+`sql/2026-08-31_inventory_flow.sql`. App code not yet built. Waves 2 and 3
+decided, not built.
 
 ---
 
@@ -467,13 +468,48 @@ Queried live 2026-08-31:
 - **All 11 existing `feed_receipts` are the 8/30 PB opening balance** — vendor
   `(opening balance)`, no ticket, no invoice, `source = 'purchase'`.
 
-### 21. The 11 opening-balance rows are repointed to `source = 'opening_balance'`
+### 21. The 16 opening-balance rows are repointed to `source = 'opening_balance'`
 
 Under decision 13 they would each raise *awaiting weight ticket* and *awaiting
-invoice* on day one and never clear. Eleven permanent false alarms is how a new
+invoice* on day one and never clear. Sixteen permanent false alarms is how a new
 list gets ignored in week one. `'opening_balance'` is added to the
 `feed_receipts.source` CHECK and auto-exempts exactly like `count_adjustment`. Done
 in the wave 1 migration, idempotent, with an audit note appended to `notes`.
+
+**Sixteen, not eleven — found the hard way.** The count above was taken early in
+the session; by the time the migration ran, the books held 21 receipts under
+*five* different vendor strings, and the first run crashed on
+`vendors_name_uniq`:
+
+| vendor string | rows | what it is |
+|---|---|---|
+| `(opening balance)` | 11 | the 8/30 PB reseed |
+| `(count adjustment)` | 3 | written by `post_feed_count` |
+| `beginning inventory` / `Beginning inventory` / `Beginning Inventory` | 5 | hand-entered opening balances, three capitalisations |
+| `Legacy Commodities` | 1 | a real purchase |
+| `Double T` | 1 | a real purchase |
+
+Two lessons worth keeping:
+
+- **`DISTINCT` is not `DISTINCT ON (lower(...))`.** The seed deduped exact strings
+  against a unique index on `lower(name)`, so three capitalisations of the same
+  marker survived and the INSERT collided with itself. Any seed feeding a
+  case-insensitive index has to dedupe the same way the index does.
+- **A marker list written from one sample of live data will be short.** The quiet
+  half of this bug was not the crash: it was that five hand-entered opening
+  balances would have stayed `source = 'purchase'` and nagged forever. Their own
+  notes identified them — *"Enter and price beginning inventory from RW"*,
+  *"Unused at this time moved in from Redwing inventory."* The verify block now
+  asserts that no marker became a vendor, so the next spelling fails loudly
+  instead of quietly becoming a supplier.
+
+**Verified after applying:** 16 repointed, 5 needs-attention rows, 2 vendors
+(Double T, Legacy Commodities). The 5 rows are Legacy Commodities DDG 8/17
+(awaiting invoice, unordered) and Double T SoyHull 8/20 (awaiting ticket,
+awaiting invoice, unordered) — two real purchases with real paperwork
+outstanding, which is the module doing its job on day one. All six tables carry
+RLS with four policies, all three views are `security_invoker`, and `anon` holds
+SELECT on none of them.
 
 ### 22. Pound floors carry September; days-of-cover switches itself on per item
 
