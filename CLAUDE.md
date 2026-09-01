@@ -267,14 +267,62 @@ The gate is `public.current_user_role()`. It reads `user_profiles.role` for
 `auth.uid()` **and requires `is_active = true`**. Returns NULL for anyone
 inactive or unknown; every policy is written so NULL denies.
 
-| | crew | office | owner |
-|---|---|---|---|
-| Read operational data (lots, weights, tags, doctoring, pastures, movements) | ✅ | ✅ | ✅ |
-| Write field data (doctoring, weights, tags, receipts, pasture assignments) | ✅ | ✅ | ✅ |
-| Correct/update operational records | ❌ | ✅ | ✅ |
-| Invoices, cost and margin data | ❌ | ✅ | ✅ |
-| Delete lots, weights, medications, protocols, audit rows | ❌ | ❌ | ✅ |
-| See the user roster | own row | own row | all |
+| | crew | accountant | office | owner |
+|---|---|---|---|---|
+| Read operational data (lots, weights, tags, doctoring, pastures, movements) | ✅ | ✅ | ✅ | ✅ |
+| Write field data (doctoring, weights, tags, receipts, pasture assignments) | ✅ | ❌ | ✅ | ✅ |
+| Correct/update operational records | ❌ | ❌ | ✅ | ✅ |
+| Invoices, cost and margin data | ❌ | ✅ read | ✅ | ✅ |
+| Delete lots, weights, medications, protocols, audit rows | ❌ | ❌ | ❌ | ✅ |
+| See the user roster | own row | own row | own row | all |
+
+### `accountant` — read everything, write nothing (added 2026-09-01)
+
+Migration: `docs/sql/2026-09-01_accountant_role.sql`. Verified against the
+live DB the same day: 22 / 26 / 0 / yes / yes.
+
+- **A read-only role is a second AXIS, not another rung.** The ladder is
+  owner > office > crew and every write policy is a positive allow-list
+  naming owner and office explicitly — so `accountant` writes nothing by
+  simply not being named. **The write policies were deliberately not
+  touched**; rewriting the dangerous half of the security layer to add a
+  role that cannot write buys nothing. Audited 2026-09-01: there is not one
+  negative test ("anyone who isn't crew") anywhere in the schema, which is
+  the only reason this is safe.
+- **The 48 SELECT policies go through `can_read_operational()` (22) and
+  `can_read_books()` (26).** The next read-only role — the deferred
+  `consultant`, or a `guest` — is one line in one function, not another
+  48-policy migration. Two SELECT policies are deliberately excluded:
+  `user_profiles` (own row or owner) and `ranch_settings` (any active role,
+  the only `IS NOT NULL` test in the schema).
+- **`storage.objects.lot_attachments_read` is part of the read set.** Miss it
+  and an accountant reads every invoice row while every attached scan 404s —
+  the worst possible failure for the one role that exists to read invoices.
+- **The migration matches policies on their EXPRESSION, not on a typed list
+  of names.** Policy naming is inconsistent (`dra_select`, `lpa_select`,
+  `load_out_dests_select`) and a typo in a name list silently skips a table.
+  It asserts 22/26/2 and raises if the count is off.
+- **App-side, the refusal lives in ONE client wrapper, not on ~140 call
+  sites.** `supabase.from().insert/update/upsert/delete`, `supabase.rpc()`
+  and `supabase.storage.from().upload/update/remove` return a PostgREST-
+  shaped `{data:null, error:{code:'READONLY'}}`, so every existing
+  `if (error)` path surfaces it. RPCs are an **allow-list** (three read-only
+  ones) so a mutating RPC added later is refused by default.
+- **`supabase.storage` is a getter returning a NEW StorageClient on every
+  access** (verified in supabase-js 2.46.1: `get storage(){ return new
+  StorageClient(...) }`). Wrapping `supabase.storage.from` directly mutates a
+  throwaway and silently does nothing — capture one instance, wrap it, pin it
+  with `defineProperty`.
+- **Write controls are marked `data-write`, its own attribute — NOT
+  `data-perm="write"`.** Half the tagged buttons already carry
+  `data-perm="office"`, and an element holds only one `data-perm`; reusing it
+  would have dropped the office gate and shown those buttons to crew.
+- **Tagging is cosmetic; the wrapper is the enforcement.** So a missed button
+  is survivable (it shows, the click returns a clean refusal) but a FALSE
+  positive is a real bug — an id-keyword sweep caught `forageEditCancelBtn`
+  on the "Edit" substring and three filter/render "Apply" buttons. Hiding a
+  Cancel traps the user in a modal. Check what a button's handler actually
+  does before tagging it.
 
 Deletes are the narrowest privilege on purpose: `lot_movements`, `lot_events`
 and `lot_pasture_assignments` are audit trails, and an accidental delete there
@@ -937,8 +985,12 @@ closes it early.
 1. ✅ Claude Code + CLAUDE.md + Supabase MCP connector
 2. ✅ Multi-user auth + RLS — **implemented as owner/office/crew**, not the
    originally planned admin/manager/cowboy/guest. The `user_profiles.role`
-   CHECK constraint permits only those three. **Open decision:** whether a
-   read-only `guest` role is still wanted; it does not exist today.
+   CHECK constraint permitted only those three until `accountant` was added
+   2026-09-01 (read everything, write nothing — see Access control above).
+   **Open decision:** a `consultant` layer was scoped 2026-09-01 and
+   deferred — John's call, accountant was the concrete need. It is now one
+   line in `can_read_operational()` / `can_read_books()` plus the CHECK
+   constraint. Same for the long-parked read-only `guest`.
    Lauren Yezak signed in 2026-08-25 and works the books as `owner`.
 3. ✅ Field PWA for cowboys — live 2026-08-25. The field app writes to
    `pending_field_entries`; the office **Approvals** tab reviews and posts them

@@ -57,6 +57,7 @@
         }
         header .role-badge.office { background: var(--text-muted); }
         header .role-badge.crew { background: #888; }
+        header .role-badge.accountant { background: #6a5acd; }
         header .nav-tabs { display: flex; gap: 4px; }
         header .nav-tab {
             padding: 8px 14px;
@@ -619,7 +620,14 @@
            which is the safe fallback — RLS still refuses the write. */
         body[data-role="crew"]   [data-perm="office"],
         body[data-role="crew"]   [data-perm="owner"],
-        body[data-role="office"] [data-perm="owner"] { display: none !important; }
+        body[data-role="office"] [data-perm="owner"],
+        /* accountant is NOT a rung on that ladder -- it reads everything
+           office reads and writes nothing, so it needs the office surfaces
+           visible and every write control gone. data-write marks the
+           controls (its own attribute so it can sit on an element that
+           already carries data-perm); the client wrapper actually refuses. */
+        body[data-role="accountant"] [data-perm="owner"],
+        body[data-role="accountant"] [data-write]         { display: none !important; }
     
         /* ---- Field approvals ---- */
         .approvals-badge {
@@ -1344,7 +1352,7 @@
 
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
                     <div id="docEntrySummary" class="muted" style="font-size: 13px;"></div>
-                    <button id="docEntrySaveBtn" data-perm="office" class="primary" disabled>Save batch</button>
+                    <button id="docEntrySaveBtn" data-perm="office" class="primary" disabled data-write>Save batch</button>
                 </div>
             </div>
         </div>
@@ -1527,7 +1535,7 @@
                 </p>
                 <div id="approvalsSummary" class="approvals-summary"></div>
                 <div class="approvals-actions">
-                    <button id="approvalsApproveBtn" class="primary" data-perm="office" disabled>Approve selected</button>
+                    <button id="approvalsApproveBtn" class="primary" data-perm="office" disabled data-write>Approve selected</button>
                     <span id="approvalsSelCount" class="muted" style="font-size:12px;"></span>
                 </div>
                 <div id="approvalsContent"><div class="empty">Loading…</div></div>
@@ -1710,7 +1718,7 @@
                     <h2>Move cattle</h2>
                     <div style="display: flex; gap: 8px;">
                         <button id="mvRefreshBtn">Refresh inventory</button>
-                        <button id="mvAddTicketBtn" class="primary">+ Move ticket</button>
+                        <button id="mvAddTicketBtn" class="primary" data-write>+ Move ticket</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size: 12px; margin: -6px 0 14px 0;">
@@ -1738,7 +1746,7 @@
             <div class="card">
                 <div id="mvSaveAlert"></div>
                 <div style="display: flex; gap: 10px; align-items: center;">
-                    <button class="primary" id="mvSaveBtn">Save moves</button>
+                    <button class="primary" id="mvSaveBtn" data-write>Save moves</button>
                     <button id="mvClearBtn">Clear all</button>
                 </div>
             </div>
@@ -1786,12 +1794,12 @@
                 <div class="card-header">
                     <h2>Purchases</h2>
                     <div style="display:flex; gap:8px; align-items:center;">
-                        <button class="primary" id="invPuNewDeliveryBtn">+ Delivery</button>
+                        <button class="primary" id="invPuNewDeliveryBtn" data-write>+ Delivery</button>
                         <div class="kebab-wrap">
                             <button class="kebab-btn" id="invPuMenuBtn" title="More">⋯</button>
                             <div id="invPuMenu" class="kebab-menu hidden">
-                                <button class="kebab-item" id="invPuNewOrderBtn">+ Order</button>
-                                <button class="kebab-item" id="invPuNewInvoiceBtn">+ Invoice</button>
+                                <button class="kebab-item" id="invPuNewOrderBtn" data-write>+ Order</button>
+                                <button class="kebab-item" id="invPuNewInvoiceBtn" data-write>+ Invoice</button>
                                 <button class="kebab-item" id="invPuRefreshBtn">↻ Refresh</button>
                             </div>
                         </div>
@@ -1825,7 +1833,7 @@
                         <label style="display:inline-block; font-size:13px;">
                             <input type="checkbox" id="invOrdShowClosed" style="width:auto; vertical-align:middle;"> Show closed
                         </label>
-                        <button class="primary" id="invNewOrderBtn">+ Order</button>
+                        <button class="primary" id="invNewOrderBtn" data-write>+ Order</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
@@ -1844,7 +1852,7 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Invoices</h2>
-                    <button class="primary" id="invNewInvoiceBtn">+ Invoice</button>
+                    <button class="primary" id="invNewInvoiceBtn" data-write>+ Invoice</button>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
                     Type the bill once and tick the loads it covers. If the total agrees with what those loads
@@ -1921,7 +1929,7 @@
                         <label style="display:inline-block; font-size:13px;">
                             <input type="checkbox" id="fdRcOnlyOpenPaper" style="width:auto; vertical-align:middle;"> Paperwork outstanding
                         </label>
-                        <button class="primary" id="fdNewReceiptBtn">+ Delivery</button>
+                        <button class="primary" id="fdNewReceiptBtn" data-write>+ Delivery</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
@@ -1946,7 +1954,7 @@
                             <option value="rows">Single rows</option>
                         </select>
                         <button id="fdUsRefreshBtn">Refresh on hand</button>
-                        <button class="primary" id="fdUsAddRowBtn">+ Row</button>
+                        <button class="primary" id="fdUsAddRowBtn" data-write>+ Row</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 14px 0;" id="fdUsIntro"></p>
@@ -1983,7 +1991,7 @@
             <div class="card">
                 <div id="fdUsSaveAlert"></div>
                 <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                    <button class="primary" id="fdUsSaveBtn">Save feed-out</button>
+                    <button class="primary" id="fdUsSaveBtn" data-write>Save feed-out</button>
                     <button id="fdUsClearBtn">Clear sheet</button>
                     <span class="muted" style="font-size:12px;" id="fdUsSaveHint"></span>
                 </div>
@@ -2029,7 +2037,7 @@
                                 <button class="kebab-item" id="fdCtPrintBtn">🖨 Print the count sheet</button>
                             </div>
                         </div>
-                        <button class="primary" id="fdNewCountBtn">+ Count a bay</button>
+                        <button class="primary" id="fdNewCountBtn" data-write>+ Count a bay</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
@@ -2051,7 +2059,7 @@
                     <h2>Mix a batch</h2>
                     <div style="display:flex; gap:8px;">
                         <button id="fdBatchRefreshBtn">Refresh on hand</button>
-                        <button class="primary" id="fdNewBatchBtn">+ Make batch</button>
+                        <button class="primary" id="fdNewBatchBtn" data-write>+ Make batch</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
@@ -2068,7 +2076,7 @@
             <div class="card">
                 <div class="card-header">
                     <h3>Recipes</h3>
-                    <button class="primary card-add-btn" id="fdNewRecipeBtn">+ Recipe</button>
+                    <button class="primary card-add-btn" id="fdNewRecipeBtn" data-write>+ Recipe</button>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 10px 0;">
                     A recipe <b>pre-fills</b> the batch screen and nothing more. What actually goes in the
@@ -2143,7 +2151,7 @@
                         <label style="display:inline-block; margin-right:12px; font-size:13px;">
                             <input type="checkbox" id="fdShowInactiveItems" style="width:auto; vertical-align:middle;"> Show inactive
                         </label>
-                        <button class="primary" id="fdNewItemBtn">+ New item</button>
+                        <button class="primary" id="fdNewItemBtn" data-write>+ New item</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
@@ -2165,7 +2173,7 @@
                         <label style="display:inline-block; margin-right:12px; font-size:13px;">
                             <input type="checkbox" id="fdShowInactiveLocs" style="width:auto; vertical-align:middle;"> Show inactive
                         </label>
-                        <button class="primary" id="fdNewLocBtn">+ New location</button>
+                        <button class="primary" id="fdNewLocBtn" data-write>+ New location</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
@@ -2343,9 +2351,9 @@
             <div class="card">
                 <div id="shipmentSaveAlert"></div>
                 <div style="display: flex; gap: 10px; align-items: center;">
-                    <button class="primary" id="shipmentSaveBtn">Save shipment</button>
+                    <button class="primary" id="shipmentSaveBtn" data-write>Save shipment</button>
                     <button id="shipmentCancelBtn">Cancel</button>
-                    <button id="shipmentDeleteBtn" class="hidden" data-perm="owner" style="margin-left: auto; background: var(--danger);">Delete shipment</button>
+                    <button id="shipmentDeleteBtn" class="hidden" data-perm="owner" style="margin-left: auto; background: var(--danger);" data-write>Delete shipment</button>
                 </div>
             </div>
         </div>
@@ -2385,7 +2393,7 @@
 
         <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
             <select id="settleAddLot" style="max-width:260px;"></select>
-            <button type="button" id="settleAddLotBtn">Add a lot that is here</button>
+            <button type="button" id="settleAddLotBtn" data-write>Add a lot that is here</button>
         </div>
 
         <div id="settlePastureTotals" style="font-size:13px; font-weight:600; margin-bottom:10px;"></div>
@@ -2397,7 +2405,7 @@
 
         <div class="modal-actions">
             <button type="button" onclick="hideModal('settlePastureModal')">Cancel</button>
-            <button type="button" class="primary" id="settlePastureSaveBtn">Record the count</button>
+            <button type="button" class="primary" id="settlePastureSaveBtn" data-write>Record the count</button>
         </div>
     </div>
 </div>
@@ -2421,7 +2429,7 @@
 
         <div class="modal-actions">
             <button type="button" onclick="hideModal('apprEditModal')">Cancel</button>
-            <button type="button" class="primary" id="apprEditSaveBtn">Save correction</button>
+            <button type="button" class="primary" id="apprEditSaveBtn" data-write>Save correction</button>
         </div>
     </div>
 </div>
@@ -2467,7 +2475,7 @@
 
         <h3 style="margin: 18px 0 6px 0;">Deductions</h3>
         <div id="smDeductionList"></div>
-        <button type="button" id="smAddDeductionBtn" style="margin-top: 8px;">+ Deduction</button>
+        <button type="button" id="smAddDeductionBtn" style="margin-top: 8px;" data-write>+ Deduction</button>
 
         <h3 style="margin: 18px 0 6px 0;">Freight</h3>
         <label style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
@@ -2500,7 +2508,7 @@
         <div id="smSummary" style="margin-top: 16px;"></div>
 
         <div class="modal-actions" style="margin-top: 18px; display: flex; gap: 10px;">
-            <button class="primary" id="smSaveBtn">Save money changes</button>
+            <button class="primary" id="smSaveBtn" data-write>Save money changes</button>
             <button id="smCancelBtn">Cancel</button>
         </div>
     </div>
@@ -2552,10 +2560,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="fieldActionDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="fieldActionDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete</button>
                 <div>
                     <button type="button" id="fieldActionCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="fieldActionSaveBtn" data-perm="office">Save</button>
+                    <button type="submit" class="primary" id="fieldActionSaveBtn" data-perm="office" data-write>Save</button>
                 </div>
             </div>
         </form>
@@ -2622,10 +2630,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="fieldProtocolDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="fieldProtocolDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete</button>
                 <div>
                     <button type="button" id="fieldProtocolCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="fieldProtocolSaveBtn" data-perm="office">Save</button>
+                    <button type="submit" class="primary" id="fieldProtocolSaveBtn" data-perm="office" data-write>Save</button>
                 </div>
             </div>
         </form>
@@ -2684,10 +2692,10 @@
                 <textarea id="fdLocNotes"></textarea>
             </div>
             <div class="modal-actions">
-                <button type="button" id="fdLocDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="fdLocDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete</button>
                 <div style="flex:1;"></div>
                 <button type="button" id="fdLocCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="fdLocSaveBtn">Save location</button>
+                <button type="submit" class="primary" id="fdLocSaveBtn" data-write>Save location</button>
             </div>
         </form>
     </div>
@@ -2838,10 +2846,10 @@
             </div>
 
             <div class="modal-actions">
-                <button type="button" id="fdItemDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="fdItemDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete</button>
                 <div style="flex:1;"></div>
                 <button type="button" id="fdItemCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="fdItemSaveBtn">Save item</button>
+                <button type="submit" class="primary" id="fdItemSaveBtn" data-write>Save item</button>
             </div>
         </form>
     </div>
@@ -2990,10 +2998,10 @@
             <div id="fdRcConsumedNote" class="muted hidden" style="font-size:12px; margin-bottom:10px;"></div>
 
             <div class="modal-actions">
-                <button type="button" id="fdRcDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete load</button>
+                <button type="button" id="fdRcDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete load</button>
                 <div style="flex:1;"></div>
                 <button type="button" id="fdRcCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="fdRcSaveBtn">Save delivery</button>
+                <button type="submit" class="primary" id="fdRcSaveBtn" data-write>Save delivery</button>
             </div>
         </form>
     </div>
@@ -3025,7 +3033,7 @@
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <h4 style="margin:0;">Lines</h4>
-            <button type="button" id="invOrdAddLineBtn">+ Line</button>
+            <button type="button" id="invOrdAddLineBtn" data-write>+ Line</button>
         </div>
         <p class="muted" style="font-size:11px; margin:0 0 8px 0;">
             Leave the amount and price blank for a <b>reminder only</b> &mdash; useful for meds, where the
@@ -3041,10 +3049,10 @@
         </div>
 
         <div class="modal-actions">
-            <button type="button" id="invOrdDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete order</button>
+            <button type="button" id="invOrdDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete order</button>
             <div style="flex:1;"></div>
             <button type="button" id="invOrdCancelBtn">Cancel</button>
-            <button type="button" class="primary" id="invOrdSaveBtn">Save order</button>
+            <button type="button" class="primary" id="invOrdSaveBtn" data-write>Save order</button>
         </div>
     </div>
 </div>
@@ -3103,10 +3111,10 @@
         </div>
 
         <div class="modal-actions">
-            <button type="button" id="invInvDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete invoice</button>
+            <button type="button" id="invInvDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete invoice</button>
             <div style="flex:1;"></div>
             <button type="button" id="invInvCancelBtn">Cancel</button>
-            <button type="button" class="primary" id="invInvSaveBtn">Save invoice</button>
+            <button type="button" class="primary" id="invInvSaveBtn" data-write>Save invoice</button>
         </div>
     </div>
 </div>
@@ -3139,7 +3147,7 @@
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <h4 style="margin:0;">Ingredients</h4>
-            <button type="button" id="fdBatchAddInputBtn">+ Ingredient</button>
+            <button type="button" id="fdBatchAddInputBtn" data-write>+ Ingredient</button>
         </div>
         <div id="fdBatchInputs"></div>
         <div id="fdBatchSummary" style="margin-top:12px;"></div>
@@ -3152,7 +3160,7 @@
         <div class="modal-actions">
             <div style="flex:1;"></div>
             <button type="button" id="fdBatchCancelBtn">Cancel</button>
-            <button type="button" id="fdBatchSaveBtn" class="primary">Mix it</button>
+            <button type="button" id="fdBatchSaveBtn" class="primary" data-write>Mix it</button>
         </div>
     </div>
 </div>
@@ -3186,7 +3194,7 @@
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <h4 style="margin:0;">Ingredients per batch</h4>
-            <button type="button" id="fdRecipeAddLineBtn">+ Ingredient</button>
+            <button type="button" id="fdRecipeAddLineBtn" data-write>+ Ingredient</button>
         </div>
         <div id="fdRecipeLines"></div>
 
@@ -3196,10 +3204,10 @@
         </div>
 
         <div class="modal-actions">
-            <button type="button" id="fdRecipeDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete</button>
+            <button type="button" id="fdRecipeDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete</button>
             <div style="flex:1;"></div>
             <button type="button" id="fdRecipeCancelBtn">Cancel</button>
-            <button type="button" id="fdRecipeSaveBtn" class="primary">Save recipe</button>
+            <button type="button" id="fdRecipeSaveBtn" class="primary" data-write>Save recipe</button>
         </div>
     </div>
 </div>
@@ -3241,7 +3249,7 @@
         <div class="modal-actions">
             <div style="flex:1;"></div>
             <button type="button" id="fdCtCancelBtn">Cancel</button>
-            <button type="button" id="fdCtPostBtn" class="primary">Post count</button>
+            <button type="button" id="fdCtPostBtn" class="primary" data-write>Post count</button>
         </div>
     </div>
 </div>
@@ -3387,7 +3395,7 @@
 
             <div class="modal-actions">
                 <button type="button" id="medCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="medSaveBtn" data-perm="office">Save medication</button>
+                <button type="submit" class="primary" id="medSaveBtn" data-perm="office" data-write>Save medication</button>
             </div>
         </form>
     </div>
@@ -3477,7 +3485,7 @@
 
             <div class="modal-actions">
                 <button type="button" id="protocolCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="protocolSaveBtn" data-perm="office">Save protocol</button>
+                <button type="submit" class="primary" id="protocolSaveBtn" data-perm="office" data-write>Save protocol</button>
             </div>
         </form>
     </div>
@@ -3567,7 +3575,7 @@
 
             <div class="modal-actions">
                 <button type="button" id="protoMedCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="protoMedSaveBtn" data-perm="office">Save</button>
+                <button type="submit" class="primary" id="protoMedSaveBtn" data-perm="office" data-write>Save</button>
             </div>
         </form>
     </div>
@@ -3606,7 +3614,7 @@
 
             <div class="modal-actions">
                 <button type="button" id="protoStepCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="protoStepSaveBtn" data-perm="office">Save</button>
+                <button type="submit" class="primary" id="protoStepSaveBtn" data-perm="office" data-write>Save</button>
             </div>
         </form>
     </div>
@@ -3642,7 +3650,7 @@
             </div>
             <div class="modal-actions">
                 <button type="button" id="ranchCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="ranchSaveBtn" data-perm="office">Save ranch</button>
+                <button type="submit" class="primary" id="ranchSaveBtn" data-perm="office" data-write>Save ranch</button>
             </div>
         </form>
     </div>
@@ -3764,7 +3772,7 @@
 
             <div class="modal-actions">
                 <button type="button" id="pastureCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="pastureSaveBtn" data-perm="office">Save pasture</button>
+                <button type="submit" class="primary" id="pastureSaveBtn" data-perm="office" data-write>Save pasture</button>
             </div>
         </form>
     </div>
@@ -3775,7 +3783,7 @@
     <div class="modal" style="max-width: 720px;">
         <div class="card-header" style="margin-bottom: 14px;">
             <h2>Forage types</h2>
-            <button type="button" id="forageAddBtn" data-perm="office">+ Add type</button>
+            <button type="button" id="forageAddBtn" data-perm="office" data-write>+ Add type</button>
         </div>
         <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
             Reference list used when setting up pastures. Defaults below are optional and will help with future projections.
@@ -3827,7 +3835,7 @@
             </div>
             <div class="modal-actions">
                 <button type="button" id="forageEditCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="forageEditSaveBtn" data-perm="office">Save</button>
+                <button type="submit" class="primary" id="forageEditSaveBtn" data-perm="office" data-write>Save</button>
             </div>
         </form>
     </div>
@@ -3883,7 +3891,7 @@
             </div>
             <div class="modal-actions">
                 <button type="button" id="lotCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="lotSaveBtn" data-perm="office">Save lot</button>
+                <button type="submit" class="primary" id="lotSaveBtn" data-perm="office" data-write>Save lot</button>
             </div>
         </form>
     </div>
@@ -3929,7 +3937,7 @@
 
         <div class="modal-actions">
             <button type="button" id="moveLotCancelBtn">Cancel</button>
-            <button type="button" class="primary" id="moveLotSaveBtn" data-perm="office">Save move</button>
+            <button type="button" class="primary" id="moveLotSaveBtn" data-perm="office" data-write>Save move</button>
         </div>
     </div>
 </div>
@@ -3978,7 +3986,7 @@
             </div>
             <div id="deathsRunningTotal" class="muted" style="font-size: 12px; margin-bottom: 6px;"></div>
             <div id="deathsRowsContainer"></div>
-            <button type="button" id="deathsAddRowBtn" data-perm="office" class="add-link" style="margin-bottom: 14px;">+ Add row</button>
+            <button type="button" id="deathsAddRowBtn" data-perm="office" class="add-link" style="margin-bottom: 14px;" data-write>+ Add row</button>
 
             <div style="margin-bottom: 14px;">
                 <label for="deathsNotes">Notes (shared across all rows, optional)</label>
@@ -3986,9 +3994,9 @@
             </div>
 
             <div class="modal-actions">
-                <button type="button" id="deathsDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="deathsDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete</button>
                 <button type="button" id="deathsCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="deathsSaveBtn" data-perm="office">Save</button>
+                <button type="submit" class="primary" id="deathsSaveBtn" data-perm="office" data-write>Save</button>
             </div>
         </form>
     </div>
@@ -4058,10 +4066,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-                <button type="button" id="doctoringDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete</button>
+                <button type="button" id="doctoringDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete</button>
                 <div style="display: flex; gap: 8px;">
                     <button type="button" id="doctoringCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="doctoringSaveBtn" data-perm="office">Save</button>
+                    <button type="submit" class="primary" id="doctoringSaveBtn" data-perm="office" data-write>Save</button>
                 </div>
             </div>
         </form>
@@ -4160,10 +4168,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="saleDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete sale</button>
+                <button type="button" id="saleDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete sale</button>
                 <div>
                     <button type="button" id="saleCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="saleSaveBtn" data-perm="office">Save sale</button>
+                    <button type="submit" class="primary" id="saleSaveBtn" data-perm="office" data-write>Save sale</button>
                 </div>
             </div>
         </form>
@@ -4229,10 +4237,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="invoiceDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete invoice</button>
+                <button type="button" id="invoiceDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete invoice</button>
                 <div>
                     <button type="button" id="invoiceCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="invoiceSaveBtn" data-perm="office">Save invoice</button>
+                    <button type="submit" class="primary" id="invoiceSaveBtn" data-perm="office" data-write>Save invoice</button>
                 </div>
             </div>
         </form>
@@ -4319,10 +4327,10 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="receiptDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);">Delete load out</button>
+                <button type="button" id="receiptDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete load out</button>
                 <div>
                     <button type="button" id="receiptCancelBtn">Cancel</button>
-                    <button type="submit" class="primary" id="receiptSaveBtn" data-perm="office">Save load out</button>
+                    <button type="submit" class="primary" id="receiptSaveBtn" data-perm="office" data-write>Save load out</button>
                 </div>
             </div>
         </form>
@@ -4398,6 +4406,78 @@ window.addEventListener('unhandledrejection', function(e) {
         throw new Error('Supabase library not available — UMD script failed to load');
     }
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    /* ---- READ-ONLY ROLES ----------------------------------------------
+       A read-only role is not another rung on the owner > office > crew
+       ladder, so hiding controls by rank does not cover it. There are ~140
+       write call sites and many RPCs in this file; tagging every one by
+       hand guarantees one gets missed, and a missed one hands the user a
+       raw 42501 or -- worse -- a silent no-op. They all funnel through this
+       one client, so the refusal lives here instead.
+
+       RLS is still the actual enforcement. This only makes the refusal
+       legible, and stops the app looking broken.
+
+       RPCs are an ALLOW-list, not a block-list: a mutating RPC added later
+       is refused by default rather than quietly permitted. Fail closed. */
+    const READ_ONLY_ROLES = new Set(['accountant']);
+    const READ_ONLY_RPC_ALLOW = new Set([
+        'admin_list_users', 'get_doctoring_analytics', 'get_lot_deaths_with_arrival'
+    ]);
+    function isReadOnlyRole(){
+        return !!(currentProfile && READ_ONLY_ROLES.has(currentProfile.role));
+    }
+    // Shaped like a PostgREST result so every existing `if (error)` path
+    // fires unchanged, and thenable-and-chainable so .insert().select()
+    // .single() still resolves instead of throwing on undefined.
+    function readOnlyRefusal(what){
+        const payload = { data: null, error: {
+            message: 'Read-only access: your role cannot ' + what + '.',
+            code: 'READONLY', details: '', hint: ''
+        } };
+        const proxy = new Proxy({}, { get(_t, prop){
+            if (prop === 'then')    return (ok, no) => Promise.resolve(payload).then(ok, no);
+            if (prop === 'catch')   return f => Promise.resolve(payload).catch(f);
+            if (prop === 'finally') return f => Promise.resolve(payload).finally(f);
+            return () => proxy;
+        } });
+        return proxy;
+    }
+    const rawFrom = supabase.from.bind(supabase);
+    const rawRpc  = supabase.rpc.bind(supabase);
+    supabase.from = function(table){
+        const qb = rawFrom(table);
+        if (!isReadOnlyRole()) return qb;
+        // Own properties shadow the prototype methods.
+        qb.insert = () => readOnlyRefusal('add records');
+        qb.update = () => readOnlyRefusal('change records');
+        qb.upsert = () => readOnlyRefusal('save records');
+        qb.delete = () => readOnlyRefusal('delete records');
+        return qb;
+    };
+    supabase.rpc = function(fn, args, opts){
+        if (isReadOnlyRole() && !READ_ONLY_RPC_ALLOW.has(fn)) {
+            return readOnlyRefusal('run ' + fn);
+        }
+        return rawRpc(fn, args, opts);
+    };
+    // supabase-js 2.46.1 declares `get storage(){ return new StorageClient(...) }`
+    // -- a FRESH instance on every property access. Wrapping supabase.storage
+    // .from directly mutates a throwaway and silently does nothing. Capture one
+    // instance, wrap that, and pin it so every later read gets the wrapped one.
+    const storageClient = supabase.storage;
+    const rawStorageFrom = storageClient.from.bind(storageClient);
+    storageClient.from = function(bucket){
+        const sb = rawStorageFrom(bucket);
+        if (!isReadOnlyRole()) return sb;
+        sb.upload = () => readOnlyRefusal('upload files');
+        sb.update = () => readOnlyRefusal('replace files');
+        sb.remove = () => readOnlyRefusal('delete files');
+        return sb;
+    };
+    Object.defineProperty(supabase, 'storage', {
+        get(){ return storageClient; }, configurable: true
+    });
 
     let currentUser = null, currentProfile = null, currentLot = null, currentStatus = null;
     // Phase 15: cached metrics for the current lot detail view
@@ -4578,7 +4658,7 @@ window.addEventListener('unhandledrejection', function(e) {
             const locked = isMe || lastOwner;
             const lockNote = isMe ? 'This is you.' : (lastOwner ? 'The only active owner.' : '');
 
-            const opts = ['owner', 'office', 'crew'].map(r =>
+            const opts = ['owner', 'office', 'crew', 'accountant'].map(r =>
                 '<option value="' + r + '"' + (u.role === r ? ' selected' : '') + '>' + r + '</option>'
             ).join('');
 
@@ -9806,7 +9886,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <button id="shipmentMoneyBtn" data-perm="office">Edit money</button>
                 <button id="shipmentAcctBtn" class="primary">Accounting report</button>
                 <button id="shipmentDeleteDetailBtn" data-perm="owner"
-                    style="background: var(--danger); margin-left: auto;">Delete shipment &amp; put the cattle back</button>
+                    style="background: var(--danger); margin-left: auto;" data-write>Delete shipment &amp; put the cattle back</button>
             </div>
             <p class="muted" style="font-size: 11px; margin-top: 8px;">
                 <strong>Edit money</strong> changes buyer, destination, price, deductions and freight, and
