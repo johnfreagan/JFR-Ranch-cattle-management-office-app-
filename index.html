@@ -21399,7 +21399,11 @@ ${ranchBlocks}
             </div>
             ${fdOverdueDue()}`;
 
+        // Bay first, then item. A bay is a place someone walks to; sorting by
+        // item scatters one bay's contents down the page, and made the screen
+        // disagree with the printed sheet, which has always grouped by bay.
         const sorted = rows.slice().sort((a, b) =>
+            (byLocation ? (a.location_name || '').localeCompare(b.location_name || '') : 0) ||
             (a.item_name || '').localeCompare(b.item_name || '') ||
             (a.location_name || '').localeCompare(b.location_name || ''));
 
@@ -21415,16 +21419,44 @@ ${ranchBlocks}
                 : `<div class="muted" style="font-size:11px;">counted ${d} day${d === 1 ? '' : 's'} ago</div>`;
         };
 
-        const body = sorted.map(r => {
+        // The bay's own facts - capacity, when it was last counted - belong on
+        // the heading, once, rather than repeated on every line inside it.
+        // That also lets the Location column go, so the two modes share one
+        // set of columns.
+        const groupHead = (r) => {
+            const inLoc = sorted.filter(x => x.location_id === r.location_id);
+            const lb  = inLoc.reduce((t, x) => t + (Number(x.qty_lb) || 0), 0);
+            const cap = r.capacity_lb
+                ? ` &middot; ${Math.round(100 * lb / Number(r.capacity_lb))}% of capacity` : '';
+            return `<tr class="fd-group"><td colspan="6" style="background:rgba(0,0,0,.04); font-weight:700;">
+                ${escapeHtml(r.location_name || '—')}
+                <span class="muted" style="font-weight:400;">&middot; ${fmtNum(lb)} lb${cap}</span>
+                ${countBadge(r.location_id)}</td></tr>`;
+        };
+        const groupFoot = (locId, name) => {
+            const inLoc = sorted.filter(x => x.location_id === locId);
+            const lb  = inLoc.reduce((t, x) => t + (Number(x.qty_lb) || 0), 0);
+            const usd = inLoc.reduce((t, x) => t + (Number(x.value_usd) || 0), 0);
+            return `<tr style="font-weight:600; border-top:1px solid var(--border,#ddd);">
+                <td class="muted">${escapeHtml(name)} subtotal</td>
+                <td class="num">${fmtNum(lb)} lb</td><td></td>
+                <td class="num">${fmtMoney(usd)}</td><td colspan="2"></td></tr>`;
+        };
+
+        let prev = null;
+        const body = sorted.map((r, idx) => {
             const item = fdItem(r.item_id);
-            const capPct = (byLocation && r.capacity_lb)
-                ? Math.round(100 * (Number(r.qty_lb) || 0) / Number(r.capacity_lb)) : null;
-            return `<tr>
+            let lead = '';
+            if (byLocation && (!prev || prev.location_id !== r.location_id)) {
+                if (prev) lead += groupFoot(prev.location_id, prev.location_name || '—');
+                lead += groupHead(r);
+            }
+            prev = r;
+            const tail = (byLocation && idx === sorted.length - 1)
+                ? groupFoot(r.location_id, r.location_name || '—') : '';
+            return lead + `<tr>
                 <td><strong>${escapeHtml(r.item_name || '—')}</strong>
                     <div class="muted" style="font-size:11px;">${escapeHtml(FD_ITEM_TYPES[r.item_type] || r.item_type || '')}</div></td>
-                ${byLocation ? `<td>${escapeHtml(r.location_name || '—')}
-                    ${capPct != null ? `<div class="muted" style="font-size:11px;">${capPct}% of capacity</div>` : ''}
-                    ${countBadge(r.location_id)}</td>` : ''}
                 <td class="num">${fmtNum(r.qty_lb)} lb
                     ${item && item.purchase_unit !== 'lb'
                         ? `<div class="muted" style="font-size:11px;">${escapeHtml(fdInUnits(r.qty_lb, item))}</div>` : ''}</td>
@@ -21437,14 +21469,13 @@ ${ranchBlocks}
                 <td class="num">${Number(r.pending_cost_lb) > 0
                         ? `<span style="color:#b58900;">⚠ ${fmtNum(r.pending_cost_lb)} lb</span>` : '—'}</td>
                 <td class="muted" style="font-size:12px;">${byLocation ? fmtDate(r.oldest_layer_date) : (r.location_count + ' loc')}</td>
-            </tr>`;
+            </tr>` + tail;
         }).join('');
 
         $('fdInvContent').innerHTML = `
             <table>
                 <thead><tr>
                     <th>Item</th>
-                    ${byLocation ? '<th>Location</th>' : ''}
                     <th class="num">On hand</th>
                     <th class="num">Avg cost</th>
                     <th class="num">Value</th>

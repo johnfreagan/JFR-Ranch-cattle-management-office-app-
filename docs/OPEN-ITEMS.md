@@ -475,3 +475,54 @@ Related retirements the same day: the `One Grass` box is retired, and the
 `RTU Silage Premix 2025` / `RTU Silage Tran 1 2025` items are to be archived
 - premixes start fresh this year. Redwing's Premix RM 118010 already carries
 all three of its products at $0.00, which agrees.
+
+## 15. Cross-system name changes still outstanding (2026-08-31)
+
+The office app is DONE - all 21 items renamed to Redwing's product names,
+`pb_name` set to match, premixes and the ghost `Corn` archived. What is left
+is in the other two systems.
+
+### Performance Beef - rename to match
+| PB today | becomes |
+|---|---|
+| Corn hopper bin | Corn (Feed) |
+| 2024 Corn Silage | Corn Silage 2024 |
+| Deccox- Corrid Crumbles | Corrid Crumbles 2.5% |
+| Limiter- Calcium Chloride | Limiter - Calcium Chloride |
+| Pennchlor 50G | Penchlor 50gm |
+| Ranly mixing mineral | Ranly TMR Mineral |
+| ADM Mastergain | ADM MasterGain |
+| Redmond Iodide Salt | Redmond Bag Salt |
+
+`pb_name` is the import match key. The app already holds the NEW names, so a
+PB import will not match until PB is renamed. No import runs before this is
+done.
+
+### Redwing - two changes
+1. **Move Ranly to the Feed Application template.** It is an additive, not a
+   mineral (John, 2026-08-31). Redwing's own two screens already disagree
+   about it: the RM Inventory report carries `Ranly TMR Mineral` under Feed
+   RM 118004 while the entry form posts it through Mineral Application to
+   Mineral-WIP. The inventory report is right. Until the box exists on the
+   Feed screen, the app maps Ranly to `Ranly Mixing Min`, so it prints on the
+   Mineral report - one field on one item to change once Redwing moves it.
+2. **`Redman` -> `Redmond` on the Mineral Application box label.** The product
+   is `Redmond Bag Salt`; only the form field is misspelled. Redmond is the
+   real brand. The app's mapping honours the typo on purpose so posting works
+   today; fix the box and the mapping row changes with it.
+
+## 16. Feed screen polish (2026-08-31)
+
+- **Feed on hand: drag to reorder.** Grouping by bay is DONE. What John wants
+  next is press-and-drag to set the order items appear WITHIN a bay, so the
+  list matches the order the barn is physically walked. Needs a persisted
+  `sort_order` on `feed_items` (or per item+location, if the walk order
+  differs by bay - decide which before building). It should drive the printed
+  COUNT SHEET too, which is the real payoff: counting in walk order instead
+  of alphabetical order is what makes a count go quickly and stops lines
+  being skipped.
+- **Too many buttons at the top of the Feed screens.** Inventory alone now
+  carries By bay, Tie-out, Print, PDF, Refresh. Counts carries a location
+  picker, a first-count checkbox, Count sheet and + Count a bay. Consolidate -
+  a single overflow/kebab for the print-and-export set would leave only the
+  action that matters on each screen.
