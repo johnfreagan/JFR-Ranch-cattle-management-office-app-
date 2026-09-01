@@ -18,6 +18,11 @@
 const SUPABASE_URL = 'https://xpfmebdzcxorvwikfvtj.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_LhyJ7-bxebSa7HuRTxjmBQ__73Oc-66';
 
+/* Shown in More. Two days were lost to "is this device actually on the new
+   code?" - a question nobody could answer from the phone. Bump it with the
+   ?v= strings and CACHE_VERSION. */
+const APP_VERSION = 'v7';
+
 var TB_USER_ID = null;
 
 // If the library did not load, every handler below is inert while the page
@@ -119,6 +124,30 @@ var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     document.addEventListener('DOMContentLoaded', async function () {
         $('loginForm').addEventListener('submit', onSignIn);
         $('signOutBtn').addEventListener('click', onSignOut);
+
+        var vn = $('verNote');
+        if (vn) vn.textContent = 'Version ' + APP_VERSION;
+
+        /* iOS keeps an installed PWA's service worker alive well past the
+           point the site has moved on, and the only reliable cure was
+           deleting the home-screen icon. This does it from inside: drop the
+           worker and its caches, then reload. It deliberately does NOT touch
+           localStorage - that is the book, not the code. */
+        var fu = $('mForce');
+        if (fu) fu.onclick = async function () {
+            fu.disabled = true;
+            try {
+                if ('serviceWorker' in navigator) {
+                    var regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(regs.map(function (r) { return r.unregister(); }));
+                }
+                if (window.caches) {
+                    var keys = await caches.keys();
+                    await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                }
+            } catch (e) { /* reload anyway - a stale worker is the thing we are escaping */ }
+            location.reload();
+        };
 
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(function () {});
@@ -2540,6 +2569,34 @@ window.__bootTallyBook = function () {
     return false;
   }
 
+  /* Painting a day MUTATES it: groupsOf() lazily assigns groups:[] and
+     ensureOrd() fills in a missing ord. Neither goes through touch(), so
+     the day you are looking at silently stops matching the snapshot and is
+     judged "locally dirty" - which made the pull refuse every later update
+     to it. Entries arriving from another device routinely lack ord, so
+     merely viewing a day was enough to freeze it.
+
+     So dirtiness is judged on a NORMALISED record: both sides get the same
+     defaults applied before they are compared. It is a copy - the real
+     record is left alone. */
+  function normDay(doc) {
+    if (!doc) return null;
+    var d = JSON.parse(JSON.stringify(doc));
+    if (!Array.isArray(d.entries)) d.entries = [];
+    if (typeof d.reflect !== "string") d.reflect = "";
+    if (!Array.isArray(d.groups)) d.groups = [];   /* default, not discard - a
+                                                      real grouping must survive */
+    if (d.entries.some(function (e) { return typeof e.ord !== "number"; })) {
+      d.entries.slice().sort(function (a, b) {
+        if (!!a.time !== !!b.time) return a.time ? -1 : 1;
+        if (a.time && b.time && a.time !== b.time) return a.time < b.time ? -1 : 1;
+        return 0;
+      }).forEach(function (e, i) { if (typeof e.ord !== "number") e.ord = i * 10; });
+    }
+    return d;
+  }
+  function serDay(doc) { return JSON.stringify(normDay(doc)); }
+
   function emptyDay(doc) {
     if (!doc) return true;
     if (doc.entries && doc.entries.length) return false;
@@ -2548,7 +2605,7 @@ window.__bootTallyBook = function () {
 
   function dirtyDays() {
     return Object.keys(state.days).filter(function (k) {
-      if (ser(state.days[k]) === ser(snapshot.days[k])) return false;
+      if (serDay(state.days[k]) === serDay(snapshot.days[k])) return false;
       /* Never push a placeholder we invented ourselves - it would land as an
          empty row on top of a day another device had filled in. Emptying a
          day you HAD written still counts, because then it is in the snapshot. */
@@ -2657,7 +2714,7 @@ window.__bootTallyBook = function () {
       /* Our own push comes back on the next pull. Applying it would repaint
          the screen for no reason - and a repaint mid-sentence eats the
          caret - so an identical doc only advances the snapshot. */
-      if (ser(state.days[row.day]) === ser(row.doc)) {
+      if (serDay(state.days[row.day]) === serDay(row.doc)) {
         snapshot.days[row.day] = clone(row.doc);
         return;
       }

@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Zilla+Slab:wght@500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=v5">
+<link rel="stylesheet" href="styles.css?v=v7">
 </head>
 <body>
 
@@ -187,7 +187,11 @@
       <button class="mrow" id="signOutBtn">
         <span class="mk">Sign out</span><span class="mv">all JFR apps on this device</span><span class="chev">›</span>
       </button>
+      <button class="mrow" id="mForce">
+        <span class="mk">Force update</span><span class="mv">reload the app code</span><span class="chev">›</span>
+      </button>
       <p class="mnote" id="syncNote">—</p>
+      <p class="mnote" id="verNote">—</p>
     </section>
 
     <!-- ============ PANEL (inbox / lots / restore) ============ -->
@@ -237,6 +241,6 @@
 <div class="toast" id="toast"></div>
 
 <script src="supabase.min.js?v=2.46.1"></script>
-<script src="app.js?v=v5"></script>
+<script src="app.js?v=v7"></script>
 </body>
 </html>

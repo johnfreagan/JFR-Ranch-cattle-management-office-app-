@@ -18,14 +18,14 @@
 // in the runtime cache.
 // =========================================================
 
-const CACHE_VERSION = 'v5';   // v5: blank never overwrites populated, for book keys too
+const CACHE_VERSION = 'v7';   // v7: paint-time defaults no longer read as local edits
 const CACHE_NAME = `tally-book-${CACHE_VERSION}`;
 
 const APP_SHELL = [
     './',
     './index.html',
-    './app.js?v=v5',
-    './styles.css?v=v5',
+    './app.js?v=v7',
+    './styles.css?v=v7',
     './supabase.min.js?v=2.46.1',
     './manifest.json'
 ];
