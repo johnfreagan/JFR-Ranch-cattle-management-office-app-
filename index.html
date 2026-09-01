@@ -1982,10 +1982,19 @@
 
             <div class="card">
                 <div id="fdUsSaveAlert"></div>
-                <div style="display:flex; gap:10px; align-items:center;">
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                     <button class="primary" id="fdUsSaveBtn">Save feed-out</button>
                     <button id="fdUsClearBtn">Clear sheet</button>
                     <span class="muted" style="font-size:12px;" id="fdUsSaveHint"></span>
+                </div>
+                <!-- Feed Out is where the pounds come from; Reports is where
+                     they go. Once a week is entered the next thing anyone does
+                     is post it, and until now that meant remembering which of
+                     five menu entries to find. -->
+                <div id="fdUsPostLink" class="hidden" style="margin-top:14px; padding:10px 12px;
+                     background:rgba(0,0,0,.03); border-radius:8px; font-size:13px;">
+                    <b>Saved.</b> <span id="fdUsPostLinkPeriod" class="muted"></span>
+                    <button id="fdUsPostBtn" style="margin-left:8px;">Post this week to Redwing →</button>
                 </div>
             </div>
 
@@ -22326,9 +22335,18 @@ ${ranchBlocks}
             await invLoadVendors();
             invOpenInvoiceById(id);
         } else if (table === 'feed_storage_locations') {
-            showInventoryTab('counts');
+            // Counts lives under Settings because it is a monthly job. You do
+            // not go looking for it - the alert brings you, with the bay set.
+            await showInventoryTab('counts');
+            await fdLoadRefs();
+            await fdLoadOnHand();
+            await openFdCountModal(id);
         } else if (table === 'feed_usage') {
-            showInventoryTab('usage');
+            await showInventoryTab('usage');
+            showAlert('fdUsSaveAlert',
+                'This feed-out has no head-days to spread over in its period. Fix the period on the row, '
+                + 'or reverse and re-enter it — the dollars are on the ledger, they just have no day to sit on.',
+                'warn');
         }
     }
 
@@ -24770,6 +24788,11 @@ ${ranchBlocks}
             fdApplyUsageMode();
             loadFdLedger();
             showAlert('fdUsSaveAlert', `Saved ${n} feed-out row${n === 1 ? '' : 's'}.`, 'success');
+            // Hand over the period just saved, so the report opens on the week
+            // that was entered rather than on last Monday-to-Sunday by default.
+            fdUsSavedPeriod = { from: start, to: end };
+            $('fdUsPostLinkPeriod').textContent = `${fmtDate(start)} – ${fmtDate(end)}`;
+            $('fdUsPostLink').classList.remove('hidden');
         } finally {
             $('fdUsSaveBtn').disabled = false;
             $('fdUsSaveHint').textContent = '';
@@ -24904,16 +24927,20 @@ ${ranchBlocks}
         }).join('');
     }
 
-    async function openFdCountModal() {
+    async function openFdCountModal(locId) {
         clearAlert('fdCountModalAlert');
         $('fdCtId').value = '';
         $('fdCtDate').value = ranchToday();
         $('fdCtNotes').value = '';
-        $('fdCtLocation').innerHTML = fdLocationOptions('', true);
+        $('fdCtLocation').innerHTML = fdLocationOptions(locId || '', true);
         $('fdCtLines').innerHTML = '<div class="empty">Pick a location.</div>';
         $('fdCtZeroNote').classList.add('hidden');
         fdCountState = null;
         showModal('fdCountModal');
+        // Arriving from the "count overdue" alert, the bay is already known -
+        // making someone pick it again from a list is asking them to repeat
+        // what the app just told them.
+        if (locId) { $('fdCtLocation').value = locId; await fdRenderCountLines(); }
     }
 
     async function fdRenderCountLines() {
@@ -25366,6 +25393,7 @@ ${ranchBlocks}
         fdUsageSheet.rows.push(fdNewUsageRow(prev));
         renderFdUsageRows();
     });
+    $('fdUsPostLink') && $('fdUsClearBtn').addEventListener('click', () => $('fdUsPostLink').classList.add('hidden'));
     $('fdUsClearBtn').addEventListener('click', () => {
         if (!confirm('Clear the sheet? Nothing has been saved yet.')) return;
         fdUsageSheet = { rows: [fdNewUsageRow()] };
@@ -25374,6 +25402,15 @@ ${ranchBlocks}
         fdApplyUsageMode();
     });
     $('fdUsSaveBtn').addEventListener('click', saveFdUsage);
+    $('fdUsPostBtn').addEventListener('click', async () => {
+        await showInventoryTab('redwing');
+        if (fdUsSavedPeriod) {
+            $('fdRwFrom').value = fdUsSavedPeriod.from;
+            $('fdRwTo').value   = fdUsSavedPeriod.to;
+        }
+        fdRwOnly = null;                 // the whole week, all four postings
+        await loadFdRedwing();
+    });
     $('fdUsRefreshBtn').addEventListener('click', async () => {
         await fdLoadRefs(true);
         await fdLoadOnHand();
@@ -25909,6 +25946,7 @@ ${ranchBlocks}
 
     let fdRwData = null;
     let fdRwOnly = null;      // 'feed' | 'mineral' | 'variance' | 'roll' | null = all four
+    let fdUsSavedPeriod = null;   // the period the last feed-out save covered
 
     function fdRwBoxOf(itemId) {
         const it = fdItem(itemId);
