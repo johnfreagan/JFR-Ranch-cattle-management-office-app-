@@ -20,9 +20,10 @@ Companion documents: `feed-design-decisions.md`, `commodity-feed-inventory-plan.
 `sql/2026-08-27_feed_inventory.sql`, `sql/2026-08-27_feed_phase4_premix.sql`,
 `sql/2026-08-28_feed_decisions.sql`.
 
-**Status:** wave 1 schema **APPLIED 2026-08-31** —
-`sql/2026-08-31_inventory_flow.sql`. App code not yet built. Waves 2 and 3
-decided, not built.
+**Status:** wave 1 **BUILT 2026-08-31** — schema applied
+(`sql/2026-08-31_inventory_flow.sql`) and the app code shipped: the `Feed` tab
+is now `Inventory` with the material chip, and Needs Attention, Orders,
+Deliveries and Invoices are live. Waves 2 and 3 decided, not built.
 
 ---
 

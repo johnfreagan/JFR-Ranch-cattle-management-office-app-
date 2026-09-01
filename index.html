@@ -118,6 +118,32 @@
         .sub-tab.placeholder.active {
             font-style: italic;
         }
+        /* Inventory tab row: sub-tabs are WHAT YOU ARE DOING, the chip is
+           WHAT YOU ARE DOING IT TO. Adding meds - or fuel, or parts - is a
+           chip and a data-material attribute, not another screen. */
+        .inv-tabrow {
+            display: flex; align-items: center; gap: 14px;
+            flex-wrap: wrap; margin-bottom: 20px;
+        }
+        .inv-tabrow .sub-tabs { margin-bottom: 0; }
+        .mat-chip {
+            display: flex; gap: 4px; padding: 4px;
+            background: #ebeae3; border-radius: 24px;
+        }
+        .mat-chip button {
+            padding: 6px 14px; border: none; background: transparent;
+            border-radius: 20px; color: var(--text-muted); cursor: pointer;
+            font: inherit; font-size: 13px; font-weight: 500; margin: 0;
+        }
+        .mat-chip button:hover { color: var(--text); }
+        .mat-chip button.active {
+            background: white; color: var(--accent);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .needs-sev { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+        .needs-sev.alert { color: var(--danger, #b02a2a); }
+        .needs-sev.warn  { color: #b58900; }
+        .needs-sev.info  { color: var(--text-muted); }
 
         main { max-width: 1100px; margin: 0 auto; padding: 24px; }
 
@@ -713,7 +739,7 @@
             <button class="nav-tab" id="navAnimalHealth">Animal Health</button>
             <button class="nav-tab" id="navSales" data-perm="office">Sales</button>
             <button class="nav-tab" id="navMoves" data-perm="office">Moves</button>
-            <button class="nav-tab" id="navFeed" data-perm="office">Feed</button>
+            <button class="nav-tab" id="navInventory" data-perm="office">Inventory <span id="navInvCount" class="approvals-badge hidden">0</span></button>
             <button class="nav-tab" id="navSettings">Settings</button>
             <button class="nav-tab" id="navReports">Reports</button>
             <button class="nav-tab" id="navApprovals" data-perm="office">Approvals <span id="navApprovalsCount" class="approvals-badge hidden">0</span></button>
@@ -747,15 +773,27 @@
             <button class="sub-tab active" data-subtab="shipments">Shipments</button>
             <button class="sub-tab" data-subtab="accounting">Accounting Report</button>
         </div>
-        <div class="sub-tabs hidden" id="feedSubtabs" data-perm="office">
-            <button class="sub-tab active" data-subtab="inventory">Inventory</button>
-            <button class="sub-tab" data-subtab="receipts">Loads In</button>
-            <button class="sub-tab" data-subtab="usage">Feed Out</button>
-            <button class="sub-tab" data-subtab="batches">Batches</button>
-            <button class="sub-tab" data-subtab="counts">Counts</button>
-            <button class="sub-tab" data-subtab="cost">Cost</button>
-            <button class="sub-tab" data-subtab="items">Items</button>
-            <button class="sub-tab" data-subtab="locations">Locations</button>
+        <!-- Inventory. Sub-tabs are the ACTIVITY; the chip is the MATERIAL.
+             The first four are material-agnostic and read the shared
+             ordering spine, so meds join them without a second screen. -->
+        <div class="inv-tabrow hidden" id="invTabRow" data-perm="office">
+            <div class="sub-tabs" id="feedSubtabs">
+                <button class="sub-tab active" data-subtab="needs"      data-material="all">Needs Attention</button>
+                <button class="sub-tab"        data-subtab="orders"     data-material="all">Orders</button>
+                <button class="sub-tab"        data-subtab="receipts"   data-material="all">Deliveries</button>
+                <button class="sub-tab"        data-subtab="invoices"   data-material="all">Invoices</button>
+                <button class="sub-tab"        data-subtab="inventory"  data-material="feed">On Hand</button>
+                <button class="sub-tab"        data-subtab="usage"      data-material="feed">Feed Out</button>
+                <button class="sub-tab"        data-subtab="batches"    data-material="feed">Batches</button>
+                <button class="sub-tab"        data-subtab="counts"     data-material="feed">Counts</button>
+                <button class="sub-tab"        data-subtab="cost"       data-material="feed">Cost</button>
+                <button class="sub-tab"        data-subtab="items"      data-material="feed">Items</button>
+                <button class="sub-tab"        data-subtab="locations"  data-material="feed">Locations</button>
+            </div>
+            <div class="mat-chip" id="invMaterialChip">
+                <button type="button" data-material="feed" class="active">Feed</button>
+                <button type="button" data-material="med">Meds</button>
+            </div>
         </div>
         <div class="sub-tabs hidden" id="reportsSubtabs">
             <button class="sub-tab active" data-subtab="active-lots">Active Lots</button>
@@ -1666,6 +1704,88 @@
              Office + owner only. Feed is a cost surface.
              ============================================================ -->
 
+        <!-- ============================================================
+             THE ONE LIST. Rendered here, on the nav badge, and (wave 3)
+             in the 7am email - all from public.inventory_needs_attention,
+             so the three cannot drift.
+             ============================================================ -->
+        <div id="invNeedsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Needs attention</h2>
+                    <button id="invNeedsRefreshBtn">Refresh</button>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Everything outstanding across feed and meds in one place &mdash; what is late,
+                    what arrived without a ticket, what has not been billed, and what does not tie.
+                    Rows appear because a <b>field is empty</b>, not because somebody remembered to
+                    write a note, and they clear themselves when the number is typed.
+                </p>
+                <div id="invNeedsAlert"></div>
+                <div id="invNeedsSummary"></div>
+                <div id="invNeedsContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
+        <!-- Orders: the document above the delivery. -->
+        <div id="invOrdersView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Orders</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="invOrdShowClosed" style="width:auto; vertical-align:middle;"> Show closed
+                        </label>
+                        <button class="primary" id="invNewOrderBtn">+ Order</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    An order is <b>optional</b> &mdash; a load that arrives unannounced is still recordable, and
+                    shows on the list as unordered. What an order buys you is the price: a delivery against
+                    one is costed the moment it lands, so the feed never reads free while the bill is in the post.
+                    A line with no quantity is a <b>reminder</b>; it closes itself when a delivery of that item arrives.
+                </p>
+                <div id="invOrdAlert"></div>
+                <div id="invOrdContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
+        <!-- Invoices: the bill, matched as a document. Not accounts payable. -->
+        <div id="invInvoicesView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Invoices</h2>
+                    <button class="primary" id="invNewInvoiceBtn">+ Invoice</button>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Type the bill once and tick the loads it covers. If the total agrees with what those loads
+                    were expected to cost &mdash; and it usually will &mdash; you are done in one click.
+                    If it does not, the difference is spread and the part already fed is booked to price variance;
+                    <b>costs already frozen onto feed that has been eaten are never rewritten.</b>
+                    Redwing still owns the payable: this records only enough to reconcile inventory cost.
+                </p>
+                <div id="invInvAlert"></div>
+                <div id="invInvContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
+        <!-- Meds: the spine accepts them; the ledger is the next wave. -->
+        <div id="invMedsPlaceholderView" class="hidden" data-perm="office">
+            <div class="card">
+                <h2>Medication inventory</h2>
+                <p class="muted" style="font-size:13px;">
+                    The ordering spine already carries meds &mdash; an order line, a bill and the
+                    paperwork worklist all take a medication today. What is not built yet is the
+                    <b>stock ledger</b>: how many bottles are on hand, and therefore what counts as low.
+                </p>
+                <p class="muted" style="font-size:13px;">
+                    Until then the medication catalog stays where it is, under
+                    <b>Animal Health &rarr; Medications</b>. One drug, two screens, two different
+                    questions: what it is and how it is dosed there, how much of it we have here.
+                </p>
+            </div>
+        </div>
+
         <!-- Inventory: what is standing in which bay, and what it is worth -->
         <div id="feedInventoryView" class="hidden" data-perm="office">
             <div class="card">
@@ -1689,20 +1809,24 @@
             </div>
         </div>
 
-        <!-- Receipts: loads in. Each row IS a FIFO layer. -->
+        <!-- Deliveries: loads in. Each row IS a FIFO layer. -->
         <div id="feedReceiptsView" class="hidden" data-perm="office">
             <div class="card">
                 <div class="card-header">
-                    <h2>Loads in</h2>
+                    <h2>Deliveries</h2>
                     <div style="display:flex; gap:8px; align-items:center;">
                         <label style="display:inline-block; font-size:13px;">
                             <input type="checkbox" id="fdRcOnlyPending" style="width:auto; vertical-align:middle;"> Unpriced only
                         </label>
-                        <button class="primary" id="fdNewReceiptBtn">+ Load in</button>
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="fdRcOnlyOpenPaper" style="width:auto; vertical-align:middle;"> Paperwork outstanding
+                        </label>
+                        <button class="primary" id="fdNewReceiptBtn">+ Delivery</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
-                    One row per load delivered. <b>Freight belongs in the cost</b> &mdash; a delivered $/ton is
+                    One row per load delivered. Pick the open order it came against and the item, bay, vendor
+                    and price fill themselves in. <b>Freight belongs in the cost</b> &mdash; a delivered $/ton is
                     the only number that means anything, and pulling freight out makes every lot's feed
                     read low. A load cannot be deleted once any of its pounds have been fed out.
                 </p>
@@ -2510,10 +2634,22 @@
 <!-- ================= FEED: receipt (load in) modal ================= -->
 <div class="modal-backdrop" id="fdReceiptModal">
     <div class="modal">
-        <h2 id="fdReceiptModalTitle">Load in</h2>
+        <h2 id="fdReceiptModalTitle">Delivery</h2>
         <div id="fdReceiptModalAlert"></div>
         <form id="fdReceiptForm">
             <input type="hidden" id="fdRcId">
+
+            <!-- Orders lead, they do not gate. Picking one fills in item,
+                 bay, vendor and price; "no order" is a first-class choice
+                 so an unannounced load is recordable instead of forcing a
+                 fake order into the table the alerts read from. -->
+            <div id="fdRcOrderBlock" style="margin-bottom:14px;">
+                <label for="fdRcOrderLine">Against which order?</label>
+                <select id="fdRcOrderLine"><option value="">No order &mdash; type it by hand</option></select>
+                <div class="muted" style="font-size:11px; margin-top:2px;" id="fdRcOrderHint">
+                    Choosing an open order line fills in the rest and costs this load at the agreed price.
+                </div>
+            </div>
 
             <div class="form-grid" style="margin-bottom:14px;">
                 <div>
@@ -2529,16 +2665,17 @@
                     <select id="fdRcLocation" required><option value="">— Pick a location —</option></select>
                 </div>
                 <div>
-                    <label for="fdRcVendor">Vendor</label>
-                    <input type="text" id="fdRcVendor" placeholder="optional">
+                    <label for="fdRcVendorId">Vendor</label>
+                    <select id="fdRcVendorId"><option value="">&mdash; none &mdash;</option></select>
+                    <input type="text" id="fdRcVendor" placeholder="new vendor name" class="hidden" style="margin-top:6px;">
                 </div>
                 <div>
                     <label for="fdRcTicket">Scale ticket #</label>
-                    <input type="text" id="fdRcTicket" placeholder="optional">
+                    <input type="text" id="fdRcTicket" placeholder="leave blank if it has not arrived">
                 </div>
                 <div>
                     <label for="fdRcInvoice">Invoice #</label>
-                    <input type="text" id="fdRcInvoice" placeholder="optional">
+                    <input type="text" id="fdRcInvoice" placeholder="matched on the Invoices tab" readonly>
                 </div>
             </div>
 
@@ -2607,6 +2744,19 @@
                 </div>
             </div>
 
+            <div id="fdRcPaperBlock" style="margin-bottom:14px; padding:10px 12px; background:rgba(0,0,0,0.03); border-radius:6px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="fdRcPaperDone" style="width:auto; vertical-align:middle;">
+                    Nothing further expected on this load
+                </label>
+                <div class="muted" style="font-size:11px; margin-top:2px;">
+                    The needs-attention list chases a missing ticket or bill because the field is empty.
+                    Tick this for the load where nothing more is coming &mdash; it stops the chasing and
+                    records who decided that. Typing the ticket number clears it on its own.
+                </div>
+                <input type="text" id="fdRcPaperNote" placeholder="optional note - e.g. Jimmy says the ticket is in the truck" style="margin-top:8px;">
+            </div>
+
             <div style="margin-bottom:14px;">
                 <label for="fdRcNotes">Notes</label>
                 <textarea id="fdRcNotes"></textarea>
@@ -2618,9 +2768,121 @@
                 <button type="button" id="fdRcDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete load</button>
                 <div style="flex:1;"></div>
                 <button type="button" id="fdRcCancelBtn">Cancel</button>
-                <button type="submit" class="primary" id="fdRcSaveBtn">Save load</button>
+                <button type="submit" class="primary" id="fdRcSaveBtn">Save delivery</button>
             </div>
         </form>
+    </div>
+</div>
+
+
+<!-- ================= INVENTORY: order ================= -->
+<div class="modal-backdrop" id="invOrderModal">
+    <div class="modal" style="max-width: 860px;">
+        <h2 id="invOrderModalTitle">Order</h2>
+        <div id="invOrderModalAlert"></div>
+        <input type="hidden" id="invOrdId">
+
+        <div class="form-grid" style="margin-bottom:14px;">
+            <div>
+                <label for="invOrdVendor">Vendor</label>
+                <select id="invOrdVendor"><option value="">&mdash; pick a vendor &mdash;</option></select>
+                <input type="text" id="invOrdNewVendor" placeholder="new vendor name" class="hidden" style="margin-top:6px;">
+            </div>
+            <div>
+                <label for="invOrdDate">Ordered *</label>
+                <input type="date" id="invOrdDate" required>
+            </div>
+            <div>
+                <label for="invOrdRef">Their reference</label>
+                <input type="text" id="invOrdRef" placeholder="optional">
+            </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <h4 style="margin:0;">Lines</h4>
+            <button type="button" id="invOrdAddLineBtn">+ Line</button>
+        </div>
+        <p class="muted" style="font-size:11px; margin:0 0 8px 0;">
+            Leave the amount and price blank for a <b>reminder only</b> &mdash; useful for meds, where the
+            point is remembering to order rather than recording a quote. A line with an amount needs a
+            price, or an explicit tick to say the price is not known: a blank price is how feed
+            silently becomes free.
+        </p>
+        <div id="invOrdLines"></div>
+
+        <div style="margin:14px 0;">
+            <label for="invOrdNotes">Notes</label>
+            <textarea id="invOrdNotes"></textarea>
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" id="invOrdDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete order</button>
+            <div style="flex:1;"></div>
+            <button type="button" id="invOrdCancelBtn">Cancel</button>
+            <button type="button" class="primary" id="invOrdSaveBtn">Save order</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- ================= INVENTORY: invoice ================= -->
+<div class="modal-backdrop" id="invInvoiceModal">
+    <div class="modal" style="max-width: 900px;">
+        <h2 id="invInvoiceModalTitle">Invoice</h2>
+        <div id="invInvoiceModalAlert"></div>
+        <input type="hidden" id="invInvId">
+
+        <div class="form-grid" style="margin-bottom:14px;">
+            <div>
+                <label for="invInvVendor">Vendor *</label>
+                <select id="invInvVendor" required><option value="">&mdash; pick a vendor &mdash;</option></select>
+            </div>
+            <div>
+                <label for="invInvNumber">Invoice # *</label>
+                <input type="text" id="invInvNumber" required>
+            </div>
+            <div>
+                <label for="invInvDate">Invoice date *</label>
+                <input type="date" id="invInvDate" required>
+            </div>
+            <div>
+                <label for="invInvTotal">Total ($) *</label>
+                <input type="number" step="0.01" min="0" id="invInvTotal" required>
+            </div>
+        </div>
+
+        <h4 style="margin-bottom:6px;">Which loads does it cover?</h4>
+        <p class="muted" style="font-size:11px; margin:0 0 8px 0;">
+            Unbilled deliveries from this vendor. Tick the ones on the bill.
+        </p>
+        <div id="invInvLoads"><div class="empty">Pick a vendor.</div></div>
+
+        <div id="invInvTieOut" style="margin-top:14px;"></div>
+
+        <div id="invInvAllocBlock" class="hidden" style="margin-top:12px; padding:10px 12px; background:rgba(0,0,0,0.03); border-radius:6px;">
+            <label for="invInvAllocMode" style="font-size:13px;">The bill does not match. Where does the difference go?</label>
+            <select id="invInvAllocMode" style="max-width:340px;">
+                <option value="prorata">Spread across the ticked loads by pounds</option>
+                <option value="actual">I will type each load&rsquo;s amount</option>
+            </select>
+            <div class="muted" style="font-size:11px; margin-top:4px;">
+                Pro-rata is right for the usual cause &mdash; freight or a surcharge landing different from the
+                estimate. Either way, pounds already fed keep the cost they froze at; only the difference on
+                those pounds is booked to price variance, and the pounds still in the bay re-price.
+            </div>
+        </div>
+
+        <div style="margin:14px 0;">
+            <label for="invInvNotes">Notes</label>
+            <textarea id="invInvNotes"></textarea>
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" id="invInvDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);">Delete invoice</button>
+            <div style="flex:1;"></div>
+            <button type="button" id="invInvCancelBtn">Cancel</button>
+            <button type="button" class="primary" id="invInvSaveBtn">Save invoice</button>
+        </div>
     </div>
 </div>
 
@@ -4009,6 +4271,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('loginScreen').classList.add('hidden');
         $('appShell').classList.remove('hidden');
         showLotsTab();
+        invRefreshBadge();
     }
     function showLoginScreen(){
         currentUser=null;currentProfile=null;
@@ -6443,17 +6706,18 @@ window.addEventListener('unhandledrejection', function(e) {
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
          'feedBatchesView', 'feedCostView',
-         'feedItemsView', 'feedLocationsView'].forEach(id => {
+         'feedItemsView', 'feedLocationsView',
+         'invNeedsView', 'invOrdersView', 'invInvoicesView', 'invMedsPlaceholderView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
         });
     }
     // Helper: clear active state on top nav and sub-tabs
     function clearAllNavActive() {
-        ['navLots', 'navAnimalHealth', 'navSales', 'navMoves', 'navFeed', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
+        ['navLots', 'navAnimalHealth', 'navSales', 'navMoves', 'navInventory', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
             const el = $(id); if (el) el.classList.remove('active');
         });
-        ['animalHealthSubtabs', 'salesSubtabs', 'feedSubtabs', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
+        ['animalHealthSubtabs', 'salesSubtabs', 'invTabRow', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
             const el = $(id); if (el) el.classList.add('hidden');
         });
     }
@@ -20638,14 +20902,67 @@ ${ranchBlocks}
     }
 
     // ---- TAB SHELL -------------------------------------------------------
-    async function showFeedTab(subtab = 'inventory') {
+    // Which material the chip is on. Sub-tabs are the activity; this is the
+    // thing the activity is being done to. Adding a material later is an
+    // entry here and a data-material attribute, not another set of screens.
+    let invMaterial = 'feed';
+
+    function invApplyMaterial() {
+        $('invMaterialChip').querySelectorAll('button').forEach(b => {
+            b.classList.toggle('active', b.dataset.material === invMaterial);
+        });
+        // A sub-tab marked for one material is not merely disabled on the
+        // others - it is not there. Feed Out means nothing for meds.
+        $('feedSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            const m = b.dataset.material || 'all';
+            b.classList.toggle('hidden', m !== 'all' && m !== invMaterial);
+        });
+    }
+
+    async function showInventoryTab(subtab = 'needs') {
         hideAllViews();
         clearAllNavActive();
-        $('navFeed').classList.add('active');
-        $('feedSubtabs').classList.remove('hidden');
+        $('navInventory').classList.add('active');
+        $('invTabRow').classList.remove('hidden');
+        invApplyMaterial();
+
+        // A sub-tab hidden by the chip cannot be the active one.
+        const btn = $('feedSubtabs').querySelector(`.sub-tab[data-subtab="${subtab}"]`);
+        if (!btn || btn.classList.contains('hidden')) subtab = 'needs';
         $('feedSubtabs').querySelectorAll('.sub-tab').forEach(b => {
             b.classList.toggle('active', b.dataset.subtab === subtab);
         });
+
+        // The four shared screens read the ordering spine, which carries both
+        // materials. Meds have no stock ledger yet, so on that chip they say
+        // so rather than showing an empty feed screen.
+        if (invMaterial === 'med' && !['needs','orders','receipts','invoices'].includes(subtab)) {
+            $('invMedsPlaceholderView').classList.remove('hidden');
+            return;
+        }
+
+        if (subtab === 'needs') {
+            $('invNeedsView').classList.remove('hidden');
+            loadInvNeeds();
+            return;
+        }
+        if (subtab === 'orders') {
+            $('invOrdersView').classList.remove('hidden');
+            await fdLoadRefs();
+            await invLoadVendors();
+            loadInvOrders();
+            return;
+        }
+        if (subtab === 'invoices') {
+            $('invInvoicesView').classList.remove('hidden');
+            await invLoadVendors();
+            loadInvInvoices();
+            return;
+        }
+        if (invMaterial === 'med' && subtab === 'receipts') {
+            $('invMedsPlaceholderView').classList.remove('hidden');
+            return;
+        }
 
         const refErr = await fdLoadRefs();
         if (refErr) {
@@ -20684,6 +21001,728 @@ ${ranchBlocks}
             $('feedLocationsView').classList.remove('hidden');
             loadFeedLocations();
         }
+    }
+
+    // ==========================================================
+    // ORDERING SPINE - vendors, needs-attention, orders, invoices
+    // ==========================================================
+    // These four screens are material-agnostic. They read supply_orders /
+    // supply_order_lines / supply_invoices, which carry feed and meds
+    // alike, so the med rollout is a receiving handler and not a copy of
+    // everything below.
+    let invVendors = [], invVendorsLoaded = false;
+    let invOpenLines = [];          // open order lines, for the delivery modal
+    let invOrderLineDraft = [];     // the order modal's rows while editing
+    let invInvCandidates = [];      // unbilled loads offered on the invoice modal
+
+    async function invLoadVendors(force) {
+        if (invVendorsLoaded && !force) return null;
+        const { data, error } = await supabase.from('vendors')
+            .select('*').order('name');
+        if (error) { invVendors = []; return error; }
+        invVendors = data || [];
+        invVendorsLoaded = true;
+        return null;
+    }
+
+    function invVendorOptions(selected, withNew) {
+        return '<option value="">— none —</option>' +
+            invVendors.filter(v => v.is_active || v.id === selected)
+                .map(v => `<option value="${v.id}"${v.id === selected ? ' selected' : ''}>${escapeHtml(v.name)}</option>`)
+                .join('') +
+            (withNew ? '<option value="__new">+ New vendor…</option>' : '');
+    }
+
+    // Creating a vendor from inside another form. Returns the id, or throws
+    // with something a person can act on.
+    async function invEnsureVendor(name) {
+        const clean = (name || '').trim();
+        if (!clean) throw new Error('Type a name for the new vendor.');
+        const hit = invVendors.find(v => v.name.toLowerCase() === clean.toLowerCase());
+        if (hit) return hit.id;
+        const { data, error } = await supabase.from('vendors')
+            .insert({ name: clean, created_by: currentUser ? currentUser.id : null })
+            .select();
+        if (error) throw error;
+        if (!data || !data.length) throw new Error('The vendor was not saved — your role may not be allowed to add one.');
+        await invLoadVendors(true);
+        return data[0].id;
+    }
+
+    // ---- NEEDS ATTENTION -------------------------------------------------
+    // One view, three renderings: this screen, the nav badge, and the 7am
+    // email in wave 3. They cannot drift because there is one definition.
+    const INV_KIND_LABEL = {
+        ordered_overdue:      'Ordered, not here',
+        unpriced_load:        'Delivered, no price',
+        awaiting_ticket:      'Waiting on weight ticket',
+        awaiting_invoice:     'Waiting on invoice',
+        unordered_load:       'No order behind it',
+        invoice_does_not_tie: 'Invoice does not tie',
+        bay_short:            'Bay went short',
+        premix_short:         'Premix short',
+        count_overdue:        'Count overdue',
+        feed_unallocated:     'Feed cost not allocated'
+    };
+
+    async function invFetchNeeds() {
+        let q = supabase.from('inventory_needs_attention').select('*')
+            .order('sort_rank').order('age_days', { ascending: false });
+        if (invMaterial !== 'all') q = q.eq('item_kind', invMaterial);
+        return await q;
+    }
+
+    async function loadInvNeeds() {
+        clearAlert('invNeedsAlert');
+        $('invNeedsContent').innerHTML = '<div class="empty">Loading…</div>';
+        const { data, error } = await invFetchNeeds();
+        if (error) {
+            // The tables not existing is the likeliest reason this is blank,
+            // and "nothing outstanding" would be a lie about it.
+            const missing = /relation .* does not exist|schema cache/i.test(error.message || '');
+            $('invNeedsContent').innerHTML = `<div class="alert error">${escapeHtml(missing
+                ? 'The ordering tables are not in the database yet. Apply docs/sql/2026-08-31_inventory_flow.sql in the Supabase SQL editor, then reload.'
+                : error.message)}</div>`;
+            $('invNeedsSummary').innerHTML = '';
+            return;
+        }
+        const rows = data || [];
+        invUpdateBadge(rows.length);
+
+        if (!rows.length) {
+            $('invNeedsSummary').innerHTML = '';
+            $('invNeedsContent').innerHTML =
+                '<div class="empty">Nothing outstanding. Every delivery has its ticket and its bill.</div>';
+            return;
+        }
+
+        const bySev = sev => rows.filter(r => r.severity === sev).length;
+        $('invNeedsSummary').innerHTML = `
+            <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:14px;">
+                <div><div class="muted" style="font-size:11px;">OPEN</div>
+                     <div style="font-size:20px;">${rows.length}</div></div>
+                ${bySev('alert') ? `<div><div class="muted" style="font-size:11px;">NEEDS A LOOK</div>
+                     <div style="font-size:20px; color:var(--danger,#b02a2a);">${bySev('alert')}</div></div>` : ''}
+                ${bySev('warn') ? `<div><div class="muted" style="font-size:11px;">WORTH CHASING</div>
+                     <div style="font-size:20px; color:#b58900;">${bySev('warn')}</div></div>` : ''}
+            </div>`;
+
+        const body = rows.map(r => `
+            <tr class="clickable" data-need-table="${escapeHtml(r.ref_table || '')}" data-need-id="${escapeHtml(r.ref_id || '')}">
+                <td><span class="needs-sev ${escapeHtml(r.severity)}">${escapeHtml(INV_KIND_LABEL[r.kind] || r.kind)}</span></td>
+                <td><strong>${escapeHtml(r.title || '—')}</strong></td>
+                <td class="muted" style="font-size:12px;">${escapeHtml(r.detail || '')}</td>
+                <td class="num">${r.age_days == null ? '—' : r.age_days + 'd'}</td>
+            </tr>`).join('');
+
+        $('invNeedsContent').innerHTML = `
+            <table>
+                <thead><tr><th>What</th><th>Item</th><th>Detail</th><th class="num">Age</th></tr></thead>
+                <tbody>${body}</tbody>
+            </table>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+                Age is what tells you when to ring the mill &mdash; three days is a bill in the post,
+                thirty is a phone call.
+            </p>`;
+
+        $('invNeedsContent').querySelectorAll('tr.clickable').forEach(tr => {
+            tr.addEventListener('click', () => invOpenNeedRow(tr.dataset.needTable, tr.dataset.needId));
+        });
+    }
+
+    // A row on the list should take you to the thing it is about.
+    async function invOpenNeedRow(table, id) {
+        if (!id) return;
+        if (table === 'feed_receipts') {
+            await fdLoadRefs();
+            const { data, error } = await supabase.from('feed_receipts').select('*').eq('id', id).single();
+            if (error) { showAlert('invNeedsAlert', error.message); return; }
+            await fdPrepReceiptModal();
+            openFdReceiptModal(data);
+        } else if (table === 'supply_order_lines') {
+            const { data, error } = await supabase.from('supply_order_lines')
+                .select('order_id').eq('id', id).single();
+            if (error) { showAlert('invNeedsAlert', error.message); return; }
+            await fdLoadRefs(); await invLoadVendors();
+            invOpenOrderById(data.order_id);
+        } else if (table === 'supply_invoices') {
+            await invLoadVendors();
+            invOpenInvoiceById(id);
+        } else if (table === 'feed_storage_locations') {
+            showInventoryTab('counts');
+        } else if (table === 'feed_usage') {
+            showInventoryTab('usage');
+        }
+    }
+
+    function invUpdateBadge(n) {
+        const badge = $('navInvCount');
+        if (!badge) return;
+        badge.textContent = n;
+        badge.classList.toggle('hidden', !n);
+    }
+
+    // Refreshed on sign-in and after anything that could clear a row, so the
+    // badge is not a number from ten minutes ago.
+    async function invRefreshBadge() {
+        if (!currentProfile || !['owner','office'].includes(currentProfile.role)) return;
+        const { data, error } = await supabase.from('inventory_needs_attention').select('ref_id');
+        if (error) return;               // a missing table must not break sign-in
+        invUpdateBadge((data || []).length);
+    }
+
+    // ---- ORDERS ----------------------------------------------------------
+    async function loadInvOrders() {
+        clearAlert('invOrdAlert');
+        $('invOrdContent').innerHTML = '<div class="empty">Loading…</div>';
+        const showClosed = $('invOrdShowClosed').checked;
+
+        let q = supabase.from('supply_order_line_status').select('*')
+            .order('order_date', { ascending: false });
+        if (invMaterial !== 'all') q = q.eq('item_kind', invMaterial);
+        if (!showClosed) q = q.is('closed_at', null);
+
+        const { data, error } = await q.limit(300);
+        if (error) { $('invOrdContent').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`; return; }
+        const rows = data || [];
+        if (!rows.length) {
+            $('invOrdContent').innerHTML = showClosed
+                ? '<div class="empty">No orders yet.</div>'
+                : '<div class="empty">Nothing on order. Closed lines are hidden — tick "Show closed" to see them.</div>';
+            return;
+        }
+
+        const body = rows.map(r => {
+            const late = r.days_overdue != null;
+            const qty = r.is_reminder_only
+                ? '<span class="muted">reminder</span>'
+                : fmtNum(r.ordered_lb) + ' lb';
+            const got = r.is_reminder_only ? '—'
+                : `${fmtNum(r.received_lb)} lb${r.is_over ? ' <span style="color:#b58900;">over</span>' : ''}`;
+            return `<tr class="clickable" data-ord-id="${r.order_id}">
+                <td>${fmtDate(r.order_date)}</td>
+                <td><strong>${escapeHtml(r.item_name || '—')}</strong>
+                    ${r.destination_name ? `<div class="muted" style="font-size:11px;">into ${escapeHtml(r.destination_name)}</div>` : ''}</td>
+                <td class="muted" style="font-size:12px;">${escapeHtml(r.vendor_name || '—')}</td>
+                <td class="num">${qty}</td>
+                <td class="num">${got}</td>
+                <td class="num">${r.price_unknown ? '<span style="color:#b58900;">price TBD</span>'
+                    : (r.price_per_purchase_unit != null
+                        ? '$' + Number(r.price_per_purchase_unit).toFixed(2) + '/' + escapeHtml(r.purchase_unit || 'unit')
+                        : '—')}</td>
+                <td>${r.closed_at
+                        ? `<span class="muted">closed</span>`
+                        : late
+                            ? `<span style="color:#b58900;">${r.days_overdue}d late</span>`
+                            : (r.expected_delivery_date ? 'due ' + fmtDate(r.expected_delivery_date) : 'open')}</td>
+            </tr>`;
+        }).join('');
+
+        $('invOrdContent').innerHTML = `
+            <table>
+                <thead><tr><th>Ordered</th><th>Item</th><th>Vendor</th><th class="num">Amount</th>
+                    <th class="num">Received</th><th class="num">Price</th><th>Status</th></tr></thead>
+                <tbody>${body}</tbody>
+            </table>`;
+        $('invOrdContent').querySelectorAll('tr.clickable').forEach(tr => {
+            tr.addEventListener('click', () => invOpenOrderById(tr.dataset.ordId));
+        });
+    }
+
+    async function invOpenOrderById(orderId) {
+        const [ordRes, lineRes] = await Promise.all([
+            supabase.from('supply_orders').select('*').eq('id', orderId).single(),
+            supabase.from('supply_order_lines').select('*').eq('order_id', orderId).order('created_at')
+        ]);
+        if (ordRes.error)  { showAlert('invOrdAlert', ordRes.error.message); return; }
+        if (lineRes.error) { showAlert('invOrdAlert', lineRes.error.message); return; }
+        await fdLoadRefs();
+        openInvOrderModal(ordRes.data, lineRes.data || []);
+    }
+
+    function openInvOrderModal(order, lines) {
+        clearAlert('invOrderModalAlert');
+        $('invOrderModalTitle').textContent = order ? 'Order' : 'New order';
+        $('invOrdId').value    = order ? order.id : '';
+        $('invOrdVendor').innerHTML = invVendorOptions(order ? order.vendor_id : '', true);
+        $('invOrdNewVendor').classList.add('hidden');
+        $('invOrdNewVendor').value = '';
+        $('invOrdDate').value  = order ? order.order_date : ranchToday();
+        $('invOrdRef').value   = order ? (order.reference || '') : '';
+        $('invOrdNotes').value = order ? (order.notes || '') : '';
+        $('invOrdDeleteBtn').classList.toggle('hidden', !order);
+
+        invOrderLineDraft = (lines || []).map(l => ({
+            id: l.id,
+            item_kind: l.item_kind,
+            feed_item_id: l.feed_item_id || '',
+            destination_location_id: l.destination_location_id || '',
+            qty_purchase_units: l.qty_purchase_units,
+            price_per_purchase_unit: l.price_per_purchase_unit,
+            price_unknown: !!l.price_unknown,
+            expected_delivery_date: l.expected_delivery_date || '',
+            closed_at: l.closed_at,
+            received: null
+        }));
+        if (!invOrderLineDraft.length) invOrderLineDraft.push(invBlankOrderLine());
+        invRenderOrderLines();
+        showModal('invOrderModal');
+    }
+
+    function invBlankOrderLine() {
+        return { id: null, item_kind: invMaterial === 'med' ? 'med' : 'feed',
+                 feed_item_id: '', destination_location_id: '',
+                 qty_purchase_units: null, price_per_purchase_unit: null,
+                 price_unknown: false, expected_delivery_date: '', closed_at: null };
+    }
+
+    function invRenderOrderLines() {
+        // A med line has no catalog picker yet - the schema takes one, the
+        // screen does not. Say so rather than offering an empty select.
+        $('invOrdLines').innerHTML = invOrderLineDraft.map((l, i) => {
+            const item = fdItems.find(x => x.id === l.feed_item_id);
+            const unit = item ? (item.purchase_unit || 'unit') : 'unit';
+            if (l.item_kind === 'med') {
+                return `<div class="muted" style="padding:8px 0; border-bottom:1px solid rgba(0,0,0,0.06);">
+                    Medication line — the med catalog is not wired into ordering yet.
+                    <button type="button" data-ord-del="${i}" style="color:var(--danger); margin-left:8px;">Remove</button>
+                </div>`;
+            }
+            return `<div style="display:grid; grid-template-columns:1.6fr 1.2fr .8fr .8fr 1fr auto; gap:8px; align-items:end; margin-bottom:8px;">
+                <div><label style="font-size:11px;">Item</label>
+                     <select data-ord-item="${i}">${fdItemOptions(l.feed_item_id, true)}</select></div>
+                <div><label style="font-size:11px;">Into</label>
+                     <select data-ord-loc="${i}">${fdLocationOptions(l.destination_location_id, true)}</select></div>
+                <div><label style="font-size:11px;">Amount (${escapeHtml(unit)})</label>
+                     <input type="number" step="0.0001" min="0" data-ord-qty="${i}" value="${l.qty_purchase_units ?? ''}" placeholder="blank = reminder"></div>
+                <div><label style="font-size:11px;">$ / ${escapeHtml(unit)}</label>
+                     <input type="number" step="0.0001" min="0" data-ord-price="${i}" value="${l.price_per_purchase_unit ?? ''}"${l.price_unknown ? ' disabled' : ''}></div>
+                <div><label style="font-size:11px;">Expected</label>
+                     <input type="date" data-ord-due="${i}" value="${l.expected_delivery_date || ''}"></div>
+                <div style="padding-bottom:6px; white-space:nowrap;">
+                    <label style="font-size:11px; display:block;" title="A blank price must never be an accident">
+                        <input type="checkbox" data-ord-tbd="${i}" style="width:auto;"${l.price_unknown ? ' checked' : ''}> TBD
+                    </label>
+                    ${invOrderLineDraft.length > 1 ? `<button type="button" data-ord-del="${i}" style="color:var(--danger); padding:2px 6px;">×</button>` : ''}
+                </div>
+            </div>${l.closed_at ? `<div class="muted" style="font-size:11px; margin:-4px 0 10px 0;">This line is closed.</div>` : ''}`;
+        }).join('');
+
+        const L = $('invOrdLines');
+        L.querySelectorAll('[data-ord-item]').forEach(el => el.addEventListener('change', e => {
+            invOrderLineDraft[+e.target.dataset.ordItem].feed_item_id = e.target.value;
+            const it = fdItems.find(x => x.id === e.target.value);
+            // The bay the item usually goes to, offered rather than imposed.
+            if (it && it.default_location_id && !invOrderLineDraft[+e.target.dataset.ordItem].destination_location_id) {
+                invOrderLineDraft[+e.target.dataset.ordItem].destination_location_id = it.default_location_id;
+            }
+            invRenderOrderLines();
+        }));
+        L.querySelectorAll('[data-ord-loc]').forEach(el => el.addEventListener('change', e => {
+            invOrderLineDraft[+e.target.dataset.ordLoc].destination_location_id = e.target.value;
+        }));
+        L.querySelectorAll('[data-ord-qty]').forEach(el => el.addEventListener('input', e => {
+            invOrderLineDraft[+e.target.dataset.ordQty].qty_purchase_units = e.target.value === '' ? null : parseFloat(e.target.value);
+        }));
+        L.querySelectorAll('[data-ord-price]').forEach(el => el.addEventListener('input', e => {
+            invOrderLineDraft[+e.target.dataset.ordPrice].price_per_purchase_unit = e.target.value === '' ? null : parseFloat(e.target.value);
+        }));
+        L.querySelectorAll('[data-ord-due]').forEach(el => el.addEventListener('change', e => {
+            invOrderLineDraft[+e.target.dataset.ordDue].expected_delivery_date = e.target.value;
+        }));
+        L.querySelectorAll('[data-ord-tbd]').forEach(el => el.addEventListener('change', e => {
+            const i = +e.target.dataset.ordTbd;
+            invOrderLineDraft[i].price_unknown = e.target.checked;
+            if (e.target.checked) invOrderLineDraft[i].price_per_purchase_unit = null;
+            invRenderOrderLines();
+        }));
+        L.querySelectorAll('[data-ord-del]').forEach(el => el.addEventListener('click', e => {
+            invOrderLineDraft.splice(+e.target.dataset.ordDel, 1);
+            if (!invOrderLineDraft.length) invOrderLineDraft.push(invBlankOrderLine());
+            invRenderOrderLines();
+        }));
+    }
+
+    async function saveInvOrder() {
+        clearAlert('invOrderModalAlert');
+        const id = $('invOrdId').value;
+        let vendorId = $('invOrdVendor').value;
+
+        const lines = invOrderLineDraft.filter(l => l.item_kind !== 'med' && l.feed_item_id);
+        if (!lines.length) { showAlert('invOrderModalAlert', 'An order needs at least one line with an item.'); return; }
+
+        // A quantified line needs a price or an explicit admission there is
+        // none. This is the unpriced-medication trap in ordering clothes.
+        for (const l of lines) {
+            if (l.qty_purchase_units != null && !l.price_unknown && l.price_per_purchase_unit == null) {
+                const it = fdItems.find(x => x.id === l.feed_item_id);
+                showAlert('invOrderModalAlert',
+                    `${it ? it.name : 'A line'} has an amount but no price. Enter one, or tick TBD so the load is flagged rather than quietly costing nothing.`);
+                return;
+            }
+        }
+
+        $('invOrdSaveBtn').disabled = true;
+        try {
+            if (vendorId === '__new') vendorId = await invEnsureVendor($('invOrdNewVendor').value);
+
+            const head = {
+                vendor_id: vendorId || null,
+                order_date: $('invOrdDate').value || ranchToday(),
+                reference: $('invOrdRef').value.trim() || null,
+                notes: $('invOrdNotes').value.trim() || null
+            };
+
+            let orderId = id;
+            if (id) {
+                const res = await supabase.from('supply_orders').update(head).eq('id', id).select();
+                if (res.error) throw res.error;
+                // An RLS refusal returns zero rows and no error. Never report
+                // a save that changed nothing.
+                if (!res.data || !res.data.length) throw new Error('Nothing was saved — your role may not be allowed to change this order.');
+            } else {
+                head.created_by = currentUser ? currentUser.id : null;
+                const res = await supabase.from('supply_orders').insert(head).select();
+                if (res.error) throw res.error;
+                if (!res.data || !res.data.length) throw new Error('The order was not saved — your role may not be allowed to add one.');
+                orderId = res.data[0].id;
+            }
+
+            for (const l of lines) {
+                const it = fdItems.find(x => x.id === l.feed_item_id);
+                const lbPer = it ? Number(it.lb_per_purchase_unit) : null;
+                const payload = {
+                    order_id: orderId,
+                    item_kind: 'feed',
+                    feed_item_id: l.feed_item_id,
+                    destination_location_id: l.destination_location_id || null,
+                    // Snapshot, not a live read: editing an item's conversion
+                    // later must not silently re-price an order already placed.
+                    purchase_unit: it ? it.purchase_unit : null,
+                    lb_per_purchase_unit: lbPer,
+                    qty_purchase_units: l.qty_purchase_units,
+                    qty_lb: (l.qty_purchase_units != null && lbPer) ? l.qty_purchase_units * lbPer : null,
+                    price_per_purchase_unit: l.price_unknown ? null : l.price_per_purchase_unit,
+                    price_unknown: !!l.price_unknown,
+                    expected_delivery_date: l.expected_delivery_date || null
+                };
+                const res = l.id
+                    ? await supabase.from('supply_order_lines').update(payload).eq('id', l.id).select()
+                    : await supabase.from('supply_order_lines')
+                        .insert({ ...payload, created_by: currentUser ? currentUser.id : null }).select();
+                if (res.error) throw res.error;
+                if (!res.data || !res.data.length) throw new Error('An order line was not saved — your role may not be allowed to.');
+            }
+
+            hideModal('invOrderModal');
+            showAlert('globalAlert', id ? 'Order updated.' : 'Order saved.', 'success');
+            loadInvOrders();
+            invRefreshBadge();
+        } catch (err) {
+            showAlert('invOrderModalAlert', err.message || String(err));
+        } finally {
+            $('invOrdSaveBtn').disabled = false;
+        }
+    }
+
+    // ---- INVOICES --------------------------------------------------------
+    async function loadInvInvoices() {
+        clearAlert('invInvAlert');
+        $('invInvContent').innerHTML = '<div class="empty">Loading…</div>';
+        const { data, error } = await supabase.from('supply_invoice_reconciliation')
+            .select('*').order('invoice_date', { ascending: false }).limit(300);
+        if (error) { $('invInvContent').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`; return; }
+        const rows = data || [];
+        if (!rows.length) {
+            $('invInvContent').innerHTML = '<div class="empty">No invoices recorded yet.</div>';
+            return;
+        }
+        const body = rows.map(r => {
+            const off = Math.abs(Number(r.variance_usd) || 0) >= 0.01;
+            return `<tr class="clickable" data-inv-id="${r.invoice_id}">
+                <td>${fmtDate(r.invoice_date)}</td>
+                <td><strong>${escapeHtml(r.invoice_number)}</strong></td>
+                <td class="muted" style="font-size:12px;">${escapeHtml(r.vendor_name || '—')}</td>
+                <td class="num">${fmtMoney(r.total_amount)}</td>
+                <td class="num">${r.matched_loads}</td>
+                <td class="num">${off
+                    ? `<span style="color:var(--danger,#b02a2a);">⚠ ${fmtMoney(r.variance_usd)}</span>`
+                    : '<span class="muted">ties</span>'}</td>
+            </tr>`;
+        }).join('');
+        $('invInvContent').innerHTML = `
+            <table>
+                <thead><tr><th>Date</th><th>Invoice #</th><th>Vendor</th><th class="num">Total</th>
+                    <th class="num">Loads</th><th class="num">Ties?</th></tr></thead>
+                <tbody>${body}</tbody>
+            </table>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+                "Ties" is re-checked on every render, so a later edit to a matched load shows up here
+                rather than only at save time.
+            </p>`;
+        $('invInvContent').querySelectorAll('tr.clickable').forEach(tr => {
+            tr.addEventListener('click', () => invOpenInvoiceById(tr.dataset.invId));
+        });
+    }
+
+    // A saved invoice can be read and deleted, not re-allocated. Same posture
+    // as a saved shipment: re-pricing what is already recorded is one thing,
+    // rewriting which loads it covered is another. Delete and re-enter.
+    async function invOpenInvoiceById(invId) {
+        const [invRes, linkRes] = await Promise.all([
+            supabase.from('supply_invoices').select('*').eq('id', invId).single(),
+            supabase.from('supply_invoice_receipts')
+                .select('*, feed_receipts(receipt_date, qty_lb, total_cost, feed_items(name))')
+                .eq('invoice_id', invId)
+        ]);
+        if (invRes.error) { showAlert('invInvAlert', invRes.error.message); return; }
+        openInvInvoiceModal(invRes.data, linkRes.data || []);
+    }
+
+    function openInvInvoiceModal(inv, links) {
+        clearAlert('invInvoiceModalAlert');
+        const editing = !!inv;
+        $('invInvoiceModalTitle').textContent = editing ? 'Invoice ' + inv.invoice_number : 'New invoice';
+        $('invInvId').value     = editing ? inv.id : '';
+        $('invInvVendor').innerHTML = invVendorOptions(editing ? inv.vendor_id : '', false);
+        $('invInvNumber').value = editing ? inv.invoice_number : '';
+        $('invInvDate').value   = editing ? inv.invoice_date : ranchToday();
+        $('invInvTotal').value  = editing ? inv.total_amount : '';
+        $('invInvNotes').value  = editing ? (inv.notes || '') : '';
+
+        ['invInvVendor','invInvNumber','invInvDate','invInvTotal'].forEach(id => { $(id).disabled = editing; });
+        $('invInvSaveBtn').classList.toggle('hidden', editing);
+        $('invInvDeleteBtn').classList.toggle('hidden', !editing);
+        $('invInvAllocBlock').classList.add('hidden');
+        invInvCandidates = [];
+
+        if (editing) {
+            const rows = (links || []).map(l => {
+                const r = l.feed_receipts || {};
+                const item = r.feed_items || {};
+                const diff = (l.expected_amount == null) ? null : Number(l.invoiced_amount) - Number(l.expected_amount);
+                return `<tr>
+                    <td>${fmtDate(r.receipt_date)}</td>
+                    <td>${escapeHtml(item.name || '—')}</td>
+                    <td class="num">${fmtNum(r.qty_lb)} lb</td>
+                    <td class="num">${l.expected_amount == null ? '<span class="muted">was unpriced</span>' : fmtMoney(l.expected_amount)}</td>
+                    <td class="num">${fmtMoney(l.invoiced_amount)}</td>
+                    <td class="num">${diff == null ? '—' : (Math.abs(diff) < 0.005 ? '<span class="muted">—</span>' : fmtMoney(diff))}</td>
+                </tr>`;
+            }).join('');
+            $('invInvLoads').innerHTML = rows
+                ? `<table><thead><tr><th>Delivered</th><th>Item</th><th class="num">Amount</th>
+                     <th class="num">Expected</th><th class="num">Billed</th><th class="num">Diff</th></tr></thead>
+                     <tbody>${rows}</tbody></table>`
+                : '<div class="empty">No loads matched to this invoice.</div>';
+            $('invInvTieOut').innerHTML = `<p class="muted" style="font-size:12px;">
+                What this bill covered cannot be changed here — that would rewrite head-of-the-books
+                allocation that has already happened. Delete it and enter it again if it is wrong.</p>`;
+        } else {
+            $('invInvLoads').innerHTML = '<div class="empty">Pick a vendor.</div>';
+            $('invInvTieOut').innerHTML = '';
+        }
+        showModal('invInvoiceModal');
+    }
+
+    // Unbilled loads from this vendor, with what the ordered price said each
+    // should cost. Ticking them is the whole interaction in the common case.
+    async function invLoadInvoiceCandidates() {
+        const vid = $('invInvVendor').value;
+        if (!vid) { $('invInvLoads').innerHTML = '<div class="empty">Pick a vendor.</div>'; invInvCandidates = []; invRecalcTieOut(); return; }
+        $('invInvLoads').innerHTML = '<div class="empty">Loading…</div>';
+        const { data, error } = await supabase.from('feed_receipts')
+            .select('id, receipt_date, qty_lb, total_cost, cost_pending, ticket_number, feed_items(name)')
+            .eq('vendor_id', vid).is('invoice_id', null).eq('source', 'purchase')
+            .order('receipt_date', { ascending: false }).limit(200);
+        if (error) { $('invInvLoads').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`; return; }
+        invInvCandidates = (data || []).map(r => ({ ...r, checked: false, actual: null }));
+        invRenderInvoiceCandidates();
+    }
+
+    function invRenderInvoiceCandidates() {
+        if (!invInvCandidates.length) {
+            $('invInvLoads').innerHTML = '<div class="empty">No unbilled deliveries from this vendor. If a line on the bill has no load here, that delivery was never recorded — add it on Deliveries first.</div>';
+            invRecalcTieOut();
+            return;
+        }
+        const showActual = $('invInvAllocMode').value === 'actual' && !$('invInvAllocBlock').classList.contains('hidden');
+        $('invInvLoads').innerHTML = `
+            <table>
+                <thead><tr><th></th><th>Delivered</th><th>Item</th><th>Ticket</th>
+                    <th class="num">Amount</th><th class="num">Expected</th>${showActual ? '<th class="num">Billed</th>' : ''}</tr></thead>
+                <tbody>${invInvCandidates.map((r, i) => `
+                    <tr>
+                        <td><input type="checkbox" data-inv-pick="${i}" style="width:auto;"${r.checked ? ' checked' : ''}></td>
+                        <td>${fmtDate(r.receipt_date)}</td>
+                        <td>${escapeHtml((r.feed_items || {}).name || '—')}</td>
+                        <td class="muted" style="font-size:12px;">${escapeHtml(r.ticket_number || '—')}</td>
+                        <td class="num">${fmtNum(r.qty_lb)} lb</td>
+                        <td class="num">${r.cost_pending ? '<span style="color:#b58900;">unpriced</span>' : fmtMoney(r.total_cost)}</td>
+                        ${showActual ? `<td class="num"><input type="number" step="0.01" min="0" data-inv-actual="${i}" value="${r.actual ?? ''}" style="max-width:110px;"></td>` : ''}
+                    </tr>`).join('')}</tbody>
+            </table>`;
+        $('invInvLoads').querySelectorAll('[data-inv-pick]').forEach(el => el.addEventListener('change', e => {
+            invInvCandidates[+e.target.dataset.invPick].checked = e.target.checked;
+            invRecalcTieOut();
+        }));
+        $('invInvLoads').querySelectorAll('[data-inv-actual]').forEach(el => el.addEventListener('input', e => {
+            invInvCandidates[+e.target.dataset.invActual].actual = e.target.value === '' ? null : parseFloat(e.target.value);
+            invRecalcTieOut();
+        }));
+        invRecalcTieOut();
+    }
+
+    function invRecalcTieOut() {
+        const total = parseFloat($('invInvTotal').value);
+        const picked = invInvCandidates.filter(r => r.checked);
+        if (!picked.length || !(total >= 0)) {
+            $('invInvTieOut').innerHTML = '';
+            $('invInvAllocBlock').classList.add('hidden');
+            return;
+        }
+        const expected = picked.reduce((s, r) => s + (Number(r.total_cost) || 0), 0);
+        const diff = total - expected;
+        const ties = Math.abs(diff) < 0.01;
+        $('invInvTieOut').innerHTML = `
+            <div style="display:flex; gap:24px; flex-wrap:wrap;">
+                <div><div class="muted" style="font-size:11px;">LOADS TICKED</div><div style="font-size:18px;">${picked.length}</div></div>
+                <div><div class="muted" style="font-size:11px;">EXPECTED</div><div style="font-size:18px;">${fmtMoney(expected)}</div></div>
+                <div><div class="muted" style="font-size:11px;">INVOICE</div><div style="font-size:18px;">${fmtMoney(total)}</div></div>
+                <div><div class="muted" style="font-size:11px;">DIFFERENCE</div>
+                     <div style="font-size:18px; color:${ties ? 'inherit' : '#b58900'};">${ties ? '—' : fmtMoney(diff)}</div></div>
+            </div>
+            ${ties ? '<p class="muted" style="font-size:12px; margin:8px 0 0 0;">Ties exactly. Nothing to allocate — save it.</p>' : ''}`;
+        const wasHidden = $('invInvAllocBlock').classList.contains('hidden');
+        $('invInvAllocBlock').classList.toggle('hidden', ties);
+        // Showing the "type each amount" column is a re-render; only do it on
+        // the transition, or the caret jumps out of the box being typed in.
+        if (wasHidden && !ties && $('invInvAllocMode').value === 'actual') invRenderInvoiceCandidates();
+    }
+
+    // Largest-remainder, so the shares sum EXACTLY to the bill. Not "round
+    // each and dump the residual on the last one" - that always parks the
+    // error on whichever load happened to be typed last.
+    function invAllocateByPounds(picked, total) {
+        const weights = picked.map(r => Number(r.qty_lb) || 0);
+        const sum = weights.reduce((a, b) => a + b, 0);
+        if (!(sum > 0)) {
+            const each = Math.round((total / picked.length) * 100) / 100;
+            const out = picked.map(() => each);
+            out[out.length - 1] = Math.round((total - each * (picked.length - 1)) * 100) / 100;
+            return out;
+        }
+        const cents = Math.round(total * 100);
+        const raw = weights.map(w => cents * w / sum);
+        const floors = raw.map(x => Math.floor(x));
+        let left = cents - floors.reduce((a, b) => a + b, 0);
+        const order = raw.map((x, i) => ({ i, frac: x - Math.floor(x) }))
+            .sort((a, b) => b.frac - a.frac);
+        for (let k = 0; k < left; k++) floors[order[k % order.length].i] += 1;
+        return floors.map(c => c / 100);
+    }
+
+    async function saveInvInvoice() {
+        clearAlert('invInvoiceModalAlert');
+        const vid    = $('invInvVendor').value;
+        const number = $('invInvNumber').value.trim();
+        const date   = $('invInvDate').value;
+        const total  = parseFloat($('invInvTotal').value);
+        const picked = invInvCandidates.filter(r => r.checked);
+
+        if (!vid)    { showAlert('invInvoiceModalAlert', 'Pick a vendor.'); return; }
+        if (!number) { showAlert('invInvoiceModalAlert', 'Enter the invoice number.'); return; }
+        if (!date)   { showAlert('invInvoiceModalAlert', 'Enter the invoice date.'); return; }
+        if (!(total >= 0)) { showAlert('invInvoiceModalAlert', 'Enter the invoice total.'); return; }
+        if (!picked.length) { showAlert('invInvoiceModalAlert', 'Tick the loads this bill covers.'); return; }
+
+        const expected = picked.reduce((s, r) => s + (Number(r.total_cost) || 0), 0);
+        const ties = Math.abs(total - expected) < 0.01;
+        let amounts;
+        if (ties) {
+            // Every load keeps exactly what it already said. No adjustment,
+            // no variance, nothing booked.
+            amounts = picked.map(r => Math.round((Number(r.total_cost) || 0) * 100) / 100);
+            const drift = Math.round((total - amounts.reduce((a, b) => a + b, 0)) * 100) / 100;
+            if (drift) amounts[amounts.length - 1] = Math.round((amounts[amounts.length - 1] + drift) * 100) / 100;
+        } else if ($('invInvAllocMode').value === 'actual') {
+            if (picked.some(r => r.actual == null)) {
+                showAlert('invInvoiceModalAlert', 'Type an amount for every ticked load, or switch back to spreading by pounds.');
+                return;
+            }
+            amounts = picked.map(r => r.actual);
+            const sum = amounts.reduce((a, b) => a + b, 0);
+            if (Math.abs(sum - total) >= 0.01) {
+                showAlert('invInvoiceModalAlert',
+                    `Those amounts add to ${fmtMoney(sum)} but the invoice says ${fmtMoney(total)}. A bill has to add up.`);
+                return;
+            }
+        } else {
+            amounts = invAllocateByPounds(picked, total);
+        }
+
+        $('invInvSaveBtn').disabled = true;
+        let newInvoiceId = null;
+        try {
+            const ins = await supabase.from('supply_invoices').insert({
+                vendor_id: vid, invoice_number: number, invoice_date: date,
+                total_amount: total, notes: $('invInvNotes').value.trim() || null,
+                created_by: currentUser ? currentUser.id : null
+            }).select();
+            if (ins.error) throw ins.error;
+            if (!ins.data || !ins.data.length) throw new Error('The invoice was not saved — your role may not be allowed to add one.');
+            newInvoiceId = ins.data[0].id;
+
+            const { error: rpcErr } = await supabase.rpc('match_supply_invoice', {
+                p_invoice_id: newInvoiceId,
+                p_allocations: picked.map((r, i) => ({ receipt_id: r.id, invoiced_amount: amounts[i] }))
+            });
+            if (rpcErr) throw rpcErr;
+
+            newInvoiceId = null;   // committed; nothing to unwind
+            hideModal('invInvoiceModal');
+            showAlert('globalAlert', ties
+                ? 'Invoice recorded. It tied exactly — nothing was re-priced.'
+                : 'Invoice recorded. The difference was allocated; feed already fed keeps its frozen cost.', 'success');
+            loadInvInvoices();
+            invRefreshBadge();
+        } catch (err) {
+            // A header with no loads would sit on the list forever reading
+            // "does not tie". Take it back out.
+            if (newInvoiceId) {
+                await supabase.from('supply_invoices').delete().eq('id', newInvoiceId);
+            }
+            showAlert('invInvoiceModalAlert', err.message || String(err));
+        } finally {
+            $('invInvSaveBtn').disabled = false;
+        }
+    }
+
+    // ---- open order lines, for the delivery modal -------------------------
+    async function fdLoadOpenOrderLines() {
+        const { data, error } = await supabase.from('supply_order_line_status')
+            .select('*').is('closed_at', null).eq('item_kind', 'feed')
+            .eq('order_status', 'open').order('order_date', { ascending: false });
+        if (error) { invOpenLines = []; return error; }
+        // A reminder-only line has no quantity and no price, so there is
+        // nothing for a delivery to inherit from it. It closes itself when
+        // the load is saved instead.
+        invOpenLines = (data || []).filter(l => !l.is_reminder_only);
+        return null;
+    }
+
+    function fdOrderLineOptions(selected) {
+        return '<option value="">No order — type it by hand</option>' + invOpenLines.map(l => {
+            const left = l.remaining_lb != null ? ` (${fmtNum(l.remaining_lb)} lb left)` : '';
+            const who  = l.vendor_name ? l.vendor_name + ' · ' : '';
+            return `<option value="${l.order_line_id}"${l.order_line_id === selected ? ' selected' : ''}>` +
+                   `${escapeHtml(who + (l.item_name || 'item') + ' — ' + fmtDate(l.order_date) + left)}</option>`;
+        }).join('');
+    }
+
+    // Everything the delivery modal needs that is not already loaded.
+    async function fdPrepReceiptModal() {
+        await Promise.all([invLoadVendors(), fdLoadOpenOrderLines()]);
     }
 
     // ==========================================================
@@ -21098,6 +22137,7 @@ ${ranchBlocks}
         clearAlert('fdRcAlert');
         $('fdRcContent').innerHTML = '<div class="empty">Loading…</div>';
         const pendingOnly = $('fdRcOnlyPending').checked;
+        const paperOnly   = $('fdRcOnlyOpenPaper').checked;
 
         // PostgREST caps at 1000. This screen is "recent loads", not an
         // archive - the number below is the cap, and it says so on screen
@@ -21109,6 +22149,10 @@ ${ranchBlocks}
             .order('created_at', { ascending: false })
             .limit(LIMIT);
         if (pendingOnly) q = q.eq('cost_pending', true);
+        // "Outstanding" means a purchase whose ticket or bill has not landed
+        // and that nobody has explicitly written off. Opening balances and
+        // count adjustments are exempt by source and never appear.
+        if (paperOnly) q = q.eq('paperwork_done', false).eq('source', 'purchase').is('invoice_id', null);
 
         const { data, error } = await q;
         if (error) { $('fdRcContent').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`; return; }
@@ -21116,7 +22160,9 @@ ${ranchBlocks}
         if (!rows.length) {
             $('fdRcContent').innerHTML = pendingOnly
                 ? '<div class="empty">No unpriced loads. Good.</div>'
-                : '<div class="empty">No loads yet. Click "+ Load in" to record the first delivery.</div>';
+                : paperOnly
+                    ? '<div class="empty">Every delivery has its ticket and its bill.</div>'
+                    : '<div class="empty">No deliveries yet. Click "+ Delivery" to record the first one.</div>';
             return;
         }
 
@@ -21137,13 +22183,14 @@ ${ranchBlocks}
                 <td class="num">${fmtNum(r.qty_lb_remaining)} lb
                     ${used > 0 ? `<div class="muted" style="font-size:11px;">${fmtNum(used)} used</div>` : ''}</td>
                 <td class="muted" style="font-size:12px;">${escapeHtml(r.vendor || '')}</td>
+                <td class="muted" style="font-size:11px;">${fdPaperFlags(r)}</td>
             </tr>`;
         }).join('');
 
         $('fdRcContent').innerHTML = `
             <table>
                 <thead><tr><th>Delivered</th><th>Item</th><th>Into</th><th class="num">Amount</th>
-                    <th class="num">Cost/lb</th><th class="num">Total</th><th class="num">Left</th><th>Vendor</th></tr></thead>
+                    <th class="num">Cost/lb</th><th class="num">Total</th><th class="num">Left</th><th>Vendor</th><th>Paperwork</th></tr></thead>
                 <tbody>${body}</tbody>
             </table>
             ${rows.length >= LIMIT
@@ -21151,8 +22198,23 @@ ${ranchBlocks}
                 : ''}`;
 
         $('fdRcContent').querySelectorAll('tr.clickable').forEach(tr => {
-            tr.addEventListener('click', () => openFdReceiptModal(rows.find(r => r.id === tr.dataset.fdRcId)));
+            tr.addEventListener('click', async () => {
+                await fdPrepReceiptModal();
+                openFdReceiptModal(rows.find(r => r.id === tr.dataset.fdRcId));
+            });
         });
+    }
+
+    // What is still owed on this load. Derived from the empty field, never
+    // from a note somebody had to remember to write.
+    function fdPaperFlags(r) {
+        if (r.source !== 'purchase') return '<span class="muted">n/a</span>';
+        if (r.paperwork_done) return '<span class="muted">closed</span>';
+        const want = [];
+        if (!r.ticket_number || !String(r.ticket_number).trim()) want.push('ticket');
+        if (!r.invoice_id) want.push('invoice');
+        if (!want.length) return '<span class="muted">complete</span>';
+        return `<span style="color:#b58900;">${want.join(' + ')}</span>`;
     }
 
     function fdItemOptions(selected, activeOnly) {
@@ -21164,12 +22226,22 @@ ${ranchBlocks}
 
     function openFdReceiptModal(r) {
         clearAlert('fdReceiptModalAlert');
-        $('fdReceiptModalTitle').textContent = r ? 'Edit load' : 'Load in';
+        $('fdReceiptModalTitle').textContent = r ? 'Edit delivery' : 'Delivery';
         $('fdRcId').value           = r ? r.id : '';
         $('fdRcDate').value         = r ? r.receipt_date : ranchToday();
         $('fdRcItem').innerHTML     = fdItemOptions(r ? r.item_id : '', true);
         $('fdRcLocation').innerHTML = fdLocationOptions(r ? r.location_id : '', true);
-        $('fdRcVendor').value       = r ? (r.vendor || '') : '';
+        // The order picker leads on a NEW delivery; on an existing one the
+        // link is already made and re-pointing it would re-open head-of-books
+        // costing that has already happened.
+        $('fdRcOrderLine').innerHTML = fdOrderLineOptions(r ? r.order_line_id : '');
+        $('fdRcOrderBlock').classList.toggle('hidden', !!r);
+        $('fdRcVendorId').innerHTML = invVendorOptions(r ? (r.vendor_id || '') : '', true);
+        $('fdRcVendor').classList.add('hidden');
+        $('fdRcVendor').value       = '';
+        $('fdRcPaperDone').checked  = r ? !!r.paperwork_done : false;
+        $('fdRcPaperNote').value    = r ? (r.paperwork_note || '') : '';
+        $('fdRcPaperBlock').classList.toggle('hidden', !r);
         $('fdRcTicket').value       = r ? (r.ticket_number || '') : '';
         $('fdRcInvoice').value      = r ? (r.invoice_number || '') : '';
         $('fdRcQtyUnits').value     = r && r.qty_purchase_units != null ? r.qty_purchase_units : '';
@@ -21197,6 +22269,33 @@ ${ranchBlocks}
         $('fdRcDeleteBtn').classList.toggle('hidden', !r || used > 0);
         fdUpdateReceiptCost();
         showModal('fdReceiptModal');
+    }
+
+    // Picking an open order line fills in what it already knows. It does not
+    // lock anything: the ticket wins over the order every time, because the
+    // ticket is what actually arrived.
+    function fdApplyOrderLine() {
+        const id = $('fdRcOrderLine').value;
+        const hint = $('fdRcOrderHint');
+        if (!id) {
+            hint.textContent = 'Choosing an open order line fills in the rest and costs this load at the agreed price.';
+            return;
+        }
+        const l = invOpenLines.find(x => x.order_line_id === id);
+        if (!l) return;
+        if (l.feed_item_id) $('fdRcItem').value = l.feed_item_id;
+        if (l.destination_location_id) $('fdRcLocation').value = l.destination_location_id;
+        if (l.vendor_id) $('fdRcVendorId').value = l.vendor_id;
+        $('fdRcVendor').classList.add('hidden');
+        if (l.remaining_lb != null && !$('fdRcQtyLb').value) {
+            $('fdRcQtyLb').value = l.remaining_lb;
+            fdSyncUnitsFromQty();
+        }
+        hint.innerHTML = l.price_unknown
+            ? 'This order line has <b>no agreed price</b>. Enter the cost here, or tick "Price not known yet".'
+            : `Costed at <b>$${Number(l.price_per_purchase_unit).toFixed(4)}/${escapeHtml(l.purchase_unit || 'unit')}</b> ` +
+              `&mdash; leave the cost boxes blank and the price comes off the order.`;
+        fdUpdateReceiptCost();
     }
 
     // The entry haircut. Silage is booked at gross x (1 - allowance) holding
@@ -21300,12 +22399,19 @@ ${ranchBlocks}
         const freight = $('fdRcFreightCost').value ? parseFloat($('fdRcFreightCost').value) : null;
         const other   = $('fdRcOtherCost').value   ? parseFloat($('fdRcOtherCost').value)   : null;
 
+        // An order line with an agreed price IS the cost - record_feed_delivery
+        // works it out from the ticket weight. So a blank cost box is only a
+        // problem when nothing else can supply one.
+        const orderLineId = $('fdRcId').value ? null : ($('fdRcOrderLine').value || null);
+        const orderLine   = orderLineId ? invOpenLines.find(l => l.order_line_id === orderLineId) : null;
+        const orderPrices = !!(orderLine && !orderLine.price_unknown && orderLine.price_per_lb != null);
+
         // The unpriced-medication trap: a blank cost yields NULL, SUM()
         // ignores NULL, and the feed silently becomes free. Make it a
         // choice rather than an oversight.
-        if (!pending && !(product > 0 || freight > 0 || other > 0)) {
+        if (!pending && !orderPrices && !(product > 0 || freight > 0 || other > 0)) {
             showAlert('fdReceiptModalAlert',
-                'This load has no cost. Enter one, or tick "Price not known yet" so it is flagged instead of quietly costing nothing.');
+                'This load has no cost. Enter one, pick an order with an agreed price, or tick "Price not known yet" so it is flagged instead of quietly costing nothing.');
             return;
         }
 
@@ -21313,9 +22419,11 @@ ${ranchBlocks}
             receipt_date: $('fdRcDate').value,
             item_id: itemId,
             location_id: locId,
-            vendor: $('fdRcVendor').value.trim() || null,
             ticket_number: $('fdRcTicket').value.trim() || null,
-            invoice_number: $('fdRcInvoice').value.trim() || null,
+            paperwork_done: $('fdRcPaperDone').checked,
+            paperwork_done_at: $('fdRcPaperDone').checked ? new Date().toISOString() : null,
+            paperwork_done_by: $('fdRcPaperDone').checked ? (currentUser ? currentUser.id : null) : null,
+            paperwork_note: $('fdRcPaperNote').value.trim() || null,
             qty_purchase_units: $('fdRcQtyUnits').value ? parseFloat($('fdRcQtyUnits').value) : null,
             product_cost: pending ? null : product,
             freight_cost: pending ? null : freight,
@@ -21338,6 +22446,55 @@ ${ranchBlocks}
 
         $('fdRcSaveBtn').disabled = true;
         try {
+            // Vendor is a record now, not a string typed three ways. Adding
+            // one from here is allowed; leaving it blank is too.
+            let vendorId = $('fdRcVendorId').value;
+            if (vendorId === '__new') vendorId = await invEnsureVendor($('fdRcVendor').value);
+            payload.vendor_id = vendorId || null;
+            const vRow = invVendors.find(v => v.id === vendorId);
+            payload.vendor = vRow ? vRow.name : null;
+
+            // A NEW delivery goes through the RPC: the insert, the order-line
+            // close and the reminder-line close have to happen together, and
+            // a field-app caller later should be a caller, not a second
+            // implementation. An EDIT is an ordinary update - it moves no
+            // order state.
+            if (!id) {
+                const { data: newId, error: rpcErr } = await supabase.rpc('record_feed_delivery', {
+                    p_item_id: itemId,
+                    p_location_id: locId,
+                    p_qty_lb: qtyLb,
+                    p_receipt_date: payload.receipt_date,
+                    p_order_line_id: orderLineId,
+                    p_ticket_number: payload.ticket_number,
+                    p_qty_purchase_units: payload.qty_purchase_units,
+                    p_vendor_id: payload.vendor_id,
+                    p_product_cost: pending ? null : product,
+                    p_freight_cost: pending ? null : freight,
+                    p_other_cost:   pending ? null : other,
+                    p_cost_pending: pending,
+                    p_gross_qty_lb: payload.gross_qty_lb,
+                    p_shrink_allowance_pct: payload.shrink_allowance_pct,
+                    p_notes: payload.notes
+                });
+                if (rpcErr) { showAlert('fdReceiptModalAlert', rpcErr.message); return; }
+                // The paperwork fields are not the RPC's business - it records
+                // a delivery, not a decision about chasing one.
+                if (payload.paperwork_done || payload.paperwork_note) {
+                    await supabase.from('feed_receipts').update({
+                        paperwork_done: payload.paperwork_done,
+                        paperwork_done_at: payload.paperwork_done_at,
+                        paperwork_done_by: payload.paperwork_done_by,
+                        paperwork_note: payload.paperwork_note
+                    }).eq('id', newId);
+                }
+                hideModal('fdReceiptModal');
+                showAlert('globalAlert', 'Delivery recorded.', 'success');
+                loadFeedReceipts();
+                invRefreshBadge();
+                return;
+            }
+
             let res, wasPending = false;
             if (id) {
                 // qty is only writable while nothing has been drawn off it,
@@ -21350,11 +22507,6 @@ ${ranchBlocks}
                 if (prev.error) { showAlert('fdReceiptModalAlert', prev.error.message); return; }
                 wasPending = !!(prev.data && prev.data.cost_pending);
                 res = await supabase.from('feed_receipts').update(payload).eq('id', id).select();
-            } else {
-                payload.qty_lb = qtyLb;
-                payload.qty_lb_remaining = qtyLb;
-                payload.created_by = currentUser ? currentUser.id : null;
-                res = await supabase.from('feed_receipts').insert(payload).select();
             }
             if (res.error) { showAlert('fdReceiptModalAlert', res.error.message); return; }
             if (!res.data || !res.data.length) {
@@ -21380,6 +22532,7 @@ ${ranchBlocks}
             hideModal('fdReceiptModal');
             await fdLoadOnHand();
             loadFeedReceipts();
+            invRefreshBadge();
             if (filled > 0) {
                 showAlert('fdRcAlert',
                     `Priced. ${filled} feed-out line${filled === 1 ? '' : 's'} that were waiting on this load now carry a cost.`,
@@ -21394,11 +22547,46 @@ ${ranchBlocks}
         const id = $('fdRcId').value;
         if (!id) return;
         if (!confirm('Delete this load? Only possible while none of it has been fed out.')) return;
+
+        // Read the order line before the row is gone. Deleting the delivery
+        // that closed a line must reopen it, or the order reads fulfilled
+        // against cattle that never got the feed - the same class of mistake
+        // as a reversal that leaves an assignment closed.
+        const before = await supabase.from('feed_receipts')
+            .select('order_line_id').eq('id', id).single();
+        const lineId = before.data ? before.data.order_line_id : null;
+
         const { error } = await supabase.rpc('delete_feed_receipt', { p_receipt_id: id });
         if (error) { showAlert('fdReceiptModalAlert', error.message); return; }
+
+        if (lineId) await fdReopenOrderLineIfEmpty(lineId);
+
         hideModal('fdReceiptModal');
         await fdLoadOnHand();
         loadFeedReceipts();
+        invRefreshBadge();
+    }
+
+    // Reopen a line only when NOTHING is left against it, and only when it was
+    // this app that closed it on delivery. A line somebody closed by hand
+    // ("that's all they're bringing") stays closed - that was a decision, not
+    // a side effect.
+    async function fdReopenOrderLineIfEmpty(lineId) {
+        const [linkRes, lineRes] = await Promise.all([
+            supabase.from('feed_receipts').select('id').eq('order_line_id', lineId).limit(1),
+            supabase.from('supply_order_lines').select('closed_at, close_reason, order_id').eq('id', lineId).single()
+        ]);
+        if (linkRes.error || lineRes.error) return;
+        if ((linkRes.data || []).length) return;                  // other loads still on it
+        const line = lineRes.data;
+        if (!line || !line.closed_at) return;
+        if (!['received in full', 'closed by delivery'].includes(line.close_reason)) return;
+
+        await supabase.from('supply_order_lines')
+            .update({ closed_at: null, close_reason: null }).eq('id', lineId);
+        // The order was closed only because every line was; put it back too.
+        await supabase.from('supply_orders')
+            .update({ status: 'open' }).eq('id', line.order_id).eq('status', 'closed');
     }
 
     // ==========================================================
@@ -22468,10 +23656,10 @@ ${ranchBlocks}
     }
 
     // ---- WIRING ----------------------------------------------------------
-    $('navFeed').addEventListener('click', () => showFeedTab('inventory'));
+    $('navInventory').addEventListener('click', () => showInventoryTab('needs'));
     $('feedSubtabs').addEventListener('click', (e) => {
         const btn = e.target.closest('.sub-tab');
-        if (btn) showFeedTab(btn.dataset.subtab);
+        if (btn) showInventoryTab(btn.dataset.subtab);
     });
 
     $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);
@@ -22492,8 +23680,17 @@ ${ranchBlocks}
     $('fdItemType').addEventListener('change', fdSyncVarianceFromType);
     $('fdItemVarianceMeaning').addEventListener('change', fdSyncVarianceHint);
 
-    $('fdNewReceiptBtn').addEventListener('click', () => openFdReceiptModal(null));
+    $('fdNewReceiptBtn').addEventListener('click', async () => {
+        await fdPrepReceiptModal();
+        openFdReceiptModal(null);
+    });
     $('fdRcOnlyPending').addEventListener('change', loadFeedReceipts);
+    $('fdRcOnlyOpenPaper').addEventListener('change', loadFeedReceipts);
+    $('fdRcOrderLine').addEventListener('change', fdApplyOrderLine);
+    $('fdRcVendorId').addEventListener('change', () => {
+        $('fdRcVendor').classList.toggle('hidden', $('fdRcVendorId').value !== '__new');
+        if ($('fdRcVendorId').value === '__new') $('fdRcVendor').focus();
+    });
     $('fdReceiptForm').addEventListener('submit', saveFdReceipt);
     $('fdRcCancelBtn').addEventListener('click', () => hideModal('fdReceiptModal'));
     $('fdRcDeleteBtn').addEventListener('click', deleteFdReceipt);
@@ -22505,6 +23702,78 @@ ${ranchBlocks}
     ['fdRcProductCost', 'fdRcFreightCost', 'fdRcOtherCost'].forEach(id =>
         $(id).addEventListener('input', fdUpdateReceiptCost));
     $('fdRcCostPending').addEventListener('change', fdUpdateReceiptCost);
+
+    // ---- ordering spine --------------------------------------------------
+    $('invMaterialChip').addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-material]');
+        if (!b || b.dataset.material === invMaterial) return;
+        invMaterial = b.dataset.material;
+        const active = $('feedSubtabs').querySelector('.sub-tab.active');
+        showInventoryTab(active ? active.dataset.subtab : 'needs');
+    });
+
+    $('invNeedsRefreshBtn').addEventListener('click', loadInvNeeds);
+
+    $('invOrdShowClosed').addEventListener('change', loadInvOrders);
+    $('invNewOrderBtn').addEventListener('click', async () => {
+        await fdLoadRefs();
+        await invLoadVendors();
+        openInvOrderModal(null, []);
+    });
+    $('invOrdAddLineBtn').addEventListener('click', () => {
+        invOrderLineDraft.push(invBlankOrderLine());
+        invRenderOrderLines();
+    });
+    $('invOrdVendor').addEventListener('change', () => {
+        $('invOrdNewVendor').classList.toggle('hidden', $('invOrdVendor').value !== '__new');
+        if ($('invOrdVendor').value === '__new') $('invOrdNewVendor').focus();
+    });
+    $('invOrdCancelBtn').addEventListener('click', () => hideModal('invOrderModal'));
+    $('invOrdSaveBtn').addEventListener('click', saveInvOrder);
+    $('invOrdDeleteBtn').addEventListener('click', async () => {
+        const id = $('invOrdId').value;
+        if (!id) return;
+        if (!confirm('Delete this order and its lines? Deliveries already recorded against it stay in the books.')) return;
+        $('invOrdDeleteBtn').disabled = true;
+        // supply_order_lines cascade; feed_receipts.order_line_id is ON DELETE
+        // RESTRICT, so a line with a delivery hanging off it refuses. That is
+        // the chain of custody doing its job - say so plainly.
+        const { error } = await supabase.from('supply_orders').delete().eq('id', id);
+        $('invOrdDeleteBtn').disabled = false;
+        if (error) {
+            showAlert('invOrderModalAlert', /violates foreign key/i.test(error.message)
+                ? 'This order cannot be deleted — a delivery was recorded against one of its lines. Close the line short instead.'
+                : error.message);
+            return;
+        }
+        hideModal('invOrderModal');
+        showAlert('globalAlert', 'Order deleted.', 'success');
+        loadInvOrders();
+        invRefreshBadge();
+    });
+
+    $('invNewInvoiceBtn').addEventListener('click', async () => {
+        await invLoadVendors();
+        openInvInvoiceModal(null, []);
+    });
+    $('invInvVendor').addEventListener('change', invLoadInvoiceCandidates);
+    $('invInvTotal').addEventListener('input', invRecalcTieOut);
+    $('invInvAllocMode').addEventListener('change', invRenderInvoiceCandidates);
+    $('invInvCancelBtn').addEventListener('click', () => hideModal('invInvoiceModal'));
+    $('invInvSaveBtn').addEventListener('click', saveInvInvoice);
+    $('invInvDeleteBtn').addEventListener('click', async () => {
+        const id = $('invInvId').value;
+        if (!id) return;
+        if (!confirm('Delete this invoice? The loads it covered go back to unbilled.')) return;
+        $('invInvDeleteBtn').disabled = true;
+        const { error } = await supabase.rpc('delete_supply_invoice', { p_invoice_id: id });
+        $('invInvDeleteBtn').disabled = false;
+        if (error) { showAlert('invInvoiceModalAlert', error.message); return; }
+        hideModal('invInvoiceModal');
+        showAlert('globalAlert', 'Invoice deleted. Those loads are unbilled again.', 'success');
+        loadInvInvoices();
+        invRefreshBadge();
+    });
 
     $('fdUsAddRowBtn').addEventListener('click', () => {
         const prev = fdUsageSheet.rows[fdUsageSheet.rows.length - 1];
