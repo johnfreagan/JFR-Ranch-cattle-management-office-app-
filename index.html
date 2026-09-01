@@ -24795,6 +24795,42 @@ ${ranchBlocks}
             return;
         }
 
+        // TONS TYPED INTO THE POUNDS BOX. This happened for real on
+        // 2026-08-31: the whole Commodity Barn was counted in tons, keyed as
+        // pounds, and posting it wrote off 1,282,302 lb / $119,525 as shrink
+        // on feed that was standing in the barn the whole time.
+        //
+        // The signature is exact and cheap to test - counted x 2000 lands
+        // within a couple of percent of book - so it is worth catching by
+        // name rather than hiding inside a generic "that is a big variance"
+        // warning. A real bay going to near-zero is a different shape: it
+        // lands near zero, not near book/2000.
+        const suspect = filled.filter(l => {
+            const c = parseFloat(l.counted), b = Number(l.book_qty_lb) || 0;
+            if (!(c > 0) || !(b > 0)) return false;
+            const item = fdItem(l.item_id);
+            const per = item ? Number(item.lb_per_purchase_unit) : 0;
+            if (!(per > 1)) return false;               // lb-priced items cannot have this bug
+            return Math.abs(c * per - b) <= b * 0.02;   // within 2% of book once converted
+        });
+        if (suspect.length) {
+            const names = suspect.map(l => {
+                const item = fdItem(l.item_id);
+                const per = item ? Number(item.lb_per_purchase_unit) : 2000;
+                const u = fdCountUnit(item);
+                return `${l.item_name}: you typed ${fmtNum(parseFloat(l.counted))} lb, `
+                     + `which is ${fmtNum(Number(l.book_qty_lb))} lb of book divided by ${fmtNum(per)}`
+                     + (u ? ` — did you mean ${fmtNum(parseFloat(l.counted))} ${u.label}?` : '');
+            }).join('\n\n');
+            const ok = confirm(
+                `These look like ${suspect.length === 1 ? 'a count' : 'counts'} entered in the wrong unit:\n\n`
+                + names
+                + `\n\nPosting as typed writes the difference off as shrink and it cannot be undone from `
+                + `the app. Press Cancel to go back and use the tons/bags box instead.\n\n`
+                + `Post anyway?`);
+            if (!ok) return;
+        }
+
         $('fdCtPostBtn').disabled = true;
         try {
             const ins = await supabase.from('feed_counts').insert({
