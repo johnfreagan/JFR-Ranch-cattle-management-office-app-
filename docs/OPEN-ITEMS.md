@@ -581,3 +581,36 @@ standalone invoice LIST matters. An invoice is visible per-load in the
 Invoice column and opens from there, but "show me every bill we have
 entered" now has no home. Left out deliberately to find out if it is
 missed.
+
+## 19. Cost centres — feed that no lot eats (2026-09-01)
+
+Migration: `docs/sql/2026-09-01_cost_centers.sql`.
+
+Commodities go to the cowherd, the bulls, the horses. The pounds are gone
+and the money is spent, but there is no stocker lot to carry it and
+Redwing wants a journal entry against its own account.
+
+- **NOT `destination_type = 'adjustment'`.** That is the variance account,
+  whose balance answers "how good are the shrink allowances". Real
+  deliberate feeding put there destroys the only number that measures
+  shrink accuracy — the same argument that keeps found feed out of it.
+- **NOT `'pasture'`.** A cowherd is not a pasture and a pasture carries no
+  Redwing account.
+- **What came free:** `lot_feed_daily` and `feed_cost_unallocated` both read
+  ONLY `destination_type = 'lot'`. A cost-centre usage draws its FIFO layer
+  and freezes its cost without either view being touched, and contributes
+  nothing to any lot's cost of gain. Verified: 0 rows in both.
+- `post_feed_usage` was DROPPED and recreated with `p_cost_center_id`, not
+  overloaded — PostgREST resolves by argument name. The verify block
+  asserts exactly one exists.
+- The shape CHECK pins `cost_center_id` to NULL on every other destination,
+  so a lot feed-out cannot carry a stray centre and land on two reports.
+- **The orphan guard.** The Redwing screen now lists any usage whose
+  destination no section covers, instead of dropping it. Feed must never
+  leave inventory and appear nowhere; this is the same promise
+  `feed_cost_unallocated` makes on the other side.
+
+STILL OPEN: the range-cube allocation (John is studying it). The shape is
+count-based consumption like mineral, but `post_feed_count` spreads across
+EVERY open lot with head-days and cubes only go to cattle on grass — so
+consumption allocation needs a scope before that can be used.

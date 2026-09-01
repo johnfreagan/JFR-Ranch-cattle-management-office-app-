@@ -831,9 +831,10 @@
                     <div class="group-menu">
                         <button class="sub-tab" data-subtab="redwing" data-rw="feed"     data-material="feed">Feed Application</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw="mineral"  data-material="feed">Mineral Application</button>
+                        <button class="sub-tab" data-subtab="redwing" data-rw="centres"  data-material="feed">Cost centres</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw="variance" data-material="feed">Variance account</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw="roll"     data-material="feed">Inventory roll-forward</button>
-                        <button class="sub-tab" data-subtab="redwing" data-rw=""         data-material="feed">All four together</button>
+                        <button class="sub-tab" data-subtab="redwing" data-rw=""         data-material="feed">Everything together</button>
                     </div>
                 </div>
 
@@ -842,6 +843,7 @@
                     <div class="group-menu">
                         <button class="sub-tab" data-subtab="items"     data-material="feed">Items</button>
                         <button class="sub-tab" data-subtab="locations" data-material="feed">Locations</button>
+                        <button class="sub-tab" data-subtab="costcenters" data-material="feed">Cost centres</button>
                         <button class="sub-tab" data-subtab="counts"    data-material="feed">Counts</button>
                         <button class="sub-tab" data-subtab="batches"   data-material="feed">Batches</button>
                         <button class="sub-tab" data-subtab="cost"      data-material="feed">Cost</button>
@@ -2121,6 +2123,27 @@
 
         <!-- Items: the catalog. No price column, deliberately. -->
         <!-- Redwing: the four postings that come out of a week of feed -->
+        <div id="feedCostCentersView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Cost centres</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="fdCcShowInactive" style="width:auto; vertical-align:middle;"> Show inactive</label>
+                        <button class="primary" id="fdNewCostCenterBtn" data-write>+ Cost centre</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Where feed goes when no stocker lot eats it &mdash; the cowherd, the bulls, the horses.
+                    A cost-centre feed-out draws its FIFO layer and freezes its cost like any other, but
+                    charges <b>no lot</b>, and posts to Redwing as a journal entry against the account below
+                    rather than to a production centre.
+                </p>
+                <div id="fdCcAlert"></div>
+                <div id="fdCcContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
         <div id="feedRedwingView" class="hidden" data-perm="office">
             <div class="card">
                 <div class="card-header">
@@ -2642,6 +2665,51 @@
 
 
 <!-- ================= FEED: storage location modal ================= -->
+<div class="modal-backdrop" id="fdCostCenterModal">
+    <div class="modal">
+        <h2 id="fdCcModalTitle">New cost centre</h2>
+        <div id="fdCcModalAlert"></div>
+        <form id="fdCcForm">
+            <input type="hidden" id="fdCcId">
+            <div style="margin-bottom:14px;">
+                <label for="fdCcName">Name *</label>
+                <input type="text" id="fdCcName" required placeholder="e.g. Cowherd">
+            </div>
+            <div class="form-grid" style="margin-bottom:6px;">
+                <div>
+                    <label for="fdCcAccount">Redwing account</label>
+                    <input type="text" id="fdCcAccount" placeholder="e.g. 118004">
+                </div>
+                <div>
+                    <label for="fdCcPc">Production centre</label>
+                    <input type="text" id="fdCcPc" placeholder="optional">
+                </div>
+                <div>
+                    <label for="fdCcProfit">Profit centre</label>
+                    <input type="text" id="fdCcProfit" placeholder="optional">
+                </div>
+            </div>
+            <div class="muted" style="font-size:11px; margin-bottom:12px;">
+                The account is what the journal entry posts against. Without it the report still lists
+                the feeding and says the account is missing, rather than guessing one.
+            </div>
+            <div style="margin-bottom:14px;">
+                <label for="fdCcNotes">Notes</label>
+                <textarea id="fdCcNotes"></textarea>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="fdCcActive" style="width:auto; vertical-align:middle;" checked> Active
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="fdCcCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="fdCcSaveBtn" data-write>Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="modal-backdrop" id="fdLocModal">
     <div class="modal">
         <h2 id="fdLocModalTitle">New storage location</h2>
@@ -7032,6 +7100,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
          'feedBatchesView', 'feedCostView', 'feedRedwingView', 'invPurchasesView',
+         'feedCostCentersView',
          'feedItemsView', 'feedLocationsView',
          'invNeedsView', 'invOrdersView', 'invInvoicesView', 'invMedsPlaceholderView'].forEach(id => {
             const el = $(id);
@@ -22007,10 +22076,12 @@ ${ranchBlocks}
     };
     const FD_DEST_TYPES = {
         lot: 'Lot',
+        cost_center: 'Cost centre (cowherd, bulls…)',
         pasture: 'Pasture',
         adjustment: 'Adjustment / shrink',
         transfer: 'Transfer to another location'
     };
+    let fdCostCenters = [];   // cost_centers, active only unless managing them
 
     function fdKey(itemId, locId) { return itemId + '|' + locId; }
     function fdItem(id) { return fdItems.find(i => i.id === id); }
@@ -22057,17 +22128,22 @@ ${ranchBlocks}
     // ---- REFERENCE DATA --------------------------------------------------
     async function fdLoadRefs(force) {
         if (fdRefsLoaded && !force) return null;
-        const [itemsRes, locsRes, ranchRes, lotsRes, pastRes] = await Promise.all([
+        const [itemsRes, locsRes, ranchRes, lotsRes, pastRes, ccRes] = await Promise.all([
             supabase.from('feed_items').select('*').order('name'),
             supabase.from('feed_storage_locations').select('*').order('name'),
             supabase.from('ranches').select('id, name').eq('is_active', true).order('name'),
             supabase.from('lots').select('id, lot_number, closed_at, is_test')
                 .is('closed_at', null).order('lot_number'),
             supabase.from('pastures').select('id, name, ranch_id, ranches(name)')
-                .eq('is_active', true).order('name')
+                .eq('is_active', true).order('name'),
+            supabase.from('cost_centers').select('*').order('name')
         ]);
+        // Cost centres are the newest table and may not be applied yet.
+        // A missing table must not take the whole feed module down with it -
+        // everything else on this screen still works without them.
         const firstErr = [itemsRes, locsRes, ranchRes, lotsRes, pastRes].find(r => r.error);
         if (firstErr) return firstErr.error;
+        fdCostCenters = (ccRes && !ccRes.error) ? (ccRes.data || []) : [];
 
         fdItems     = itemsRes.data || [];
         fdLocations = locsRes.data || [];
@@ -22257,6 +22333,9 @@ ${ranchBlocks}
         } else if (subtab === 'cost') {
             $('feedCostView').classList.remove('hidden');
             loadFeedCost();
+        } else if (subtab === 'costcenters') {
+            $('feedCostCentersView').classList.remove('hidden');
+            loadFdCostCenters();
         } else if (subtab === 'redwing') {
             $('feedRedwingView').classList.remove('hidden');
             initFdRedwing();
@@ -23295,6 +23374,97 @@ ${ranchBlocks}
     }
 
     // ==========================================================
+    // COST CENTRES
+    // ==========================================================
+    async function loadFdCostCenters() {
+        clearAlert('fdCcAlert');
+        $('fdCcContent').innerHTML = '<div class="empty">Loading…</div>';
+        const showInactive = $('fdCcShowInactive').checked;
+        const { data, error } = await supabase.from('cost_centers').select('*').order('name');
+        if (error) {
+            const missing = /relation .* does not exist|schema cache/i.test(error.message || '');
+            $('fdCcContent').innerHTML = `<div class="alert error">${escapeHtml(missing
+                ? 'The cost_centers table is not in the database yet. Apply docs/sql/2026-09-01_cost_centers.sql in the Supabase SQL editor, then reload.'
+                : error.message)}</div>`;
+            return;
+        }
+        fdCostCenters = (data || []).filter(c => c.is_active);
+        const rows = (data || []).filter(c => showInactive || c.is_active);
+        if (!rows.length) {
+            $('fdCcContent').innerHTML =
+                '<div class="empty">No cost centres yet. Add one for the cowherd and feed can stop being charged to lots that never ate it.</div>';
+            return;
+        }
+        $('fdCcContent').innerHTML = `
+            <table><thead><tr>
+                <th>Name</th><th>Redwing account</th><th>Production centre</th>
+                <th>Profit centre</th><th>Notes</th>
+            </tr></thead><tbody>${rows.map(c => `
+                <tr class="clickable ${!c.is_active ? 'closed-row' : ''}" data-fd-cc-id="${c.id}">
+                    <td><strong>${escapeHtml(c.name)}</strong>${!c.is_active
+                        ? ' <span class="muted" style="font-size:11px;">inactive</span>' : ''}</td>
+                    <td>${c.redwing_account
+                        ? escapeHtml(c.redwing_account)
+                        : '<span style="color:#b58900;">not set</span>'}</td>
+                    <td class="muted">${escapeHtml(c.redwing_production_center || '—')}</td>
+                    <td class="muted">${escapeHtml(c.profit_center || '—')}</td>
+                    <td class="muted" style="font-size:12px;">${escapeHtml(c.notes || '')}</td>
+                </tr>`).join('')}</tbody></table>`;
+        $('fdCcContent').querySelectorAll('[data-fd-cc-id]').forEach(tr => {
+            tr.addEventListener('click', () => {
+                openFdCostCenterModal((data || []).find(c => c.id === tr.dataset.fdCcId));
+            });
+        });
+    }
+
+    function openFdCostCenterModal(cc) {
+        clearAlert('fdCcModalAlert');
+        $('fdCcModalTitle').textContent = cc ? 'Edit cost centre' : 'New cost centre';
+        $('fdCcId').value      = cc ? cc.id : '';
+        $('fdCcName').value    = cc ? cc.name : '';
+        $('fdCcAccount').value = cc && cc.redwing_account ? cc.redwing_account : '';
+        $('fdCcPc').value      = cc && cc.redwing_production_center ? cc.redwing_production_center : '';
+        $('fdCcProfit').value  = cc && cc.profit_center ? cc.profit_center : '';
+        $('fdCcNotes').value   = cc && cc.notes ? cc.notes : '';
+        $('fdCcActive').checked = cc ? !!cc.is_active : true;
+        showModal('fdCostCenterModal');
+    }
+
+    async function saveFdCostCenter(e) {
+        e.preventDefault();
+        clearAlert('fdCcModalAlert');
+        const name = $('fdCcName').value.trim();
+        if (!name) { showAlert('fdCcModalAlert', 'Give it a name.'); return; }
+        const payload = {
+            name,
+            redwing_account:           $('fdCcAccount').value.trim() || null,
+            redwing_production_center: $('fdCcPc').value.trim() || null,
+            profit_center:             $('fdCcProfit').value.trim() || null,
+            notes:                     $('fdCcNotes').value.trim() || null,
+            is_active:                 $('fdCcActive').checked
+        };
+        const id = $('fdCcId').value;
+        const res = id
+            ? await supabase.from('cost_centers').update(payload).eq('id', id).select()
+            : await supabase.from('cost_centers').insert({ ...payload,
+                    created_by: currentUser ? currentUser.id : null }).select();
+        if (res.error) {
+            // The unique index is on lower(name), so "Cowherd" and "cowherd"
+            // collide - say that rather than showing the raw constraint.
+            showAlert('fdCcModalAlert', /cost_centers_name_uniq/.test(res.error.message)
+                ? 'A cost centre with that name already exists.' : res.error.message);
+            return;
+        }
+        if (!res.data || !res.data.length) {
+            showAlert('fdCcModalAlert', 'Nothing was saved — your role may not be allowed to make that change.');
+            return;
+        }
+        hideModal('fdCostCenterModal');
+        await fdLoadRefs(true);
+        loadFdCostCenters();
+    }
+
+    // ==========================================================
     // STORAGE LOCATIONS
     // ==========================================================
     async function loadFeedLocations() {
@@ -24146,6 +24316,7 @@ ${ranchBlocks}
             from_location_id: prev ? prev.from_location_id : '',
             destination_type: prev ? prev.destination_type : 'lot',
             lot_id: prev ? prev.lot_id : '',
+            cost_center_id: prev ? prev.cost_center_id : '',
             pasture_id: '',
             to_location_id: '',
             qty_lb: ''
@@ -24592,6 +24763,11 @@ ${ranchBlocks}
                     <option value="">— Pick a lot —</option>
                     ${fdOpenLots.map(l => `<option value="${l.id}"${r.lot_id === l.id ? ' selected' : ''}>${escapeHtml(l.lot_number)}</option>`).join('')}
                 </select>`;
+            } else if (r.destination_type === 'cost_center') {
+                targetSel = `<select data-fd-us="cost_center_id" data-uid="${r.uid}">
+                    <option value="">— Pick a cost centre —</option>
+                    ${fdCostCenters.map(c => `<option value="${c.id}"${r.cost_center_id === c.id ? ' selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+                </select>`;
             } else if (r.destination_type === 'pasture') {
                 targetSel = `<select data-fd-us="pasture_id" data-uid="${r.uid}">
                     <option value="">— Pick a pasture —</option>
@@ -24762,6 +24938,7 @@ ${ranchBlocks}
             if (!(parseFloat(r.qty_lb) > 0)) errs.push(`${n}: pounds must be greater than zero.`);
             if (r.destination_type === 'lot' && !r.lot_id) errs.push(`${n}: pick a lot.`);
             if (r.destination_type === 'pasture' && !r.pasture_id) errs.push(`${n}: pick a pasture.`);
+            if (r.destination_type === 'cost_center' && !r.cost_center_id) errs.push(`${n}: pick a cost centre.`);
             if (r.destination_type === 'transfer') {
                 if (!r.to_location_id) errs.push(`${n}: pick where it is going.`);
                 else if (r.to_location_id === r.from_location_id) errs.push(`${n}: a transfer to the same location does nothing.`);
@@ -24836,6 +25013,7 @@ ${ranchBlocks}
                     p_from_location_id: r.from_location_id,
                     p_qty_lb: parseFloat(r.qty_lb),
                     p_destination_type: r.destination_type,
+                    p_cost_center_id: r.cost_center_id || null,
                     p_period_start: start,
                     p_period_end: end,
                     p_lot_id: r.destination_type === 'lot' ? r.lot_id : null,
@@ -25330,6 +25508,11 @@ ${ranchBlocks}
         invPuFilter = b.dataset.pu;
         loadInvPurchases();
     });
+
+    $('fdNewCostCenterBtn').addEventListener('click', () => openFdCostCenterModal(null));
+    $('fdCcShowInactive').addEventListener('change', loadFdCostCenters);
+    $('fdCcCancelBtn').addEventListener('click', () => hideModal('fdCostCenterModal'));
+    $('fdCcForm').addEventListener('submit', saveFdCostCenter);
 
     $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);
     $('fdInvPrintBtn').addEventListener('click', () => {
@@ -26107,6 +26290,25 @@ ${ranchBlocks}
             b.sources.add(u.source);
         });
 
+        // 2b. Cost centres. Real, deliberate feeding with no lot to carry it -
+        // the cowherd, the bulls, the horses. It posts as a journal entry
+        // against the centre's own account, never against a production
+        // centre, and it contributes nothing to any lot's cost of gain.
+        const centres = {};
+        d.usage.filter(u => u.destination_type === 'cost_center').forEach(u => {
+            const key = u.cost_center || '(unnamed cost centre)';
+            const C = centres[key] || (centres[key] = { rows: {}, lb: 0, usd: 0, pending: 0,
+                                                        account: u.redwing_account,
+                                                        pc: u.redwing_production_center });
+            const b = C.rows[u.item_name] || (C.rows[u.item_name] = { lb: 0, usd: 0, pending: 0, box: u.box });
+            b.lb += Number(u.qty_lb) || 0;
+            b.usd += cost(u);
+            b.pending += Number(u.pending_cost_lines) || 0;
+            C.lb += Number(u.qty_lb) || 0;
+            C.usd += cost(u);
+            C.pending += Number(u.pending_cost_lines) || 0;
+        });
+
         // 3. Variance account. Shrink is feed the books had and the bay did
         // not; found feed is the reverse. They are two sides of ONE account -
         // its balance is how good the allowances are - so they belong on one
@@ -26162,7 +26364,14 @@ ${ranchBlocks}
                   - R.toLots - R.shrink - R.batchOut;
         });
 
-        return { lots, unmapped, varRows, roll };
+        // Nothing may leave inventory without appearing on a posting. Every
+        // destination this build knows about has a section; anything else is
+        // listed loudly rather than dropped, which is the same promise
+        // feed_cost_unallocated makes on the other side.
+        const KNOWN = ['lot', 'cost_center', 'adjustment', 'transfer', 'batch'];
+        const orphans = d.usage.filter(u => !KNOWN.includes(u.destination_type));
+
+        return { lots, unmapped, varRows, roll, centres, orphans };
     }
 
     // ---- rendering --------------------------------------------------------
@@ -26217,6 +26426,38 @@ ${ranchBlocks}
                     number that will change underneath it.</div>` : ''}
             </div>`;
         }).join('');
+    }
+
+    // A journal entry, not a production-centre posting: these pounds were
+    // really fed and really cost money, but no lot ate them.
+    function fdRwCentresHtml() {
+        const { centres } = fdRwBuild();
+        const names = Object.keys(centres).sort();
+        if (!names.length) return '<div class="empty">No cost-centre feeding in this period.</div>';
+        return names.map(nm => {
+            const C = centres[nm];
+            const items = Object.keys(C.rows).sort();
+            return `<div style="margin-bottom:16px;">
+                <div style="font-weight:600; margin-bottom:4px;">${escapeHtml(nm)}
+                    <span class="muted" style="font-weight:400; font-size:12px;">
+                    ${C.account ? '&middot; account ' + escapeHtml(C.account) : '<span style="color:#b58900;">&middot; no Redwing account set</span>'}
+                    ${C.pc ? '&middot; ' + escapeHtml(C.pc) : ''}</span></div>
+                <table><thead><tr><th>Item</th><th class="num">$</th><th class="num">lbs</th></tr></thead>
+                <tbody>${items.map(k => {
+                    const r = C.rows[k];
+                    return `<tr><td>${escapeHtml(k)}${r.box
+                        ? `<div class="muted" style="font-size:11px;">${escapeHtml(r.box)}</div>` : ''}</td>
+                        <td class="num">${fdRwUsd(r.usd)}${r.pending > 0
+                            ? ' <span style="color:#b58900;" title="an unpriced load is in here">⚠</span>' : ''}</td>
+                        <td class="num">${fdRwLb(r.lb)}</td></tr>`;
+                }).join('')}
+                <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                    <td>Total to ${escapeHtml(nm)}</td>
+                    <td class="num">${fdRwUsd(C.usd)}</td><td class="num">${fdRwLb(C.lb)}</td></tr>
+                </tbody></table></div>`;
+        }).join('') + `<p class="muted" style="font-size:11px;">
+            Charged to the centre&rsquo;s own account, never to a lot. These pounds contribute nothing to
+            any lot&rsquo;s cost of gain &mdash; <code>lot_feed_daily</code> reads lot feed-outs only.</p>`;
     }
 
     function fdRwVarianceHtml() {
@@ -26303,7 +26544,7 @@ ${ranchBlocks}
 
     function renderFdRedwing() {
         const d = fdRwData;
-        const { unmapped } = fdRwBuild();
+        const { unmapped, orphans } = fdRwBuild();
         const period = `${fmtDate(d.from)} &ndash; ${fmtDate(d.to)}`;
         const warn = unmapped.length ? `<div class="alert warn" style="margin-bottom:12px;">
             <b>${unmapped.length} feed-out row${unmapped.length === 1 ? '' : 's'} cannot be posted.</b>
@@ -26313,7 +26554,16 @@ ${ranchBlocks}
             Shown here rather than dropped, for exactly that reason.</div>` : '';
 
         const want = id => !fdRwOnly || fdRwOnly === id;
-        $('fdRwContent').innerHTML = warn +
+        // Pounds that left inventory for a destination no section covers.
+        // Listing them is the whole point: a posting that silently omits feed
+        // is worse than one that refuses to render.
+        const orphanWarn = orphans.length ? `<div class="alert warn" style="margin-bottom:12px;">
+            <b>${orphans.length} feed-out row${orphans.length === 1 ? '' : 's'} belong to no posting.</b>
+            Destination ${escapeHtml([...new Set(orphans.map(o => o.destination_type))].join(', '))} —
+            these pounds left inventory and appear on none of the reports below. Tell me about this rather
+            than posting around it.</div>` : '';
+
+        $('fdRwContent').innerHTML = warn + orphanWarn +
             `<div class="muted" style="font-size:12px;">Period ${period}</div>` +
             (want('feed') ? fdRwSection('feed', 'Feed Application — bulk commodities',
                 'One block per lot, in the order of the Redwing Feed Application screen. Type the $ box and the lbs box from the same row.',
@@ -26321,6 +26571,9 @@ ${ranchBlocks}
             (want('mineral') ? fdRwSection('mineral', 'Mineral Application — from consumption',
                 'Mineral is not fed off a ticket; nobody records a bag going to a pasture. These pounds come from the physical count, allocated across open lots by head-days, which is what a mineral count variance means.',
                 fdRwApplicationHtml('mineral')) : '') +
+            (want('centres') ? fdRwSection('centres', 'Cost centres — journal entry',
+                'Feed that really left the barn for something that is not a stocker lot — the cowherd, the bulls. It posts against the centre&rsquo;s own account and charges no lot.',
+                fdRwCentresHtml()) : '') +
             (want('variance') ? fdRwSection('variance', 'Variance account — shrink and found feed',
                 'Never charged to a lot. Barn shrink is the cost of handling feed, not of feeding a particular set of cattle.',
                 fdRwVarianceHtml()) : '') +
@@ -26336,6 +26589,7 @@ ${ranchBlocks}
     const FD_RW_TITLES = {
         feed:     'Feed Application — bulk commodities',
         mineral:  'Mineral Application — from consumption',
+        centres:  'Cost centres — journal entry',
         variance: 'Variance account — shrink and found feed',
         roll:     'Inventory roll-forward'
     };
@@ -26351,6 +26605,7 @@ ${ranchBlocks}
     function fdRwSectionHtml(id) {
         return id === 'feed'     ? fdRwApplicationHtml('feed')
              : id === 'mineral'  ? fdRwApplicationHtml('mineral')
+             : id === 'centres'  ? fdRwCentresHtml()
              : id === 'variance' ? fdRwVarianceHtml()
              :                     fdRwRollHtml();
     }
