@@ -115,15 +115,26 @@ CREATE TABLE IF NOT EXISTS public.vendors (
 CREATE UNIQUE INDEX IF NOT EXISTS vendors_name_uniq ON public.vendors (lower(name));
 
 -- Seeded from what is already in the books, so there is nothing to type.
--- '(opening balance)' is deliberately excluded - it is a bookkeeping
--- marker, not somebody you can ring up.
+--
+-- Three bookkeeping markers are excluded - they are not people you can
+-- ring up. '(opening balance)' and '(count adjustment)' are written by
+-- the app; 'Beginning Inventory' was typed by hand and exists in three
+-- different capitalisations.
+--
+-- DISTINCT ON (lower(...)), not DISTINCT: the unique index is on
+-- lower(name), so a plain DISTINCT keeps 'Beginning Inventory' and
+-- 'beginning inventory' as two rows and the INSERT collides with itself.
+-- ON CONFLICT DO NOTHING covers a re-run and any marker missed here.
 INSERT INTO public.vendors (name)
-SELECT DISTINCT btrim(r.vendor)
+SELECT DISTINCT ON (lower(btrim(r.vendor))) btrim(r.vendor)
 FROM public.feed_receipts r
 WHERE r.vendor IS NOT NULL
   AND btrim(r.vendor) <> ''
-  AND lower(btrim(r.vendor)) <> '(opening balance)'
-  AND NOT EXISTS (SELECT 1 FROM public.vendors v WHERE lower(v.name) = lower(btrim(r.vendor)));
+  AND lower(btrim(r.vendor)) <> ALL (ARRAY['(opening balance)',
+                                           '(count adjustment)',
+                                           'beginning inventory'])
+ORDER BY lower(btrim(r.vendor)), btrim(r.vendor)
+ON CONFLICT DO NOTHING;
 
 
 -- ---------------------------------------------------------------------
@@ -319,11 +330,15 @@ BEGIN
             CHECK (price_source IN ('ordered','invoice','manual','pending','opening'));
     END IF;
 
-    -- 'opening_balance' joins the source list. Without it the 8/30 PB
-    -- opening layers look like purchases and raise "awaiting weight
-    -- ticket" and "awaiting invoice" forever - eleven permanent false
-    -- alarms on a brand new list, which is how a list gets ignored in
-    -- week one.
+    -- 'opening_balance' joins the source list. Without it the opening
+    -- layers look like purchases and raise "awaiting weight ticket" and
+    -- "awaiting invoice" forever - sixteen permanent false alarms on a
+    -- brand new list, which is how a list gets ignored in week one.
+    -- Two spellings: the 11 PB reseed rows carry '(opening balance)',
+    -- and 5 hand-entered Redmond/Purina/silage/bagged rows carry
+    -- 'Beginning Inventory' in three capitalisations. Their notes say
+    -- plainly what they are - "Enter and price beginning inventory from
+    -- RW", "moved in from Redwing inventory".
     IF EXISTS (SELECT 1 FROM pg_constraint
                WHERE conrelid='public.feed_receipts'::regclass
                  AND conname='feed_receipts_source_check') THEN
@@ -381,9 +396,10 @@ BEGIN
                        || 'invoice that never existed. Quantities and dollars unchanged. '
                        || 'See docs/inventory-flow-design.md decision 21.'
     WHERE source = 'purchase'
-      AND lower(btrim(coalesce(vendor,''))) = '(opening balance)';
+      AND lower(btrim(coalesce(vendor,''))) = ANY (ARRAY['(opening balance)',
+                                                         'beginning inventory']);
     GET DIAGNOSTICS n = ROW_COUNT;
-    RAISE NOTICE 'Opening-balance receipts repointed: %', n;
+    RAISE NOTICE 'Opening-balance receipts repointed: % (expected 16 on first run)', n;
 END
 $opening$;
 
@@ -1138,9 +1154,17 @@ BEGIN
 
     -- The opening balance must not be chased for paperwork it never had.
     SELECT count(*) INTO n FROM public.feed_receipts
-    WHERE lower(btrim(coalesce(vendor,''))) = '(opening balance)' AND source <> 'opening_balance';
+    WHERE lower(btrim(coalesce(vendor,''))) = ANY (ARRAY['(opening balance)','beginning inventory'])
+      AND source <> 'opening_balance';
     IF n > 0 THEN
         RAISE EXCEPTION '% opening-balance receipts are still source=purchase.', n;
+    END IF;
+
+    -- No bookkeeping marker may have become a vendor.
+    SELECT count(*) INTO n FROM public.vendors
+    WHERE lower(btrim(name)) = ANY (ARRAY['(opening balance)','(count adjustment)','beginning inventory']);
+    IF n > 0 THEN
+        RAISE EXCEPTION '% bookkeeping marker(s) were seeded into vendors.', n;
     END IF;
 
     SELECT count(*) INTO n FROM public.inventory_needs_attention;
@@ -1158,9 +1182,13 @@ commit;
 --   2. Sanity read:
 --        select kind, severity, title, detail, age_days
 --        from public.inventory_needs_attention order by sort_rank, age_days desc;
---      Expect ZERO rows today: the 11 opening-balance layers are exempt,
---      nothing is ordered yet, and there is no usage or count history.
---      Anything else on that list on day one is worth understanding
---      before the app code goes on top of it.
+--      Expect FIVE rows, all of them correct:
+--        Legacy Commodities DDG   8/17 - awaiting_invoice, unordered_load
+--        Double T SoyHull Pellets 8/20 - awaiting_ticket, awaiting_invoice,
+--                                        unordered_load
+--      Those are two real purchases with real paperwork outstanding, which
+--      is the whole point. A count_overdue or feed_unallocated row may also
+--      appear off existing data. What must NOT appear is any of the 16
+--      opening-balance layers.
 --   3. select name from public.vendors order by name;  -- seeded list
 -- =====================================================================
