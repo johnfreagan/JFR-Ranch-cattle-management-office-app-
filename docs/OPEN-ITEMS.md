@@ -621,3 +621,41 @@ STILL OPEN: the range-cube allocation (John is studying it). The shape is
 count-based consumption like mineral, but `post_feed_count` spreads across
 EVERY open lot with head-days and cubes only go to cattle on grass — so
 consumption allocation needs a scope before that can be used.
+
+---
+
+## 20. Redwing tie-out at 9/1 — 11 of 18 lines tie (2026-09-01)
+
+Applied: `docs/sql/2026-09-01_corn_to_redwing_0901.sql`. Corn now reads
+866,380 lb / $74,298.39 at **$171.51/ton**, matching Redwing.
+
+**The corn round trip is worth remembering.** The 8/31 alignment moved corn
+to 854,832.50 lb off Redwing's sheet of that date. Redwing has since
+superseded that with 866,380.00 — which is where the app already was — so
+that step moved corn AWAY from Redwing rather than toward it. The dollars
+were never in dispute: a cent apart the whole way. **A figure read off a
+report dated the same day you act on it can still be stale.** Tie the
+DOLLARS first — they were the stable side here — and treat a quantity that
+disagrees while the money agrees as a units or timing question, not a
+valuation one.
+
+Where it stands, with 18 lb and $21,019.33 between the two systems:
+
+| difference | amount | whose |
+|---|---|---|
+| Corn Silage 2026 | $19,154.60, no pounds | Redwing — John fixing this month |
+| Salt | $1,864.19 on a **blank** Feed RM line | Redwing |
+| Four barn-count adjustments | 18 lb net | Redwing should move to us |
+| Corrid Crumbles | 54¢ | rounding, no entry |
+
+- **Salt is the same typed-box cause as the silage.** Quantities agree at
+  1,000 lb; the value sits on a nameless row at the top of the Feed RM
+  section because the $ and lb boxes were typed separately. Redwing's own
+  stated totals include that blank line, which is why its Feed RM total ties
+  to this comparison while the Salt row does not.
+- **The 18 lb is DDG +8, SoyHull +11, Whole Cottonseed +2, Peanut Hulls −3**
+  — the 8/31 barn walk. The count is the physical fact; Redwing has not taken
+  them up.
+
+Comparison PDF built 2026-09-01 from the live books against the Redwing RM
+Inventory to 9/1/2026.
