@@ -2924,6 +2924,22 @@
 </div>
 
 <!-- ================= FEED: receipt (load in) modal ================= -->
+<div class="modal-backdrop" id="fdLayersModal">
+    <div class="modal" style="max-width:920px;">
+        <h2 id="fdLayersTitle">Layers</h2>
+        <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+            Every layer behind this on-hand figure &mdash; deliveries, the opening balance, count
+            adjustments, transfers in. Click one to open and edit it. A layer that has had pounds fed
+            against it can be re-priced but not deleted.
+        </p>
+        <div id="fdLayersAlert"></div>
+        <div id="fdLayersContent"><div class="empty">Loading&hellip;</div></div>
+        <div class="modal-actions">
+            <button id="fdLayersCloseBtn">Close</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-backdrop" id="fdReceiptModal">
     <div class="modal">
         <h2 id="fdReceiptModalTitle">Delivery</h2>
@@ -23337,7 +23353,7 @@ ${ranchBlocks}
             prev = r;
             const tail = (byLocation && idx === sorted.length - 1)
                 ? groupFoot(r.location_id, r.location_name || '—') : '';
-            return lead + `<tr>
+            return lead + `<tr class="clickable" data-fd-inv-item="${r.item_id}" data-fd-inv-loc="${r.location_id || ''}">
                 <td><strong>${escapeHtml(r.item_name || '—')}</strong>
                     <div class="muted" style="font-size:11px;">${escapeHtml(FD_ITEM_TYPES[r.item_type] || r.item_type || '')}</div></td>
                 <td class="num">${fmtNum(r.qty_lb)} lb
@@ -23367,10 +23383,93 @@ ${ranchBlocks}
                 </tr></thead>
                 <tbody>${body}</tbody>
             </table>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+                Click any line to see the layers behind it &mdash; that is where an opening balance or a
+                delivery gets corrected.</p>
             ${pendingLb > 0 ? `<p class="muted" style="font-size:11px; margin-top:10px;">
                 <span style="color:#b58900;">⚠</span> = pounds on a load that has no price yet. They are counted,
-                not valued. Price the load under <b>Loads in</b> and the value fills in &mdash; including on any
+                not valued. Price the load under <b>Purchases</b> and the value fills in &mdash; including on any
                 feed already used against it.</p>` : ''}`;
+
+        $('fdInvContent').querySelectorAll('[data-fd-inv-item]').forEach(tr => {
+            tr.addEventListener('click', () =>
+                openFdLayers(tr.dataset.fdInvItem, tr.dataset.fdInvLoc || null));
+        });
+    }
+
+    // ---- LAYERS BEHIND AN ON-HAND FIGURE ---------------------------------
+    // Merging Purchases to one list dropped opening balances and count
+    // adjustments from it, correctly - nobody bought them - but that left
+    // them unreachable, and an opening balance is exactly the thing that
+    // needs correcting at cut-over. On hand IS the sum of the layers, so
+    // this is where they belong.
+    async function openFdLayers(itemId, locId) {
+        const item = fdItem(itemId);
+        const loc  = locId ? fdLoc(locId) : null;
+        $('fdLayersTitle').textContent =
+            (item ? item.name : 'Layers') + (loc ? ' — ' + loc.name : ' — all bays');
+        clearAlert('fdLayersAlert');
+        $('fdLayersContent').innerHTML = '<div class="empty">Loading…</div>';
+        showModal('fdLayersModal');
+
+        let q = supabase.from('feed_receipts')
+            .select('*, feed_storage_locations(name)')
+            .eq('item_id', itemId)
+            .order('receipt_date').order('created_at');
+        if (locId) q = q.eq('location_id', locId);
+        const { data, error } = await q;
+        if (error) { $('fdLayersContent').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`; return; }
+        const rows = data || [];
+        if (!rows.length) {
+            $('fdLayersContent').innerHTML = '<div class="empty">No layers here.</div>';
+            return;
+        }
+
+        const SRC = { purchase: 'Delivery', opening_balance: 'Opening balance',
+                      count_adjustment: 'Count adjustment', transfer_in: 'Transfer in',
+                      batch_out: 'From a batch' };
+        let tLb = 0, tRem = 0, tUsd = 0;
+        const body = rows.map((r, i) => {
+            const qty = Number(r.qty_lb) || 0, rem = Number(r.qty_lb_remaining) || 0;
+            const used = qty - rem;
+            tLb += qty; tRem += rem; tUsd += Number(r.total_cost) || 0;
+            return `<tr class="clickable" data-fd-layer="${i}">
+                <td>${fmtDate(r.receipt_date)}</td>
+                <td>${escapeHtml(SRC[r.source] || r.source)}
+                    ${r.vendor ? `<div class="muted" style="font-size:11px;">${escapeHtml(r.vendor)}</div>` : ''}</td>
+                ${locId ? '' : `<td class="muted" style="font-size:12px;">${escapeHtml((r.feed_storage_locations || {}).name || '—')}</td>`}
+                <td class="num">${fmtNum(qty)} lb</td>
+                <td class="num">${fmtNum(rem)} lb${used > 0
+                    ? `<div class="muted" style="font-size:11px;">${fmtNum(used)} fed</div>` : ''}</td>
+                <td class="num">${r.cost_pending
+                    ? '<span style="color:#b58900;">⚠ unpriced</span>'
+                    : (r.unit_cost_per_lb != null ? '$' + Number(r.unit_cost_per_lb).toFixed(4) + '/lb' : '—')}</td>
+                <td class="num">${r.cost_pending ? '—' : fmtMoney(r.total_cost)}</td>
+                <td class="muted" style="font-size:11px;">${used > 0
+                    ? 'fed against — re-price only' : 'not yet fed'}</td>
+            </tr>`;
+        }).join('');
+
+        $('fdLayersContent').innerHTML = `
+            <table><thead><tr>
+                <th>Date</th><th>Where it came from</th>${locId ? '' : '<th>Bay</th>'}
+                <th class="num">Received</th><th class="num">Remaining</th>
+                <th class="num">Price</th><th class="num">Value</th><th></th>
+            </tr></thead><tbody>${body}
+            <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                <td colspan="${locId ? 2 : 3}">Total</td>
+                <td class="num">${fmtNum(tLb)} lb</td>
+                <td class="num">${fmtNum(tRem)} lb</td><td></td>
+                <td class="num">${fmtMoney(tUsd)}</td><td></td></tr>
+            </tbody></table>`;
+
+        $('fdLayersContent').querySelectorAll('[data-fd-layer]').forEach(tr => {
+            tr.addEventListener('click', async () => {
+                hideModal('fdLayersModal');
+                await fdPrepReceiptModal();
+                openFdReceiptModal(rows[Number(tr.dataset.fdLayer)]);
+            });
+        });
     }
 
     // ==========================================================
@@ -25513,6 +25612,8 @@ ${ranchBlocks}
     $('fdCcShowInactive').addEventListener('change', loadFdCostCenters);
     $('fdCcCancelBtn').addEventListener('click', () => hideModal('fdCostCenterModal'));
     $('fdCcForm').addEventListener('submit', saveFdCostCenter);
+
+    $('fdLayersCloseBtn').addEventListener('click', () => hideModal('fdLayersModal'));
 
     $('fdInvRefreshBtn').addEventListener('click', loadFeedInventory);
     $('fdInvPrintBtn').addEventListener('click', () => {

@@ -576,6 +576,13 @@ action. They live on Current Inventory and Counts.
 The three modals are untouched - only the lists merged - so the risk
 was in the reading, not the writing.
 
+FIXED SAME DAY: merging to one list dropped opening balances and count
+adjustments from Purchases — correct, nobody bought them — but that left
+them unreachable, and an opening balance is exactly what needs correcting
+at cut-over. Current Inventory rows now open the layers behind them. On
+hand IS the sum of the layers, so that is where they belong; putting them
+back on Purchases would have re-muddied the screen the merge cleaned up.
+
 STILL TO DECIDE after John's first real order: whether the loss of a
 standalone invoice LIST matters. An invoice is visible per-load in the
 Invoice column and opens from there, but "show me every bill we have
