@@ -1890,7 +1890,14 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Feed on hand</h2>
-                    <div style="display:flex; gap:8px; align-items:center;">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <label style="display:inline-block; font-size:13px;"
+                               title="On hand as it stood at the end of this day. Blank means now.">
+                            As of
+                            <input type="date" id="fdInvAsOf" style="width:auto; vertical-align:middle; font-size:13px;">
+                        </label>
+                        <button id="fdInvAsOfClearBtn" class="hidden"
+                                style="padding:3px 9px; font-size:12px;">Back to today</button>
                         <label style="display:inline-block; font-size:13px;">
                             <input type="checkbox" id="fdInvByLocation" style="width:auto; vertical-align:middle;" checked> By bay
                         </label>
@@ -4603,6 +4610,34 @@ window.addEventListener('unhandledrejection', function(e) {
         if(type==='success') setTimeout(()=>{el.innerHTML='';},3000);
     }
     function clearAlert(id){const el=$(id); if(el) el.innerHTML='';}
+
+    // ---- PRINT WINDOW CHROME ---------------------------------------------
+    // Every print view in this app opens a script-created tab and calls
+    // print() on it. On a phone that tab has no visible browser chrome, so
+    // the moment the print dialog is dismissed the page is a dead end: no
+    // back button, no tab strip, nothing on the page to leave with. Reported
+    // on the feed on-hand sheet 2026-09-02; it was true of all eight.
+    //
+    // The buttons carry BOTH .print-chrome and .no-print, because the older
+    // sheets already hide .no-print and the newer ones do not.
+    //
+    // window.close() works here only because these windows were opened by
+    // script. If a browser refuses anyway the hint appears rather than the
+    // button silently doing nothing - which is the bug being fixed, not a
+    // thing to reintroduce.
+    const PRINT_CHROME_CSS = `
+        .print-chrome{margin:0 0 14px 0;display:flex;gap:8px;align-items:center;}
+        .print-chrome button{padding:7px 15px;font-family:inherit;font-size:13px;cursor:pointer;
+            border:1px solid #999;border-radius:5px;background:#f4f4f4;color:#111;}
+        .print-chrome button.pc-print{background:#111;color:#fff;border-color:#111;}
+        .print-chrome .pc-hint{display:none;font-size:12px;color:#8a6d2a;}
+        @media print{ .print-chrome{display:none !important;} }`;
+    const PRINT_CHROME_HTML = `<div class="print-chrome no-print">
+        <button class="pc-print" onclick="window.print()">Print</button>
+        <button onclick="window.close();var h=document.getElementById('pcHint');
+            setTimeout(function(){if(h)h.style.display='inline';},400)">Close</button>
+        <span class="pc-hint" id="pcHint">This browser will not let the page close itself &mdash;
+            use the tab&rsquo;s own close button.</span></div>`;
     function escapeHtml(s){if(s==null) return '';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
     function fmtMoney(n){if(n==null||isNaN(n)) return '—';return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
     function fmtNum(n,d=0){if(n==null||isNaN(n)) return '—';return Number(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
@@ -10338,7 +10373,7 @@ window.addEventListener('unhandledrejection', function(e) {
     tfoot td { font-weight: 700; background: #f7f7f2; }
     .tie { margin-top: 14px; font-size: 11px; padding: 6px 8px; border: 1px solid #999; }
     .footer { margin-top: 18px; font-size: 10px; color: #666; }
-</style></head><body>
+${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
 <h1>Cattle Sales — accounting detail</h1>
 <div class="sub">${escapeHtml(s.buyer || 'Shipment')} · settled ${escapeHtml(fmtDate(s.sale_date))} · printed ${new Date().toLocaleDateString()}</div>
 <div class="meta">${head}</div>
@@ -12550,7 +12585,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     td.c, th.c { text-align: center; }
     .footer { margin-top: 22px; font-size: 12px; color: #666; }
     @media print { body { margin: 12mm; } }
-</style></head><body>
+${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
 <h1>Fresh Cattle — Doctoring Eligibility</h1>
 <div class="sub">Receipts within 17 days, open lots · printed ${new Date().toLocaleDateString()}</div>
 <table>
@@ -13376,7 +13411,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     td.flag { color: #b3121f; font-weight: 700; font-size: 12px; }
     .footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid #888; font-size: 12px; color: #666; line-height: 1.6; }
     @media print { body { margin: 12mm; } }
-</style></head><body>
+${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
 <h1>Daily Report — ${escapeHtml(dfrLongDate(model.day))}</h1>
 <div class="sub">JFR Ranch Co. · doctoring, moves and deads · printed ${new Date().toLocaleString()}</div>
 ${body}
@@ -15532,7 +15567,7 @@ ${body}
     td.c, th.c { text-align: center; }
     .footer { margin-top: 26px; font-size: 12px; color: #666; }
     @media print { body { margin: 12mm; } }
-</style></head><body>
+${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
 <h1>${escapeHtml(receivingSheetTitle())}</h1>
 <div class="sub">Doses computed at <strong>${weightLb} lb</strong> average weight · printed ${new Date().toLocaleDateString()}</div>
 <div class="meta">
@@ -16369,15 +16404,13 @@ ${body}
         body { padding: 20px; }
         .no-print { display: none; }
     }
+${PRINT_CHROME_CSS}
 </style>
 </head>
 <body>
 <h1>JFR Ranch — Pasture Directory</h1>
 <div class="header-meta">Generated ${today} · ${ranches.length} ranches · ${ranches.reduce((s, r) => s + r.pastures.length, 0)} pastures</div>
-<div class="no-print" style="margin-bottom: 18px;">
-    <button onclick="window.print()" style="padding: 8px 16px; font-size: 14px; cursor: pointer;">Print this page</button>
-    <button onclick="window.close()" style="padding: 8px 16px; font-size: 14px; cursor: pointer; margin-left: 6px;">Close</button>
-</div>
+${PRINT_CHROME_HTML}
 ${ranchBlocks}
 </body>
 </html>`;
@@ -23254,22 +23287,207 @@ ${ranchBlocks}
     // ==========================================================
     // INVENTORY
     // ==========================================================
+
+    // ---- ON HAND AS OF A PAST DATE ---------------------------------------
+    // Asked for 2026-09-02: "need the ability to view the on hand for a
+    // selected day... say a previous month end."
+    //
+    // The whole module rests on one identity the migration asserts:
+    // every pound that ever moved is either a receipt or a usage. So the
+    // state of a layer on any past day is reachable by REWINDING - take the
+    // layer as it stands and put back everything consumed from it since.
+    //
+    //     remaining_at(D) = qty_lb_remaining + SUM(consumed after D)
+    //     ... and 0 outright if the layer did not exist yet on D.
+    //
+    // That zeroing is not a detail. Without it a layer delivered after D and
+    // partly eaten since would rewind to its full delivered weight and put
+    // feed in the bay weeks before the truck came.
+    //
+    // Everything downstream is then feed_on_hand's own arithmetic with
+    // qty_lb_remaining swapped for remaining_at(D) - which is why asking for
+    // today reproduces the live view exactly rather than merely closely.
+    // fdAsOfSelfCheck() proves that on every load instead of trusting it.
+    //
+    // Two honest limits, stated on the sheet rather than buried here:
+    //   - It values at TODAY'S layer prices. A load invoiced after D is
+    //     rewound at what we now know it cost, not at the blank the books
+    //     carried on the day. For a month end being closed now that is the
+    //     wanted answer; it is not a snapshot of what the screen said then.
+    //   - A usage is taken out of the bay on its LEDGER date. A weekly
+    //     ticket dated the 2nd for the period Aug 27 - Sep 2 leaves all of
+    //     its pounds standing on Aug 31, because that is when the layer was
+    //     actually drawn down. Cost of gain spreads over the period;
+    //     custody does not.
+    let fdAsOf = null;             // 'YYYY-MM-DD', or null for live/now
+
+    // feed_on_hand's arithmetic, with the balance of a layer supplied by the
+    // caller. Shared so the rewound figures and the live ones are produced by
+    // the same code and can only differ where the balances differ.
+    function fdAggregateLayers(receipts, balanceOf) {
+        const byKey = new Map();
+        receipts.forEach(r => {
+            const lb = balanceOf(r);
+            if (!(lb > 0)) return;
+            const k = r.item_id + '|' + r.location_id;
+            let g = byKey.get(k);
+            if (!g) {
+                const item = fdItem(r.item_id), loc = fdLoc(r.location_id);
+                g = {
+                    item_id: r.item_id, item_name: item ? item.name : '—',
+                    item_type: item ? item.item_type : null,
+                    purchase_unit: item ? item.purchase_unit : null,
+                    lb_per_purchase_unit: item ? item.lb_per_purchase_unit : null,
+                    location_id: r.location_id, location_name: loc ? loc.name : '—',
+                    is_bulk: loc ? loc.is_bulk : null, capacity_lb: loc ? loc.capacity_lb : null,
+                    qty_lb: 0, value_usd: 0, pending_cost_lb: 0, priced_lb: 0,
+                    oldest_layer_date: null, layer_count: 0
+                };
+                byKey.set(k, g);
+            }
+            g.qty_lb += lb;
+            g.layer_count += 1;
+            // An unpriced layer is counted and not valued, exactly as the live
+            // view does it. Valuing it at zero is the trap this module exists
+            // to avoid; leaving it out of the pound count would be worse.
+            if (r.cost_pending) g.pending_cost_lb += lb;
+            else { g.priced_lb += lb; g.value_usd += lb * (Number(r.unit_cost_per_lb) || 0); }
+            if (!g.oldest_layer_date || r.receipt_date < g.oldest_layer_date)
+                g.oldest_layer_date = r.receipt_date;
+        });
+        return [...byKey.values()].map(g => ({
+            ...g,
+            qty_purchase_units: g.lb_per_purchase_unit ? g.qty_lb / g.lb_per_purchase_unit : null,
+            avg_cost_per_lb: g.priced_lb > 0 ? g.value_usd / g.priced_lb : null
+        }));
+    }
+
+    async function fdRewindOnHand(asOf) {
+        // Layers are few - one row per load ever taken in - so they come whole.
+        const recRes = await supabase.from('feed_receipts')
+            .select('id, receipt_date, item_id, location_id, qty_lb, qty_lb_remaining, ' +
+                    'unit_cost_per_lb, cost_pending');
+        if (recRes.error) return { error: recRes.error };
+        const receipts = recRes.data || [];
+
+        // Consumption after D, per layer. Paginated because this one grows
+        // forever - a weekly ticket touches a layer per item per bay - and a
+        // silent 1000-row cut here would invent feed that was never fed.
+        const PAGE = 1000;
+        const back = new Map();                       // receipt_id -> lb to put back
+        for (let from = 0; ; from += PAGE) {
+            const { data, error } = await supabase.from('feed_usage_costs')
+                .select('receipt_id, qty_lb, feed_usage!inner(usage_date)')
+                .gt('feed_usage.usage_date', asOf)
+                .not('receipt_id', 'is', null)
+                .order('receipt_id')
+                .range(from, from + PAGE - 1);
+            if (error) return { error };
+            (data || []).forEach(c =>
+                back.set(c.receipt_id, (back.get(c.receipt_id) || 0) + (Number(c.qty_lb) || 0)));
+            if (!data || data.length < PAGE) break;
+        }
+
+        return {
+            rows: fdAggregateLayers(receipts, r => r.receipt_date > asOf
+                ? 0
+                : (Number(r.qty_lb_remaining) || 0) + (back.get(r.id) || 0)),
+            // The same aggregation over the UNTOUCHED balances. This is what
+            // the live view is showing, arrived at independently, and it costs
+            // nothing extra because the layers are already in hand.
+            nowRows: fdAggregateLayers(receipts, r => Number(r.qty_lb_remaining) || 0)
+        };
+    }
+
+    // Roll the by-bay rows up to the item, matching feed_item_on_hand. Both
+    // modes come off ONE rewind so they cannot disagree with each other the
+    // way two queries would.
+    function fdRollUpToItem(rows) {
+        const byItem = new Map();
+        rows.forEach(r => {
+            let g = byItem.get(r.item_id);
+            if (!g) {
+                g = { item_id: r.item_id, item_name: r.item_name, item_type: r.item_type,
+                      purchase_unit: r.purchase_unit, lb_per_purchase_unit: r.lb_per_purchase_unit,
+                      qty_lb: 0, value_usd: 0, pending_cost_lb: 0, priced_lb: 0, location_count: 0 };
+                byItem.set(r.item_id, g);
+            }
+            g.qty_lb += r.qty_lb; g.value_usd += r.value_usd;
+            g.pending_cost_lb += r.pending_cost_lb; g.priced_lb += r.priced_lb;
+            g.location_count += 1;
+        });
+        return [...byItem.values()].map(g => ({
+            ...g,
+            qty_purchase_units: g.lb_per_purchase_unit ? g.qty_lb / g.lb_per_purchase_unit : null,
+            avg_cost_per_lb: g.priced_lb > 0 ? g.value_usd / g.priced_lb : null
+        }));
+    }
+
+    // The rewind is a second implementation of feed_on_hand, and this repo has
+    // been bitten more than once by two copies of one calculation drifting.
+    // So on every as-of load, run the same aggregation over the LIVE balances
+    // and check it against the view. It cannot be deferred to "when the date
+    // is today" - the date can never be today, the control refuses it - and a
+    // check that never runs is worse than none, because it reads as covered.
+    async function fdAsOfSelfCheck(nowRows) {
+        const { data, error } = await supabase.from('feed_on_hand')
+            .select('item_id, location_id, qty_lb, value_usd');
+        if (error) return null;                       // cannot check, do not cry wolf
+        const live = new Map((data || []).map(r =>
+            [r.item_id + '|' + r.location_id, [Number(r.qty_lb) || 0, Number(r.value_usd) || 0]]));
+        const mine = new Map(nowRows.map(r =>
+            [r.item_id + '|' + r.location_id, [r.qty_lb, r.value_usd]]));
+        const keys = new Set([...live.keys(), ...mine.keys()]);
+        const bad = [...keys].filter(k => {
+            const a = live.get(k) || [0, 0], b = mine.get(k) || [0, 0];
+            return Math.abs(a[0] - b[0]) > 0.005 || Math.abs(a[1] - b[1]) > 0.01;
+        });
+        return bad.length || null;
+    }
+
+    function fdAsOfLabel() { return fdAsOf || ranchToday(); }
+
     async function loadFeedInventory() {
         clearAlert('fdInvAlert');
         $('fdInvContent').innerHTML = '<div class="empty">Loading…</div>';
         const byLocation = $('fdInvByLocation').checked;
 
         await fdLoadCountStatus();
-        const { data, error } = await supabase
-            .from(byLocation ? 'feed_on_hand' : 'feed_item_on_hand')
-            .select('*');
+        // A past date needs item and bay names for pairs that hold nothing
+        // today - an emptied bay, an archived item - and those are exactly
+        // the lines a month end is being run to see.
+        if (fdAsOf) { const e = await fdLoadRefs(); if (e) { $('fdInvContent').innerHTML =
+            `<div class="alert error">${escapeHtml(e.message)}</div>`; return; } }
+
+        let rows, error = null, drift = null;
+        if (fdAsOf) {
+            const res = await fdRewindOnHand(fdAsOf);
+            error = res.error || null;
+            if (!error) {
+                drift = await fdAsOfSelfCheck(res.nowRows);
+                rows = byLocation ? res.rows : fdRollUpToItem(res.rows);
+                rows.sort((a, b) => (a.item_name || '').localeCompare(b.item_name || ''));
+            }
+        } else {
+            const res = await supabase
+                .from(byLocation ? 'feed_on_hand' : 'feed_item_on_hand')
+                .select('*');
+            error = res.error; rows = res.data || [];
+        }
         if (error) {
             $('fdInvContent').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`;
             $('fdInvSummary').innerHTML = '';
             return;
         }
-        const rows = data || [];
-        if (byLocation) fdOnHand = rows;
+        // fdOnHand feeds the count and usage screens, which must always be
+        // told what is standing there NOW. A rewound set would let someone
+        // feed against a balance from three weeks ago.
+        if (byLocation && !fdAsOf) fdOnHand = rows;
+        // Said plainly rather than shown as a small warning: a rewind that
+        // cannot reproduce today has no claim on any other day either.
+        if (drift) showAlert('fdInvAlert',
+            `Run the same way against TODAY, this rebuild disagrees with the live on-hand on ` +
+            `${drift} line(s). The figures below are not trustworthy — report this.`, 'error');
         // The report prints what the screen is showing, from the same rows.
         // Re-querying for the report is how a report starts disagreeing with
         // the page it is printed from.
@@ -23279,7 +23497,9 @@ ${ranchBlocks}
         if (!rows.length) {
             $('fdInvSummary').innerHTML = '';
             $('fdInvContent').innerHTML =
-                '<div class="empty">Nothing on hand. Add a load under <b>Loads in</b>.</div>';
+                (fdAsOf
+                    ? `<div class="empty">Nothing was on hand on ${escapeHtml(fmtDate(fdAsOf))}.</div>`
+                    : '<div class="empty">Nothing on hand. Add a load under <b>Deliveries</b>.</div>');
             return;
         }
 
@@ -23289,14 +23509,14 @@ ${ranchBlocks}
 
         $('fdInvSummary').innerHTML = `
             <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:14px;">
-                <div><div class="muted" style="font-size:11px;">ON HAND</div>
+                <div><div class="muted" style="font-size:11px;">${fdAsOf ? 'ON HAND ' + escapeHtml(fmtDate(fdAsOf)).toUpperCase() : 'ON HAND'}</div>
                      <div style="font-size:20px;">${fmtNum(totalLb)} lb</div></div>
                 <div><div class="muted" style="font-size:11px;">VALUE</div>
                      <div style="font-size:20px;">${fmtMoney(totalValue)}</div></div>
                 ${pendingLb > 0 ? `<div><div class="muted" style="font-size:11px;">UNPRICED</div>
                      <div style="font-size:20px; color:var(--warning, #b58900);">${fmtNum(pendingLb)} lb</div></div>` : ''}
             </div>
-            ${fdOverdueDue()}`;
+            ${fdAsOf ? '' : fdOverdueDue()}`;
 
         // Bay first, then item. A bay is a place someone walks to; sorting by
         // item scatters one bay's contents down the page, and made the screen
@@ -23306,7 +23526,11 @@ ${ranchBlocks}
             (a.item_name || '').localeCompare(b.item_name || '') ||
             (a.location_name || '').localeCompare(b.location_name || ''));
 
+        // "counted 8 days ago" and "overdue for a count" are facts about today
+        // and a prompt to go and do something now. On a page rewound to a past
+        // month end they read as if they described that day.
         const countBadge = locId => {
+            if (fdAsOf) return '';
             const st = fdCountStatusFor(locId);
             if (!st || !st.count_interval_days) return '';
             if (st.last_counted_on == null) {
@@ -23384,17 +23608,25 @@ ${ranchBlocks}
                 <tbody>${body}</tbody>
             </table>
             <p class="muted" style="font-size:11px; margin-top:8px;">
-                Click any line to see the layers behind it &mdash; that is where an opening balance or a
-                delivery gets corrected.</p>
+                ${fdAsOf
+                    ? 'Rewound to ' + escapeHtml(fmtDate(fdAsOf)) + '. Layers open on the live figure only &mdash; ' +
+                      'clear the date to correct an opening balance or a delivery.'
+                    : 'Click any line to see the layers behind it &mdash; that is where an opening balance or a ' +
+                      'delivery gets corrected.'}</p>
             ${pendingLb > 0 ? `<p class="muted" style="font-size:11px; margin-top:10px;">
                 <span style="color:#b58900;">⚠</span> = pounds on a load that has no price yet. They are counted,
                 not valued. Price the load under <b>Purchases</b> and the value fills in &mdash; including on any
                 feed already used against it.</p>` : ''}`;
 
-        $('fdInvContent').querySelectorAll('[data-fd-inv-item]').forEach(tr => {
+        // The layers modal shows the layer as it stands, which is not what a
+        // rewound row is claiming. Opening it from a past date would show one
+        // number on the line and a different one behind it.
+        if (!fdAsOf) $('fdInvContent').querySelectorAll('[data-fd-inv-item]').forEach(tr => {
             tr.addEventListener('click', () =>
                 openFdLayers(tr.dataset.fdInvItem, tr.dataset.fdInvLoc || null));
         });
+        else $('fdInvContent').querySelectorAll('[data-fd-inv-item]')
+            .forEach(tr => tr.classList.remove('clickable'));
     }
 
     // ---- LAYERS BEHIND AN ON-HAND FIGURE ---------------------------------
@@ -25640,6 +25872,22 @@ ${ranchBlocks}
     });
     $('fdInvByLocation').addEventListener('change', loadFeedInventory);
 
+    // A date in the future is not an error worth an alert - it is a typed
+    // year, or the ranch day against the browser's clock. It just means now.
+    $('fdInvAsOf').addEventListener('change', () => {
+        const v = $('fdInvAsOf').value;
+        fdAsOf = (v && v < ranchToday()) ? v : null;
+        if (v && !fdAsOf) $('fdInvAsOf').value = '';
+        $('fdInvAsOfClearBtn').classList.toggle('hidden', !fdAsOf);
+        loadFeedInventory();
+    });
+    $('fdInvAsOfClearBtn').addEventListener('click', () => {
+        fdAsOf = null;
+        $('fdInvAsOf').value = '';
+        $('fdInvAsOfClearBtn').classList.add('hidden');
+        loadFeedInventory();
+    });
+
     $('fdNewLocBtn').addEventListener('click', () => openFdLocModal(null));
     $('fdShowInactiveLocs').addEventListener('change', loadFeedLocations);
     $('fdLocForm').addEventListener('submit', saveFdLoc);
@@ -26729,7 +26977,7 @@ ${ranchBlocks}
             .muted{color:#666;font-size:10.5px;}
             .empty{color:#666;font-style:italic;}
             @media print{ body{margin:11mm;} tr{break-inside:avoid;} thead{display:table-header-group;} }
-        </style></head><body>
+        ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         <h1>${escapeHtml(FD_RW_TITLES[id])}</h1>
         <div class="meta">JFR Ranch Co. Ltd. &nbsp;·&nbsp; ${fmtDate(fdRwData.from)} &ndash; ${fmtDate(fdRwData.to)}
             &nbsp;·&nbsp; printed ${ranchToday()}</div>
@@ -26839,6 +27087,16 @@ ${ranchBlocks}
     // agree on need opposite fixes - one is a delivery or a feed-out nobody
     // recorded, the other is a costing method. Netted into a single dollar
     // variance they hide each other.
+    // Both of these are choices, not approximations, and a month end handed to
+    // an accountant should carry them on its face.
+    const FD_ASOF_NOTE =
+        '<b>Rewound.</b> Each layer is taken as it stands and everything consumed from it since is put back; ' +
+        'a layer delivered after the date is dropped outright. Two things follow. It values at <b>today\'s</b> ' +
+        'layer prices, so a load invoiced after the date is counted at what we now know it cost rather than at ' +
+        'the blank the books carried then. And a feed-out leaves the bay on its <b>ledger date</b>: a weekly ' +
+        'ticket dated the 2nd for Aug 27 &ndash; Sep 2 still stands in the bay on Aug 31. Cost of gain spreads ' +
+        'over the period; custody does not.';
+
     const FD_TIE_NOTE =
         'Difference splits two ways. <b>Quantity</b> = (our lb &minus; Redwing lb) &times; our $/ton &divide; 2000. ' +
         '<b>Price</b> = Redwing lb &times; (our $/ton &minus; Redwing $/ton) &divide; 2000. ' +
@@ -26874,7 +27132,7 @@ ${ranchBlocks}
 
         const w = window.open('', '_blank');
         if (!w) { showAlert('fdInvAlert', 'The browser blocked the print window. Allow pop-ups for this site.'); return; }
-        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Feed on hand — ${ranchToday()}</title>
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Feed on hand — ${fdAsOfLabel()}</title>
         <style>
             body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#111;}
             h1{font-size:18px;margin:0 0 2px 0;}
@@ -26892,9 +27150,9 @@ ${ranchBlocks}
             .warn{color:#8a6d2a;}
             .foot{margin-top:12px;color:#555;font-size:10.5px;line-height:1.45;}
             @media print{ body{margin:11mm;} tr{break-inside:avoid;} thead{display:table-header-group;} }
-        </style></head><body>
+        ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         <h1>Feed on hand${rep.tie ? ' — Redwing tie-out' : ''}</h1>
-        <div class="meta">JFR Ranch Co. Ltd. &nbsp;·&nbsp; as of ${ranchToday()}
+        <div class="meta">JFR Ranch Co. Ltd. &nbsp;·&nbsp; as of ${fdAsOfLabel()}${fdAsOf ? ' <b>(rewound)</b>' : ''}
             &nbsp;·&nbsp; ${rep.byLoc ? 'by bay' : 'all bays combined'}
             &nbsp;·&nbsp; FIFO layers at delivered cost</div>
         <table>
@@ -26914,6 +27172,7 @@ ${ranchBlocks}
         <div class="foot">
             Value is what each load actually cost delivered, frozen on the layer. Pounds on an unpriced
             load are counted but not valued &mdash; they are in <b>On hand</b> and not in <b>Value</b>.
+            ${fdAsOf ? '<br>' + FD_ASOF_NOTE : ''}
             ${rep.tie ? '<br>' + FD_TIE_NOTE : ''}
         </div>
         </body></html>`);
@@ -26933,7 +27192,8 @@ ${ranchBlocks}
         doc.text('Feed on hand' + (rep.tie ? ' — Redwing tie-out' : ''), 14, 16);
         doc.setFontSize(9);
         doc.setTextColor(110);
-        doc.text(`JFR Ranch Co. Ltd.  ·  as of ${ranchToday()}  ·  ${rep.byLoc ? 'by bay' : 'all bays combined'}`, 14, 22);
+        doc.text(`JFR Ranch Co. Ltd.  ·  as of ${fdAsOfLabel()}${fdAsOf ? ' (rewound)' : ''}`
+                 + `  ·  ${rep.byLoc ? 'by bay' : 'all bays combined'}`, 14, 22);
         doc.setTextColor(40);
 
         const pad = rep.tie ? ['', '', ''] : [];
@@ -26985,7 +27245,7 @@ ${ranchBlocks}
                         .replace(/&times;/g, 'x').replace(/&divide;/g, '/'), 265),
                      14, doc.lastAutoTable.finalY + 6);
         }
-        await sharePdfFile(doc, `JFR-feed-on-hand-${ranchToday()}.pdf`, 'Feed on hand');
+        await sharePdfFile(doc, `JFR-feed-on-hand-${fdAsOfLabel()}.pdf`, 'Feed on hand');
     }
 
     // ---- PRINTABLE COUNT SHEET -------------------------------------------
@@ -27077,7 +27337,7 @@ ${ranchBlocks}
                 tr{break-inside:avoid;}
                 thead{display:table-header-group;}
             }
-        </style></head><body>
+        ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         <h1>Feed count — ${escapeHtml(loc.name)}</h1>
         <div class="meta">${escapeHtml(loc.kind)}${loc.is_bulk ? ' · bulk, estimate it' : ' · counted in whole units'}
             &nbsp;·&nbsp; printed ${ranchToday()}${everyItem ? ' &nbsp;·&nbsp; <b>first count — every item listed, on the books or not</b>' : ''}</div>
