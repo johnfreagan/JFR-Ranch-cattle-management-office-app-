@@ -998,6 +998,22 @@
                     <div id="moveHistoryContent"></div>
                 </div>
 
+                <!-- Lot transfers. Decision 13: two commands, one code path.
+                     "Fold in" pre-selects every remaining head and pre-checks
+                     the close box, because that is the common case and
+                     rebuilding it out of a generic transfer every time invites
+                     picking 2 head when you meant 3. -->
+                <div class="card" id="lotTransfersCard" data-perm="office">
+                    <div class="card-header">
+                        <h3>Transfers <span class="card-count" id="lotTransfersCount">(0)</span></h3>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="primary card-add-btn" id="newTransferBtn" data-perm="office" data-write>→ + Transfer head</button>
+                            <button class="primary card-add-btn" id="newMergeBtn" data-perm="office" data-write>⇉ Merge into another lot</button>
+                        </div>
+                    </div>
+                    <div id="lotTransfersContent"></div>
+                </div>
+
                 <!-- Death log -->
                 <div class="card" id="deathLogCard">
                     <div class="card-header">
@@ -4010,6 +4026,103 @@
     </div>
 </div>
 
+<!-- Lot transfer / merge. See docs/lot-transfers-design.md. -->
+<div class="modal-backdrop" id="lotTransferModal">
+    <div class="modal" style="max-width: 840px;">
+        <h2 id="ltTitle">Transfer head</h2>
+        <div id="ltAlert"></div>
+        <div id="ltIntro" class="muted" style="font-size: 13px; margin-bottom: 14px;"></div>
+
+        <div class="form-grid" style="margin-bottom: 14px;">
+            <div>
+                <label for="ltDestLot">Destination lot</label>
+                <select id="ltDestLot"></select>
+                <div class="muted" style="font-size: 11px; margin-top: 2px;" id="ltDestHint"></div>
+            </div>
+            <div>
+                <label for="ltDate">Transfer date</label>
+                <input type="date" id="ltDate">
+                <div class="muted" style="font-size: 11px; margin-top: 2px;" id="ltDateHint"></div>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="margin: 0;">Out of which pastures</h4>
+                <button type="button" id="ltAddLineBtn" data-perm="office">+ Add line</button>
+            </div>
+            <div id="ltLines"></div>
+            <div class="muted" style="font-size: 11px; margin-top: 6px;">
+                Counts net out what this sheet has already drawn. The destination pasture defaults to the
+                one they are leaving, because a remnant is usually already running with the lot taking it.
+            </div>
+        </div>
+
+        <div class="form-grid" style="margin-bottom: 14px;">
+            <div>
+                <label for="ltWeight">Weight per head (lb)</label>
+                <input type="number" step="1" id="ltWeight" placeholder="estimate">
+                <div class="muted" style="font-size: 11px; margin-top: 2px;" id="ltWeightHint"></div>
+            </div>
+            <div>
+                <label for="ltBasis">Cost basis $/head</label>
+                <input type="text" id="ltBasis" readonly style="background: var(--bg-muted, #f4f4f4);">
+                <div class="muted" style="font-size: 11px; margin-top: 2px;" id="ltBasisHint"></div>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <label for="ltTags">Tags (optional)</label>
+            <input type="text" id="ltTags" placeholder="e.g. 1234, 1236, 1240" autocomplete="off">
+            <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; margin-top: 6px;">
+                <input type="checkbox" id="ltNoTags" style="width: auto;"> No tags available
+            </label>
+            <div class="muted" style="font-size: 11px; margin-top: 2px;" id="ltTagsHint"></div>
+        </div>
+
+        <div style="margin-bottom: 14px;" id="ltCloseBlock">
+            <label style="font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                <input type="checkbox" id="ltCloseSource" style="width: auto;"> <span id="ltCloseLabel"></span>
+            </label>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <label for="ltNotes">Notes (optional)</label>
+            <textarea id="ltNotes" rows="2" placeholder="e.g. remnant running with 37X since the August rain" style="width: 100%; padding: 6px 8px; font-size: 13px; resize: vertical;"></textarea>
+        </div>
+
+        <div id="ltSummary" style="margin-bottom: 14px;"></div>
+
+        <div class="modal-actions">
+            <button type="button" id="ltCancelBtn">Cancel</button>
+            <button type="button" class="primary" id="ltSaveBtn" data-perm="office" data-write>Save transfer</button>
+        </div>
+    </div>
+</div>
+
+<!-- Redwing posting for one transfer. Decision 12: a transfer moves
+     accumulated cost between production centres, and across production YEARS
+     when the lots sit in different fiscal years, so it is a posting and not an
+     app-internal reallocation. Two lines: credit the lot that gave, debit the
+     lot that took. -->
+<div class="modal-backdrop" id="xferPostingModal">
+    <div class="modal" style="max-width: 940px;">
+        <h2>Redwing posting</h2>
+        <div id="xpAlert"></div>
+        <div id="xpHeader" style="margin-bottom: 14px;"></div>
+        <div class="form-grid" style="margin-bottom: 14px;">
+            <div><label for="xpAccount">Account</label><input type="text" id="xpAccount"></div>
+            <div><label for="xpProfitCenter">Profit Center</label><input type="text" id="xpProfitCenter"></div>
+        </div>
+        <div id="xpRows" style="overflow-x: auto;"></div>
+        <div class="modal-actions">
+            <button type="button" id="xpCloseBtn">Close</button>
+            <button type="button" id="xpCopyBtn">Copy rows</button>
+            <button type="button" class="primary" id="xpPrintBtn">Print</button>
+        </div>
+    </div>
+</div>
+
 <!-- Record deaths modal -->
 <div class="modal-backdrop" id="deathsModal">
     <div class="modal" style="max-width: 640px;">
@@ -4562,6 +4675,12 @@ window.addEventListener('unhandledrejection', function(e) {
     // out loud rather than charging zero feed, the same posture head-days
     // already take.
     let currentLotFeed = null;
+    // Lot transfers (2026-09-02). Two lines on the closeout, never folded
+    // into cattle cost - see docs/lot-transfers-design.md decision 3.
+    // null means the read failed or the migration is not applied; zero
+    // transfers is an object of zeroes, not null.
+    let currentLotTransferCosts = null;
+    let currentLotTransfers = [];
     // Ranch-level, not per lot: feed stops being an assumption and starts
     // being an actual on ONE date for the whole outfit. A per-lot flag with
     // no date rewrites a lot's whole life - setting it on 36-27 would
@@ -4946,7 +5065,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
         $('closeoutContent').innerHTML='<div class="empty">Loading…</div>';
 
-        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes]=await Promise.all([
+        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes,xferCostRes,xferListRes]=await Promise.all([
             supabase.from('lots').select('*').eq('id',lotId).single(),
             supabase.from('lot_status').select('*').eq('lot_id',lotId).single(),
             supabase.from('invoices').select('*, delivery_receipts(id, receipt_date, head_count, tag_start, tag_end, missing_tags, notes, receiving_protocol_id, load_out_destinations(*, pastures(name, ranches(name))))').eq('lot_id',lotId).order('invoice_date',{ascending:true}),
@@ -4975,7 +5094,18 @@ window.addEventListener('unhandledrejection', function(e) {
             supabase.from('lot_feed_costs')
                 .select('*')
                 .eq('lot_id', lotId)
-                .maybeSingle()
+                .maybeSingle(),
+            // Lot transfers. Absent until the transfer migration is applied,
+            // which is not an error - and crew cannot read either one, which
+            // is also not an error. Both come back as "no transfers".
+            supabase.from('lot_transfer_costs')
+                .select('*')
+                .eq('lot_id', lotId)
+                .maybeSingle(),
+            supabase.from('lot_transfer_provenance')
+                .select('*')
+                .or(`source_lot_id.eq.${lotId},dest_lot_id.eq.${lotId}`)
+                .order('transfer_date', { ascending: false })
         ]);
 
         if(lotRes.error||statusRes.error){
@@ -5023,6 +5153,20 @@ window.addEventListener('unhandledrejection', function(e) {
         currentLotFeed = (feedCostRes && !feedCostRes.error)
             ? (feedCostRes.data || { feed_cost_usd: 0, feed_lb: 0, cost_per_head_day: 0, unallocated_usd: 0 })
             : null;
+
+        // A missing view (migration not applied) and a lot that has never
+        // transferred both mean zero, not unknown - unlike feed, a transfer
+        // that failed to load cannot be silently absorbed anywhere else,
+        // because it is its own line. An RLS denial returns zero rows and no
+        // error, so crew simply sees no transfer lines.
+        const ZERO_XFER = { transferred_in_head: 0, transferred_in_usd: 0,
+                            transferred_out_head: 0, transferred_out_usd: 0,
+                            net_transfer_usd: 0, last_transfer_date: null };
+        currentLotTransferCosts = (xferCostRes && !xferCostRes.error)
+            ? (xferCostRes.data || ZERO_XFER)
+            : ZERO_XFER;
+        currentLotTransfers = (xferListRes && !xferListRes.error && xferListRes.data)
+            ? xferListRes.data : [];
 
         // Head-days on or after the direct-charge boundary. The closeout
         // SPLITS a lot's life there: days before keep the full assumed cost
@@ -5498,6 +5642,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // After loadSales, not before: the closeout reads currentLotSalesCache
         // and rendering first meant it read the PREVIOUS lot's sales.
         renderCloseoutCalculator();
+        renderLotTransfers();
         await loadTags(lotId);
         await loadDoctoring(lotId);
         await loadAuditLog(lotId);
@@ -5582,6 +5727,10 @@ window.addEventListener('unhandledrejection', function(e) {
                 document.getElementById('moveLotBtn').click();
             });
         }
+        const newXfer = document.getElementById('newTransferBtn');
+        const newMerge = document.getElementById('newMergeBtn');
+        if (newXfer)  newXfer.addEventListener('click',  () => openLotTransfer('sort'));
+        if (newMerge) newMerge.addEventListener('click', () => openLotTransfer('fold_in'));
         if (newDeath) {
             newDeath.addEventListener('click', () => {
                 document.getElementById('recordDeathsBtn').click();
@@ -6116,6 +6265,31 @@ window.addEventListener('unhandledrejection', function(e) {
         const operating = processing + treatment + otherMed + feed + cog + labor;
         const interest  = interestOn(cattleCost, operating, daysToDate, rates.intPct);
 
+        // ---- LOT TRANSFERS (2026-09-02) ----------------------------
+        // Decision 3: ONE LINE EACH SIDE, beside cattle cost, never folded
+        // into it. Decomposing the basis back into cattle / processing /
+        // treatment / feed would make this lot's processing $/hd (per head
+        // IN) and treatment $/hd (per LIVE head) describe cattle that were
+        // never on its protocol.
+        const xfer = currentLotTransferCosts || {};
+        const transferInUsd   = Number(xfer.transferred_in_usd)   || 0;
+        const transferOutUsd  = Number(xfer.transferred_out_usd)  || 0;
+        const transferInHead  = Number(xfer.transferred_in_head)  || 0;
+        const transferOutHead = Number(xfer.transferred_out_head) || 0;
+
+        // Derived decision 3: interest is not double-charged. The frozen
+        // basis already carries interest accrued on the SOURCE lot up to the
+        // transfer date, so this lot only accrues on it from that date on.
+        let transferInterest = 0;
+        if (rates.intPct) {
+            (currentLotTransfers || []).forEach(t => {
+                if (t.dest_lot_id !== lot.id) return;
+                const d = daysBetween(t.transfer_date, ranchToday());
+                if (d == null || d <= 0) return;
+                transferInterest += rates.intPct * (Number(t.basis_total) || 0) * (d / 365);
+            });
+        }
+
         const sales = currentLotSalesCache || [];
         let soldHead = 0, revenue = 0, soldWeight = 0;
         sales.forEach(s => {
@@ -6124,7 +6298,17 @@ window.addEventListener('unhandledrejection', function(e) {
             soldWeight += Number(s.net_weight_lb) || Number(s.gross_weight_lb) || 0;
         });
 
-        const totalCost = cattleCost + operating + interest;
+        const totalCost = cattleCost + operating + interest
+                        + transferInUsd + transferInterest - transferOutUsd;
+
+        // The at-cost basis a transfer OUT of this lot would freeze. Total
+        // dollars over SURVIVING head - the division breakEvenPerLb already
+        // uses, and the one the closeout rebuild settled on: in total dollars
+        // death loss needs no line, it falls out of the division.
+        // NOT costPerHeadOnFeed, which nets out revenue and goes negative on
+        // a lot that is 95% sold - which every remnant is.
+        const survivingHead = Math.max(0, headIn - headDead - transferOutHead + transferInHead);
+        const basisPerHead  = survivingHead > 0 ? totalCost / survivingHead : null;
 
         return {
             headIn, headCurrent, headDead, daysToDate, headDays,
@@ -6132,6 +6316,8 @@ window.addEventListener('unhandledrejection', function(e) {
             feedPerHeadDay, cogSplit, cogRate, cogMode,
             boundaryActive, splitUnavailable, hdBefore, hdAfter, nonFeedMissing, nonFeedCog,
             operating, totalCost,
+            transferInUsd, transferOutUsd, transferInHead, transferOutHead, transferInterest,
+            survivingHead, basisPerHead,
             soldHead, revenue, soldWeight,
             avgCostHead: headIn > 0 ? cattleCost / headIn : 0,
             costPerHeadOnFeed: headCurrent > 0 ? (totalCost - revenue) / headCurrent : null,
@@ -6175,7 +6361,11 @@ window.addEventListener('unhandledrejection', function(e) {
         const treatmentFwd = actual.treatmentPerHeadDay * forwardHeadDays;
 
         const operatingFwd = cogFwd + laborFwd + treatmentFwd + feedFwd;
-        const interestFwd  = interestOn(0, actual.cattleCost + actual.operating + operatingFwd,
+        // The transferred-in basis is money this lot is carrying forward too,
+        // net of anything it transferred out. Leaving it out understated
+        // forward interest on cattle the lot genuinely owns.
+        const carriedTransfer = (actual.transferInUsd || 0) - (actual.transferOutUsd || 0);
+        const interestFwd  = interestOn(0, actual.cattleCost + actual.operating + carriedTransfer + operatingFwd,
                                         remainingDays || 0, rates.intPct);
 
         const finishWt = rates.finishWt || 0;
@@ -6547,6 +6737,14 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n))})}
                     ${row('Days on feed', b('days'), actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n))})}
                     ${row('Cattle in', b('cattleCost'), actual.cattleCost, actual.cattleCost, {rule:true})}
+                    ${actual.transferInHead > 0 ? row(
+                        `Transferred in <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferInHead)} hd</a>`,
+                        null, actual.transferInUsd, actual.transferInUsd,
+                        {note:'at the giving lot&rsquo;s cost'}) : ''}
+                    ${actual.transferOutHead > 0 ? row(
+                        `Transferred out <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferOutHead)} hd</a>`,
+                        null, -actual.transferOutUsd, -actual.transferOutUsd,
+                        {note:'moved to another lot', fmt: signed}) : ''}
                     ${row('Processing', budget ? b('med') : null, actual.processing, actual.processing, {note:'at receiving'})}
                     ${row('Treatment', null, actual.treatment, actual.treatment + proj.treatmentFwd, {note:'doctoring'})}
                     ${(actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, actual.feed, actual.feed + proj.feedFwd, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day actual' : 'from the feed ledger'}) : ''}
@@ -6571,6 +6769,23 @@ window.addEventListener('unhandledrejection', function(e) {
                 in the division. Cost of gain and labor are charged on ${fmtNum(Math.round(actual.headDays))} real head-days,
                 so cattle that already shipped carry their share.
                 ${proj.deathsToCome > 0 ? `Projection assumes ${fmtNum(Math.round(proj.deathsToCome))} more death${Math.round(proj.deathsToCome)===1?'':'s'} on top of the ${fmtNum(actual.headDead)} so far.` : ''}
+                ${(actual.transferInHead > 0 || actual.transferOutHead > 0) ? `
+                    <div style="margin-top:6px;">
+                        <strong>Head in stays what this lot received.</strong>
+                        Transferred cattle were received onto the other lot and processed on its protocol,
+                        so Processing $/hd and Treatment $/hd here still describe the
+                        ${fmtNum(actual.headIn)} head this lot took in.
+                        ${actual.transferInHead > 0 && rates.deathPct != null
+                            ? `Death loss is projected on those ${fmtNum(actual.headIn)} received head;
+                               the ${fmtNum(actual.transferInHead)} transferred in
+                               ${actual.transferInHead === 1 ? 'is' : 'are'} excluded as post-risk —
+                               they already came through the window on the giving lot, which realized its
+                               own loss on them.` : ''}
+                        ${currentLotBudget && actual.transferInHead > 0
+                            ? ` The budget covers ${fmtNum(Number(currentLotBudget.budget_head)||0)} head and is
+                                deliberately left frozen, so budget and actual per-head figures run over
+                                different counts. Totals stay comparable.` : ''}
+                    </div>` : ''}
             </div>
             ${budget ? `<div style="margin-top:10px; padding:8px 10px; border-radius:var(--radius); background:${varianceVsBudget>=0?'#eaf3dc':'#fbeaea'}; font-size:13px;">
                 <strong>Projection vs budget:</strong> <span style="color:${varianceVsBudget>=0?'var(--success)':'var(--danger)'}; font-weight:600;">${signed(varianceVsBudget)}</span>
@@ -11377,6 +11592,623 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     //   6. lots with no pasture_assignments but head_current > 0
     //   7. lots with negative head_current (math went sideways)
     let anomaliesReportInitialized = false;
+    // =====================================================================
+    // LOT TRANSFERS AND MERGERS (2026-09-02)
+    // =====================================================================
+    // Every decision behind this is in docs/lot-transfers-design.md. The two
+    // that shape this code:
+    //   * Cattle move AT COST - the source lot's actual cost per head off the
+    //     closeout, frozen. Computed HERE, in the app, because that blend of
+    //     processing, treatment, feed, cost of gain, labour and interest is
+    //     the closeout's own math. Reimplementing it in SQL would be a second
+    //     costing path that drifts from the first.
+    //   * Head is derived from the pasture lines. The shipment screen learned
+    //     the hard way that a stated head count which does not match its lines
+    //     still allocates money, silently, over the wrong number of animals.
+    let ltState = null;
+
+    // The at-cost basis this lot would hand over per head, and what makes it
+    // up. Null when the closeout cannot be computed - the modal then refuses
+    // to save rather than guessing a number that lands on two sets of books.
+    function ltComputeBasis() {
+        try {
+            if (!$('calc_cwt') || !currentStatus) return null;
+            const a = closeoutActual(closeoutRates());
+            if (!a || a.basisPerHead == null || !isFinite(a.basisPerHead) || a.basisPerHead <= 0) return null;
+            return {
+                perHead: a.basisPerHead,
+                surviving: a.survivingHead,
+                breakdown: {
+                    total_cost: round2(a.totalCost),
+                    cattle: round2(a.cattleCost),
+                    processing: round2(a.processing),
+                    treatment: round2(a.treatment),
+                    feed: round2(a.feed),
+                    cog: round2(a.cog),
+                    labor: round2(a.labor),
+                    interest: round2(a.interest),
+                    transferred_in: round2(a.transferInUsd),
+                    transferred_out: round2(a.transferOutUsd),
+                    surviving_head: a.survivingHead,
+                    computed_at: ranchToday()
+                }
+            };
+        } catch (e) { return null; }
+    }
+
+    async function openLotTransfer(kind) {
+        if (!currentLot || !currentStatus) return;
+        if (currentLot.closed_at) {
+            showAlert('globalAlert', 'This lot is closed. Re-open it before transferring cattle.');
+            return;
+        }
+
+        const res = await loadOpenPastureInventory();
+        if (res.error) {
+            showAlert('globalAlert', 'Could not load pasture inventory: ' + res.error.message);
+            return;
+        }
+
+        const mine = res.inventory.filter(i => i.lot_id === currentLot.id);
+        if (!mine.length) {
+            showAlert('globalAlert', 'This lot has no cattle standing in any pasture, so there is nothing to transfer.');
+            return;
+        }
+
+        const basis = ltComputeBasis();
+        ltState = {
+            kind,
+            inventory: res.inventory,
+            mine,
+            lotIndex: res.lotIndex.filter(l => l.lot_id !== currentLot.id),
+            lines: [],
+            basis,
+            weightTouched: false
+        };
+
+        // Decision 13: a fold-in pre-selects every remaining head, so the
+        // count is not a place to go wrong.
+        if (kind === 'fold_in') {
+            mine.forEach(m => ltState.lines.push({
+                from: m.pasture_id, to: m.pasture_id, head: m.head_count
+            }));
+        } else {
+            ltState.lines.push({ from: mine[0].pasture_id, to: mine[0].pasture_id, head: '' });
+        }
+
+        $('ltTitle').textContent = kind === 'fold_in'
+            ? `Merge ${currentLot.lot_number} into another lot`
+            : `Transfer head out of ${currentLot.lot_number}`;
+        $('ltIntro').innerHTML = kind === 'fold_in'
+            ? `Every head still standing in ${currentLot.lot_number} moves to the lot you pick, carrying its cost. ${currentLot.lot_number} then closes.`
+            : `Head move to another lot carrying their cost. Both lots stay open.`;
+
+        $('ltDestLot').innerHTML = '<option value="">Select a lot…</option>' +
+            ltState.lotIndex.map(l => `<option value="${l.lot_id}">${l.lot_number}</option>`).join('');
+        $('ltDate').value = ranchToday();
+        $('ltDate').max = ranchToday();
+        $('ltTags').value = '';
+        $('ltNoTags').checked = false;
+        $('ltNotes').value = '';
+        $('ltCloseSource').checked = (kind === 'fold_in');
+        $('ltCloseLabel').textContent = `Close ${currentLot.lot_number} when this empties it`;
+        $('ltAlert').innerHTML = '';
+
+        // Decision 5: pre-fill from the source lot's projected weight, and say
+        // it is a lot AVERAGE - a sort deliberately picks non-average cattle,
+        // so this reads light when the big end comes off a lot.
+        const projWt = currentStatus.projected_current_weight
+            ? Math.round(Number(currentStatus.projected_current_weight)) : '';
+        $('ltWeight').value = projWt;
+        $('ltWeightHint').innerHTML = projWt
+            ? `Lot average projected for ${ranchToday()}. These cattle are not average if you sorted them — type over it.`
+            : 'No projected weight for this lot. Enter your best estimate.';
+
+        if (basis) {
+            $('ltBasis').value = fmtMoney(basis.perHead);
+            $('ltBasisHint').innerHTML =
+                `Total cost to date over ${fmtNum(basis.surviving)} surviving head. Frozen when you save.`;
+        } else {
+            $('ltBasis').value = '';
+            $('ltBasisHint').innerHTML = '<span style="color:var(--danger);">Cost basis unavailable — open the Closeout tab on this lot first so the assumptions load.</span>';
+        }
+
+        ltRenderLines();
+        showModal('lotTransferModal');
+    }
+
+    // Options for the "out of" picker: the pastures this lot actually stands
+    // in. For the destination: those plus wherever the receiving lot already
+    // is, which covers both the remnant that stays put and the sort that goes
+    // to join the other lot.
+    function ltDestPastureOptions() {
+        const destId = $('ltDestLot').value;
+        const seen = new Map();
+        ltState.mine.forEach(m => seen.set(m.pasture_id, m.pasture_label));
+        if (destId) {
+            ltState.inventory.filter(i => i.lot_id === destId)
+                .forEach(i => seen.set(i.pasture_id, i.pasture_label));
+        }
+        return [...seen.entries()];
+    }
+
+    function ltRenderLines() {
+        const host = $('ltLines');
+        host.innerHTML = ltState.lines.map((ln, idx) => `
+            <div class="lt-line" data-idx="${idx}" style="display:grid; grid-template-columns: 1fr 90px 1fr 32px; gap:8px; align-items:center; margin-bottom:8px;">
+                <select class="lt-from"></select>
+                <input type="number" class="lt-head" min="1" step="1" value="${ln.head === '' ? '' : ln.head}" placeholder="head">
+                <select class="lt-to"></select>
+                <button type="button" class="lt-del" title="Remove line" ${ltState.lines.length === 1 ? 'disabled' : ''}>×</button>
+            </div>`).join('');
+
+        host.querySelectorAll('.lt-line').forEach(row => {
+            const idx = Number(row.dataset.idx);
+            row.querySelector('.lt-from').addEventListener('change', e => {
+                ltState.lines[idx].from = e.target.value;
+                ltRecompute();
+            });
+            row.querySelector('.lt-to').addEventListener('change', e => {
+                ltState.lines[idx].to = e.target.value;
+                ltRecompute();
+            });
+            row.querySelector('.lt-head').addEventListener('input', e => {
+                const v = parseInt(e.target.value, 10);
+                ltState.lines[idx].head = isNaN(v) ? '' : v;
+                ltRecompute();
+            });
+            row.querySelector('.lt-del').addEventListener('click', () => {
+                ltState.lines.splice(idx, 1);
+                ltRenderLines();
+            });
+        });
+        ltRecompute();
+    }
+
+    // Refresh the option LABELS in place rather than re-rendering, so a head
+    // field being typed in does not lose its caret and an open dropdown is not
+    // shut under the user. Same rule the shipment screen needed.
+    function ltRecompute() {
+        if (!ltState) return;
+        const destPastures = ltDestPastureOptions();
+        const active = document.activeElement;
+
+        $('ltLines').querySelectorAll('.lt-line').forEach(row => {
+            const idx = Number(row.dataset.idx);
+            const ln = ltState.lines[idx];
+
+            const from = row.querySelector('.lt-from');
+            if (from !== active) {
+                from.innerHTML = ltState.mine.map(m => {
+                    // This line is EXCLUDED from its own ceiling, or its head
+                    // would count against itself and the number would fight
+                    // the person typing.
+                    const drawnElsewhere = ltState.lines.reduce((sum, o, i) =>
+                        sum + (i !== idx && o.from === m.pasture_id ? (Number(o.head) || 0) : 0), 0);
+                    const left = m.head_count - drawnElsewhere;
+                    return `<option value="${m.pasture_id}"${ln.from === m.pasture_id ? ' selected' : ''}>${m.pasture_label} (${fmtNum(Math.max(0, left))} of ${fmtNum(m.head_count)} left)</option>`;
+                }).join('');
+            }
+
+            const to = row.querySelector('.lt-to');
+            if (to !== active) {
+                to.innerHTML = destPastures.map(([id, label]) =>
+                    `<option value="${id}"${ln.to === id ? ' selected' : ''}>${label}</option>`).join('');
+                // A destination that is no longer offered falls back to the
+                // pasture they are leaving, which is always valid.
+                if (!destPastures.some(([id]) => id === ln.to)) {
+                    ln.to = ln.from;
+                    to.value = ln.from;
+                }
+            }
+        });
+
+        const v = ltValidate();
+        const box = $('ltSummary');
+        const head = v.head;
+        const basis = ltState.basis;
+        const total = basis ? round2(basis.perHead * head) : null;
+
+        if (v.errors.length) {
+            box.innerHTML = `<div style="background:#fff8e6; border:1px solid #d4a017; color:#6a4c0a; padding:8px 10px; border-radius:var(--radius); font-size:12.5px;">${v.errors.map(e => `<div>${e}</div>`).join('')}</div>`;
+        } else {
+            const destName = ltState.lotIndex.find(l => l.lot_id === $('ltDestLot').value);
+            box.innerHTML = `<div style="background:#eaf3dc; padding:8px 10px; border-radius:var(--radius); font-size:13px;">
+                <strong>${fmtNum(head)} head</strong> to <strong>${destName ? destName.lot_number : '?'}</strong>
+                carrying <strong>${fmtMoney(total)}</strong> (${fmtMoney(basis.perHead)}/head).
+                ${v.emptiesLot ? ` This empties ${currentLot.lot_number}.` : ''}
+            </div>`;
+        }
+        $('ltSaveBtn').disabled = v.errors.length > 0;
+        if (v.emptiesLot) {
+            $('ltCloseBlock').classList.remove('hidden');
+        } else {
+            $('ltCloseSource').checked = false;
+            $('ltCloseBlock').classList.add('hidden');
+        }
+    }
+
+    function ltValidate() {
+        const errors = [];
+        const lines = ltState.lines;
+        let head = 0;
+
+        lines.forEach(l => { head += Number(l.head) || 0; });
+
+        if (!$('ltDestLot').value) errors.push('Pick a destination lot.');
+        if (!$('ltDate').value) errors.push('Pick a transfer date.');
+        else if ($('ltDate').value > ranchToday()) errors.push('The transfer date is in the future.');
+
+        if (!head) errors.push('Enter how many head are moving.');
+        if (lines.some(l => l.head !== '' && Number(l.head) <= 0)) errors.push('Every line needs a positive head count.');
+
+        // Availability is netted across the WHOLE sheet: two lines can each
+        // look fine against a pasture and together overdraw it.
+        const drawn = new Map();
+        lines.forEach(l => drawn.set(l.from, (drawn.get(l.from) || 0) + (Number(l.head) || 0)));
+        drawn.forEach((hd, pid) => {
+            const src = ltState.mine.find(m => m.pasture_id === pid);
+            if (!src) { errors.push('A line names a pasture this lot does not stand in.'); return; }
+            if (hd > src.head_count) {
+                errors.push(`${src.pasture_label} holds ${fmtNum(src.head_count)} head; the lines draw ${fmtNum(hd)}.`);
+            }
+        });
+
+        if (!ltState.basis) errors.push('No cost basis — cattle cannot move without one.');
+        if (!$('ltTags').value.trim() && !$('ltNoTags').checked) {
+            // Not an error. Decision 4: the head move on a count, and the tags
+            // are chased afterwards on Needs Attention.
+        }
+
+        const standing = ltState.mine.reduce((s, m) => s + m.head_count, 0);
+        return { errors, head, emptiesLot: head > 0 && head === standing };
+    }
+
+    async function ltSave() {
+        const v = ltValidate();
+        if (v.errors.length) { showAlert('ltAlert', v.errors[0]); return; }
+
+        const tagsRaw = $('ltTags').value.trim();
+        let tags = null;
+        if (tagsRaw) {
+            tags = tagsRaw.split(/[\s,]+/).filter(Boolean).map(t => parseInt(t, 10));
+            if (tags.some(t => isNaN(t) || t <= 0)) {
+                showAlert('ltAlert', 'Tags must be whole numbers, separated by commas or spaces.');
+                return;
+            }
+        }
+
+        const weight = parseFloat($('ltWeight').value);
+        const basis = ltState.basis;
+
+        $('ltSaveBtn').disabled = true;
+        const { data, error } = await supabase.rpc('record_lot_transfer', {
+            p_source_lot_id: currentLot.id,
+            p_dest_lot_id: $('ltDestLot').value,
+            p_transfer_date: $('ltDate').value,
+            p_kind: ltState.kind,
+            p_lines: ltState.lines.map(l => ({
+                from_pasture_id: l.from, to_pasture_id: l.to, head_count: Number(l.head) || 0
+            })),
+            p_basis_per_head: round2(basis.perHead),
+            p_basis_total: round2(round2(basis.perHead) * v.head),
+            p_basis_breakdown: basis.breakdown,
+            p_weight_per_head_lb: isNaN(weight) ? null : weight,
+            p_weight_is_estimate: !ltState.weightTouched,
+            p_tags: tags,
+            p_tags_not_available: $('ltNoTags').checked,
+            p_close_source_lot: $('ltCloseSource').checked && v.emptiesLot,
+            p_notes: $('ltNotes').value.trim() || null,
+            p_recorded_by: currentUser.id
+        });
+        $('ltSaveBtn').disabled = false;
+
+        if (error) { showAlert('ltAlert', 'Could not save the transfer: ' + error.message); return; }
+
+        hideModal('lotTransferModal');
+        ltState = null;
+        showLotDetail(currentLot.id);
+    }
+
+    // ---- the Transfers card -------------------------------------------
+    function renderLotTransfers() {
+        const host = $('lotTransfersContent');
+        if (!host) return;
+        const rows = currentLotTransfers || [];
+        const cnt = $('lotTransfersCount');
+        if (cnt) cnt.textContent = `(${rows.length})`;
+
+        // A closed lot has no head to give and cannot take any in, so the RPC
+        // refuses both. Hide the commands rather than let them fail.
+        const closed = !!(currentLot && currentLot.closed_at);
+        ['newTransferBtn', 'newMergeBtn'].forEach(id => {
+            const b = document.getElementById(id);
+            if (b) b.classList.toggle('hidden', closed);
+        });
+
+        if (!rows.length) {
+            host.innerHTML = '<div class="empty">No transfers. Cattle folded in from another lot, or sorted out to one, show here.</div>';
+            return;
+        }
+
+        host.innerHTML = rows.map(t => {
+            const isOut = t.source_lot_id === currentLot.id;
+            const other = isOut ? t.dest_lot_number : t.source_lot_number;
+            const arrow = isOut ? '→' : '←';
+            const verb  = isOut ? 'to' : 'from';
+            const bd = t.basis_breakdown || {};
+            const flags = [];
+            if (t.crosses_fiscal_year) flags.push(`<span style="color:#b58900;">crosses FY ${t.source_fiscal_year} → ${t.dest_fiscal_year}</span>`);
+            if (t.tags_outstanding)    flags.push('<span style="color:#b58900;">tags not identified</span>');
+            if (t.tags_not_available)  flags.push('<span class="muted">no tags available</span>');
+            if (t.basis_recomputed_at) flags.push(`<span class="muted">basis recomputed ${String(t.basis_recomputed_at).slice(0,10)}</span>`);
+            if (t.closed_source_lot)   flags.push(`<span class="muted">closed ${t.source_lot_number}</span>`);
+
+            return `<div style="border-bottom:1px solid var(--border); padding:8px 0;">
+                <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                    <div>
+                        <strong>${arrow} ${fmtNum(t.head_count)} head ${verb} ${other}</strong>
+                        <span class="muted"> · ${fmtDate(t.transfer_date)} · ${t.kind === 'fold_in' ? 'merge' : 'sort'}</span>
+                    </div>
+                    <div><strong>${fmtMoney(t.basis_total)}</strong> <span class="muted">${fmtMoney(t.basis_per_head)}/hd</span></div>
+                </div>
+                ${flags.length ? `<div style="font-size:11.5px; margin-top:3px;">${flags.join(' · ')}</div>` : ''}
+                <div class="muted" style="font-size:11.5px; margin-top:4px; line-height:1.5;">
+                    ${t.weight_per_head_lb ? `${fmtNum(Math.round(t.weight_per_head_lb))} lb/head${t.weight_is_estimate ? ' (estimate)' : ''} · ` : ''}
+                    ${t.days_on_source_lot != null ? `${fmtNum(t.days_on_source_lot)} days on ${t.source_lot_number} · ` : ''}
+                    processed on ${t.source_protocol_name
+                        ? `<strong>${t.source_protocol_name}${t.source_protocol_version ? ' ' + t.source_protocol_version : ''}</strong>`
+                        : 'an unrecorded protocol'}${isOut ? '' : ' — not this lot&rsquo;s'}
+                    ${t.tags_named ? ` · ${fmtNum(t.tags_named)} tag${t.tags_named === 1 ? '' : 's'} named` : ''}
+                    ${bd.cattle != null ? `<br>Basis: cattle ${fmtMoney(bd.cattle)} · processing ${fmtMoney(bd.processing)} · treatment ${fmtMoney(bd.treatment)} · feed ${fmtMoney(bd.feed)} · COG ${fmtMoney(bd.cog)} · labor ${fmtMoney(bd.labor)} · interest ${fmtMoney(bd.interest)} over ${fmtNum(bd.surviving_head)} surviving head` : ''}
+                    ${t.notes ? `<br>${t.notes.replace(/\n/g, '<br>')}` : ''}
+                </div>
+                <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="button" class="xfer-post" data-id="${t.transfer_id}" style="font-size:11.5px; padding:3px 8px;">Redwing posting</button>
+                    ${(isOut && t.basis_stale) ? `<button type="button" class="xfer-recost" data-id="${t.transfer_id}" data-perm="owner" data-write style="font-size:11.5px; padding:3px 8px;">Recompute basis</button>` : ''}
+                    <button type="button" class="xfer-del" data-id="${t.transfer_id}" data-perm="owner" data-write style="font-size:11.5px; padding:3px 8px;">Delete</button>
+                </div>
+            </div>`;
+        }).join('');
+
+        host.querySelectorAll('.xfer-post').forEach(b =>
+            b.addEventListener('click', () => openTransferPosting(b.dataset.id)));
+        host.querySelectorAll('.xfer-del').forEach(b =>
+            b.addEventListener('click', () => deleteLotTransfer(b.dataset.id)));
+        host.querySelectorAll('.xfer-recost').forEach(b =>
+            b.addEventListener('click', () => recomputeTransferBasis(b.dataset.id)));
+        // No permission call needed: data-perm and data-write are applied by
+        // CSS off body[data-role], so dynamically inserted controls are gated
+        // the moment they land in the DOM.
+    }
+
+    // Decision 9: re-freeze a basis that was set before the feed covering its
+    // date was entered. Owner-only, and offered ONLY on the giving lot - the
+    // basis is that lot's cost per head, and this is the only screen where its
+    // closeout math is loaded. From the receiving lot there is nothing to
+    // recompute from, so no button appears there.
+    async function recomputeTransferBasis(transferId) {
+        const t = (currentLotTransfers || []).find(x => x.transfer_id === transferId);
+        if (!t || t.source_lot_id !== currentLot.id) return;
+
+        const basis = ltComputeBasis();
+        if (!basis) {
+            showAlert('globalAlert', 'Cost basis unavailable — open the Closeout tab on this lot first.');
+            return;
+        }
+        const perHead = round2(basis.perHead);
+        const total   = round2(perHead * t.head_count);
+
+        // It re-freezes from TODAY's books at the original transfer date. The
+        // few days between add only cost of gain on the head still standing,
+        // which is a rounding error against the feed invoice this exists to
+        // pick up - but say the number out loud rather than just applying it.
+        if (!confirm(`Recompute this transfer's cost basis?\n\n` +
+                     `Was ${fmtMoney(t.basis_total)} (${fmtMoney(t.basis_per_head)}/head).\n` +
+                     `Now ${fmtMoney(total)} (${fmtMoney(perHead)}/head).\n\n` +
+                     `Both ${t.source_lot_number} and ${t.dest_lot_number} move by ` +
+                     `${fmtMoney(Math.abs(total - Number(t.basis_total)))}. The old value is kept in the notes.`)) return;
+
+        const { error } = await supabase.rpc('recompute_transfer_basis', {
+            p_transfer_id: transferId,
+            p_basis_per_head: perHead,
+            p_basis_total: total,
+            p_basis_breakdown: basis.breakdown
+        });
+        if (error) { showAlert('globalAlert', 'Could not recompute the basis: ' + error.message); return; }
+        showLotDetail(currentLot.id);
+    }
+
+    // Reversal. Owner-only by policy; the RPC does the whole thing atomically,
+    // including reopening the source lot if the transfer closed it. Nothing
+    // here reimplements head math.
+    async function deleteLotTransfer(transferId) {
+        const t = (currentLotTransfers || []).find(x => x.transfer_id === transferId);
+        if (!t) return;
+        const msg = `Delete this transfer?\n\n` +
+            `${t.head_count} head go back to ${t.source_lot_number} from ${t.dest_lot_number}, ` +
+            `${fmtMoney(t.basis_total)} of cost goes back with them` +
+            (t.tags_named ? `, and ${t.tags_named} tag${t.tags_named === 1 ? '' : 's'} are repointed` : '') +
+            (t.closed_source_lot ? `, and ${t.source_lot_number} re-opens` : '') + `.`;
+        if (!confirm(msg)) return;
+
+        const { error } = await supabase.rpc('delete_lot_transfer', { p_transfer_id: transferId });
+        if (error) { showAlert('globalAlert', 'Could not delete the transfer: ' + error.message); return; }
+        showLotDetail(currentLot.id);
+    }
+
+    // ---- Redwing posting for one transfer (decision 12) ----------------
+    // Two lines against the same twelve columns the shipment report uses, so
+    // what Lauren keys in has the same shape either way. Production Year is
+    // taken PER ROW from each lot's own fiscal year - that is the whole point
+    // for a cross-year fold-in, where the credit lands in one year and the
+    // debit in the next.
+    const XP_LS_KEY = 'jfr.transferPosting.constants';
+    const XP_DEFAULTS = { account: 'Inventory - Cattle', profitCenter: 'Stockers' };
+    let xpCache = null;
+
+    function xpConstants() {
+        return { account: $('xpAccount').value.trim(), profitCenter: $('xpProfitCenter').value.trim() };
+    }
+    function xpLoadConstants() {
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem(XP_LS_KEY) || '{}') || {}; }
+        catch (e) { saved = {}; }
+        $('xpAccount').value = saved.account ?? XP_DEFAULTS.account;
+        $('xpProfitCenter').value = saved.profitCenter ?? XP_DEFAULTS.profitCenter;
+    }
+    function xpSaveConstants() {
+        try { localStorage.setItem(XP_LS_KEY, JSON.stringify(xpConstants())); }
+        catch (e) { /* storage unavailable; the posting still works */ }
+    }
+
+    function xpRows(t) {
+        const total = Number(t.basis_total) || 0;
+        const lb = t.weight_per_head_lb ? Number(t.weight_per_head_lb) * t.head_count : 0;
+        const note = `Transfer ${fmtNum(t.head_count)} hd ${t.source_lot_number} to ${t.dest_lot_number} ${t.transfer_date}`;
+        return [
+            { lot: t.source_lot_number, year: t.source_fiscal_year, head: -t.head_count, weight: -lb, amount: -total, note },
+            { lot: t.dest_lot_number,   year: t.dest_fiscal_year,   head:  t.head_count, weight:  lb, amount:  total, note }
+        ];
+    }
+    function xpCells(r, k) {
+        return [
+            k.account,
+            Number(r.head).toFixed(8),
+            Number(r.weight).toFixed(6),
+            '',
+            '',
+            Number(r.amount).toFixed(2),
+            r.note,
+            'None',
+            k.profitCenter,
+            '',
+            String(r.year ?? ''),
+            r.lot
+        ];
+    }
+
+    function openTransferPosting(transferId) {
+        const t = (currentLotTransfers || []).find(x => x.transfer_id === transferId);
+        if (!t) return;
+        xpCache = t;
+        xpLoadConstants();
+        renderTransferPosting();
+        showModal('xferPostingModal');
+    }
+
+    function renderTransferPosting() {
+        if (!xpCache) return;
+        const t = xpCache, k = xpConstants(), rows = xpRows(t);
+
+        // The two lines are one number with opposite signs, so they net to
+        // zero by construction. Saying so is still worth the line: it is what
+        // makes this safe to key in.
+        const net = round2(rows.reduce((a, r) => a + r.amount, 0));
+        $('xpHeader').innerHTML = `
+            <table style="font-size:12px;"><tbody>
+                <tr><td class="muted" style="width:180px;">Transfer</td><td><strong>${fmtNum(t.head_count)} head, ${t.source_lot_number} → ${t.dest_lot_number}</strong></td></tr>
+                <tr><td class="muted">Date</td><td><strong>${fmtDate(t.transfer_date)}</strong></td></tr>
+                <tr><td class="muted">Basis</td><td><strong>${fmtMoney(t.basis_total)}</strong> (${fmtMoney(t.basis_per_head)}/head, at cost)</td></tr>
+                <tr><td class="muted">Production years</td><td><strong>${t.source_fiscal_year} → ${t.dest_fiscal_year}</strong>${t.crosses_fiscal_year ? ' <span style="color:#b58900;">— crosses fiscal years</span>' : ''}</td></tr>
+            </tbody></table>
+            <div class="alert ${net === 0 ? 'success' : 'error'}" style="margin-top:8px;">
+                ${net === 0
+                    ? 'The two lines net to zero — no money enters or leaves the ranch, it changes production centre.'
+                    : `These lines net to ${fmtMoney(net)} rather than zero. Do not post this.`}
+            </div>`;
+
+        $('xpRows').innerHTML = `
+            <table style="font-size:12px; white-space:nowrap;">
+                <thead><tr>${ACCT_COLUMNS.map((c, i) =>
+                    `<th style="text-align:${[1,2,3,5].includes(i) ? 'right' : 'left'};">${escapeHtml(c)}</th>`).join('')}</tr></thead>
+                <tbody>${rows.map(r => `<tr>${xpCells(r, k).map((c, i) =>
+                    `<td style="text-align:${[1,2,3,5].includes(i) ? 'right' : 'left'};">${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}
+                </tbody>
+            </table>`;
+    }
+
+    function xpCopy() {
+        if (!xpCache) return;
+        const k = xpConstants();
+        const text = [ACCT_COLUMNS.join('\t')]
+            .concat(xpRows(xpCache).map(r => xpCells(r, k).join('\t')))
+            .join('\n');
+        const done = () => showAlert('xpAlert', 'Rows copied — paste straight into Redwing.', 'success');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done,
+                () => showAlert('xpAlert', 'Could not reach the clipboard. Select the table and copy by hand.'));
+        } else {
+            showAlert('xpAlert', 'Clipboard unavailable here. Select the table and copy by hand.');
+        }
+    }
+
+    function xpPrint() {
+        if (!xpCache) return;
+        const t = xpCache, k = xpConstants(), rows = xpRows(t);
+        const w = window.open('', '_blank');
+        if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
+        const body = rows.map(r => `<tr>${xpCells(r, k).map((c, i) =>
+            `<td class="${[1,2,3,5].includes(i) ? 'r' : ''}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
+        // Landscape, same as the shipment report: twelve columns will not fit
+        // portrait at a readable size.
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+            <title>JFR transfer posting ${escapeHtml(t.transfer_date)}</title>
+            <style>@page{size:landscape;margin:12mm;}
+              body{font:11px -apple-system,Helvetica,Arial,sans-serif;color:#222;}
+              h1{font-size:15px;margin:0 0 4px 0;} .sub{color:#666;margin-bottom:12px;}
+              table{border-collapse:collapse;width:100%;} th,td{border:1px solid #bbb;padding:3px 5px;text-align:left;}
+              th{background:#eee;} td.r,th.r{text-align:right;}</style></head><body>
+            <h1>Transfer posting — ${escapeHtml(t.source_lot_number)} to ${escapeHtml(t.dest_lot_number)}</h1>
+            <div class="sub">${escapeHtml(fmtDate(t.transfer_date))} &middot; ${fmtNum(t.head_count)} head &middot;
+                 ${escapeHtml(fmtMoney(t.basis_total))} at cost &middot;
+                 production year ${escapeHtml(String(t.source_fiscal_year))} to ${escapeHtml(String(t.dest_fiscal_year))}</div>
+            <table><thead><tr>${ACCT_COLUMNS.map((c, i) =>
+                `<th class="${[1,2,3,5].includes(i) ? 'r' : ''}">${escapeHtml(c)}</th>`).join('')}</tr></thead>
+            <tbody>${body}</tbody></table></body></html>`);
+        w.document.close();
+        w.focus();
+        setTimeout(() => w.print(), 250);
+    }
+
+    (function bindLotTransferModal() {
+        const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
+        on('ltCancelBtn', 'click', () => { hideModal('lotTransferModal'); ltState = null; });
+        on('ltSaveBtn',   'click', ltSave);
+        on('ltAddLineBtn','click', () => {
+            if (!ltState) return;
+            const first = ltState.mine[0];
+            ltState.lines.push({ from: first.pasture_id, to: first.pasture_id, head: '' });
+            ltRenderLines();
+        });
+        on('ltDestLot', 'change', () => { if (ltState) ltRecompute(); });
+        on('ltDate',    'change', () => { if (ltState) ltRecompute(); });
+        on('ltNoTags',  'change', () => { if (ltState) ltRecompute(); });
+        on('ltTags',    'input',  () => { if (ltState) ltRecompute(); });
+        // A typed weight is a real number, not the lot-average pre-fill.
+        on('ltWeight',  'input',  () => { if (ltState) ltState.weightTouched = true; });
+        on('xpCloseBtn', 'click', () => { hideModal('xferPostingModal'); xpCache = null; });
+        on('xpCopyBtn',  'click', xpCopy);
+        on('xpPrintBtn', 'click', xpPrint);
+        on('xpAccount',      'input', () => { xpSaveConstants(); renderTransferPosting(); });
+        on('xpProfitCenter', 'input', () => { xpSaveConstants(); renderTransferPosting(); });
+
+        // The closeout's "Transferred in — 3 hd" link. Delegated, because the
+        // closeout re-renders on every keystroke in the assumptions.
+        document.addEventListener('click', (e) => {
+            const a = e.target.closest && e.target.closest('.xfer-drill');
+            if (!a) return;
+            e.preventDefault();
+            showLotSubtab('activity');
+            const card = document.getElementById('lotTransfersCard');
+            if (!card) return;
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            card.style.transition = 'box-shadow .3s';
+            card.style.boxShadow = '0 0 0 3px var(--accent, #d4a017)';
+            setTimeout(() => { card.style.boxShadow = ''; }, 1600);
+        });
+    })();
+
     async function loadAnomaliesReport() {
         if (!anomaliesReportInitialized) {
             $('reportAnomaliesRefreshBtn').addEventListener('click', loadAnomaliesReport);
@@ -11386,7 +12218,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         // Pull everything we need in parallel
         const [statusRes, lotsRes, assignmentsRes, receiptsRes,
-               bayRes, premixRes, settingsRes] = await Promise.all([
+               bayRes, premixRes, settingsRes, transferRes] = await Promise.all([
             supabase.from('lot_status').select('lot_id, lot_number, head_in, head_in_invoiced, head_in_received, head_pending_invoice, head_dead, head_sold, head_current, closed_at'),
             supabase.from('lots').select('id, is_test, closed_at, lot_number, assumed_nonfeed_cog_per_day'),
             // pasture_id and names come along for the stranded-head checks:
@@ -11399,7 +12231,13 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             // no error, so the section simply does not appear for them.
             supabase.from('feed_location_count_status').select('*'),
             supabase.from('feed_premix_shorts').select('*'),
-            supabase.from('ranch_settings').select('feed_direct_from').maybeSingle()
+            supabase.from('ranch_settings').select('feed_direct_from').maybeSingle(),
+            // Lot transfers. These are LOT data-integrity follow-ups, so they
+            // belong here and not on the Inventory needs-attention list, which
+            // is about feed and meds. Absent view or crew both return nothing,
+            // and neither is an error.
+            supabase.from('lot_transfer_provenance')
+                .select('transfer_id, transfer_date, head_count, source_lot_id, source_lot_number, dest_lot_id, dest_lot_number, tags_outstanding, basis_stale, basis_total, crosses_fiscal_year')
         ]);
 
         // Active tags MUST be paginated: PostgREST caps responses at 1000 rows and
@@ -11611,6 +12449,47 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 });
             });
         }
+
+        // ---- LOT TRANSFERS: the two loose ends a transfer can leave ----
+        // Both are on the DESTINATION lot, because that is the lot still
+        // running and the one someone is looking at. Decision 4 and 9.
+        (transferRes && !transferRes.error ? (transferRes.data || []) : []).forEach(t => {
+            if (isTestById[t.dest_lot_id] || isTestById[t.source_lot_id]) return;
+
+            // Tags. Not an error - the head moved on a count, which is the
+            // part that matters. This ages until they are named or somebody
+            // ticks "no tags available", which records who decided.
+            if (t.tags_outstanding) {
+                const age = daysBetween(t.transfer_date, ranchToday());
+                findings.push({
+                    lot_id: t.dest_lot_id,
+                    lot_number: t.dest_lot_number,
+                    severity: (age != null && age > 30) ? 'medium' : 'low',
+                    type: 'transfer_tags',
+                    title: 'Transfer tags not identified',
+                    detail: `${fmtNum(t.head_count)} head from ${t.source_lot_number} on ` +
+                            `${fmtDate(t.transfer_date)}${age != null ? ` — ${fmtNum(age)} days` : ''}. ` +
+                            `Name the tags on the transfer, or tick "no tags available" to stop the reminder.`
+                });
+            }
+
+            // A basis frozen before the feed covering its date was posted.
+            // Feed goes in every Monday, so this should clear within the week;
+            // still open after two is worth a look.
+            if (t.basis_stale) {
+                const age = daysBetween(t.transfer_date, ranchToday());
+                findings.push({
+                    lot_id: t.dest_lot_id,
+                    lot_number: t.dest_lot_number,
+                    severity: (age != null && age > 14) ? 'medium' : 'low',
+                    type: 'transfer_basis_stale',
+                    title: 'Transfer cost basis predates its feed',
+                    detail: `${fmtMoney(t.basis_total)} from ${t.source_lot_number} on ` +
+                            `${fmtDate(t.transfer_date)} was frozen before feed covering that date was ` +
+                            `entered, so it is light on both lots. An owner can recompute it.`
+                });
+            }
+        });
 
         // Declared here rather than beside the lot sections: the pasture
         // block below renders first and a `const` used before its declaration

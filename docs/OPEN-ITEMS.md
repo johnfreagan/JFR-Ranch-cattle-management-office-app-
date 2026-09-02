@@ -186,7 +186,18 @@ per head per day) rather than a hard limit.
 
 ## 9. Merging lots and transferring cattle between lots
 
-**Status:** wanted, not designed. Raised by John 2026-08-26.
+**Status:** DESIGNED AND BUILT 2026-09-02 — see `lot-transfers-design.md` for
+the fourteen decisions and `sql/2026-09-02_lot_transfers.sql` for the schema
+(written, not yet applied). The notes below are kept because they framed the
+problem correctly; two of their conclusions did not survive contact with the
+schema, and the design record says which and why. In short: the sale-out /
+receipt-in framing proposed at the end cannot be used (a synthetic receipt
+re-charges receiving meds through `receiving_protocol_id`, a synthetic invoice
+inflates `head_in`, a synthetic sale reads as revenue), and the head math was
+already built — `lot_events` has permitted `transfer_in` / `transfer_out` all
+along, and both `lot_status` and `lot_daily_head` already read them.
+
+Original note, 2026-08-26:
 
 Two related operations the app cannot do at all today:
 
