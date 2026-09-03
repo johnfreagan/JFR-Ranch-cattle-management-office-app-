@@ -782,9 +782,9 @@
             <button class="nav-tab" id="navSales" data-perm="office">Sales</button>
             <button class="nav-tab" id="navMoves" data-perm="office">Moves</button>
             <button class="nav-tab" id="navInventory" data-perm="office">Inventory <span id="navInvCount" class="approvals-badge hidden">0</span></button>
-            <button class="nav-tab" id="navSettings">Settings</button>
             <button class="nav-tab" id="navReports">Reports</button>
             <button class="nav-tab" id="navApprovals" data-perm="office">Approvals <span id="navApprovalsCount" class="approvals-badge hidden">0</span></button>
+            <button class="nav-tab" id="navSettings">Settings</button>
         </div>
         <div class="user-info">
             <span id="userName"></span>
@@ -801,7 +801,7 @@
             <button class="sub-tab active" data-subtab="meds">Medications</button>
             <button class="sub-tab" data-subtab="doctoring-entry">Doctoring Entry (bulk)</button>
             <button class="sub-tab" data-subtab="doctoring-single">Single Doctoring</button>
-            <button class="sub-tab placeholder" data-subtab="doctoring">Doctoring (search)</button>
+            <button class="sub-tab" data-subtab="doctoring">Doctoring Search</button>
         </div>
         <div class="sub-tabs hidden" id="settingsSubtabs">
             <button class="sub-tab active" data-subtab="protocols">Protocols</button>
@@ -855,15 +855,27 @@
                 <button type="button" data-material="med">Meds</button>
             </div>
         </div>
+        <!-- Reports. Same shape as Inventory: the ones opened every day stay
+             flat, the rest sit in a group you go into for one job. -->
         <div class="sub-tabs hidden" id="reportsSubtabs">
             <button class="sub-tab active" data-subtab="active-lots">Active Lots</button>
             <button class="sub-tab" data-subtab="daily-report" data-perm="office">Daily Report</button>
-            <button class="sub-tab" data-subtab="yard-sheet">Yard Sheet</button>
             <button class="sub-tab" data-subtab="anomalies">Anomalies</button>
-            <button class="sub-tab" data-subtab="pasture-utilization">Pasture Utilization</button>
-            <button class="sub-tab" data-subtab="death-analysis">Death Analysis</button>
-            <button class="sub-tab" data-subtab="processing-costs">Receiving</button>
-            <button class="sub-tab" data-subtab="doctoring">Doctoring &amp; Deaths</button>
+            <div class="sub-group" data-group="pastures">
+                <button type="button" class="sub-tab group-btn">Pastures <span class="caret">&#9662;</span></button>
+                <div class="group-menu">
+                    <button class="sub-tab" data-subtab="yard-sheet">Yard Sheet</button>
+                    <button class="sub-tab" data-subtab="pasture-utilization">Pasture Utilization</button>
+                </div>
+            </div>
+            <div class="sub-group" data-group="health">
+                <button type="button" class="sub-tab group-btn">Health <span class="caret">&#9662;</span></button>
+                <div class="group-menu">
+                    <button class="sub-tab" data-subtab="processing-costs">Receiving</button>
+                    <button class="sub-tab" data-subtab="doctoring">Doctoring &amp; Deaths</button>
+                    <button class="sub-tab" data-subtab="death-analysis">Death Analysis</button>
+                </div>
+            </div>
         </div>
 
         <div id="lotsView">
@@ -1408,7 +1420,8 @@
             </div>
         </div>
 
-        <!-- Doctoring placeholder view (Animal Health → Doctoring) -->
+        <!-- Doctoring search (Animal Health → Doctoring Search). The id is
+             historical: this began as a placeholder and became the screen. -->
         <div id="doctoringPlaceholderView" class="hidden">
             <div class="card">
                 <h2 style="margin-bottom: 12px;">Doctoring search</h2>
@@ -1448,7 +1461,7 @@
         <div id="reportActiveLotsView" class="hidden">
             <div class="card">
                 <div class="card-header">
-                    <h2>Active Lots Summary</h2>
+                    <h2>Active Lots</h2>
                     <div>
                         <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
                             <input type="checkbox" id="reportShowClosed" style="width:auto; vertical-align: middle;"> Include closed
@@ -1577,8 +1590,8 @@
                 <div class="card-header">
                     <h2>Fresh Cattle — Doctoring Eligibility</h2>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button id="reportFreshShareBtn">📱 Text PDF</button>
-                        <button id="reportFreshPrintBtn">🖨 Print</button>
+                        <button id="reportFreshPrintBtn">Print</button>
+                        <button id="reportFreshShareBtn">Text / share PDF</button>
                         <button id="reportFreshRefreshBtn">Refresh</button>
                     </div>
                 </div>
@@ -1644,7 +1657,7 @@
                 <div class="card-header">
                     <h2>Doctoring &amp; Deaths</h2>
                     <div>
-                        <button id="reportDocExportBtn">⬇ Export CSV</button>
+                        <button id="reportDocExportBtn">Export CSV</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Filter doctoring events across lots. Computed columns show pull position, intervals between pulls, and links to deaths.</p>
@@ -5282,20 +5295,15 @@ window.addEventListener('unhandledrejection', function(e) {
                     badge.textContent = `⚠ Δ ${drift > 0 ? '+' : ''}${drift}`;
                     badge.classList.remove('hidden');
                     badge.onclick = () => {
-                        switchTab('reports');
-                        // Wait for sub-tabs to render, then activate yard-sheet
+                        showReportsTab('yard-sheet');
+                        // Pre-fill the lot filter once the sheet has loaded
                         setTimeout(() => {
-                            const ysTab = document.querySelector('[data-subtab="yard-sheet"]');
-                            if (ysTab) ysTab.click();
-                            // Pre-fill the lot filter
-                            setTimeout(() => {
-                                const lotSel = document.getElementById('ysFilterLot');
-                                if (lotSel) {
-                                    lotSel.value = currentLot.lot_number;
-                                    if (typeof renderYardSheet === 'function') renderYardSheet();
-                                }
-                            }, 200);
-                        }, 100);
+                            const lotSel = document.getElementById('ysFilterLot');
+                            if (lotSel) {
+                                lotSel.value = currentLot.lot_number;
+                                if (typeof renderYardSheet === 'function') renderYardSheet();
+                            }
+                        }, 300);
                     };
                 } else {
                     badge.classList.add('hidden');
@@ -8771,8 +8779,10 @@ window.addEventListener('unhandledrejection', function(e) {
         $('navReports').classList.add('active');
         $('reportsSubtabs').classList.remove('hidden');
         $('reportsSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            if (b.classList.contains('group-btn')) return;   // driven by its children
             b.classList.toggle('active', b.dataset.subtab === subtab);
         });
+        subGroupsRelabel($('reportsSubtabs'));
         if (subtab === 'active-lots') {
             $('reportActiveLotsView').classList.remove('hidden');
             loadActiveLotsReport();
@@ -11604,6 +11614,51 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         }
     });
 
+    // ---- Sub-tab groups --------------------------------------------------
+    // A group is a sub-tab that opens a short menu of sub-tabs (see the
+    // .sub-group CSS). Shared by every bar that has one, so the Inventory
+    // and Reports bars cannot drift apart in how a menu opens, closes and
+    // labels itself.
+    function subGroupsClose(bar, except) {
+        bar.querySelectorAll('.sub-group').forEach(g => {
+            if (g !== except) g.classList.remove('open');
+        });
+    }
+    // Returns true when the click was on a group button (and has been handled).
+    function subGroupToggle(e) {
+        const grp = e.target.closest('.group-btn');
+        if (!grp) return false;
+        const g = grp.closest('.sub-group');
+        const wasOpen = g.classList.contains('open');
+        subGroupsClose(g.closest('.sub-tabs'));
+        g.classList.toggle('open', !wasOpen);
+        return true;
+    }
+    // The group button carries its active child's name, so the bar still
+    // says where you are once the menu is shut. Menus are closed after a
+    // choice; an open menu behind a freshly rendered report is the wrong
+    // thing to leave on screen.
+    function subGroupsRelabel(bar) {
+        bar.querySelectorAll('.sub-group').forEach(g => {
+            const hit = g.querySelector('.group-menu .sub-tab.active');
+            const btn = g.querySelector('.group-btn');
+            const base = g.dataset.group.charAt(0).toUpperCase() + g.dataset.group.slice(1);
+            btn.classList.toggle('active', !!hit);
+            btn.innerHTML = (hit ? escapeHtml(base) + ' &middot; ' + escapeHtml(hit.textContent.trim())
+                                 : escapeHtml(base))
+                          + ' <span class="caret">&#9662;</span>';
+        });
+        subGroupsClose(bar);
+    }
+    // Anywhere else on the page shuts an open menu. Without this the menu
+    // stays open behind whatever you just navigated to.
+    document.addEventListener('click', (e) => {
+        const inBar = e.target.closest('.sub-tabs');
+        document.querySelectorAll('.sub-group.open').forEach(g => {
+            if (!inBar || !inBar.contains(g)) g.classList.remove('open');
+        });
+    });
+
     // Sub-tab click handlers (delegated)
     $('animalHealthSubtabs').addEventListener('click', (e) => {
         const btn = e.target.closest('.sub-tab');
@@ -11614,6 +11669,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         if (btn) showSettingsTab(btn.dataset.subtab);
     });
     $('reportsSubtabs').addEventListener('click', (e) => {
+        if (subGroupToggle(e)) return;
         const btn = e.target.closest('.sub-tab');
         if (btn) showReportsTab(btn.dataset.subtab);
     });
@@ -23211,12 +23267,6 @@ ${ranchBlocks}
         });
     }
 
-    function fdCloseSubGroups(except) {
-        $('feedSubtabs').querySelectorAll('.sub-group').forEach(g => {
-            if (g !== except) g.classList.remove('open');
-        });
-    }
-
     async function showInventoryTab(subtab = 'needs') {
         hideAllViews();
         clearAllNavActive();
@@ -23233,18 +23283,7 @@ ${ranchBlocks}
                 b.dataset.subtab === subtab
                 && (b.dataset.rw === undefined || (b.dataset.rw || '') === (fdRwOnly || '')));
         });
-        // The group button carries the active child's name, so the bar still
-        // says where you are once the menu is shut.
-        $('feedSubtabs').querySelectorAll('.sub-group').forEach(g => {
-            const hit = g.querySelector('.group-menu .sub-tab.active');
-            const btn = g.querySelector('.group-btn');
-            const base = g.dataset.group.charAt(0).toUpperCase() + g.dataset.group.slice(1);
-            btn.classList.toggle('active', !!hit);
-            btn.innerHTML = (hit ? escapeHtml(base) + ' &middot; ' + escapeHtml(hit.textContent.trim())
-                                 : escapeHtml(base))
-                          + ' <span class="caret">&#9662;</span>';
-        });
-        fdCloseSubGroups();
+        subGroupsRelabel($('feedSubtabs'));
 
         // The four shared screens read the ordering spine, which carries both
         // materials. Meds have no stock ledger yet, so on that chip they say
@@ -26731,14 +26770,7 @@ ${ranchBlocks}
     // ---- WIRING ----------------------------------------------------------
     $('navInventory').addEventListener('click', () => showInventoryTab('needs'));
     $('feedSubtabs').addEventListener('click', (e) => {
-        const grp = e.target.closest('.group-btn');
-        if (grp) {
-            const g = grp.closest('.sub-group');
-            const wasOpen = g.classList.contains('open');
-            fdCloseSubGroups();
-            g.classList.toggle('open', !wasOpen);
-            return;
-        }
+        if (subGroupToggle(e)) return;
         const btn = e.target.closest('.sub-tab');
         if (!btn) return;
         // Reports are the one Redwing screen showing a single section; the
@@ -26746,12 +26778,6 @@ ${ranchBlocks}
         if (btn.dataset.rw !== undefined) fdRwOnly = btn.dataset.rw || null;
         showInventoryTab(btn.dataset.subtab);
     });
-    // Anywhere else on the page shuts an open menu. Without this the menu
-    // stays open behind whatever you just navigated to.
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('#feedSubtabs')) fdCloseSubGroups();
-    });
-
     bindKebab('invPuMenuBtn', 'invPuMenu');
     $('invPuNewDeliveryBtn').addEventListener('click', async () => {
         await fdPrepReceiptModal(); openFdReceiptModal(null);

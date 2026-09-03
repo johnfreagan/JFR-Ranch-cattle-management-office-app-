@@ -833,6 +833,14 @@ Orders under Meds are two screens, and a vendor billing both on one invoice
 would have nowhere to file it.
 
 - `Loads In` became **Deliveries**; the old `Inventory` sub-tab became **On Hand**.
+- **The group menu (`.sub-group` / `.group-menu`) is shared, not Inventory's.**
+  `subGroupToggle()`, `subGroupsClose()` and `subGroupsRelabel()` sit with the
+  sub-tab wiring; one document-level click closes any open menu. The Reports
+  bar uses the same shape (2026-09-03): Active Lots · Daily Report ·
+  Anomalies stay flat, **Pastures ▾** holds Yard Sheet and Pasture
+  Utilization, **Health ▾** holds Receiving, Doctoring & Deaths and Death
+  Analysis. Settings is the LAST top-level tab. Do not write a third copy of
+  the menu logic for the next bar that grows.
 - **The medications catalog stays under Animal Health.** Dose, `round_up_to`,
   price and protocol membership are a doctoring tool read by the field app's
   pickers. Inventory → Meds will hold the *stock*. One drug, two screens.
