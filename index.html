@@ -1477,16 +1477,34 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Active Lots</h2>
-                    <div>
-                        <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
-                            <input type="checkbox" id="reportShowClosed" style="width:auto; vertical-align: middle;"> Include closed
-                        </label>
-                        <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
-                            <input type="checkbox" id="reportShowTest" style="width:auto; vertical-align: middle;"> Include test lots
-                        </label>
-                    </div>
+                    <button id="reportActiveLotsRefreshBtn">Refresh</button>
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Snapshot of every active lot. Click a column header to sort. Click any row to open the lot.</p>
+                <div class="report-filters" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 12px; background: #fafaf6; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px;">
+                    <div>
+                        <label style="font-size: 12px;">Lot</label>
+                        <select id="alFilterLot" multiple size="4" style="width: 100%; font-size: 13px;"></select>
+                        <div class="muted" style="font-size: 11px; margin-top: 2px;">Hold Ctrl/Cmd to pick more than one. Nothing picked = all.</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">Ranch</label>
+                        <select id="alFilterRanch" multiple size="4" style="width: 100%; font-size: 13px;"></select>
+                        <div class="muted" style="font-size: 11px; margin-top: 2px;">Lots with head standing on that ranch.</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">Pasture</label>
+                        <select id="alFilterPasture" multiple size="4" style="width: 100%; font-size: 13px;"></select>
+                    </div>
+                    <div style="display: flex; flex-direction: column; justify-content: flex-end; gap: 6px;">
+                        <label style="font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                            <input type="checkbox" id="reportShowClosed" style="width: auto;"> Include closed
+                        </label>
+                        <label style="font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                            <input type="checkbox" id="reportShowTest" style="width: auto;"> Include test lots
+                        </label>
+                        <button id="alClearBtn" style="font-size: 13px;">Clear filters</button>
+                    </div>
+                </div>
                 <div id="reportActiveLotsContent"><div class="empty">Loading…</div></div>
             </div>
         </div>
@@ -13260,20 +13278,92 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     }
 
     // ---- Active Lots Summary ----
-    async function loadActiveLotsReport() {
-        $('reportActiveLotsContent').innerHTML = '<div class="empty">Loading…</div>';
-        const includeClosed = $('reportShowClosed').checked;
-        const includeTest = $('reportShowTest').checked;
+    // ---- Active Lots ----
+    // lot_status for the table; the open assignment rows (shared with the
+    // pasture reports) say which ranch and pasture each lot stands on, so
+    // the Ranch and Pasture pickers mean "lots with head there".
+    let alInitialized = false;
+    let alLots = [];
+    let alAssignRows = [];
 
-        let q = supabase.from('lot_status').select('*').order('arrival_date', { ascending: false });
-        if (!includeClosed) q = q.is('closed_at', null);
-        const { data, error } = await q;
-        if (error) {
-            $('reportActiveLotsContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(error.message)}</div>`;
+    async function loadActiveLotsReport() {
+        if (!alInitialized) {
+            ['alFilterLot', 'alFilterRanch', 'alFilterPasture', 'reportShowClosed', 'reportShowTest'].forEach(id => {
+                $(id).addEventListener('change', () => {
+                    if (id === 'alFilterRanch') alFillPastureOptions();
+                    if (id === 'reportShowClosed' || id === 'reportShowTest') alFillLotOptions();
+                    renderActiveLotsReport();
+                });
+            });
+            $('alClearBtn').addEventListener('click', () => {
+                ['alFilterLot', 'alFilterRanch', 'alFilterPasture'].forEach(id => { [...$(id).options].forEach(o => { o.selected = false; }); });
+                alFillPastureOptions();
+                renderActiveLotsReport();
+            });
+            $('reportActiveLotsRefreshBtn').addEventListener('click', loadActiveLotsReport);
+            alInitialized = true;
+        }
+        $('reportActiveLotsContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        try {
+            const [statusRes, assignRows] = await Promise.all([
+                supabase.from('lot_status').select('*').order('arrival_date', { ascending: false }),
+                fetchOpenAssignmentRows()
+            ]);
+            if (statusRes.error) throw statusRes.error;
+            alLots = statusRes.data || [];
+            alAssignRows = assignRows;
+        } catch (e) {
+            $('reportActiveLotsContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(e.message)}</div>`;
             return;
         }
-        let rows = data || [];
+
+        alFillLotOptions();
+        fillPicker('alFilterRanch', [...new Set(alAssignRows.map(r => r.ranch_name))].sort().map(r => [r, r]));
+        alFillPastureOptions();
+        renderActiveLotsReport();
+    }
+
+    // The lot list follows the closed and test toggles, so it offers only
+    // lots the table could show.
+    function alFillLotOptions() {
+        const includeClosed = $('reportShowClosed').checked;
+        const includeTest = $('reportShowTest').checked;
+        const lots = alLots
+            .filter(l => (includeClosed || !l.closed_at) && (includeTest || !isTestLot(l.lot_number)))
+            .map(l => l.lot_number).sort();
+        fillPicker('alFilterLot', lots.map(l => [l, l]));
+    }
+
+    function alFillPastureOptions() {
+        const ranches = pickedValues('alFilterRanch');
+        const seen = new Map();
+        alAssignRows.forEach(r => {
+            if (ranches.length && !ranches.includes(r.ranch_name)) return;
+            if (!seen.has(r.pasture_id)) seen.set(r.pasture_id, ranches.length === 1 ? r.pasture_name : `${r.ranch_name} / ${r.pasture_name}`);
+        });
+        fillPicker('alFilterPasture', [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1])));
+    }
+
+    function renderActiveLotsReport() {
+        const includeClosed = $('reportShowClosed').checked;
+        const includeTest = $('reportShowTest').checked;
+        const lotFilter = pickedValues('alFilterLot');
+        const ranchFilter = pickedValues('alFilterRanch');
+        const pastureFilter = pickedValues('alFilterPasture');
+
+        let rows = alLots;
+        if (!includeClosed) rows = rows.filter(l => !l.closed_at);
         if (!includeTest) rows = rows.filter(l => !isTestLot(l.lot_number));
+        if (lotFilter.length) rows = rows.filter(l => lotFilter.includes(l.lot_number));
+        // Ranch and pasture pick the lots with head standing there.
+        if (ranchFilter.length || pastureFilter.length) {
+            const keep = new Set(alAssignRows
+                .filter(r => (!ranchFilter.length || ranchFilter.includes(r.ranch_name))
+                          && (!pastureFilter.length || pastureFilter.includes(r.pasture_id)))
+                .map(r => r.lot_id));
+            rows = rows.filter(l => keep.has(l.lot_id));
+        }
 
         if (rows.length === 0) {
             $('reportActiveLotsContent').innerHTML = '<div class="empty">No lots match filters.</div>';
@@ -13377,7 +13467,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 } else {
                     reportSortState['active-lots'] = { key, dir: 'asc' };
                 }
-                loadActiveLotsReport();
+                renderActiveLotsReport();
             });
         });
 
@@ -13386,9 +13476,6 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             r.addEventListener('click', () => showLotDetail(r.dataset.lotId));
         });
     }
-
-    $('reportShowClosed').addEventListener('change', loadActiveLotsReport);
-    $('reportShowTest').addEventListener('change', loadActiveLotsReport);
 
     // ---- Pasture Utilization ----
     // ---- Pasture Utilization ----
