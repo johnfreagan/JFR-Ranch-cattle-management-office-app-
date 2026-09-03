@@ -7,11 +7,12 @@ because the reason is the part that stops it being re-litigated in six months.
 Supersedes `OPEN-ITEMS.md` #9 ("Merging lots and transferring cattle between
 lots — wanted, not designed"), which is now answered and should be marked so.
 
-**Status:** BUILT 2026-09-02, schema NOT YET APPLIED.
-Migration `docs/sql/2026-09-02_lot_transfers.sql` is written and waiting for
-John to run it in the SQL editor; the app code is in `index.html` and degrades
-to "no transfers" until the migration lands, because a missing view returns no
-rows and no error.
+**Status:** BUILT AND LIVE 2026-09-02. Migration
+`docs/sql/2026-09-02_lot_transfers.sql` applied by John in the SQL editor and
+verified against the live database: 3 tables with RLS and exactly 4 policies
+each, 2 views both carrying `security_invoker`, 3 RPCs all INVOKER with exactly
+one overload each, and `anon` holding nothing on any of the eight. The app code
+is in `index.html`.
 
 ---
 
@@ -436,9 +437,31 @@ and a SQL copy would be a second costing path that drifts from the first.
 
 **Verification.** Both views were parsed against the live schema with stub CTEs,
 which checks every column name on `lots`, `protocols`, `delivery_receipts`,
-`invoices` and `feed_usage`. `validate.jxa.js` passes. The plpgsql bodies are
-**not** verified — Postgres does not parse them at `CREATE` time and there is no
-local Postgres on this machine, so the first real check is John's SQL editor run.
+`invoices` and `feed_usage`. `validate.jxa.js` passes.
+
+**The plpgsql was then proven on the live database, 2026-09-02**, before any
+real cattle moved — `lot-transfers-dry-run.sql`, run against TEST_DOC1 and
+TEST_DOC2 only. Postgres does not parse a function body at `CREATE` time, so
+until something calls it none of that logic has ever executed. The run covered:
+
+- a partial transfer (20 of 100 head) — both lots' `head_current`, both pasture
+  assignments, the two `lot_events` rows and the $30,000 on `lot_transfer_costs`
+- four guards, each of which must REFUSE: a date before the destination lot
+  existed (the `lot_daily_head` clamp trap), a basis total that does not tie to
+  head × rate, an overdraw of the source pasture, and a non-owner calling
+  `recompute_transfer_basis`
+- a transfer that **empties** an assignment, asserting it closes with
+  `head_count` left intact — zeroing it would make the reversal restore nothing
+- reversing that one, asserting the reopened assignment holds **80 and not
+  160**. That is the `delete_death_event` trap stated as a test: closing leaves
+  `head_count` in place, so adding head back on reopen double-counts the herd
+- reversing both and asserting the books return to exactly 100 / 50 with no
+  transfer rows, no transfer `lot_events` and no `lot_transfer_costs` rows left
+
+All passed. Confirmed afterwards by direct query: 0 transfer rows, 0 transfer
+events, test lots at 100 / 50, 2 open assignments. The script is written so a
+failed assertion raises and rolls the whole thing back, and a clean pass has
+already reversed itself — so it leaves the database untouched either way.
 
 **One bug caught late:** the new code declared its own `round2`, which would
 have silently overridden the existing `Number.EPSILON` money rounding at
