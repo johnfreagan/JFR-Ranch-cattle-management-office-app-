@@ -159,6 +159,21 @@
         }
         .group-menu .sub-tab:hover { background: #f2f1ec; }
         .group-menu .sub-tab.hidden { display: none; }
+        /* Yard sheet: ranch bands, pasture rows, and a lot split that opens
+           under the pasture when its head count is clicked. */
+        .ys-table tr.ys-ranch td { background: #ebeae3; padding-top: 8px; padding-bottom: 8px; }
+        .ys-table tr.ys-pasture.open td { border-bottom: none; }
+        .ys-table tr.ys-detail > td { padding: 0 0 10px 28px; background: #fafaf6; }
+        .ys-table tr.ys-detail table th { font-size: 11px; }
+        .ys-pasture-link { cursor: pointer; color: var(--accent); }
+        .ys-pasture-link:hover { text-decoration: underline; }
+        .ys-head-btn {
+            font: inherit; font-weight: 600; font-size: 13px; padding: 2px 8px; margin: 0;
+            border: 1px solid transparent; border-radius: 6px; background: transparent;
+            color: var(--accent); cursor: pointer;
+        }
+        .ys-head-btn:hover { background: #f2f1ec; border-color: var(--border); }
+        .ys-head-btn .caret { font-size: 9px; opacity: .6; }
         .needs-sev { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
         .needs-sev.alert { color: var(--danger, #b02a2a); }
         .needs-sev.warn  { color: #b58900; }
@@ -1507,32 +1522,38 @@
             </div>
         </div>
 
+        <!-- Yard Sheet: where the cattle are, BY PASTURE. One row per pasture
+             with the head of every lot standing in it added together; the
+             head figure opens the lot-by-lot split. The per-lot rows are
+             still what gets fetched and exported, so the drift checks on
+             each lot are unchanged. -->
         <div id="reportYardSheetView" class="hidden">
             <div class="card">
                 <div class="card-header">
                     <h2>Yard Sheet</h2>
-                    <button id="reportYardSheetExportBtn">Export CSV</button>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button id="reportYardSheetExportBtn">Export CSV</button>
+                        <button id="reportYardSheetRefreshBtn">Refresh</button>
+                    </div>
                 </div>
-                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Every active pasture-lot occupancy across the operation. Click a row to open the lot. Use filters to find problems.</p>
-                <div class="report-filters" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; padding: 12px; background: #fafaf6; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px;">
+                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Head on every pasture by ranch, all lots together. Click a head count to see the lots in that pasture, a lot to open it, or a pasture name to open the pasture.</p>
+                <div class="report-filters" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 12px; background: #fafaf6; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px;">
                     <div>
                         <label style="font-size: 12px;">Ranch</label>
                         <select id="ysFilterRanch" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">Pasture</label>
+                        <select id="ysFilterPasture" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
                     </div>
                     <div>
                         <label style="font-size: 12px;">Lot</label>
                         <select id="ysFilterLot" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
                     </div>
                     <div>
-                        <label style="font-size: 12px;">Min head</label>
-                        <input type="number" id="ysFilterMinHead" min="0" placeholder="0" style="width: 100%; font-size: 13px;">
-                        <label style="font-size: 12px; margin-top: 4px;">Max head</label>
-                        <input type="number" id="ysFilterMaxHead" min="0" placeholder="any" style="width: 100%; font-size: 13px;">
-                    </div>
-                    <div>
                         <label style="font-size: 12px;">Anomalies</label>
                         <select id="ysFilterAnomaly" style="width: 100%; font-size: 13px;">
-                            <option value="">All rows</option>
+                            <option value="">All pastures</option>
                             <option value="any">Any anomaly</option>
                             <option value="head_mismatch">Pasture sum ≠ head_current</option>
                             <option value="idle_30">Idle 30+ days</option>
@@ -1543,7 +1564,7 @@
                         <label style="font-size: 12px; display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
                             <input type="checkbox" id="ysShowTest" style="width: auto;"> Show test lots
                         </label>
-                        <button class="primary" id="ysApplyBtn" style="font-size: 13px;">Apply</button>
+                        <button id="ysClearBtn" style="font-size: 13px;">Clear filters</button>
                     </div>
                 </div>
                 <div id="ysAnomalyBanner"></div>
@@ -11688,6 +11709,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     // ---- Yard Sheet ----
     let yardSheetInitialized = false;
     let lastYardSheetRows = [];
+    const ysOpenPastures = new Set();   // pastures whose lot split is showing
 
     // ---- Anomalies report ----
     // Cross-checks every active lot for known data-integrity issues:
@@ -12896,10 +12918,20 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
     async function loadYardSheetReport() {
         if (!yardSheetInitialized) {
-            // Wire filters
-            $('ysApplyBtn').addEventListener('click', renderYardSheet);
-            $('ysShowTest').addEventListener('change', renderYardSheet);
+            // Filters apply as they change; there is nothing to "apply".
+            ['ysFilterRanch', 'ysFilterPasture', 'ysFilterLot', 'ysFilterAnomaly', 'ysShowTest'].forEach(id => {
+                $(id).addEventListener('change', () => {
+                    if (id === 'ysFilterRanch') ysFillPastureOptions();
+                    renderYardSheet();
+                });
+            });
+            $('ysClearBtn').addEventListener('click', () => {
+                ['ysFilterRanch', 'ysFilterPasture', 'ysFilterLot', 'ysFilterAnomaly'].forEach(id => { $(id).value = ''; });
+                ysFillPastureOptions();
+                renderYardSheet();
+            });
             $('reportYardSheetExportBtn').addEventListener('click', exportYardSheetCsv);
+            $('reportYardSheetRefreshBtn').addEventListener('click', loadYardSheetReport);
             yardSheetInitialized = true;
         }
         $('reportYardSheetContent').innerHTML = '<div class="empty">Loading…</div>';
@@ -12972,66 +13004,90 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         lastYardSheetRows = rows;
 
-        // Populate filter dropdowns from data
+        // Populate filter dropdowns from data, keeping current selections
         const ranchSel = $('ysFilterRanch');
         const lotSel = $('ysFilterLot');
-        // Preserve current selections
         const curRanch = ranchSel.value;
         const curLot = lotSel.value;
         const ranches = [...new Set(rows.map(r => r.ranch_name))].sort();
         ranchSel.innerHTML = '<option value="">All</option>' + ranches.map(r => `<option value="${escapeHtml(r)}"${r === curRanch ? ' selected' : ''}>${escapeHtml(r)}</option>`).join('');
         const lotNums = [...new Set(rows.filter(r => !r.lot_is_test).map(r => r.lot_number))].sort();
         lotSel.innerHTML = '<option value="">All</option>' + lotNums.map(l => `<option value="${escapeHtml(l)}"${l === curLot ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('');
+        ysFillPastureOptions();
 
         renderYardSheet();
     }
 
-    function renderYardSheet() {
+    // The pasture picker narrows to the chosen ranch. A pasture from another
+    // ranch cannot stay selected once the ranch changes.
+    function ysFillPastureOptions() {
+        const sel = $('ysFilterPasture');
+        const cur = sel.value;
+        const ranch = $('ysFilterRanch').value;
+        const seen = new Map();
+        lastYardSheetRows.forEach(r => {
+            if (ranch && r.ranch_name !== ranch) return;
+            if (!seen.has(r.pasture_id)) seen.set(r.pasture_id, ranch ? r.pasture_name : `${r.ranch_name} / ${r.pasture_name}`);
+        });
+        const opts = [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+        sel.innerHTML = '<option value="">All</option>' + opts.map(([id, name]) =>
+            `<option value="${escapeHtml(id)}"${id === cur ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
+    }
+
+    // The per-lot rows that survive the filters. Shared by the table and
+    // the CSV so what is exported is what is on screen.
+    function ysFilteredRows() {
         const showTest = $('ysShowTest').checked;
         const ranchFilter = $('ysFilterRanch').value;
+        const pastureFilter = $('ysFilterPasture').value;
         const lotFilter = $('ysFilterLot').value;
-        const minHead = parseInt($('ysFilterMinHead').value) || null;
-        const maxHead = parseInt($('ysFilterMaxHead').value) || null;
         const anomalyFilter = $('ysFilterAnomaly').value;
 
         let rows = lastYardSheetRows;
         if (!showTest) rows = rows.filter(r => !r.lot_is_test);
         if (ranchFilter) rows = rows.filter(r => r.ranch_name === ranchFilter);
-        if (lotFilter) rows = rows.filter(r => r.lot_number === lotFilter);
-        if (minHead != null) rows = rows.filter(r => r.head_count >= minHead);
-        if (maxHead != null) rows = rows.filter(r => r.head_count <= maxHead);
-        if (anomalyFilter === 'any') rows = rows.filter(r => r.flags.length > 0);
-        else if (anomalyFilter === 'head_mismatch') rows = rows.filter(r => r.flags.includes('head_mismatch'));
-        else if (anomalyFilter === 'idle_30') rows = rows.filter(r => r.flags.includes('idle_30') || r.flags.includes('idle_60'));
-        else if (anomalyFilter === 'idle_60') rows = rows.filter(r => r.flags.includes('idle_60'));
+        if (pastureFilter) rows = rows.filter(r => r.pasture_id === pastureFilter);
+        // A lot or anomaly filter picks PASTURES, not rows: the pasture still
+        // shows every lot standing in it, because its head count is the
+        // whole pasture's and that is the number the report exists for.
+        const keepPasture = new Set();
+        rows.forEach(r => {
+            if (lotFilter && r.lot_number !== lotFilter) return;
+            if (anomalyFilter === 'any' && r.flags.length === 0) return;
+            if (anomalyFilter === 'head_mismatch' && !r.flags.includes('head_mismatch')) return;
+            if (anomalyFilter === 'idle_30' && !(r.flags.includes('idle_30') || r.flags.includes('idle_60'))) return;
+            if (anomalyFilter === 'idle_60' && !r.flags.includes('idle_60')) return;
+            keepPasture.add(r.pasture_id);
+        });
+        return rows.filter(r => keepPasture.has(r.pasture_id));
+    }
 
-        // Anomaly banner across visible set
+    function renderYardSheet() {
+        const rows = ysFilteredRows();
+        const lotFilter = $('ysFilterLot').value;
+
+        // Anomaly banner across the visible set
         const anomalyCount = rows.filter(r => r.flags.length > 0).length;
         const mismatchCount = rows.filter(r => r.flags.includes('head_mismatch')).length;
         const idleCount = rows.filter(r => r.flags.includes('idle_30') || r.flags.includes('idle_60')).length;
-        if (anomalyCount > 0) {
-            $('ysAnomalyBanner').innerHTML = `
+        $('ysAnomalyBanner').innerHTML = anomalyCount > 0 ? `
                 <div class="alert" style="background: #fff8e6; border: 1px solid #d4a017; color: #6a4c0a; padding: 10px; margin-bottom: 12px; border-radius: var(--radius); font-size: 13px;">
-                    ⚠ ${anomalyCount} row${anomalyCount === 1 ? '' : 's'} with anomalies${mismatchCount > 0 ? ` — ${mismatchCount} pasture-sum mismatch` : ''}${idleCount > 0 ? ` — ${idleCount} idle 30+ days` : ''}
-                </div>
-            `;
-        } else {
-            $('ysAnomalyBanner').innerHTML = '';
-        }
+                    ⚠ ${anomalyCount} lot-pasture row${anomalyCount === 1 ? '' : 's'} with anomalies${mismatchCount > 0 ? ` — ${mismatchCount} pasture-sum mismatch` : ''}${idleCount > 0 ? ` — ${idleCount} idle 30+ days` : ''}
+                </div>` : '';
 
         if (rows.length === 0) {
             $('reportYardSheetContent').innerHTML = '<div class="empty">No pastures match the current filters.</div>';
             return;
         }
 
-        // Sort: ranch asc, pasture asc, head desc
-        rows.sort((a, b) => {
-            if (a.ranch_name !== b.ranch_name) return a.ranch_name.localeCompare(b.ranch_name);
-            if (a.pasture_name !== b.pasture_name) return a.pasture_name.localeCompare(b.pasture_name);
-            return b.head_count - a.head_count;
+        // ranch -> pasture -> lot rows
+        const ranches = new Map();
+        rows.forEach(r => {
+            if (!ranches.has(r.ranch_name)) ranches.set(r.ranch_name, new Map());
+            const pastures = ranches.get(r.ranch_name);
+            if (!pastures.has(r.pasture_id)) pastures.set(r.pasture_id, { id: r.pasture_id, name: r.pasture_name, rows: [] });
+            pastures.get(r.pasture_id).rows.push(r);
         });
-
-        const totalHead = rows.reduce((s, r) => s + r.head_count, 0);
 
         const flagBadge = f => {
             if (f === 'head_mismatch') return ' <span style="font-size: 10px; padding: 1px 6px; background: #fbeaea; color: #8a2a2a; border-radius: 8px; font-weight: 500;">Δ</span>';
@@ -13039,53 +13095,105 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             if (f === 'idle_30') return ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500;">30+d</span>';
             return '';
         };
+        const sumHead = rs => rs.reduce((s, r) => s + r.head_count, 0);
 
-        const tableRows = rows.map(r => {
-            const flagBadges = r.flags.map(flagBadge).join('');
-            const lotBadge = r.lot_closed ? ' <span style="font-size: 10px; color: var(--text-muted);">(closed)</span>' : '';
-            const testBadge = r.lot_is_test ? ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500;">TEST</span>' : '';
-            const mismatchInfo = r.flags.includes('head_mismatch')
-                ? `<div class="muted" style="font-size: 11px;">Lot ${escapeHtml(r.lot_number)}: pasture sum=${r.lot_pasture_sum}, head_current=${r.lot_head_current}, Δ=${r.lot_pasture_sum - r.lot_head_current}</div>`
-                : '';
-            return `<tr class="clickable" data-lot-id="${r.lot_id}">
-                <td>${escapeHtml(r.ranch_name)}</td>
-                <td>${escapeHtml(r.pasture_name)}</td>
-                <td><strong>${escapeHtml(r.lot_number)}</strong>${lotBadge}${testBadge}</td>
-                <td class="num"><strong>${fmtNum(r.head_count)}</strong></td>
-                <td class="num">${r.days_here}</td>
-                <td>${fmtDate(r.moved_in)}</td>
-                <td>${flagBadges}${mismatchInfo}</td>
+        let html = '';
+        const grandHead = sumHead(rows);
+        const pastureCount = [...ranches.values()].reduce((n, p) => n + p.size, 0);
+        const lotCount = new Set(rows.map(r => r.lot_id)).size;
+
+        [...ranches.keys()].sort((a, b) => a.localeCompare(b)).forEach(ranchName => {
+            const pastures = [...ranches.get(ranchName).values()].sort((a, b) => a.name.localeCompare(b.name));
+            const ranchRows = pastures.flatMap(p => p.rows);
+            const ranchLots = new Set(ranchRows.map(r => r.lot_id)).size;
+            html += `<tr class="ys-ranch">
+                <td colspan="2"><strong>${escapeHtml(ranchName)}</strong> <span class="muted" style="font-size: 12px;">${pastures.length} pasture${pastures.length === 1 ? '' : 's'} · ${ranchLots} lot${ranchLots === 1 ? '' : 's'}</span></td>
+                <td class="num"><strong>${fmtNum(sumHead(ranchRows))}</strong></td>
+                <td></td>
             </tr>`;
-        }).join('');
+
+            pastures.forEach(p => {
+                const lotRows = [...p.rows].sort((a, b) => b.head_count - a.head_count);
+                // A lot filter is a question about where that lot stands, so
+                // its pastures open on their own.
+                const open = ysOpenPastures.has(p.id) || (lotFilter && lotRows.some(r => r.lot_number === lotFilter));
+                const flags = [...new Set(lotRows.flatMap(r => r.flags))];
+                const lotNames = lotRows.map(r => r.lot_number);
+                const lotsCell = lotNames.length <= 3
+                    ? lotNames.map(n => `<span${n === lotFilter ? ' style="font-weight: 600;"' : ''}>${escapeHtml(n)}</span>`).join(', ')
+                    : `${lotNames.length} lots`;
+                html += `<tr class="ys-pasture${open ? ' open' : ''}">
+                    <td><a class="ys-pasture-link" data-pasture-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</a></td>
+                    <td class="muted" style="font-size: 12px;">${lotsCell}</td>
+                    <td class="num"><button type="button" class="ys-head-btn" data-pasture-id="${escapeHtml(p.id)}" title="${open ? 'Hide' : 'Show'} the lots in this pasture">${fmtNum(sumHead(lotRows))} <span class="caret">${open ? '&#9652;' : '&#9662;'}</span></button></td>
+                    <td>${flags.map(flagBadge).join('')}</td>
+                </tr>`;
+                if (open) {
+                    const lotLines = lotRows.map(r => {
+                        const lotBadge = r.lot_closed ? ' <span style="font-size: 10px; color: var(--text-muted);">(closed)</span>' : '';
+                        const testBadge = r.lot_is_test ? ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500;">TEST</span>' : '';
+                        const mismatchInfo = r.flags.includes('head_mismatch')
+                            ? `<div class="muted" style="font-size: 11px;">pasture sum=${r.lot_pasture_sum}, head_current=${r.lot_head_current}, Δ=${r.lot_pasture_sum - r.lot_head_current}</div>`
+                            : '';
+                        return `<tr class="clickable" data-lot-id="${r.lot_id}">
+                            <td><strong>${escapeHtml(r.lot_number)}</strong>${lotBadge}${testBadge}</td>
+                            <td class="num"><strong>${fmtNum(r.head_count)}</strong></td>
+                            <td class="num">${r.days_here}</td>
+                            <td>${fmtDate(r.moved_in)}</td>
+                            <td>${r.flags.map(flagBadge).join('')}${mismatchInfo}</td>
+                        </tr>`;
+                    }).join('');
+                    html += `<tr class="ys-detail"><td colspan="4">
+                        <table style="font-size: 12px; margin: 0;">
+                            <thead><tr><th>Lot</th><th class="num">Head</th><th class="num">Days here</th><th>Moved in</th><th>Flags</th></tr></thead>
+                            <tbody>${lotLines}</tbody>
+                        </table>
+                    </td></tr>`;
+                }
+            });
+        });
 
         $('reportYardSheetContent').innerHTML = `
-            <div class="muted" style="font-size: 12px; margin-bottom: 6px;">${rows.length} row${rows.length === 1 ? '' : 's'} · ${fmtNum(totalHead)} head total</div>
-            <table style="font-size: 13px;">
+            <div class="muted" style="font-size: 12px; margin-bottom: 6px;">${pastureCount} pasture${pastureCount === 1 ? '' : 's'} · ${lotCount} lot${lotCount === 1 ? '' : 's'} · ${fmtNum(grandHead)} head total</div>
+            <table class="ys-table" style="font-size: 13px;">
                 <thead><tr>
-                    <th>Ranch</th><th>Pasture</th><th>Lot</th>
-                    <th class="num">Head</th><th class="num">Days here</th>
-                    <th>Moved in</th><th>Flags / notes</th>
+                    <th>Pasture</th><th>Lots</th><th class="num">Head</th><th>Flags</th>
                 </tr></thead>
-                <tbody>${tableRows}</tbody>
+                <tbody>${html}</tbody>
             </table>
         `;
-        $('reportYardSheetContent').querySelectorAll('tr.clickable').forEach(tr => {
+        const box = $('reportYardSheetContent');
+        box.querySelectorAll('.ys-head-btn').forEach(b => {
+            b.addEventListener('click', () => {
+                const id = b.dataset.pastureId;
+                if (ysOpenPastures.has(id)) ysOpenPastures.delete(id); else ysOpenPastures.add(id);
+                renderYardSheet();
+            });
+        });
+        box.querySelectorAll('.ys-pasture-link').forEach(a => {
+            a.addEventListener('click', () => showPastureDetail(a.dataset.pastureId));
+        });
+        box.querySelectorAll('tr.clickable').forEach(tr => {
             tr.addEventListener('click', () => showLotDetail(tr.dataset.lotId));
         });
     }
 
     function exportYardSheetCsv() {
-        const rows = lastYardSheetRows;
+        const rows = ysFilteredRows();
         if (rows.length === 0) {
             alert('No data to export.');
             return;
         }
-        const headers = ['Ranch', 'Pasture', 'Lot', 'Head', 'Days here', 'Moved in', 'Flags', 'Lot pasture sum', 'Lot head current', 'Notes'];
+        const pastureHead = {};
+        rows.forEach(r => { pastureHead[r.pasture_id] = (pastureHead[r.pasture_id] || 0) + r.head_count; });
+        rows.sort((a, b) => a.ranch_name.localeCompare(b.ranch_name) || a.pasture_name.localeCompare(b.pasture_name) || b.head_count - a.head_count);
+        const headers = ['Ranch', 'Pasture', 'Pasture head', 'Lot', 'Head', 'Days here', 'Moved in', 'Flags', 'Lot pasture sum', 'Lot head current', 'Notes'];
         const csvRows = [headers.join(',')];
         rows.forEach(r => {
             const cells = [
                 r.ranch_name,
                 r.pasture_name,
+                pastureHead[r.pasture_id],
                 r.lot_number,
                 r.head_count,
                 r.days_here,
