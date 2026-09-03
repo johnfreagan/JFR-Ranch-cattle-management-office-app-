@@ -1637,13 +1637,29 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Pasture Utilization</h2>
+                    <button id="reportPasturesRefreshBtn">Refresh</button>
+                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Acres and stocking on every pasture. Click a column header to sort, a head count to see the lots in that pasture, a lot to open it, or a pasture name to open the pasture.</p>
+                <div class="report-filters" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 12px; background: #fafaf6; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px;">
                     <div>
-                        <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
-                            <input type="checkbox" id="reportPastureShowEmpty" style="width:auto; vertical-align: middle;" checked> Include empty pastures
+                        <label style="font-size: 12px;">Ranch</label>
+                        <select id="puFilterRanch" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">Pasture</label>
+                        <select id="puFilterPasture" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">Lot</label>
+                        <select id="puFilterLot" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                    </div>
+                    <div style="display: flex; flex-direction: column; justify-content: flex-end;">
+                        <label style="font-size: 12px; display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                            <input type="checkbox" id="reportPastureShowEmpty" style="width: auto;" checked> Include empty pastures
                         </label>
+                        <button id="puClearBtn" style="font-size: 13px;">Clear filters</button>
                     </div>
                 </div>
-                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Where cattle currently sit. Click a column header to sort. Click a row to open the pasture detail.</p>
                 <div id="reportPasturesContent"><div class="empty">Loading…</div></div>
             </div>
         </div>
@@ -12936,7 +12952,38 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         }
         $('reportYardSheetContent').innerHTML = '<div class="empty">Loading…</div>';
 
-        // Fetch all active assignments + lot info + ranch/pasture names
+        let rows;
+        try {
+            rows = await fetchOpenAssignmentRows();
+        } catch (e) {
+            $('reportYardSheetContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(e.message)}</div>`;
+            return;
+        }
+
+        lastYardSheetRows = rows;
+        ysFillPickers();
+        renderYardSheet();
+    }
+
+    // Ranch and lot pickers come from the data, so a lot that has shipped out
+    // is not offered. Current selections survive a refresh.
+    function ysFillPickers() {
+        const rows = lastYardSheetRows;
+        const ranchSel = $('ysFilterRanch');
+        const lotSel = $('ysFilterLot');
+        const curRanch = ranchSel.value;
+        const curLot = lotSel.value;
+        const ranches = [...new Set(rows.map(r => r.ranch_name))].sort();
+        ranchSel.innerHTML = '<option value="">All</option>' + ranches.map(r => `<option value="${escapeHtml(r)}"${r === curRanch ? ' selected' : ''}>${escapeHtml(r)}</option>`).join('');
+        const lotNums = [...new Set(rows.filter(r => !r.lot_is_test).map(r => r.lot_number))].sort();
+        lotSel.innerHTML = '<option value="">All</option>' + lotNums.map(l => `<option value="${escapeHtml(l)}"${l === curLot ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('');
+        ysFillPastureOptions();
+    }
+
+    // Every open lot-pasture assignment with its lot's drift and idle flags.
+    // The Yard Sheet and Pasture Utilization both read this, so the two
+    // reports cannot disagree about who is standing where.
+    async function fetchOpenAssignmentRows() {
         const [assignmentsRes, statusRes, lotsRes] = await Promise.all([
             supabase.from('lot_pasture_assignments')
                 .select('id, lot_id, pasture_id, head_count, moved_in, notes, pastures(name, ranch_id, ranches(name))')
@@ -12945,10 +12992,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             supabase.from('lots').select('id, is_test')
         ]);
 
-        if (assignmentsRes.error) {
-            $('reportYardSheetContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(assignmentsRes.error.message)}</div>`;
-            return;
-        }
+        if (assignmentsRes.error) throw assignmentsRes.error;
+        if (statusRes.error) throw statusRes.error;
 
         const lotMeta = {};
         (statusRes.data || []).forEach(s => {
@@ -12970,7 +13015,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const todayMs = today.getTime();
 
         // Build row list with computed flags
-        const rows = (assignmentsRes.data || []).map(a => {
+        return (assignmentsRes.data || []).map(a => {
             const meta = lotMeta[a.lot_id] || {};
             const ranch = a.pastures?.ranches?.name || '?';
             const pasture = a.pastures?.name || '?';
@@ -13001,21 +13046,6 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 flags
             };
         });
-
-        lastYardSheetRows = rows;
-
-        // Populate filter dropdowns from data, keeping current selections
-        const ranchSel = $('ysFilterRanch');
-        const lotSel = $('ysFilterLot');
-        const curRanch = ranchSel.value;
-        const curLot = lotSel.value;
-        const ranches = [...new Set(rows.map(r => r.ranch_name))].sort();
-        ranchSel.innerHTML = '<option value="">All</option>' + ranches.map(r => `<option value="${escapeHtml(r)}"${r === curRanch ? ' selected' : ''}>${escapeHtml(r)}</option>`).join('');
-        const lotNums = [...new Set(rows.filter(r => !r.lot_is_test).map(r => r.lot_number))].sort();
-        lotSel.innerHTML = '<option value="">All</option>' + lotNums.map(l => `<option value="${escapeHtml(l)}"${l === curLot ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('');
-        ysFillPastureOptions();
-
-        renderYardSheet();
     }
 
     // The pasture picker narrows to the chosen ranch. A pasture from another
@@ -13062,6 +13092,45 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         return rows.filter(r => keepPasture.has(r.pasture_id));
     }
 
+    // The lot-by-lot split shown under an opened pasture. Same table on the
+    // Yard Sheet and on Pasture Utilization.
+    function lotSplitTable(lotRows, flagBadge) {
+        const lotLines = lotRows.map(r => {
+            const lotBadge = r.lot_closed ? ' <span style="font-size: 10px; color: var(--text-muted);">(closed)</span>' : '';
+            const testBadge = r.lot_is_test ? ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500;">TEST</span>' : '';
+            const mismatchInfo = r.flags.includes('head_mismatch')
+                ? `<div class="muted" style="font-size: 11px;">pasture sum=${r.lot_pasture_sum}, head_current=${r.lot_head_current}, Δ=${r.lot_pasture_sum - r.lot_head_current}</div>`
+                : '';
+            return `<tr class="clickable" data-lot-id="${r.lot_id}">
+                <td><strong>${escapeHtml(r.lot_number)}</strong>${lotBadge}${testBadge}</td>
+                <td class="num"><strong>${fmtNum(r.head_count)}</strong></td>
+                <td class="num">${r.days_here}</td>
+                <td>${fmtDate(r.moved_in)}</td>
+                <td>${r.flags.map(flagBadge).join('')}${mismatchInfo}</td>
+            </tr>`;
+        }).join('');
+        return `<table style="font-size: 12px; margin: 0;">
+            <thead><tr><th>Lot</th><th class="num">Head</th><th class="num">Days here</th><th>Moved in</th><th>Flags</th></tr></thead>
+            <tbody>${lotLines}</tbody>
+        </table>`;
+    }
+    function ysFlagBadge(f) {
+        if (f === 'head_mismatch') return ' <span style="font-size: 10px; padding: 1px 6px; background: #fbeaea; color: #8a2a2a; border-radius: 8px; font-weight: 500;">Δ</span>';
+        if (f === 'idle_60') return ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a4d2a; border-radius: 8px; font-weight: 500;">60+d</span>';
+        if (f === 'idle_30') return ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500;">30+d</span>';
+        return '';
+    }
+    // showPastureDetail() only hides the locations list, so from a report
+    // the Settings tab has to be put up first or the report stays behind it.
+    function openPastureFromReport(pastureId) {
+        showSettingsTab('locations');
+        setTimeout(() => showPastureDetail(pastureId), 50);
+    }
+    // The head button that opens a pasture's lot split.
+    function headSplitButton(pastureId, head, open) {
+        return `<button type="button" class="ys-head-btn" data-pasture-id="${escapeHtml(pastureId)}" title="${open ? 'Hide' : 'Show'} the lots in this pasture">${fmtNum(head)} <span class="caret">${open ? '&#9652;' : '&#9662;'}</span></button>`;
+    }
+
     function renderYardSheet() {
         const rows = ysFilteredRows();
         const lotFilter = $('ysFilterLot').value;
@@ -13089,12 +13158,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             pastures.get(r.pasture_id).rows.push(r);
         });
 
-        const flagBadge = f => {
-            if (f === 'head_mismatch') return ' <span style="font-size: 10px; padding: 1px 6px; background: #fbeaea; color: #8a2a2a; border-radius: 8px; font-weight: 500;">Δ</span>';
-            if (f === 'idle_60') return ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a4d2a; border-radius: 8px; font-weight: 500;">60+d</span>';
-            if (f === 'idle_30') return ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500;">30+d</span>';
-            return '';
-        };
+        const flagBadge = ysFlagBadge;
         const sumHead = rs => rs.reduce((s, r) => s + r.head_count, 0);
 
         let html = '';
@@ -13118,30 +13182,11 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 const flags = [...new Set(lotRows.flatMap(r => r.flags))];
                 html += `<tr class="ys-pasture${open ? ' open' : ''}">
                     <td><a class="ys-pasture-link" data-pasture-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</a></td>
-                    <td class="num"><button type="button" class="ys-head-btn" data-pasture-id="${escapeHtml(p.id)}" title="${open ? 'Hide' : 'Show'} the lots in this pasture">${fmtNum(sumHead(lotRows))} <span class="caret">${open ? '&#9652;' : '&#9662;'}</span></button></td>
+                    <td class="num">${headSplitButton(p.id, sumHead(lotRows), open)}</td>
                     <td>${flags.map(flagBadge).join('')}</td>
                 </tr>`;
                 if (open) {
-                    const lotLines = lotRows.map(r => {
-                        const lotBadge = r.lot_closed ? ' <span style="font-size: 10px; color: var(--text-muted);">(closed)</span>' : '';
-                        const testBadge = r.lot_is_test ? ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500;">TEST</span>' : '';
-                        const mismatchInfo = r.flags.includes('head_mismatch')
-                            ? `<div class="muted" style="font-size: 11px;">pasture sum=${r.lot_pasture_sum}, head_current=${r.lot_head_current}, Δ=${r.lot_pasture_sum - r.lot_head_current}</div>`
-                            : '';
-                        return `<tr class="clickable" data-lot-id="${r.lot_id}">
-                            <td><strong>${escapeHtml(r.lot_number)}</strong>${lotBadge}${testBadge}</td>
-                            <td class="num"><strong>${fmtNum(r.head_count)}</strong></td>
-                            <td class="num">${r.days_here}</td>
-                            <td>${fmtDate(r.moved_in)}</td>
-                            <td>${r.flags.map(flagBadge).join('')}${mismatchInfo}</td>
-                        </tr>`;
-                    }).join('');
-                    html += `<tr class="ys-detail"><td colspan="3">
-                        <table style="font-size: 12px; margin: 0;">
-                            <thead><tr><th>Lot</th><th class="num">Head</th><th class="num">Days here</th><th>Moved in</th><th>Flags</th></tr></thead>
-                            <tbody>${lotLines}</tbody>
-                        </table>
-                    </td></tr>`;
+                    html += `<tr class="ys-detail"><td colspan="3">${lotSplitTable(lotRows, flagBadge)}</td></tr>`;
                 }
             });
         });
@@ -13164,7 +13209,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             });
         });
         box.querySelectorAll('.ys-pasture-link').forEach(a => {
-            a.addEventListener('click', () => showPastureDetail(a.dataset.pastureId));
+            a.addEventListener('click', () => openPastureFromReport(a.dataset.pastureId));
         });
         box.querySelectorAll('tr.clickable').forEach(tr => {
             tr.addEventListener('click', () => showLotDetail(tr.dataset.lotId));
@@ -13342,25 +13387,92 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('reportShowTest').addEventListener('change', loadActiveLotsReport);
 
     // ---- Pasture Utilization ----
-    async function loadPastureUtilizationReport() {
-        $('reportPasturesContent').innerHTML = '<div class="empty">Loading…</div>';
-        const includeEmpty = $('reportPastureShowEmpty').checked;
+    // ---- Pasture Utilization ----
+    // pasture_status gives acres, forage and stocking per pasture; the open
+    // assignment rows (shared with the Yard Sheet) give the lot split under
+    // each head count. Fetched once, filtered on the client.
+    let puInitialized = false;
+    let puPastures = [];        // pasture_status rows, active pastures
+    let puLotRows = [];         // open lot-pasture rows from fetchOpenAssignmentRows
+    const puOpenPastures = new Set();
 
-        const { data, error } = await supabase
-            .from('pasture_status')
-            .select('*')
-            .eq('is_active', true)
-            .order('ranch_name')
-            .order('pasture_name');
-        if (error) {
-            $('reportPasturesContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(error.message)}</div>`;
+    async function loadPastureUtilizationReport() {
+        if (!puInitialized) {
+            ['puFilterRanch', 'puFilterPasture', 'puFilterLot', 'reportPastureShowEmpty'].forEach(id => {
+                $(id).addEventListener('change', () => {
+                    if (id === 'puFilterRanch') puFillPastureOptions();
+                    renderPastureUtilization();
+                });
+            });
+            $('puClearBtn').addEventListener('click', () => {
+                ['puFilterRanch', 'puFilterPasture', 'puFilterLot'].forEach(id => { $(id).value = ''; });
+                puFillPastureOptions();
+                renderPastureUtilization();
+            });
+            $('reportPasturesRefreshBtn').addEventListener('click', loadPastureUtilizationReport);
+            puInitialized = true;
+        }
+        $('reportPasturesContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        try {
+            const [statusRes, lotRows] = await Promise.all([
+                supabase.from('pasture_status').select('*').eq('is_active', true)
+                    .order('ranch_name').order('pasture_name'),
+                fetchOpenAssignmentRows()
+            ]);
+            if (statusRes.error) throw statusRes.error;
+            puPastures = statusRes.data || [];
+            puLotRows = lotRows;
+        } catch (e) {
+            $('reportPasturesContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(e.message)}</div>`;
             return;
         }
-        let rows = data || [];
+
+        // Pickers from the data, current selections kept
+        const ranchSel = $('puFilterRanch'), lotSel = $('puFilterLot');
+        const curRanch = ranchSel.value, curLot = lotSel.value;
+        const ranches = [...new Set(puPastures.map(p => p.ranch_name))].sort();
+        ranchSel.innerHTML = '<option value="">All</option>' + ranches.map(r => `<option value="${escapeHtml(r)}"${r === curRanch ? ' selected' : ''}>${escapeHtml(r)}</option>`).join('');
+        const lotNums = [...new Set(puLotRows.filter(r => !r.lot_is_test).map(r => r.lot_number))].sort();
+        lotSel.innerHTML = '<option value="">All</option>' + lotNums.map(l => `<option value="${escapeHtml(l)}"${l === curLot ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('');
+        puFillPastureOptions();
+
+        renderPastureUtilization();
+    }
+
+    function puFillPastureOptions() {
+        const sel = $('puFilterPasture');
+        const cur = sel.value;
+        const ranch = $('puFilterRanch').value;
+        const opts = puPastures
+            .filter(p => !ranch || p.ranch_name === ranch)
+            .map(p => [p.pasture_id, ranch ? p.pasture_name : `${p.ranch_name} / ${p.pasture_name}`])
+            .sort((a, b) => a[1].localeCompare(b[1]));
+        sel.innerHTML = '<option value="">All</option>' + opts.map(([id, name]) =>
+            `<option value="${escapeHtml(id)}"${id === cur ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
+    }
+
+    function renderPastureUtilization() {
+        const includeEmpty = $('reportPastureShowEmpty').checked;
+        const ranchFilter = $('puFilterRanch').value;
+        const pastureFilter = $('puFilterPasture').value;
+        const lotFilter = $('puFilterLot').value;
+
+        // Lot rows by pasture. The head shown is the pasture's own total from
+        // pasture_status; the split is what stands behind it.
+        const lotsByPasture = {};
+        puLotRows.forEach(r => { (lotsByPasture[r.pasture_id] = lotsByPasture[r.pasture_id] || []).push(r); });
+
+        let rows = puPastures;
         if (!includeEmpty) rows = rows.filter(p => Number(p.current_head_total) > 0);
+        if (ranchFilter) rows = rows.filter(p => p.ranch_name === ranchFilter);
+        if (pastureFilter) rows = rows.filter(p => p.pasture_id === pastureFilter);
+        // A lot filter picks the pastures that lot stands in; each keeps its
+        // whole head count, because that is what stocking is measured on.
+        if (lotFilter) rows = rows.filter(p => (lotsByPasture[p.pasture_id] || []).some(r => r.lot_number === lotFilter));
 
         if (rows.length === 0) {
-            $('reportPasturesContent').innerHTML = '<div class="empty">No pastures match filters.</div>';
+            $('reportPasturesContent').innerHTML = '<div class="empty">No pastures match the current filters.</div>';
             return;
         }
 
@@ -13394,7 +13506,6 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             { key: 'forage_type_name', label: 'Forage' },
             { key: 'total_acres', label: 'Total ac', num: true },
             { key: 'usable_acres', label: 'Usable ac', num: true },
-            { key: 'current_lot_count', label: 'Lots', num: true },
             { key: 'current_head_total', label: 'Head', num: true },
             { key: 'current_head_per_acre', label: 'Hd/ac', num: true }
         ];
@@ -13403,65 +13514,69 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         ).join('');
 
         const bodyRows = rows.map(p => {
-            const empty = Number(p.current_head_total) === 0;
-            const cls = ['clickable'];
-            if (empty) cls.push('closed-row');
+            const head = Number(p.current_head_total) || 0;
+            const lotRows = [...(lotsByPasture[p.pasture_id] || [])].sort((a, b) => b.head_count - a.head_count);
+            const open = lotRows.length > 0 && (puOpenPastures.has(p.pasture_id) || (lotFilter && lotRows.some(r => r.lot_number === lotFilter)));
             const forageDisplay = p.is_crop_ground && p.current_crop
                 ? `${escapeHtml(p.forage_type_name || 'Crop')}: ${escapeHtml(p.current_crop)}`
                 : escapeHtml(p.forage_type_name || '—');
             const acresEffective = p.is_crop_ground && p.planted_acres
                 ? `${fmtNum(p.planted_acres, 1)} planted`
                 : (p.usable_acres ? fmtNum(p.usable_acres, 1) : '—');
-            return `<tr class="${cls.join(' ')}" data-pasture-id="${p.pasture_id}">
+            let html = `<tr class="ys-pasture${open ? ' open' : ''}${head === 0 ? ' closed-row' : ''}">
                 <td>${escapeHtml(p.ranch_name)}</td>
-                <td><strong>${escapeHtml(p.pasture_name)}</strong></td>
+                <td><a class="ys-pasture-link" data-pasture-id="${escapeHtml(p.pasture_id)}"><strong>${escapeHtml(p.pasture_name)}</strong></a></td>
                 <td>${forageDisplay}</td>
                 <td class="num">${p.total_acres ? fmtNum(p.total_acres, 1) : '—'}</td>
                 <td class="num">${acresEffective}</td>
-                <td class="num">${p.current_lot_count || '—'}</td>
-                <td class="num">${p.current_head_total > 0 ? fmtNum(p.current_head_total) : '—'}</td>
+                <td class="num">${lotRows.length > 0 ? headSplitButton(p.pasture_id, head, open) : (head > 0 ? fmtNum(head) : '—')}</td>
                 <td class="num">${p.current_head_per_acre != null ? Number(p.current_head_per_acre).toFixed(2) : '—'}</td>
             </tr>`;
+            if (open) html += `<tr class="ys-detail"><td colspan="7">${lotSplitTable(lotRows, ysFlagBadge)}</td></tr>`;
+            return html;
         }).join('');
 
         const totalsRow = `<tr style="font-weight: 500; background: #fafaf6;">
             <td colspan="3">Total · ${rows.length} pasture${rows.length === 1 ? '' : 's'} · ${occupiedCount} occupied</td>
             <td class="num">${fmtNum(totalAcres, 1)}</td>
             <td class="num">${fmtNum(totalUsable, 1)}</td>
-            <td class="num"></td>
             <td class="num">${fmtNum(totalHead)}</td>
             <td class="num">${(totalUsable > 0 && totalHead > 0) ? (totalHead / totalUsable).toFixed(2) : '—'}</td>
         </tr>`;
 
-        $('reportPasturesContent').innerHTML = `
-            <table>
+        const box = $('reportPasturesContent');
+        box.innerHTML = `
+            <table class="ys-table">
                 <thead><tr>${headerHtml}</tr></thead>
                 <tbody>${bodyRows}${totalsRow}</tbody>
             </table>
         `;
 
-        $('reportPasturesContent').querySelectorAll('th.sortable').forEach(th => {
+        box.querySelectorAll('th.sortable').forEach(th => {
             th.addEventListener('click', () => {
                 const key = th.dataset.sortKey;
                 const cur = reportSortState['pastures'];
-                if (cur && cur.key === key) {
-                    reportSortState['pastures'] = { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' };
-                } else {
-                    reportSortState['pastures'] = { key, dir: 'asc' };
-                }
-                loadPastureUtilizationReport();
+                reportSortState['pastures'] = (cur && cur.key === key)
+                    ? { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' }
+                    : { key, dir: 'asc' };
+                renderPastureUtilization();
             });
         });
-
-        $('reportPasturesContent').querySelectorAll('tr.clickable').forEach(r => {
-            r.addEventListener('click', () => {
-                showSettingsTab('locations');
-                setTimeout(() => showPastureDetail(r.dataset.pastureId), 50);
+        box.querySelectorAll('.ys-head-btn').forEach(b => {
+            b.addEventListener('click', () => {
+                const id = b.dataset.pastureId;
+                if (puOpenPastures.has(id)) puOpenPastures.delete(id); else puOpenPastures.add(id);
+                renderPastureUtilization();
             });
+        });
+        box.querySelectorAll('.ys-pasture-link').forEach(a => {
+            a.addEventListener('click', () => openPastureFromReport(a.dataset.pastureId));
+        });
+        box.querySelectorAll('tr.clickable').forEach(tr => {
+            tr.addEventListener('click', () => showLotDetail(tr.dataset.lotId));
         });
     }
 
-    $('reportPastureShowEmpty').addEventListener('change', loadPastureUtilizationReport);
 
     // ==========================================================
     // DEATH ANALYSIS REPORT
