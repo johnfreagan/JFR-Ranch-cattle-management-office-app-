@@ -13100,14 +13100,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         let html = '';
         const grandHead = sumHead(rows);
         const pastureCount = [...ranches.values()].reduce((n, p) => n + p.size, 0);
-        const lotCount = new Set(rows.map(r => r.lot_id)).size;
 
         [...ranches.keys()].sort((a, b) => a.localeCompare(b)).forEach(ranchName => {
             const pastures = [...ranches.get(ranchName).values()].sort((a, b) => a.name.localeCompare(b.name));
             const ranchRows = pastures.flatMap(p => p.rows);
-            const ranchLots = new Set(ranchRows.map(r => r.lot_id)).size;
             html += `<tr class="ys-ranch">
-                <td colspan="2"><strong>${escapeHtml(ranchName)}</strong> <span class="muted" style="font-size: 12px;">${pastures.length} pasture${pastures.length === 1 ? '' : 's'} · ${ranchLots} lot${ranchLots === 1 ? '' : 's'}</span></td>
+                <td><strong>${escapeHtml(ranchName)}</strong> <span class="muted" style="font-size: 12px;">${pastures.length} pasture${pastures.length === 1 ? '' : 's'}</span></td>
                 <td class="num"><strong>${fmtNum(sumHead(ranchRows))}</strong></td>
                 <td></td>
             </tr>`;
@@ -13118,13 +13116,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 // its pastures open on their own.
                 const open = ysOpenPastures.has(p.id) || (lotFilter && lotRows.some(r => r.lot_number === lotFilter));
                 const flags = [...new Set(lotRows.flatMap(r => r.flags))];
-                const lotNames = lotRows.map(r => r.lot_number);
-                const lotsCell = lotNames.length <= 3
-                    ? lotNames.map(n => `<span${n === lotFilter ? ' style="font-weight: 600;"' : ''}>${escapeHtml(n)}</span>`).join(', ')
-                    : `${lotNames.length} lots`;
                 html += `<tr class="ys-pasture${open ? ' open' : ''}">
                     <td><a class="ys-pasture-link" data-pasture-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</a></td>
-                    <td class="muted" style="font-size: 12px;">${lotsCell}</td>
                     <td class="num"><button type="button" class="ys-head-btn" data-pasture-id="${escapeHtml(p.id)}" title="${open ? 'Hide' : 'Show'} the lots in this pasture">${fmtNum(sumHead(lotRows))} <span class="caret">${open ? '&#9652;' : '&#9662;'}</span></button></td>
                     <td>${flags.map(flagBadge).join('')}</td>
                 </tr>`;
@@ -13143,7 +13136,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                             <td>${r.flags.map(flagBadge).join('')}${mismatchInfo}</td>
                         </tr>`;
                     }).join('');
-                    html += `<tr class="ys-detail"><td colspan="4">
+                    html += `<tr class="ys-detail"><td colspan="3">
                         <table style="font-size: 12px; margin: 0;">
                             <thead><tr><th>Lot</th><th class="num">Head</th><th class="num">Days here</th><th>Moved in</th><th>Flags</th></tr></thead>
                             <tbody>${lotLines}</tbody>
@@ -13154,10 +13147,10 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         });
 
         $('reportYardSheetContent').innerHTML = `
-            <div class="muted" style="font-size: 12px; margin-bottom: 6px;">${pastureCount} pasture${pastureCount === 1 ? '' : 's'} · ${lotCount} lot${lotCount === 1 ? '' : 's'} · ${fmtNum(grandHead)} head total</div>
+            <div class="muted" style="font-size: 12px; margin-bottom: 6px;">${pastureCount} pasture${pastureCount === 1 ? '' : 's'} · ${fmtNum(grandHead)} head total</div>
             <table class="ys-table" style="font-size: 13px;">
                 <thead><tr>
-                    <th>Pasture</th><th>Lots</th><th class="num">Head</th><th>Flags</th>
+                    <th>Pasture</th><th class="num">Head</th><th>Flags</th>
                 </tr></thead>
                 <tbody>${html}</tbody>
             </table>
