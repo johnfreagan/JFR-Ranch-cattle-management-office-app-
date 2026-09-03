@@ -1540,15 +1540,16 @@
                 <div class="report-filters" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 12px; background: #fafaf6; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px;">
                     <div>
                         <label style="font-size: 12px;">Ranch</label>
-                        <select id="ysFilterRanch" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                        <select id="ysFilterRanch" multiple size="4" style="width: 100%; font-size: 13px;"></select>
+                        <div class="muted" style="font-size: 11px; margin-top: 2px;">Hold Ctrl/Cmd to pick more than one. Nothing picked = all.</div>
                     </div>
                     <div>
                         <label style="font-size: 12px;">Pasture</label>
-                        <select id="ysFilterPasture" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                        <select id="ysFilterPasture" multiple size="4" style="width: 100%; font-size: 13px;"></select>
                     </div>
                     <div>
                         <label style="font-size: 12px;">Lot</label>
-                        <select id="ysFilterLot" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                        <select id="ysFilterLot" multiple size="4" style="width: 100%; font-size: 13px;"></select>
                     </div>
                     <div>
                         <label style="font-size: 12px;">Anomalies</label>
@@ -1643,15 +1644,16 @@
                 <div class="report-filters" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 12px; background: #fafaf6; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px;">
                     <div>
                         <label style="font-size: 12px;">Ranch</label>
-                        <select id="puFilterRanch" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                        <select id="puFilterRanch" multiple size="4" style="width: 100%; font-size: 13px;"></select>
+                        <div class="muted" style="font-size: 11px; margin-top: 2px;">Hold Ctrl/Cmd to pick more than one. Nothing picked = all.</div>
                     </div>
                     <div>
                         <label style="font-size: 12px;">Pasture</label>
-                        <select id="puFilterPasture" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                        <select id="puFilterPasture" multiple size="4" style="width: 100%; font-size: 13px;"></select>
                     </div>
                     <div>
                         <label style="font-size: 12px;">Lot</label>
-                        <select id="puFilterLot" style="width: 100%; font-size: 13px;"><option value="">All</option></select>
+                        <select id="puFilterLot" multiple size="4" style="width: 100%; font-size: 13px;"></select>
                     </div>
                     <div style="display: flex; flex-direction: column; justify-content: flex-end;">
                         <label style="font-size: 12px; display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
@@ -5337,7 +5339,7 @@ window.addEventListener('unhandledrejection', function(e) {
                         setTimeout(() => {
                             const lotSel = document.getElementById('ysFilterLot');
                             if (lotSel) {
-                                lotSel.value = currentLot.lot_number;
+                                [...lotSel.options].forEach(o => { o.selected = o.value === currentLot.lot_number; });
                                 if (typeof renderYardSheet === 'function') renderYardSheet();
                             }
                         }, 300);
@@ -12942,7 +12944,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 });
             });
             $('ysClearBtn').addEventListener('click', () => {
-                ['ysFilterRanch', 'ysFilterPasture', 'ysFilterLot', 'ysFilterAnomaly'].forEach(id => { $(id).value = ''; });
+                ['ysFilterRanch', 'ysFilterPasture', 'ysFilterLot'].forEach(id => { [...$(id).options].forEach(o => { o.selected = false; }); });
+                $('ysFilterAnomaly').value = '';
                 ysFillPastureOptions();
                 renderYardSheet();
             });
@@ -12969,14 +12972,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     // is not offered. Current selections survive a refresh.
     function ysFillPickers() {
         const rows = lastYardSheetRows;
-        const ranchSel = $('ysFilterRanch');
-        const lotSel = $('ysFilterLot');
-        const curRanch = ranchSel.value;
-        const curLot = lotSel.value;
-        const ranches = [...new Set(rows.map(r => r.ranch_name))].sort();
-        ranchSel.innerHTML = '<option value="">All</option>' + ranches.map(r => `<option value="${escapeHtml(r)}"${r === curRanch ? ' selected' : ''}>${escapeHtml(r)}</option>`).join('');
-        const lotNums = [...new Set(rows.filter(r => !r.lot_is_test).map(r => r.lot_number))].sort();
-        lotSel.innerHTML = '<option value="">All</option>' + lotNums.map(l => `<option value="${escapeHtml(l)}"${l === curLot ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('');
+        fillPicker('ysFilterRanch', [...new Set(rows.map(r => r.ranch_name))].sort().map(r => [r, r]));
+        fillPicker('ysFilterLot', [...new Set(rows.filter(r => !r.lot_is_test).map(r => r.lot_number))].sort().map(l => [l, l]));
         ysFillPastureOptions();
     }
 
@@ -13051,38 +13048,34 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     // The pasture picker narrows to the chosen ranch. A pasture from another
     // ranch cannot stay selected once the ranch changes.
     function ysFillPastureOptions() {
-        const sel = $('ysFilterPasture');
-        const cur = sel.value;
-        const ranch = $('ysFilterRanch').value;
+        const ranches = pickedValues('ysFilterRanch');
         const seen = new Map();
         lastYardSheetRows.forEach(r => {
-            if (ranch && r.ranch_name !== ranch) return;
-            if (!seen.has(r.pasture_id)) seen.set(r.pasture_id, ranch ? r.pasture_name : `${r.ranch_name} / ${r.pasture_name}`);
+            if (ranches.length && !ranches.includes(r.ranch_name)) return;
+            if (!seen.has(r.pasture_id)) seen.set(r.pasture_id, ranches.length === 1 ? r.pasture_name : `${r.ranch_name} / ${r.pasture_name}`);
         });
-        const opts = [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-        sel.innerHTML = '<option value="">All</option>' + opts.map(([id, name]) =>
-            `<option value="${escapeHtml(id)}"${id === cur ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
+        fillPicker('ysFilterPasture', [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1])));
     }
 
     // The per-lot rows that survive the filters. Shared by the table and
     // the CSV so what is exported is what is on screen.
     function ysFilteredRows() {
         const showTest = $('ysShowTest').checked;
-        const ranchFilter = $('ysFilterRanch').value;
-        const pastureFilter = $('ysFilterPasture').value;
-        const lotFilter = $('ysFilterLot').value;
+        const ranchFilter = pickedValues('ysFilterRanch');
+        const pastureFilter = pickedValues('ysFilterPasture');
+        const lotFilter = pickedValues('ysFilterLot');
         const anomalyFilter = $('ysFilterAnomaly').value;
 
         let rows = lastYardSheetRows;
         if (!showTest) rows = rows.filter(r => !r.lot_is_test);
-        if (ranchFilter) rows = rows.filter(r => r.ranch_name === ranchFilter);
-        if (pastureFilter) rows = rows.filter(r => r.pasture_id === pastureFilter);
+        if (ranchFilter.length) rows = rows.filter(r => ranchFilter.includes(r.ranch_name));
+        if (pastureFilter.length) rows = rows.filter(r => pastureFilter.includes(r.pasture_id));
         // A lot or anomaly filter picks PASTURES, not rows: the pasture still
         // shows every lot standing in it, because its head count is the
         // whole pasture's and that is the number the report exists for.
         const keepPasture = new Set();
         rows.forEach(r => {
-            if (lotFilter && r.lot_number !== lotFilter) return;
+            if (lotFilter.length && !lotFilter.includes(r.lot_number)) return;
             if (anomalyFilter === 'any' && r.flags.length === 0) return;
             if (anomalyFilter === 'head_mismatch' && !r.flags.includes('head_mismatch')) return;
             if (anomalyFilter === 'idle_30' && !(r.flags.includes('idle_30') || r.flags.includes('idle_60'))) return;
@@ -13120,6 +13113,17 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         if (f === 'idle_30') return ' <span style="font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500;">30+d</span>';
         return '';
     }
+    // Multi-select pickers on the two pasture reports. Nothing picked means
+    // no filter, the same convention as the Doctoring & Deaths lot picker.
+    function pickedValues(id) {
+        return [...$(id).selectedOptions].map(o => o.value);
+    }
+    function fillPicker(id, values, keep) {
+        const sel = $(id);
+        const cur = new Set(keep || pickedValues(id));
+        sel.innerHTML = values.map(([v, label]) =>
+            `<option value="${escapeHtml(v)}"${cur.has(v) ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+    }
     // showPastureDetail() only hides the locations list, so from a report
     // the Settings tab has to be put up first or the report stays behind it.
     function openPastureFromReport(pastureId) {
@@ -13133,7 +13137,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
     function renderYardSheet() {
         const rows = ysFilteredRows();
-        const lotFilter = $('ysFilterLot').value;
+        const lotFilter = pickedValues('ysFilterLot');
 
         // Anomaly banner across the visible set
         const anomalyCount = rows.filter(r => r.flags.length > 0).length;
@@ -13178,7 +13182,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 const lotRows = [...p.rows].sort((a, b) => b.head_count - a.head_count);
                 // A lot filter is a question about where that lot stands, so
                 // its pastures open on their own.
-                const open = ysOpenPastures.has(p.id) || (lotFilter && lotRows.some(r => r.lot_number === lotFilter));
+                const open = ysOpenPastures.has(p.id) || (lotFilter.length > 0 && lotRows.some(r => lotFilter.includes(r.lot_number)));
                 const flags = [...new Set(lotRows.flatMap(r => r.flags))];
                 html += `<tr class="ys-pasture${open ? ' open' : ''}">
                     <td><a class="ys-pasture-link" data-pasture-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</a></td>
@@ -13405,7 +13409,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 });
             });
             $('puClearBtn').addEventListener('click', () => {
-                ['puFilterRanch', 'puFilterPasture', 'puFilterLot'].forEach(id => { $(id).value = ''; });
+                ['puFilterRanch', 'puFilterPasture', 'puFilterLot'].forEach(id => { [...$(id).options].forEach(o => { o.selected = false; }); });
                 puFillPastureOptions();
                 renderPastureUtilization();
             });
@@ -13429,34 +13433,27 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         }
 
         // Pickers from the data, current selections kept
-        const ranchSel = $('puFilterRanch'), lotSel = $('puFilterLot');
-        const curRanch = ranchSel.value, curLot = lotSel.value;
-        const ranches = [...new Set(puPastures.map(p => p.ranch_name))].sort();
-        ranchSel.innerHTML = '<option value="">All</option>' + ranches.map(r => `<option value="${escapeHtml(r)}"${r === curRanch ? ' selected' : ''}>${escapeHtml(r)}</option>`).join('');
-        const lotNums = [...new Set(puLotRows.filter(r => !r.lot_is_test).map(r => r.lot_number))].sort();
-        lotSel.innerHTML = '<option value="">All</option>' + lotNums.map(l => `<option value="${escapeHtml(l)}"${l === curLot ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('');
+        fillPicker('puFilterRanch', [...new Set(puPastures.map(p => p.ranch_name))].sort().map(r => [r, r]));
+        fillPicker('puFilterLot', [...new Set(puLotRows.filter(r => !r.lot_is_test).map(r => r.lot_number))].sort().map(l => [l, l]));
         puFillPastureOptions();
 
         renderPastureUtilization();
     }
 
     function puFillPastureOptions() {
-        const sel = $('puFilterPasture');
-        const cur = sel.value;
-        const ranch = $('puFilterRanch').value;
+        const ranches = pickedValues('puFilterRanch');
         const opts = puPastures
-            .filter(p => !ranch || p.ranch_name === ranch)
-            .map(p => [p.pasture_id, ranch ? p.pasture_name : `${p.ranch_name} / ${p.pasture_name}`])
+            .filter(p => !ranches.length || ranches.includes(p.ranch_name))
+            .map(p => [p.pasture_id, ranches.length === 1 ? p.pasture_name : `${p.ranch_name} / ${p.pasture_name}`])
             .sort((a, b) => a[1].localeCompare(b[1]));
-        sel.innerHTML = '<option value="">All</option>' + opts.map(([id, name]) =>
-            `<option value="${escapeHtml(id)}"${id === cur ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
+        fillPicker('puFilterPasture', opts);
     }
 
     function renderPastureUtilization() {
         const includeEmpty = $('reportPastureShowEmpty').checked;
-        const ranchFilter = $('puFilterRanch').value;
-        const pastureFilter = $('puFilterPasture').value;
-        const lotFilter = $('puFilterLot').value;
+        const ranchFilter = pickedValues('puFilterRanch');
+        const pastureFilter = pickedValues('puFilterPasture');
+        const lotFilter = pickedValues('puFilterLot');
 
         // Lot rows by pasture. The head shown is the pasture's own total from
         // pasture_status; the split is what stands behind it.
@@ -13465,11 +13462,11 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         let rows = puPastures;
         if (!includeEmpty) rows = rows.filter(p => Number(p.current_head_total) > 0);
-        if (ranchFilter) rows = rows.filter(p => p.ranch_name === ranchFilter);
-        if (pastureFilter) rows = rows.filter(p => p.pasture_id === pastureFilter);
-        // A lot filter picks the pastures that lot stands in; each keeps its
+        if (ranchFilter.length) rows = rows.filter(p => ranchFilter.includes(p.ranch_name));
+        if (pastureFilter.length) rows = rows.filter(p => pastureFilter.includes(p.pasture_id));
+        // A lot filter picks the pastures those lots stand in; each keeps its
         // whole head count, because that is what stocking is measured on.
-        if (lotFilter) rows = rows.filter(p => (lotsByPasture[p.pasture_id] || []).some(r => r.lot_number === lotFilter));
+        if (lotFilter.length) rows = rows.filter(p => (lotsByPasture[p.pasture_id] || []).some(r => lotFilter.includes(r.lot_number)));
 
         if (rows.length === 0) {
             $('reportPasturesContent').innerHTML = '<div class="empty">No pastures match the current filters.</div>';
@@ -13516,7 +13513,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const bodyRows = rows.map(p => {
             const head = Number(p.current_head_total) || 0;
             const lotRows = [...(lotsByPasture[p.pasture_id] || [])].sort((a, b) => b.head_count - a.head_count);
-            const open = lotRows.length > 0 && (puOpenPastures.has(p.pasture_id) || (lotFilter && lotRows.some(r => r.lot_number === lotFilter)));
+            const open = lotRows.length > 0 && (puOpenPastures.has(p.pasture_id) || (lotFilter.length > 0 && lotRows.some(r => lotFilter.includes(r.lot_number))));
             const forageDisplay = p.is_crop_ground && p.current_crop
                 ? `${escapeHtml(p.forage_type_name || 'Crop')}: ${escapeHtml(p.current_crop)}`
                 : escapeHtml(p.forage_type_name || '—');
