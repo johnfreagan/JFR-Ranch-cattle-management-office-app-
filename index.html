@@ -13198,9 +13198,10 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
             pastures.forEach(p => {
                 const lotRows = [...p.rows].sort((a, b) => b.head_count - a.head_count);
-                // A lot filter is a question about where that lot stands, so
-                // its pastures open on their own.
-                const open = ysOpenPastures.has(p.id) || (lotFilter.length > 0 && lotRows.some(r => lotFilter.includes(r.lot_number)));
+                // A filter never opens a pasture. The sheet stays at ranch,
+                // pasture and head count until a head count is clicked
+                // (John, 2026-09-03: "i will drill down if i need more").
+                const open = ysOpenPastures.has(p.id);
                 const flags = [...new Set(lotRows.flatMap(r => r.flags))];
                 html += `<tr class="ys-pasture${open ? ' open' : ''}">
                     <td><a class="ys-pasture-link" data-pasture-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</a></td>
@@ -13600,7 +13601,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const bodyRows = rows.map(p => {
             const head = Number(p.current_head_total) || 0;
             const lotRows = [...(lotsByPasture[p.pasture_id] || [])].sort((a, b) => b.head_count - a.head_count);
-            const open = lotRows.length > 0 && (puOpenPastures.has(p.pasture_id) || (lotFilter.length > 0 && lotRows.some(r => lotFilter.includes(r.lot_number))));
+            const open = lotRows.length > 0 && puOpenPastures.has(p.pasture_id);
             const forageDisplay = p.is_crop_ground && p.current_crop
                 ? `${escapeHtml(p.forage_type_name || 'Crop')}: ${escapeHtml(p.current_crop)}`
                 : escapeHtml(p.forage_type_name || '—');
