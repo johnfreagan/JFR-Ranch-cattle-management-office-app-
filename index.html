@@ -11610,10 +11610,37 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     // The at-cost basis this lot would hand over per head, and what makes it
     // up. Null when the closeout cannot be computed - the modal then refuses
     // to save rather than guessing a number that lands on two sets of books.
+    // The basis reads the lot's SAVED assumptions, not the Closeout tab's
+    // input boxes. Two reasons, and the second is the better one:
+    //   * those inputs only exist once the Closeout tab has rendered, so the
+    //     basis used to be unavailable depending on where you had clicked;
+    //   * they also hold unsaved what-if edits. Freezing a number onto two
+    //     lots' books off an experiment somebody left in a box is exactly the
+    //     kind of silent wrongness this module exists to avoid.
+    // Only cog, labor and interest reach the basis. Sale price, ADG, finish
+    // weight, death loss and ship date drive revenue and the projection, and
+    // the basis touches none of them.
+    function ltStoredRates() {
+        const l = currentLot || {};
+        const n = v => (v == null || v === '' || isNaN(Number(v))) ? null : Number(v);
+        const cogMode   = l.cog_mode   || 'per_day';
+        const laborMode = l.labor_mode || 'per_day';
+        return {
+            salePerLb: null, adg: null, finishWt: null,
+            medPerHead: null, deathPct: null, shipDate: null,
+            cogMode, laborMode,
+            cog:   cogMode   === 'per_day' ? n(l.assumed_cog_per_day)   : n(l.assumed_cog_per_head),
+            labor: laborMode === 'per_day' ? n(l.assumed_labor_per_day) : n(l.assumed_labor_per_head),
+            // Already a fraction on the lot. The closeout input shows it x100
+            // and divides on the way back, which is why this does not.
+            intPct: n(l.assumed_interest_pct)
+        };
+    }
+
     function ltComputeBasis() {
         try {
-            if (!$('calc_cwt') || !currentStatus) return null;
-            const a = closeoutActual(closeoutRates());
+            if (!currentStatus || !currentLot) return null;
+            const a = closeoutActual(ltStoredRates());
             if (!a || a.basisPerHead == null || !isFinite(a.basisPerHead) || a.basisPerHead <= 0) return null;
             return {
                 perHead: a.basisPerHead,
@@ -11706,11 +11733,35 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         if (basis) {
             $('ltBasis').value = fmtMoney(basis.perHead);
+
+            // A missing assumption does not error, it just contributes zero -
+            // the unpriced-medication failure wearing a different hat. 47-26
+            // has carried cattle since 2025-12-09 with no cost-of-gain rate
+            // set, so at cost it would hand them over for cattle, processing,
+            // treatment and feed alone. Light, and silently so. Say it here,
+            // where the number is, rather than let it freeze onto two lots.
+            const missing = [];
+            const l = currentLot;
+            const cogSet = (l.cog_mode === 'per_head' ? l.assumed_cog_per_head : l.assumed_cog_per_day) != null;
+            const laborSet = (l.labor_mode === 'per_head' ? l.assumed_labor_per_head : l.assumed_labor_per_day) != null;
+            if (!cogSet)   missing.push('cost of gain');
+            if (!laborSet) missing.push('labor');
+            if (l.assumed_interest_pct == null) missing.push('interest');
+
             $('ltBasisHint').innerHTML =
-                `Total cost to date over ${fmtNum(basis.surviving)} surviving head. Frozen when you save.`;
+                `Total cost to date over ${fmtNum(basis.surviving)} surviving head. Frozen when you save.`
+                + (missing.length ? `<br><span style="color:var(--danger);"><strong>${currentLot.lot_number}
+                   has no ${missing.join(', ')} assumption set</strong>, so the basis carries none of it and
+                   reads light. Set ${missing.length === 1 ? 'it' : 'them'} on this lot&rsquo;s Closeout tab
+                   before transferring, or the receiving lot gets these cattle cheap and this one keeps
+                   the carry.</span>` : '');
         } else {
             $('ltBasis').value = '';
-            $('ltBasisHint').innerHTML = '<span style="color:var(--danger);">Cost basis unavailable — open the Closeout tab on this lot first so the assumptions load.</span>';
+            // Now that the basis reads saved assumptions, the only ways it
+            // can be missing are a lot with no cost in the books yet, or no
+            // surviving head to divide by. Say which, rather than sending
+            // someone to a tab that will not help.
+            $('ltBasisHint').innerHTML = '<span style="color:var(--danger);">Cost basis unavailable — this lot has no cost recorded, or no surviving head to divide it over. Add its invoice first.</span>';
         }
 
         ltRenderLines();
@@ -11993,7 +12044,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         const basis = ltComputeBasis();
         if (!basis) {
-            showAlert('globalAlert', 'Cost basis unavailable — open the Closeout tab on this lot first.');
+            showAlert('globalAlert', 'Cost basis unavailable — this lot has no cost recorded, or no surviving head to divide it over.');
             return;
         }
         const perHead = round2(basis.perHead);
