@@ -1045,6 +1045,10 @@ closes it early.
   (`.co-drill`); `input:calc_cog` style targets land on that assumption
   input, focused. A drill into Sales or Closeout is refused when the role's
   CSS hides that tab, so crew never opens a dollar section from a head tile.
+  A drill that LEAVES the lot (Receiving report, feed cost) shows
+  `#drillBackBar`, "← Back to lot 60X", which reopens the lot in the section
+  you left. It is set AFTER the navigation because `clearAllNavActive()`
+  clears it: leaving by the main nav means done with that lot.
 - **Fresh Cattle is its own report** under Reports → Health (2026-09-04),
   `reportFreshView` / `initFreshCattleReport()`. It used to sit above
   Processing Cost on the Receiving page.

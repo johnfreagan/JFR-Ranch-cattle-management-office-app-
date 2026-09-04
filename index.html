@@ -560,6 +560,13 @@
         .tile-row[data-drill] { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 0 4px; }
         .tile-row[data-drill]:hover { background: #f3f1ea; }
         .tile-row[data-drill]:hover .tr-value { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+        #drillBackBar { margin: 0 0 8px 0; }
+        #drillBackBar a {
+            display: inline-block; padding: 5px 12px; font-size: 13px; font-weight: 500;
+            color: var(--accent); background: #fff; border: 1px solid var(--border);
+            border-radius: 999px; text-decoration: none;
+        }
+        #drillBackBar a:hover { background: #f3f1ea; }
         tr.co-drill[data-drill] { cursor: pointer; }
         tr.co-drill[data-drill]:hover td { background: #f3f1ea; }
         tr.co-drill[data-drill]:hover td:first-child { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
@@ -891,6 +898,12 @@
                 <button type="button" data-material="feed" class="active">Feed</button>
                 <button type="button" data-material="med">Meds</button>
             </div>
+        </div>
+        <!-- Shown only after a lot tile drilled OUT of the lot (Receiving
+             report, feed cost). One click puts you back on that lot, in the
+             section you left. -->
+        <div id="drillBackBar" class="hidden">
+            <a href="#" id="drillBackLink">← Back to lot</a>
         </div>
         <!-- Reports. Same shape as Inventory: the ones opened every day stay
              flat, the rest sit in a group you go into for one job. -->
@@ -5241,9 +5254,10 @@ window.addEventListener('unhandledrejection', function(e) {
         if (target === 'receiving') {
             processingReportPendingLot = currentLot.id;
             showReportsTab('processing-costs');
+            drillBackSet();
             return;
         }
-        if (target === 'feedcost') { showInventoryTab('cost'); return; }
+        if (target === 'feedcost') { showInventoryTab('cost'); drillBackSet(); return; }
         // 'input:calc_cog' - a closeout number that is driven by an
         // assumption lands on that assumption, ready to type.
         if (target.startsWith('input:')) {
@@ -5269,6 +5283,31 @@ window.addEventListener('unhandledrejection', function(e) {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     }
+    // The way back. Set AFTER the navigation, because every tab switch
+    // clears it (clearAllNavActive) - leaving by the main nav means you are
+    // done with that lot, leaving by a drill means you are not.
+    let drillBackLot = null;
+    function drillBackSet() {
+        if (!currentLot) return;
+        drillBackLot = { id: currentLot.id, lot_number: currentLot.lot_number, subtab: currentLotSubtab };
+        $('drillBackLink').textContent = '← Back to lot ' + (currentLot.lot_number || '');
+        $('drillBackBar').classList.remove('hidden');
+    }
+    function drillBackClear() {
+        drillBackLot = null;
+        const bar = $('drillBackBar');
+        if (bar) bar.classList.add('hidden');
+    }
+    $('drillBackLink').addEventListener('click', (e) => {
+        e.preventDefault();
+        const back = drillBackLot;
+        drillBackClear();
+        if (!back) return;
+        currentLotSubtab = back.subtab;
+        lastDetailLotId = back.id;   // same lot: showLotDetail keeps the section
+        showLotsTab();
+        showLotDetail(back.id);
+    });
     document.addEventListener('click', (e) => {
         const row = e.target.closest && e.target.closest('.tile-row[data-drill], .co-drill[data-drill]');
         if (!row) return;
@@ -7794,6 +7833,7 @@ window.addEventListener('unhandledrejection', function(e) {
     }
     // Helper: clear active state on top nav and sub-tabs
     function clearAllNavActive() {
+        if (typeof drillBackClear === 'function') drillBackClear();
         ['navLots', 'navAnimalHealth', 'navSales', 'navMoves', 'navInventory', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
             const el = $(id); if (el) el.classList.remove('active');
         });
