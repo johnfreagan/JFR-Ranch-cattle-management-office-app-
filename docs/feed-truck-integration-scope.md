@@ -11,28 +11,43 @@ use for ration, bunk calling and truck-scale capture until then.
 - The day: call bunks, make a ration (mixed load), drop it in a couple of
   locations. Bunks could go in any pasture; in practice the same ones.
 
-## What that settles
+## What that settles (revised same day after https://build.scale-tec.com)
 
-- **The scale side is BLE.** Scale-Tec's own app runs on iOS, and Apple gives
-  third-party apps no path to Bluetooth Classic serial, so both heads must be
-  Bluetooth Low Energy. That is the flavor software can reach.
-- **The iPad rules out the browser for Bluetooth.** Every iPadOS browser is
-  WebKit and none exposes Web Bluetooth. Bluetooth on iPad = native wrapper
-  (Capacitor + BLE plugin + Apple developer account + TestFlight/App Store +
-  a rebuild per field-app change). A second deployment model; the largest
-  single item in the project.
-- **Open question that gates all Bluetooth work:** does Scale-Tec publish or
-  license its BLE protocol? Yes → reading a weight is days on any platform.
-  No → sniffer reverse engineering, unbounded, fragile across firmware.
-  **Action: email Scale-Tec.** Costs nothing, decides B vs science project.
+- **The scale side is BLE and the protocol is PUBLIC.** Scale-Tec publishes an
+  MIT-licensed Flutter template (`Dan-Scale-Tec/BLE-Scale-App-Template`,
+  `flutter_blue_plus`) with the protocol PDF checked in. Live weight comes off
+  advertisement packets at 20 ms with no GATT connection; a GATT gross-weight
+  stream, Zero / Tare / Gross commands and `tareStopWithRecord` (logs a load)
+  are wired up. Both heads John named are covered: Point (`Point-` prefix) and
+  the newer Core (`SJB-`). The reverse-engineering risk is gone.
+- **The iPad still rules out the browser for Bluetooth** (WebKit, no Web
+  Bluetooth), but the native app is now a THIN SHELL, not a second field app:
+  Scale-Tec's Flutter app kept as-is for BLE, its example screens replaced by
+  one WebView hosting the field PWA, with a JS bridge pushing weight readings
+  into the page and passing Zero / Tare back. One shell covers iPad, iPhone
+  and Android.
+- **Every feeding screen lives in the PWA**, same JS, same offline queue, same
+  sign-in, same Approvals path. Bridge present → weight box fills live; absent
+  → the driver types it. The shell is rebuilt only when Scale-Tec's core
+  changes, so the "rebuild on every field-app change" tax disappears.
+- **Apple admin that remains:** developer account, the Mac the office app is
+  validated on, and a distribution channel — TestFlight (builds expire every
+  90 days) or an unlisted App Store link (one review, never expires; vote).
+- **The one real risk:** iPadOS WKWebView runs the service worker and local
+  storage only for domains listed in `WKAppBoundDomains` (one Info.plist
+  line). Must be tested on a real iPad in a pasture with no signal before the
+  truck depends on it.
 
 ## Sizes (build-days at this repo's pace)
 
-| Option | What you get | Size | Ongoing |
+| Step | What you get | Size | Ongoing |
 |---|---|---|---|
-| A. Truck app, typed weights, iPad/iPhone PWA | bunk call, load plan, per-drop pounds, daily actuals per lot | ~5 | none new |
-| B. A + Bluetooth on an Android tablet in the cab (Chrome Web Bluetooth) | weights off the scale | +1–2 with the spec; open-ended without | one cheap tablet |
-| C. A + Bluetooth on iPad (native wrapper) | same, on the device already carried | +8–10 first cut | Apple account, builds, review delays on every change |
+| A. Truck screens in the PWA, typed weights | bunk call, load plan, per-drop pounds, daily actuals per lot | ~5 | none new |
+| B. Scale shell: Scale-Tec template + WebView + JS bridge | weights off the scale, on iPad and Android | ~3, plus a day in the cab pairing to the real head, plus Apple admin | shell rebuild only when Scale-Tec's core changes |
+| Full native Flutter rewrite | same, duplicating auth / offline / Supabase in Dart | 15+ | a second field app forever — rejected |
+
+The earlier "Android tablet + Web Bluetooth" option is dropped: the shell covers
+Android too, on the vendor's own supported path.
 
 Everything except Bluetooth lands on existing rails. PB's inventory and costing
 are NOT replicated — the app is already system of record for both.
@@ -62,8 +77,7 @@ bunk call per lot ─▶ load plan = recipe × head × lb/hd
 
 ## Recommendation
 
-A now, B later, never C. The truck is one device; the crew's phones are many.
-One Android tablet in the cab buys Bluetooth without dragging the field app
-onto the App Store. Email Scale-Tec for the BLE spec this week regardless. Run
-typed weights for a month before deciding whether Bluetooth is worth B.
-Phase 3 PB import remains the fallback if the truck app never takes.
+A now, B right behind it. The earlier "never native" call is reversed because
+Scale-Tec removed the part that made native expensive. Run typed weights in the
+truck while the shell is built; the feeding screens do not change between the
+two. Phase 3 PB import remains the fallback if the truck app never takes.
