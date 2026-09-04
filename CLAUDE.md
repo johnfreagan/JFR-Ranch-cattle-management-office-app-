@@ -156,6 +156,23 @@ The Closeout tab shows one set of economics in three columns. It is
   **Cattle still on feed** block prices the remnant at its equal share
   (`remnantCost`). The lot-shortfall figure survives only as a footnote
   labelled as the lot's margin landing on its last head.
+- **Processing and doctoring are two lines with two assumptions**
+  (2026-09-04; John "historically combined both on projections"). Migration
+  `docs/sql/2026-09-04_processing_doctoring_split.sql` adds
+  `lots.assumed_processing_per_head` / `assumed_doctoring_per_head` and
+  `lot_budgets.processing_per_head` / `doctoring_per_head`;
+  `med_per_head` stays for budgets frozen before, shown combined on the
+  Processing row. **Processing projection = actual from the receipts + the
+  assumption × head on loads with NO protocol** — once every load carries
+  a protocol the derived actual IS the projection and the assumption is
+  unused ("as soon as processing is set … that number can become the
+  projection number, adjusted for actual"). **Doctoring projection =
+  actual + observed burn, floored at the assumption × head_in while the lot
+  is on feed**, so a young lot with two pulls does not project nothing.
+- **Target sale $/lb and target ship date LOCK once saved on the lot**
+  (`closeoutLock`, readonly + "edit" button). They are reused every visit
+  and must not be nudged while playing with other assumptions. A drill
+  onto a locked input unlocks it first.
 - **`lots.target_sale_cwt` is $/lb despite the name**, and the new
   `lot_budgets.budget_cost_per_cwt` follows it for consistency. Both are
   multiplied by a weight in pounds. Do not "fix" one without the other.

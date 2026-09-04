@@ -560,6 +560,12 @@
         .tile-row[data-drill] { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 0 4px; }
         .tile-row[data-drill]:hover { background: #f3f1ea; }
         .tile-row[data-drill]:hover .tr-value { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+        .closeout-inputs input.locked { background: #f3f1ea; color: var(--text-muted); border-style: dashed; }
+        .calc-unlock {
+            margin-left: 6px; padding: 0 6px; font-size: 11px; line-height: 16px;
+            border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--accent); cursor: pointer;
+        }
+        .calc-unlock:hover { background: #f3f1ea; }
         #drillBackBar { margin: 0 0 8px 0; }
         #drillBackBar a {
             display: inline-block; padding: 5px 12px; font-size: 13px; font-weight: 500;
@@ -1705,6 +1711,7 @@
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <select id="reportProcessingLot" style="min-width: 160px;"></select>
                         <button id="reportProcessingRefreshBtn">Refresh</button>
+                        <button id="reportProcessingOpenLot" class="primary" title="Open the picked lot">← Back to lot</button>
                     </div>
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Receiving protocol meds per head: dose, cost/head, and lot total — computed from delivery receipts × protocol × current pricing. Per-weight doses use invoice average weight.</p>
@@ -5266,6 +5273,7 @@ window.addEventListener('unhandledrejection', function(e) {
             showLotSubtab('closeout');
             const el = $(target.slice(6));
             if (!el) return;
+            if (el.classList.contains('locked')) closeoutLock(el.id, false);
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             el.focus({ preventScroll: true });
             if (el.select) el.select();
@@ -5292,6 +5300,9 @@ window.addEventListener('unhandledrejection', function(e) {
         drillBackLot = { id: currentLot.id, lot_number: currentLot.lot_number, subtab: currentLotSubtab };
         $('drillBackLink').textContent = '← Back to lot ' + (currentLot.lot_number || '');
         $('drillBackBar').classList.remove('hidden');
+        // The Receiving report's own button was labelled before this ran.
+        const rb = $('reportProcessingOpenLot');
+        if (rb) rb.textContent = '← Back to lot ' + (currentLot.lot_number || '');
     }
     function drillBackClear() {
         drillBackLot = null;
@@ -6505,7 +6516,11 @@ window.addEventListener('unhandledrejection', function(e) {
             nonFeedCog: $('calc_nonfeed') ? num('calc_nonfeed') : undefined,
             labor     : num('calc_labor'),
             laborMode : $('calc_labor_mode') ? $('calc_labor_mode').value : 'per_day',
-            medPerHead: num('calc_med'),
+            // Processing and doctoring, split (2026-09-04). Processing is
+            // the projection only until the lot's receipts carry a
+            // protocol; doctoring is a floor until actual plus burn passes it.
+            procPerHead: num('calc_proc'),
+            docPerHead : num('calc_doc'),
             deathPct  : num('calc_dead') != null ? num('calc_dead')/100 : null,
             intPct    : num('calc_int')  != null ? num('calc_int')/100  : null,
             shipDate  : $('calc_shipdate') ? ($('calc_shipdate').value || null) : null
@@ -6763,11 +6778,35 @@ window.addEventListener('unhandledrejection', function(e) {
         // history, the lot's own number beats an assumption.
         const feedFwd = actual.feedInsideCog ? 0 : actual.feedPerHeadDay * forwardHeadDays;
 
-        // Doctoring carries forward at the rate this lot has actually been
-        // burning, which beats a budget figure once there is any history.
-        const treatmentFwd = actual.treatmentPerHeadDay * forwardHeadDays;
+        // ---- PROCESSING (2026-09-04) ----------------------------------
+        // Once a load carries a receiving protocol its processing cost is
+        // derived from the books and IS the projection - "as soon as
+        // processing is set for a lot that number can become the projection
+        // number, adjusted for actual if it changes later". Loads with no
+        // protocol yet are carried at the assumed $/head in; a lot with no
+        // protocol on any load is all assumption.
+        const pc = (currentActualMedCost && currentActualMedCost.procCoverage) || null;
+        const headNoProtocol = pc ? pc.headWithout : (actual.processing > 0 ? 0 : actual.headIn);
+        const processingProj = actual.processing + (rates.procPerHead || 0) * headNoProtocol;
+        const processingFwd  = processingProj - actual.processing;
 
-        const operatingFwd = cogFwd + laborFwd + treatmentFwd + feedFwd;
+        // ---- DOCTORING ------------------------------------------------
+        // Carries forward at the rate this lot has actually been burning,
+        // which beats a budget figure once there is history. The assumed
+        // $/head in is a FLOOR while the lot is still on feed: a young lot
+        // with two pulls would otherwise project almost nothing. Once actual
+        // plus burn passes the floor, or the ship date arrives, the lot's
+        // own number stands.
+        const treatmentBurnFwd = actual.treatmentPerHeadDay * forwardHeadDays;
+        const doctoringFloor   = (rates.docPerHead || 0) * actual.headIn;
+        const onFeed           = remainingDays != null && remainingDays > 0;
+        const treatmentProj    = onFeed
+            ? Math.max(actual.treatment + treatmentBurnFwd, doctoringFloor)
+            : actual.treatment + treatmentBurnFwd;
+        const treatmentFwd     = treatmentProj - actual.treatment;
+        const doctoringOnFloor = onFeed && doctoringFloor > actual.treatment + treatmentBurnFwd;
+
+        const operatingFwd = cogFwd + laborFwd + treatmentFwd + feedFwd + processingFwd;
         // The transferred-in basis is money this lot is carrying forward too,
         // net of anything it transferred out. Leaving it out understated
         // forward interest on cattle the lot genuinely owns.
@@ -6801,6 +6840,8 @@ window.addEventListener('unhandledrejection', function(e) {
 
         return {
             remainingDays, deathsToCome, survivingAtClose, forwardHeadDays, gainFwdLb,
+            processingProj, processingFwd, headNoProtocol,
+            treatmentProj, treatmentBurnFwd, doctoringFloor, doctoringOnFloor,
             cogFwd, laborFwd, treatmentFwd, feedFwd, interestFwd, operatingFwd,
             revenueFwd, totalCost, totalRevenue, net, breakEvenPerLb,
             costPerHeadSold, remnantCost, lotShortfall,
@@ -6832,7 +6873,15 @@ window.addEventListener('unhandledrejection', function(e) {
         const labor = b.labor_mode === 'per_day'
             ? (Number(b.labor_value) || 0) * headDays
             : (Number(b.labor_value) || 0) * head;
-        const med = (Number(b.med_per_head) || 0) * head;
+        // Processing and doctoring split (2026-09-04). A budget frozen
+        // before the split carries only med_per_head - shown combined on
+        // the Processing row, since it cannot be split after the fact.
+        const legacyMed  = (b.processing_per_head == null && b.doctoring_per_head == null)
+            ? (Number(b.med_per_head) || 0) * head : 0;
+        const processing = (Number(b.processing_per_head) || 0) * head + legacyMed;
+        const doctoring  = (Number(b.doctoring_per_head) || 0) * head;
+        const med = processing + doctoring;
+        const medCombined = legacyMed > 0;
 
         const operating = cog + labor + med;
         const interest  = interestOn(cattleCost, operating, days, intPct);
@@ -6845,7 +6894,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
         return {
             head, wtIn, perLbIn, days, adg, finishWt, surviving, headDays,
-            cattleCost, cog, labor, med, interest, operating, totalCost,
+            cattleCost, cog, labor, med, processing, doctoring, medCombined, interest, operating, totalCost,
             revenue, net,
             netPerHeadSold: surviving > 0 ? net / surviving : null,
             breakEvenPerLb: (surviving * finishWt) > 0 ? totalCost / (surviving * finishWt) : null
@@ -6894,9 +6943,9 @@ window.addEventListener('unhandledrejection', function(e) {
                 <div>
                     <h4 style="margin-bottom: 10px;">Working assumptions <span class="muted" style="font-weight:400; font-size:11px;">(drive the projection)</span></h4>
                     <div class="closeout-inputs">
-                        <div><label>Target sale $/lb</label><input type="number" step="0.0001" id="calc_cwt" value="${lot.target_sale_cwt??''}" placeholder="e.g. 4.95"></div>
+                        <div><label>Target sale $/lb <button type="button" class="calc-unlock hidden" data-for="calc_cwt" title="Saved on the lot. Click to change it.">edit</button></label><input type="number" step="0.0001" id="calc_cwt" value="${lot.target_sale_cwt??''}" placeholder="e.g. 4.95"></div>
                         <div><label>Target ADG (lb/day)</label><input type="number" step="0.01" id="calc_adg" value="${lot.target_adg??''}" placeholder="e.g. 2.50"></div>
-                        <div><label>Target ship date</label><input type="date" id="calc_shipdate" value="${initialShipDate}"></div>
+                        <div><label>Target ship date <button type="button" class="calc-unlock hidden" data-for="calc_shipdate" title="Saved on the lot. Click to change it.">edit</button></label><input type="date" id="calc_shipdate" value="${initialShipDate}"></div>
                         <div><label>Projected finish wt</label><input type="number" step="1" id="calc_finishwt" value="${defaultFinishWt}" placeholder="auto"></div>
                         <div style="grid-column: span 2;">
                             <label>COG $/lb of gain <span class="muted" style="font-weight:400; font-size:11px;">(feed and non-feed together)</span></label>
@@ -6916,7 +6965,8 @@ window.addEventListener('unhandledrejection', function(e) {
                             <input type="number" step="0.0001" id="calc_labor" value="${laborInitial}" placeholder="${laborMode==='per_day'?'e.g. 0.35':'e.g. 31.81'}">
                             <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_labor_hint"></div>
                         </div>
-                        <div><label>Med $/head <span class="muted" style="font-weight:400; font-size:11px;">(budget only)</span></label><input type="number" step="0.01" id="calc_med" value="${lot.assumed_med_per_head??''}" placeholder="e.g. 25.00"><div class="muted" style="font-size:11px; margin-top:2px;" id="calc_med_actual_hint"></div></div>
+                        <div><label>Processing $/head</label><input type="number" step="0.01" id="calc_proc" value="${lot.assumed_processing_per_head??''}" placeholder="e.g. 38.00"><div class="muted" style="font-size:11px; margin-top:2px;" id="calc_proc_hint"></div></div>
+                        <div><label>Doctoring $/head</label><input type="number" step="0.01" id="calc_doc" value="${lot.assumed_doctoring_per_head??''}" placeholder="e.g. 12.00"><div class="muted" style="font-size:11px; margin-top:2px;" id="calc_med_actual_hint"></div></div>
                         <div><label>Death loss % <span class="muted" style="font-weight:400; font-size:11px;">(whole lot)</span></label><input type="number" step="0.01" id="calc_dead" value="${lot.assumed_death_loss_pct!=null?(Number(lot.assumed_death_loss_pct)*100).toFixed(2):''}" placeholder="e.g. 6"><div class="muted" style="font-size:11px; margin-top:2px;" id="calc_dead_hint"></div></div>
                         <div style="grid-column: span 2;"><label>Interest %</label><input type="number" step="0.01" id="calc_int" value="${lot.assumed_interest_pct!=null?(Number(lot.assumed_interest_pct)*100).toFixed(2):''}" placeholder="e.g. 5"></div>
                     </div>
@@ -6961,9 +7011,28 @@ window.addEventListener('unhandledrejection', function(e) {
             recalculate();
         });
 
-        ['calc_cwt','calc_adg','calc_finishwt','calc_cog','calc_nonfeed','calc_labor','calc_med','calc_dead','calc_int']
+        ['calc_cwt','calc_adg','calc_finishwt','calc_cog','calc_nonfeed','calc_labor','calc_proc','calc_doc','calc_dead','calc_int']
             .forEach(id=>$(id).addEventListener('input',recalculate));
+
+        // Target sale $ and ship date LOCK once saved on the lot (John,
+        // 2026-09-04): they are re-used every visit, so they should not be
+        // retyped or nudged by accident while playing with the other
+        // assumptions. "edit" unlocks; Save re-locks on the next render.
+        if (lot.target_sale_cwt != null) closeoutLock('calc_cwt', true);
+        if (lot.target_ship_date)        closeoutLock('calc_shipdate', true);
+        $('closeoutContent').querySelectorAll('.calc-unlock').forEach(b => {
+            b.addEventListener('click', () => { closeoutLock(b.dataset.for, false); $(b.dataset.for).focus(); });
+        });
         recalculate();
+    }
+
+    function closeoutLock(id, locked) {
+        const el = $(id);
+        if (!el) return;
+        el.readOnly = !!locked;
+        el.classList.toggle('locked', !!locked);
+        const btn = $('closeoutContent').querySelector(`.calc-unlock[data-for="${id}"]`);
+        if (btn) btn.classList.toggle('hidden', !locked);
     }
 
     function recalculate(){
@@ -7030,19 +7099,27 @@ window.addEventListener('unhandledrejection', function(e) {
                 ? `${fmtNum(actual.headDead)} dead so far · ${fmtNum(Math.round(proj.deathsToCome))} more assumed`
                 : '';
         }
-        if ($('calc_med_actual_hint')) {
-            if (currentActualMedCost && currentActualMedCost.total > 0) {
-                const parts = [];
-                if (currentActualMedCost.processing > 0) parts.push(`Processing <strong>${fmtMoney(currentActualMedCost.processing)}</strong>`);
-                if (currentActualMedCost.treatment  > 0) parts.push(`Treatment <strong>${fmtMoney(currentActualMedCost.treatment)}</strong>`);
-                if (currentActualMedCost.other      > 0) parts.push(`Other ${fmtMoney(currentActualMedCost.other)}`);
-                const unpriced = currentActualMedCost.unpricedRows > 0
-                    ? ` · <span style="color:#b58900;">${currentActualMedCost.unpricedRows} row${currentActualMedCost.unpricedRows===1?'':'s'} unpriced</span>`
-                    : '';
-                $('calc_med_actual_hint').innerHTML = 'Actual: ' + parts.join(' · ') + unpriced;
+        if ($('calc_proc_hint')) {
+            const pcv = currentActualMedCost ? currentActualMedCost.procCoverage : null;
+            if (actual.processing > 0 && pcv && pcv.headWithout === 0) {
+                $('calc_proc_hint').innerHTML = `<strong>${fmtMoney(actual.processing)}</strong> actual on all ${fmtNum(pcv.loads)} loads (${fmtMoney(actual.processing / Math.max(1, actual.headIn))}/hd) — this is the projection; the assumption is not used.`;
+            } else if (actual.processing > 0 && pcv) {
+                $('calc_proc_hint').innerHTML = `<strong>${fmtMoney(actual.processing)}</strong> actual on ${pcv.loadsWithProtocol} of ${pcv.loads} loads · ${fmtNum(pcv.headWithout)} hd on the rest carried at the assumption${rates.procPerHead ? ' = ' + fmtMoney(rates.procPerHead * pcv.headWithout) : ''}.`;
             } else {
-                $('calc_med_actual_hint').textContent = 'No actual med cost yet. Price the meds to track it.';
+                $('calc_proc_hint').textContent = rates.procPerHead
+                    ? `No load has a receiving protocol yet — ${fmtNum(actual.headIn)} hd × $${Number(rates.procPerHead).toFixed(2)} = ${fmtMoney(rates.procPerHead * actual.headIn)}. Set the protocol on the loads and actual takes over.`
+                    : 'No load has a receiving protocol yet. Enter an assumed $/head, or set the protocol on the loads.';
             }
+        }
+        if ($('calc_med_actual_hint')) {
+            const unpriced = currentActualMedCost && currentActualMedCost.unpricedRows > 0
+                ? ` · <span style="color:#b58900;">${currentActualMedCost.unpricedRows} row${currentActualMedCost.unpricedRows===1?'':'s'} unpriced</span>` : '';
+            const other = currentActualMedCost && currentActualMedCost.other > 0 ? ` · other ${fmtMoney(currentActualMedCost.other)}` : '';
+            $('calc_med_actual_hint').innerHTML = (actual.treatment > 0
+                ? `<strong>${fmtMoney(actual.treatment)}</strong> actual to date (${fmtMoney(actual.treatmentPerHeadDay * 1000)}/1,000 hd-days)`
+                : 'No doctoring cost yet')
+                + (proj.doctoringOnFloor ? ` · projection held at the assumed ${fmtMoney(proj.doctoringFloor)} until actual plus burn passes it` : '')
+                + other + unpriced;
         }
 
         const warnings = [];
@@ -7186,7 +7263,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${tile('HEAD', fmtNum(actual.headCurrent), proj.deathsToCome > 0 ? `${fmtNum(Math.round(survivors))} after ${fmtNum(Math.round(proj.deathsToCome))} more assumed death${Math.round(proj.deathsToCome)===1?'':'s'}` : '', 'current', 'Where they are now')}
                     ${tile('DAYS TO SHIP', proj.remainingDays != null ? fmtNum(proj.remainingDays) : '—', proj.remainingDays != null ? `${fmtNum(Math.round(proj.forwardHeadDays))} head-days` : 'no ship date', 'input:calc_shipdate', 'Target ship date')}
                     ${tile('GAIN TO COME', rates.adg > 0 && proj.remainingDays != null ? fmtNum(Math.round(proj.gainFwdLb)) + ' lb' : '—', rates.adg > 0 ? `at ${Number(rates.adg).toFixed(2)} lb/day` : 'no ADG', 'input:calc_adg', 'Target ADG')}
-                    ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.treatmentFwd > 0 ? ' · doctoring ' + fmtMoney(proj.treatmentFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`, 'input:calc_cog', 'COG assumption')}
+                    ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.processingFwd > 0 ? ' · processing ' + fmtMoney(proj.processingFwd) : ''}${proj.treatmentFwd > 0 ? ' · doctoring ' + fmtMoney(proj.treatmentFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`, 'input:calc_cog', 'COG assumption')}
                     ${share != null ? tile('COST OF THESE HEAD', fmtMoney(share), `${perHd(share)} · their equal share of the lot's cost`) : ''}
                     ${proj.breakEvenPerLb != null ? tile('BREAK-EVEN', '$' + proj.breakEvenPerLb.toFixed(4) + '/lb', `at ${fmtNum(Math.round(rates.finishWt || 0))} lb`, 'input:calc_finishwt', 'Projected finish weight') : ''}
                     ${rates.salePerLb != null && proj.remainingDays != null && share != null ? tile('AT TARGET PRICE', fmtMoney(proj.revenueFwd),
@@ -7244,8 +7321,15 @@ window.addEventListener('unhandledrejection', function(e) {
                         `Transferred out <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferOutHead)} hd</a>`,
                         null, -actual.transferOutUsd, -actual.transferOutUsd,
                         {note:'moved to another lot', fmt: signed}) : ''}
-                    ${row('Processing', budget ? b('med') : null, actual.processing, actual.processing, {note:'at receiving', drill:'receiving', drillTitle:'Receiving report: processing cost per head'})}
-                    ${row('Treatment', null, actual.treatment, actual.treatment + proj.treatmentFwd, {note:'doctoring', drill:'health', drillTitle:'Doctoring on this lot'})}
+                    ${row('Processing', budget ? b('processing') : null, actual.processing, proj.processingProj, {
+                        note: budget && b('medCombined') ? 'budget is processing + doctoring combined'
+                            : proj.headNoProtocol > 0 && actual.processing > 0 ? `${fmtNum(proj.headNoProtocol)} hd still at the assumption`
+                            : proj.headNoProtocol > 0 ? 'assumed — no protocol on the loads yet'
+                            : 'actual, from the receipts',
+                        drill:'receiving', drillTitle:'Receiving report: processing cost per head'})}
+                    ${row('Doctoring', budget ? b('doctoring') : null, actual.treatment, proj.treatmentProj, {
+                        note: proj.doctoringOnFloor ? 'held at the assumed floor' : actual.treatment > 0 ? 'actual + observed burn' : '',
+                        drill:'health', drillTitle:'Doctoring on this lot'})}
                     ${actual.feedInsideCog
                         ? (actual.feedLedger > 0 ? row('Feed (memo)', null, actual.feedLedger, null, {muted:true, note:'inside cost of gain — not added', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}) : '')
                         : (actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, actual.feed, actual.feed + proj.feedFwd, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day' + (actual.boundaryActive ? ' since '+fmtDate(feedDirectFrom) : '') : 'from the feed ledger', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}) : ''}
@@ -7308,7 +7392,8 @@ window.addEventListener('unhandledrejection', function(e) {
             labor: rates.laborMode==='per_day'
                 ? (lot.assumed_labor_per_day!=null?Number(lot.assumed_labor_per_day):null)
                 : (lot.assumed_labor_per_head!=null?Number(lot.assumed_labor_per_head):null),
-            med: lot.assumed_med_per_head!=null?Number(lot.assumed_med_per_head):null,
+            proc: lot.assumed_processing_per_head!=null?Number(lot.assumed_processing_per_head):null,
+            doc:  lot.assumed_doctoring_per_head!=null?Number(lot.assumed_doctoring_per_head):null,
             deadPct: lot.assumed_death_loss_pct!=null?Number(lot.assumed_death_loss_pct):null,
             intPct: lot.assumed_interest_pct!=null?Number(lot.assumed_interest_pct):null,
             nonFeed: lot.assumed_nonfeed_cog_per_day!=null?Number(lot.assumed_nonfeed_cog_per_day):null,
@@ -7319,7 +7404,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const eq=(a,b)=>(a==null&&b==null)||(a!=null&&b!=null&&Math.abs(a-b)<0.0001);
         const dirty = !(eq(rates.salePerLb,stored.cwt) && eq(rates.adg,stored.adg)
             && eq(rates.cog,stored.cog) && eq(rates.labor,stored.labor)
-            && eq(rates.medPerHead,stored.med) && eq(rates.deathPct,stored.deadPct)
+            && eq(rates.procPerHead,stored.proc) && eq(rates.docPerHead,stored.doc) && eq(rates.deathPct,stored.deadPct)
             && eq(rates.intPct,stored.intPct) && eq(rates.nonFeedCog,stored.nonFeed)
             && rates.cogMode===stored.cogMode && rates.laborMode===stored.laborMode
             && (rates.shipDate||null)===stored.shipDate);
@@ -7394,7 +7479,8 @@ window.addEventListener('unhandledrejection', function(e) {
             cog_value: rates.cog,
             labor_mode: rates.laborMode,
             labor_value: rates.labor,
-            med_per_head: rates.medPerHead,
+            processing_per_head: rates.procPerHead,
+            doctoring_per_head: rates.docPerHead,
             death_loss_pct: rates.deathPct,
             interest_pct: rates.intPct,
             frozen_by: currentUser ? currentUser.id : null
@@ -7444,7 +7530,8 @@ window.addEventListener('unhandledrejection', function(e) {
             assumed_nonfeed_cog_per_day: rates.nonFeedCog ?? null,
             assumed_labor_per_day:  rates.laborMode === 'per_day'  ? rates.labor : null,
             assumed_labor_per_head: rates.laborMode === 'per_head' ? rates.labor : null,
-            assumed_med_per_head: rates.medPerHead,
+            assumed_processing_per_head: rates.procPerHead,
+            assumed_doctoring_per_head: rates.docPerHead,
             assumed_death_loss_pct: rates.deathPct,
             assumed_interest_pct: rates.intPct
         };
@@ -7518,6 +7605,8 @@ window.addEventListener('unhandledrejection', function(e) {
                 payload.assumed_labor_per_day=seed.assumed_labor_per_day;
                 payload.assumed_labor_per_head=seed.assumed_labor_per_head;
                 payload.assumed_med_per_head=seed.assumed_med_per_head;
+                payload.assumed_processing_per_head=seed.assumed_processing_per_head;
+                payload.assumed_doctoring_per_head=seed.assumed_doctoring_per_head;
                 payload.assumed_death_loss_pct=seed.assumed_death_loss_pct;
                 payload.assumed_interest_pct=seed.assumed_interest_pct;
             }
@@ -12189,7 +12278,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const laborMode = l.labor_mode || 'per_day';
         return {
             salePerLb: null, finishWt: null,
-            medPerHead: null, deathPct: null, shipDate: null,
+            procPerHead: null, docPerHead: null, deathPct: null, shipDate: null,
             // A per-pound rate is charged on gain, and gain not yet weighed
             // out is the lot's stored target ADG times head-days - so ADG
             // reaches the basis in that one mode only.
@@ -14078,7 +14167,22 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             processingReportInit = true;
             sel.addEventListener('change', loadProcessingReport);
             $('reportProcessingRefreshBtn').addEventListener('click', loadProcessingReport);
+            // Back to the picked lot. If a tile drilled here, the return bar
+            // already knows the section; otherwise open the lot fresh.
+            $('reportProcessingOpenLot').addEventListener('click', () => {
+                if (drillBackLot && drillBackLot.id === sel.value) { $('drillBackLink').click(); return; }
+                if (!sel.value) return;
+                drillBackClear();
+                showLotsTab();
+                showLotDetail(sel.value);
+            });
+            sel.addEventListener('change', () => {
+                const b = $('reportProcessingOpenLot');
+                b.textContent = (drillBackLot && drillBackLot.id === sel.value) ? '← Back to lot ' + drillBackLot.lot_number : '← Open lot';
+            });
         }
+        $('reportProcessingOpenLot').textContent = (drillBackLot && drillBackLot.id === sel.value)
+            ? '← Back to lot ' + drillBackLot.lot_number : '← Open lot';
         loadProcessingReport();
     }
 
