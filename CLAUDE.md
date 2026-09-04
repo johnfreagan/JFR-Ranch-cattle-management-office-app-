@@ -116,9 +116,16 @@ The Closeout tab shows one set of economics in three columns. It is
   reads LIGHT until the cattle ship — the screen warns when realized ADG on
   shipped head runs more than 5% over the assumption, with both dollar
   figures. The transfer basis (`ltStoredRates`) feeds `lots.target_adg` in
-  for this mode only. **`per_lb` is the DEFAULT COG mode** (John, later
-  2026-09-04): the app falls back to it, the column default is `per_lb`,
-  and the open lots were converted at per-day ÷ target ADG. Labor stays
+  for this mode only. **The Closeout input is LOCKED to `per_lb`** (John, later
+  2026-09-04: "lock on the closeout input screen $ per pound as the
+  default COG metric"). There is no COG mode selector; `closeoutRates()`
+  always returns `per_lb` and Save writes `cog_mode='per_lb'` +
+  `assumed_cog_per_lb`, leaving the old per-day / flat columns as audit.
+  A lot still stored `per_day` opens with per-day ÷ target ADG in the box
+  and a "converted … save to keep" hint; the books do not change until
+  saved, and the transfer basis keeps reading the stored mode until then.
+  `closeoutActual`/`closeoutBudget` still handle all three modes because
+  frozen budgets and unsaved lots carry them. Labor keeps its selector,
   per head-day.
 - **Interest** accrues on the cattle for the whole period and on operating
   cost at half the period, the usual convention for a cost that builds

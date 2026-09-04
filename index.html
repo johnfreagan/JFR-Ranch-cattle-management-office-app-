@@ -6266,7 +6266,7 @@ window.addEventListener('unhandledrejection', function(e) {
             adg       : num('calc_adg'),
             finishWt  : num('calc_finishwt'),
             cog       : num('calc_cog'),
-            cogMode   : $('calc_cog_mode')   ? $('calc_cog_mode').value   : 'per_day',
+            cogMode   : 'per_lb',   // locked (John, 2026-09-04): COG is $/lb of gain on this screen; labor keeps its selector
             // The per-day rate charged on head-days after the feed boundary,
             // when actual feed is charged beside it. Undefined (no input on
             // the page) means "use what the lot has stored".
@@ -6626,13 +6626,23 @@ window.addEventListener('unhandledrejection', function(e) {
             initialShipDate = d.toISOString().slice(0, 10);
         }
 
-        const cogMode = lot.cog_mode || 'per_lb';   // John, 2026-09-04: per pound is the default; labor stays per head-day
+        // COG is LOCKED to $/lb of gain on this screen (John, 2026-09-04).
+        // A lot still carrying an older per-day or flat rate gets it
+        // converted through its target ADG as the starting value, and the
+        // hint says so until it is saved. Labor keeps its selector.
         const laborMode = lot.labor_mode || 'per_day';
-        const cogStored = m => m === 'per_day' ? lot.assumed_cog_per_day
-                            : m === 'per_lb'  ? lot.assumed_cog_per_lb
-                            : lot.assumed_cog_per_head;
-        const cogPlaceholder = m => m === 'per_day' ? 'e.g. 0.75' : m === 'per_lb' ? 'e.g. 1.10' : 'e.g. 218.14';
-        const cogInitial = cogStored(cogMode) ?? '';
+        let cogInitial = lot.assumed_cog_per_lb ?? '';
+        let cogConvertedFrom = '';
+        const lotAdg = Number(lot.target_adg) || 0;   // the lot's OWN ADG, not the 2.5 display fallback
+        if (cogInitial === '' && lotAdg > 0) {
+            if (lot.cog_mode === 'per_day' && lot.assumed_cog_per_day != null) {
+                cogInitial = (Number(lot.assumed_cog_per_day) / lotAdg).toFixed(4);
+                cogConvertedFrom = `converted from $${Number(lot.assumed_cog_per_day).toFixed(2)}/hd/day at ${lotAdg.toFixed(2)} ADG — save to keep`;
+            } else if (lot.cog_mode === 'per_head' && lot.assumed_cog_per_head != null && lot.target_days_on_feed > 0) {
+                cogInitial = (Number(lot.assumed_cog_per_head) / (lotAdg * lot.target_days_on_feed)).toFixed(4);
+                cogConvertedFrom = `converted from $${Number(lot.assumed_cog_per_head).toFixed(2)}/hd flat over ${lot.target_days_on_feed} days at ${lotAdg.toFixed(2)} ADG — save to keep`;
+            }
+        }
         const laborInitial = laborMode === 'per_day'
             ? (lot.assumed_labor_per_day ?? '')
             : (lot.assumed_labor_per_head ?? '');
@@ -6647,12 +6657,8 @@ window.addEventListener('unhandledrejection', function(e) {
                         <div><label>Target ship date</label><input type="date" id="calc_shipdate" value="${initialShipDate}"></div>
                         <div><label>Projected finish wt</label><input type="number" step="1" id="calc_finishwt" value="${defaultFinishWt}" placeholder="auto"></div>
                         <div style="grid-column: span 2;">
-                            <label>COG <select id="calc_cog_mode" style="display:inline-block; width:auto; padding:2px 6px; font-size:12px; margin-left:6px;">
-                                <option value="per_lb" ${cogMode==='per_lb'?'selected':''}>$/lb of gain</option>
-                                <option value="per_day" ${cogMode==='per_day'?'selected':''}>$/head/day</option>
-                                <option value="per_head" ${cogMode==='per_head'?'selected':''}>$/head (flat)</option>
-                            </select></label>
-                            <input type="number" step="0.0001" id="calc_cog" value="${cogInitial}" placeholder="${cogPlaceholder(cogMode)}">
+                            <label>COG $/lb of gain <span class="muted" style="font-weight:400; font-size:11px;">(feed and non-feed together)</span></label>
+                            <input type="number" step="0.0001" id="calc_cog" value="${cogInitial}" placeholder="e.g. 1.00" data-converted="${cogConvertedFrom}">
                             <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_cog_hint"></div>
                         </div>
                         <div style="grid-column: span 2;">
@@ -6706,12 +6712,6 @@ window.addEventListener('unhandledrejection', function(e) {
             if (d>0 && a>0 && avgWtIn>0) $('calc_finishwt').value=Math.round(avgWtIn+d*a);
         });
 
-        $('calc_cog_mode').addEventListener('change', () => {
-            const mode = $('calc_cog_mode').value;
-            $('calc_cog').placeholder = cogPlaceholder(mode);
-            $('calc_cog').value = cogStored(mode) ?? '';
-            recalculate();
-        });
         $('calc_labor_mode').addEventListener('change', () => {
             const mode = $('calc_labor_mode').value;
             $('calc_labor').placeholder = mode === 'per_day' ? 'e.g. 0.35' : 'e.g. 31.81';
@@ -6758,9 +6758,10 @@ window.addEventListener('unhandledrejection', function(e) {
                 const parts = [];
                 if (actual.soldGainLb > 0) parts.push(`${fmtNum(Math.round(actual.soldGainLb))} lb weighed out`);
                 if (actual.unsettledHeadDays > 0) parts.push(`${fmtNum(Math.round(actual.estGainLb))} lb est. at ${rates.adg != null ? Number(rates.adg).toFixed(2) : '—'} ADG on ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days`);
-                $('calc_cog_hint').textContent = parts.length
+                const conv = $('calc_cog') && $('calc_cog').dataset.converted;
+                $('calc_cog_hint').textContent = (parts.length
                     ? `${parts.join(' + ')} = ${fmtNum(Math.round(actual.gainToDateLb))} lb gain → ${fmtMoney(actual.cog)}`
-                    : '';
+                    : '') + (conv && lot.cog_mode !== 'per_lb' ? ` · ${conv}` : '');
             } else {
                 $('calc_cog_hint').textContent = (rates.cogMode==='per_day' && rates.cog)
                     ? `${fmtNum(Math.round(actual.headDays))} head-days run so far = ${fmtMoney(actual.cog)}`
@@ -7018,9 +7019,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const stored = {
             cwt: lot.target_sale_cwt!=null?Number(lot.target_sale_cwt):null,
             adg: lot.target_adg!=null?Number(lot.target_adg):null,
-            cog: rates.cogMode==='per_day'  ? (lot.assumed_cog_per_day!=null?Number(lot.assumed_cog_per_day):null)
-               : rates.cogMode==='per_lb'   ? (lot.assumed_cog_per_lb!=null?Number(lot.assumed_cog_per_lb):null)
-               : (lot.assumed_cog_per_head!=null?Number(lot.assumed_cog_per_head):null),
+            cog: lot.assumed_cog_per_lb!=null?Number(lot.assumed_cog_per_lb):null,
             labor: rates.laborMode==='per_day'
                 ? (lot.assumed_labor_per_day!=null?Number(lot.assumed_labor_per_day):null)
                 : (lot.assumed_labor_per_head!=null?Number(lot.assumed_labor_per_head):null),
@@ -7028,7 +7027,7 @@ window.addEventListener('unhandledrejection', function(e) {
             deadPct: lot.assumed_death_loss_pct!=null?Number(lot.assumed_death_loss_pct):null,
             intPct: lot.assumed_interest_pct!=null?Number(lot.assumed_interest_pct):null,
             nonFeed: lot.assumed_nonfeed_cog_per_day!=null?Number(lot.assumed_nonfeed_cog_per_day):null,
-            cogMode: lot.cog_mode || 'per_lb',
+            cogMode: lot.cog_mode || 'per_lb',   // a lot still on per_day reads dirty until saved as per_lb
             laborMode: lot.labor_mode || 'per_day',
             shipDate: lot.target_ship_date || null
         };
@@ -7156,9 +7155,7 @@ window.addEventListener('unhandledrejection', function(e) {
             target_adg: rates.adg,
             cog_mode: rates.cogMode,
             labor_mode: rates.laborMode,
-            assumed_cog_per_day:  rates.cogMode   === 'per_day'  ? rates.cog   : null,
-            assumed_cog_per_lb:   rates.cogMode   === 'per_lb'   ? rates.cog   : null,
-            assumed_cog_per_head: rates.cogMode   === 'per_head' ? rates.cog   : null,
+            assumed_cog_per_lb:   rates.cog,   // the old per-day / flat columns are left as they were, for audit
             assumed_nonfeed_cog_per_day: rates.nonFeedCog ?? null,
             assumed_labor_per_day:  rates.laborMode === 'per_day'  ? rates.labor : null,
             assumed_labor_per_head: rates.laborMode === 'per_head' ? rates.labor : null,

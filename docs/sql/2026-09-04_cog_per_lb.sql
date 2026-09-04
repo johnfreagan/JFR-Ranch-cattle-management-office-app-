@@ -81,27 +81,7 @@ commit;
 -- 4. Column default, so a lot created outside the app lands on per_lb.
 alter table public.lots alter column cog_mode set default 'per_lb';
 
--- 5. Convert the OPEN lots that carry a per-day rate. The per-pound rate is
---    per-day / target ADG, which reproduces today's cost of gain to the
---    dollar (nothing has shipped, so every pound is still the estimate).
---    The per-day column is left in place as the audit trail. Closed lots
---    are NOT touched: they have real sale weights, so per_lb would true up
---    and rewrite a finished closeout.
-update public.lots
-   set cog_mode = 'per_lb',
-       assumed_cog_per_lb = round(assumed_cog_per_day / target_adg, 4),
-       notes = concat_ws(E'\n', notes,
-           format('[2026-09-04] COG mode per_day -> per_lb: $%s/hd/day at %s ADG = $%s/lb. Per-day rate kept for audit.',
-                  assumed_cog_per_day, target_adg, round(assumed_cog_per_day / target_adg, 4)))
- where closed_at is null
-   and cog_mode = 'per_day'
-   and assumed_cog_per_day is not null
-   and target_adg > 0
-   and assumed_cog_per_lb is null;
-
--- A lot with no rate at all just takes the new mode.
-update public.lots
-   set cog_mode = 'per_lb'
- where closed_at is null
-   and cog_mode = 'per_day'
-   and assumed_cog_per_day is null;
+-- (An earlier draft converted the open lots here. Not needed: the Closeout
+-- screen is locked to $/lb and converts a stored per-day rate through the
+-- lot's target ADG as the starting value; Save writes it. Nothing in the
+-- books changes until someone saves.)
