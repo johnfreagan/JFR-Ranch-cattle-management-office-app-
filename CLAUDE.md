@@ -925,6 +925,73 @@ bookkeeping marker became a vendor.
   Blocked on John: a Resend account with a verified domain, and `pg_cron` +
   `pg_net` enabled. 7:00am pinned to `America/Chicago`.
 
+## Feed truck (phase 1 built 2026-09-04; phases 2-3 designed)
+
+Design record with all 21 of John's decisions: `docs/feed-truck-integration-scope.md`.
+Migration: `docs/sql/2026-09-04_feed_truck.sql` (tested locally on PG16 against
+a stub schema, idempotent). Office+owner screens under Inventory → **Truck ▾**:
+Loads · Tie-out vs PB · Rations · Pastures & route · Trucks · Settings.
+
+```
+bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   ← the feed app (phase 2)
+                  └──────── feed_drops ── feed_drop_lots (lot, head, lb)
+                                 │  post_feed_load()  (prior-day, on/after cut-over)
+                                 ▼
+                            feed_usage (source='truck')  ← feed_load_usage links them for unpost
+```
+
+- **Parallel first (D1).** Truck pounds live in their own tables and never
+  touch `feed_usage` until `ranch_settings.feed_truck_post_from` is set. PB's
+  Monday entry keeps posting meanwhile. The tie-out views
+  (`feed_truck_tieout`, `feed_truck_tieout_headdays`) compare lb per lot per
+  commodity per PB week (Mon–Sun) and the split head vs `lot_daily_head` on
+  the same days. Set the date only when the tie-out has held; from then the
+  Monday PB entry must STOP for those weeks or feed is charged twice.
+- **Hard rules from John:** scale is the only source of pounds, nothing
+  advances without a tap, **no feed until the mix timer hits zero (no
+  override)**, no deleting a drop or cancelling a load.
+- **A load posts what left the bays, over the lots it dropped to.** Each
+  line's `lb` splits across lots pro-rata by dropped pounds (`lr_split`,
+  largest-remainder, sums exactly) and goes through `post_feed_usage` one row
+  per (line, lot), dated the load date. Left-in-box is therefore charged to
+  that load's lots and the NEXT load draws less (Distribute cut its targets
+  by the leftover). Nothing is stored per drop per commodity. Composition is
+  frozen on `feed_load_lines`; `scale_lb` is never overwritten, `lb` is what
+  the books use, `edited_*` says who overrode and why.
+- **Editable until posted, one-day grace, unpost to fix.** `post_due_feed_loads()`
+  runs when the Inventory tab opens (office/owner, throttled 10 min) and posts
+  closed loads dated BEFORE ranch today. `feed_load_guard()` freezes lines,
+  drops and splits of a posted/void load; `unpost_feed_load()` reverses via
+  `delete_feed_usage`, reopens the load with rows intact. `void_feed_load()`
+  needs a reason and refuses a posted load. Status cannot be set to
+  posted/void by hand (`feed_loads_status_guard`, bypassed only inside the
+  RPCs via `set_config('feed_truck.rpc','on',true)`).
+- **A bunk read frozen into a load cannot change its call**
+  (`bunk_reads.frozen_load_id`, guard trigger); route order and notes may.
+  Void clears the freeze.
+- **`split_drop_to_lots()` is the fallback**, not the rule: the feed app
+  writes the head split from what it cached at the barn; posting fills any
+  it missed from open assignments on the load date (`moved_out >= date`
+  counts, cattle that left that day ate that morning).
+- **Ration cap on the ration (`max_load_lb`), optional `feed_trucks.capacity_lb`,
+  smaller wins.** `pasture_feed_setup.one_pass` = never split across loads.
+  `ration_since` is stamped by trigger on every ration change (a step-up).
+- **RLS:** setup tables read operational / write office+owner (ration_lines
+  DELETE includes office because the screen rewrites lines whole); truck
+  tables insert/update owner+office+crew, crew only while the load is open,
+  DELETE owner only; `feed_load_usage` books-readers. All three views
+  `security_invoker`. **`ranch_settings` UPDATE widened to office** (was
+  owner) so office can set the four truck settings; that row also carries
+  `feed_direct_from`.
+- **Posting refuses** a load with no dropped pounds ("void it and let the
+  next load carry the pounds"): the bays are then over-stated by that
+  leftover until a count. Rare; documented, not solved.
+- **Not built yet:** phase 2 `feed-app/` (bunk read, planner, load screen
+  with PB's countdown tiles, timer, drops, edits, simulated scale), phase 3
+  Flutter shell (Scale-Tec template + WebView + bridge; iPad build needs a
+  Mac with Xcode and John's individual Apple developer account, started
+  2026-09-04 week), Anomalies rows for over-tolerance / skipped mix / overrides.
+
 ## Tally Book (built 2026-08-28, ported the same day)
 
 A second PWA in this repo at `tally-book/`, alongside `field-app/`. A daily

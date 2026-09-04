@@ -854,6 +854,21 @@
 
                 <button class="sub-tab" data-subtab="purchases" data-material="all">Purchases</button>
 
+                <!-- Feed truck (2026-09-04). Loads and the PB tie-out are the
+                     daily screens; the rest is setup. Crew never see this bar
+                     (invTabRow is office); they get the feed app. -->
+                <div class="sub-group" data-group="truck" data-material="feed">
+                    <button type="button" class="sub-tab group-btn">Truck <span class="caret">&#9662;</span></button>
+                    <div class="group-menu">
+                        <button class="sub-tab" data-subtab="truck-loads"    data-material="feed">Loads</button>
+                        <button class="sub-tab" data-subtab="truck-tieout"   data-material="feed">Tie-out vs PB</button>
+                        <button class="sub-tab" data-subtab="truck-rations"  data-material="feed">Rations</button>
+                        <button class="sub-tab" data-subtab="truck-pastures" data-material="feed">Pastures &amp; route</button>
+                        <button class="sub-tab" data-subtab="truck-trucks"   data-material="feed">Trucks</button>
+                        <button class="sub-tab" data-subtab="truck-settings" data-material="feed">Settings</button>
+                    </div>
+                </div>
+
                 <div class="sub-group" data-group="reports" data-material="feed">
                     <button type="button" class="sub-tab group-btn">Reports <span class="caret">▾</span></button>
                     <div class="group-menu">
@@ -2336,6 +2351,176 @@
         </div>
 
         <!-- ============================================================
+             FEED TRUCK (phase 1, 2026-09-04). Design record:
+             docs/feed-truck-integration-scope.md. The truck writes
+             feed_loads/feed_drops from the feed app; these screens are the
+             office side: setup, the PB tie-out, and posting.
+             ============================================================ -->
+        <div id="ftLoadsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Feed truck loads</h2>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <input type="date" id="ftLdFrom" style="max-width:150px;">
+                        <span class="muted">to</span>
+                        <input type="date" id="ftLdTo" style="max-width:150px;">
+                        <select id="ftLdStatus" style="max-width:150px;">
+                            <option value="">All statuses</option>
+                            <option value="open">Open (in progress)</option>
+                            <option value="closed">Closed, not posted</option>
+                            <option value="posted">Posted</option>
+                            <option value="void">Void</option>
+                        </select>
+                        <button id="ftLdRefreshBtn">Refresh</button>
+                        <button class="primary" id="ftLdPostBtn" data-write>Post due loads</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    One row per load the truck ran. A load from a prior day posts to the books on its own
+                    when this tab opens, once a cut-over date is set (Truck &rsaquo; Settings). Until then the
+                    truck runs parallel to Performance Beef and nothing here touches feed cost. Click a load
+                    for its ingredients and drops; a posted load can be <b>unposted</b> to fix and re-post,
+                    a load that never happened can be <b>voided</b>. Nothing is ever deleted.
+                </p>
+                <div id="ftLdAlert"></div>
+                <div id="ftLdPostResult"></div>
+                <div class="ft-content" id="ftLdContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
+        <div id="ftTieoutView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Feed truck tie-out vs Performance Beef</h2>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button id="ftToPrevBtn" title="Previous week">&larr;</button>
+                        <input type="date" id="ftToWeek" style="max-width:150px;" title="Any day in the week; the report uses its Monday">
+                        <button id="ftToNextBtn" title="Next week">&rarr;</button>
+                        <button id="ftToRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Pounds per lot per commodity for one PB week (Monday to Sunday): what the truck's scale
+                    captured against what was typed from PB's report on Feed Out. Green inside the tie-out
+                    tolerance (Truck &rsaquo; Settings), amber outside. The second table checks the head each
+                    drop was split over against the head the books carried on the same days &mdash; the
+                    check that caught PB's arithmetic last time.
+                </p>
+                <div id="ftToAlert"></div>
+                <div class="ft-content" id="ftToContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
+        <div id="ftRationsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Rations</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="ftRaShowInactive" style="width:auto; vertical-align:middle;"> Show inactive
+                        </label>
+                        <button class="primary" id="ftNewRationBtn" data-write>+ Ration</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Ingredients as <b>percent as-fed</b> in <b>load order</b>, a <b>mix time</b> the truck must
+                    wait out before the first drop, and the <b>max load</b> the planner cuts loads against
+                    (a light ration fills the box before it hits the scale limit, so the cap lives here, not on
+                    the truck). Each line carries the bay it is normally loaded from. Changing a ration changes
+                    tomorrow's loads; loads already run keep what they were.
+                </p>
+                <div id="ftRaAlert"></div>
+                <div class="ft-content" id="ftRaContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
+        <div id="ftPasturesView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Pastures &amp; route</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="ftPaShowAll" style="width:auto; vertical-align:middle;"> Show pastures not on the route
+                        </label>
+                        <button class="primary" id="ftPaSaveBtn" data-write>Save changes</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Which pastures the truck feeds and how. <b>Bunk</b> pastures are called in lb/head and the
+                    app multiplies by the head standing there; <b>bulk feeder</b> pastures are called in total
+                    pounds. <b>One pass</b> means the planner never splits it across two loads (hard to drive
+                    through the cattle twice). Route order is the default the bunk reader starts from each
+                    morning. Changing the ration stamps the date &mdash; that is how a step-up is recorded.
+                </p>
+                <div id="ftPaAlert"></div>
+                <div class="ft-content" id="ftPaContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
+        <div id="ftTrucksView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Feed trucks</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="display:inline-block; font-size:13px;">
+                            <input type="checkbox" id="ftTrShowInactive" style="width:auto; vertical-align:middle;"> Show inactive
+                        </label>
+                        <button class="primary" id="ftNewTruckBtn" data-write>+ Truck</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    One row per truck with a scale head. The <b>scale id</b> is what the head advertises over
+                    Bluetooth (Point-&hellip; or SJB-&hellip;); the feed app shows it in its scale picker, and
+                    a load records which head it was captured from. <b>Capacity</b> is optional &mdash; the
+                    planner uses the smaller of it and the ration's max load.
+                </p>
+                <div id="ftTrAlert"></div>
+                <div class="ft-content" id="ftTrContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
+        <div id="ftSettingsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header"><h2>Feed truck settings</h2></div>
+                <p class="muted" style="font-size:12px; margin:-6px 0 12px 0;">
+                    Four ranch-wide numbers. The cut-over date is the big one: blank means the truck runs
+                    <b>parallel</b> to Performance Beef and its loads never reach the books. Set it and every
+                    load on or after that date posts to feed cost the morning after it ran &mdash; and the
+                    Monday PB entry for those weeks must stop, or feed is charged twice.
+                </p>
+                <div id="ftStAlert"></div>
+                <div class="ft-content" id="ftStContent">
+                    <div class="form-grid">
+                        <div>
+                            <label for="ftStTolerance">Loading tolerance (%)</label>
+                            <input type="number" step="0.5" min="0" max="100" id="ftStTolerance">
+                            <div class="muted" style="font-size:11px; margin-top:2px;">The countdown turns yellow inside this band of the target, red at zero.</div>
+                        </div>
+                        <div>
+                            <label for="ftStMinSplit">Minimum split (lb)</label>
+                            <input type="number" step="10" min="0" id="ftStMinSplit">
+                            <div class="muted" style="font-size:11px; margin-top:2px;">The planner never leaves a remainder smaller than this for the next load.</div>
+                        </div>
+                        <div>
+                            <label for="ftStTieout">Tie-out tolerance (%)</label>
+                            <input type="number" step="0.5" min="0" max="100" id="ftStTieout">
+                            <div class="muted" style="font-size:11px; margin-top:2px;">Truck vs PB pounds inside this band read green.</div>
+                        </div>
+                        <div>
+                            <label for="ftStPostFrom">Cut-over date (loads post from)</label>
+                            <input type="date" id="ftStPostFrom">
+                            <div class="muted" style="font-size:11px; margin-top:2px;">Blank = parallel run. Loads before this date never post.</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center; margin-top:14px;">
+                        <button class="primary" id="ftStSaveBtn" data-write>Save settings</button>
+                        <span class="muted" style="font-size:12px;" id="ftStHint"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================
              SALES: accounting report (one shipment, lot x pasture)
              ============================================================ -->
         <div id="salesReportView" class="hidden" data-perm="office">
@@ -2892,6 +3077,116 @@
                 <button type="submit" class="primary" id="fdLocSaveBtn" data-write>Save location</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- ================= FEED TRUCK: ration modal ================= -->
+<div class="modal-backdrop" id="ftRationModal">
+    <div class="modal" style="max-width:760px;">
+        <h2 id="ftRationModalTitle">New ration</h2>
+        <div id="ftRationModalAlert"></div>
+        <form id="ftRationForm">
+            <input type="hidden" id="ftRaId">
+            <div class="form-grid" style="margin-bottom:14px;">
+                <div>
+                    <label for="ftRaName">Name *</label>
+                    <input type="text" id="ftRaName" required placeholder="e.g. 1 Starter Deccox">
+                </div>
+                <div>
+                    <label for="ftRaMix">Mix time (minutes) *</label>
+                    <input type="number" step="1" min="0" id="ftRaMix" required>
+                    <div class="muted" style="font-size:11px; margin-top:2px;">Starts on the last ingredient's Done. No feed drops until it reaches zero.</div>
+                </div>
+                <div>
+                    <label for="ftRaMax">Max load (lb)</label>
+                    <input type="number" step="100" min="1" id="ftRaMax" placeholder="e.g. 15000">
+                </div>
+            </div>
+            <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+                <b style="font-size:13px;">Ingredients, in load order</b>
+                <button type="button" id="ftRaAddLineBtn">+ Ingredient</button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table id="ftRaLines">
+                    <thead><tr><th style="width:60px;">Order</th><th>Ingredient</th><th style="width:110px;" class="num">% as-fed</th><th>Bay</th><th style="width:40px;"></th></tr></thead>
+                    <tbody></tbody>
+                    <tfoot><tr><td></td><td class="muted">Total</td><td class="num" id="ftRaPctTotal">0%</td><td colspan="2" class="muted" style="font-size:12px;" id="ftRaPctHint"></td></tr></tfoot>
+                </table>
+            </div>
+            <div style="margin:14px 0;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="ftRaActive" style="width:auto; vertical-align:middle;" checked> Active
+                </label>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label for="ftRaNotes">Notes</label>
+                <textarea id="ftRaNotes"></textarea>
+            </div>
+            <div class="modal-actions">
+                <div style="flex:1;"></div>
+                <button type="button" id="ftRaCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="ftRaSaveBtn" data-write>Save ration</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ================= FEED TRUCK: truck modal ================= -->
+<div class="modal-backdrop" id="ftTruckModal">
+    <div class="modal">
+        <h2 id="ftTruckModalTitle">New truck</h2>
+        <div id="ftTruckModalAlert"></div>
+        <form id="ftTruckForm">
+            <input type="hidden" id="ftTrId">
+            <div class="form-grid" style="margin-bottom:14px;">
+                <div>
+                    <label for="ftTrName">Name *</label>
+                    <input type="text" id="ftTrName" required placeholder="e.g. Main truck">
+                </div>
+                <div>
+                    <label for="ftTrDevice">Scale id (Bluetooth name)</label>
+                    <input type="text" id="ftTrDevice" placeholder="e.g. Point-1A2B">
+                </div>
+                <div>
+                    <label for="ftTrCapacity">Capacity (lb)</label>
+                    <input type="number" step="100" min="1" id="ftTrCapacity" placeholder="optional">
+                </div>
+            </div>
+            <div style="margin-bottom:10px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="ftTrDefault" style="width:auto; vertical-align:middle;"> Default truck (the feed app connects to its head first)
+                </label>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" id="ftTrActive" style="width:auto; vertical-align:middle;" checked> Active
+                </label>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label for="ftTrNotes">Notes</label>
+                <textarea id="ftTrNotes"></textarea>
+            </div>
+            <div class="modal-actions">
+                <div style="flex:1;"></div>
+                <button type="button" id="ftTrCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="ftTrSaveBtn" data-write>Save truck</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ================= FEED TRUCK: load detail ================= -->
+<div class="modal-backdrop" id="ftLoadModal">
+    <div class="modal" style="max-width:860px;">
+        <h2 id="ftLoadModalTitle">Load</h2>
+        <div id="ftLoadModalAlert"></div>
+        <div id="ftLoadModalBody"></div>
+        <div class="modal-actions" style="margin-top:14px;">
+            <button type="button" id="ftLoadVoidBtn" style="color: var(--danger);" data-write>Void load&hellip;</button>
+            <button type="button" id="ftLoadUnpostBtn" data-write>Unpost&hellip;</button>
+            <div style="flex:1;"></div>
+            <button type="button" id="ftLoadCloseBtn">Close</button>
+        </div>
     </div>
 </div>
 
@@ -23806,6 +24101,7 @@ ${ranchBlocks}
         $('navInventory').classList.add('active');
         $('invTabRow').classList.remove('hidden');
         invApplyMaterial();
+        ftAutoPost();   // D12: prior-day truck loads post on open, once cut over
 
         // A sub-tab hidden by the chip cannot be the active one.
         const btn = $('feedSubtabs').querySelector(`.sub-tab[data-subtab="${subtab}"]`);
@@ -23864,6 +24160,11 @@ ${ranchBlocks}
                 : refErr.message;
             ['fdInvContent','fdRcContent','fdItContent','fdLcContent','fdCtContent']
                 .forEach(id => { const el = $(id); if (el) el.innerHTML = `<div class="alert error">${escapeHtml(msg)}</div>`; });
+        }
+
+        if (subtab.startsWith('truck-')) {
+            await showFeedTruckTab(subtab);
+            return;
         }
 
         if (subtab === 'inventory') {
@@ -27328,6 +27629,780 @@ ${ranchBlocks}
         invPuFilter = b.dataset.pu;
         loadInvPurchases();
     });
+
+    // ==========================================================
+    // FEED TRUCK (phase 1, 2026-09-04)
+    // ==========================================================
+    // Design record: docs/feed-truck-integration-scope.md. The truck's own
+    // ledger (feed_loads / feed_load_lines / feed_drops / feed_drop_lots) is
+    // written by the feed app; this is the office side: setup, the PB
+    // tie-out, and posting. Nothing here writes feed_usage directly - the
+    // three RPCs do, and unpost reverses exactly what post wrote.
+    let ftRations = [];        // rations with ration_lines embedded
+    let ftSetup = [];          // pasture_feed_setup rows
+    let ftTrucks = [];         // feed_trucks
+    let ftSettings = null;     // the four ranch_settings columns
+    let ftLotNames = null;     // id -> lot_number, every lot (posted loads may name closed ones)
+    let ftLoads = [];          // loads currently listed
+    let ftAutoPostAt = 0;      // last auto-post attempt, ms
+    let ftLastPost = null;     // last post_due_feed_loads() result
+    let ftRaLineSeq = 0;
+
+    const FT_VIEWS = {
+        'truck-loads':    'ftLoadsView',
+        'truck-tieout':   'ftTieoutView',
+        'truck-rations':  'ftRationsView',
+        'truck-pastures': 'ftPasturesView',
+        'truck-trucks':   'ftTrucksView',
+        'truck-settings': 'ftSettingsView'
+    };
+
+    function ftMissingMsg(err) {
+        const m = err && err.message || '';
+        return /relation .* does not exist|schema cache|column .* does not exist|could not find/i.test(m)
+            ? 'The feed truck tables are not in the database yet. Apply docs/sql/2026-09-04_feed_truck.sql in the Supabase SQL editor, then reload.'
+            : m;
+    }
+
+    async function ftLoadRefs() {
+        const err = await fdLoadRefs();
+        if (err) return err;
+        const [r, s, t, st] = await Promise.all([
+            supabase.from('rations').select('*, ration_lines(*)').order('name'),
+            supabase.from('pasture_feed_setup').select('*'),
+            supabase.from('feed_trucks').select('*').order('name'),
+            supabase.from('ranch_settings')
+                .select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from')
+                .maybeSingle()
+        ]);
+        const bad = [r, s, t, st].find(x => x.error);
+        if (bad) return bad.error;
+        ftRations  = (r.data || []).map(x => ({ ...x, ration_lines: (x.ration_lines || []).sort((a, b) => a.load_order - b.load_order) }));
+        ftSetup    = s.data || [];
+        ftTrucks   = t.data || [];
+        ftSettings = st.data || null;
+        return null;
+    }
+
+    async function ftLoadLotNames() {
+        if (ftLotNames) return null;
+        const { data, error } = await supabase.from('lots').select('id, lot_number');
+        if (error) return error;
+        ftLotNames = {};
+        (data || []).forEach(l => { ftLotNames[l.id] = l.lot_number; });
+        return null;
+    }
+
+    const ftItemName = id => (fdItems.find(i => i.id === id) || {}).name || '?';
+    const ftLocName  = id => (fdLocations.find(l => l.id === id) || {}).name || '?';
+    const ftRationName = id => (ftRations.find(r => r.id === id) || {}).name || '—';
+    const ftTruckName  = id => (ftTrucks.find(t => t.id === id) || {}).name || '—';
+    function ftPastureLabel(id) {
+        const p = fdPastures.find(x => x.id === id);
+        if (!p) return '?';
+        return (p.ranches && p.ranches.name ? p.ranches.name + ' / ' : '') + p.name;
+    }
+    const ftLotName = id => (ftLotNames && ftLotNames[id]) || '?';
+    function ftCompositionText(r) {
+        return (r.ration_lines || []).map(l => `${escapeHtml(ftItemName(l.item_id))} ${fmtNum(l.pct_as_fed, 1)}%`).join(' &middot; ') || '<span class="muted">no ingredients</span>';
+    }
+
+    async function showFeedTruckTab(subtab) {
+        const viewId = FT_VIEWS[subtab];
+        if (!viewId) return;
+        $(viewId).classList.remove('hidden');
+        const err = await ftLoadRefs();
+        if (err) {
+            const el = $(viewId).querySelector('.ft-content');
+            if (el) el.innerHTML = `<div class="alert error">${escapeHtml(ftMissingMsg(err))}</div>`;
+            return;
+        }
+        if (subtab === 'truck-loads')    loadFtLoads();
+        if (subtab === 'truck-tieout')   loadFtTieout();
+        if (subtab === 'truck-rations')  loadFtRations();
+        if (subtab === 'truck-pastures') loadFtPastures();
+        if (subtab === 'truck-trucks')   loadFtTrucks();
+        if (subtab === 'truck-settings') loadFtSettings();
+    }
+
+    // D12: posting is automatic for prior-day loads once a cut-over date is
+    // set. Fired when the Inventory tab opens, at most every ten minutes,
+    // office/owner only. A missing table (migration not applied) or a
+    // read-only role is silent here; the Loads screen says so instead.
+    async function ftAutoPost() {
+        if (!currentProfile || !['owner', 'office'].includes(currentProfile.role)) return;
+        if (Date.now() - ftAutoPostAt < 10 * 60 * 1000) return;
+        ftAutoPostAt = Date.now();
+        const { data, error } = await supabase.rpc('post_due_feed_loads');
+        if (error) return;
+        ftLastPost = data;
+        if (data && (data.posted > 0 || (data.errors || []).length) && !$('ftLoadsView').classList.contains('hidden')) {
+            loadFtLoads();
+        }
+    }
+
+    // ---------------- Loads ----------------
+    function ftLoadTotals(l) {
+        const loaded  = (l.feed_load_lines || []).reduce((s, x) => s + (Number(x.lb) || 0), 0);
+        const dropped = (l.feed_drops || []).reduce((s, x) => s + (Number(x.lb) || 0), 0);
+        let mix = null;   // null = not applicable yet, true/false = honoured
+        if (l.mix_started_at && l.first_drop_at) {
+            const waited = (new Date(l.first_drop_at) - new Date(l.mix_started_at)) / 60000;
+            mix = waited + 0.05 >= (Number(l.mix_minutes_required) || 0);
+        }
+        const edited = (l.feed_load_lines || []).some(x => x.edited_at) || (l.feed_drops || []).some(x => x.edited_at);
+        return { loaded, dropped, mix, edited };
+    }
+
+    function ftStatusBadge(s) {
+        const c = { posted: 'var(--success)', void: 'var(--danger)', closed: 'var(--text)', planned: 'var(--text-muted)' }[s] || 'var(--warning, #b8860b)';
+        return `<span style="color:${c}; font-weight:600;">${escapeHtml(s)}</span>`;
+    }
+
+    function ftRenderPostResult() {
+        const el = $('ftLdPostResult');
+        if (!ftLastPost) { el.innerHTML = ''; return; }
+        if (ftLastPost.parallel) {
+            el.innerHTML = `<div class="alert info" style="margin-bottom:12px;">No cut-over date is set &mdash; the truck is running parallel to Performance Beef and nothing posts. Set the date under Truck &rsaquo; Settings when the tie-out holds.</div>`;
+            return;
+        }
+        const errs = ftLastPost.errors || [];
+        let html = `<div class="alert ${errs.length ? 'warning' : 'success'}" style="margin-bottom:12px;">`
+            + `Posted ${ftLastPost.posted} load${ftLastPost.posted === 1 ? '' : 's'}.`;
+        if (errs.length) {
+            html += ` ${errs.length} could not post:<ul style="margin:6px 0 0 18px;">`
+                + errs.map(e => `<li>${escapeHtml(fmtDate(e.load_date))} load ${escapeHtml(String(e.load_seq))}: ${escapeHtml(e.error)}</li>`).join('')
+                + '</ul>';
+        }
+        el.innerHTML = html + '</div>';
+    }
+
+    async function loadFtLoads() {
+        clearAlert('ftLdAlert');
+        $('ftLdContent').innerHTML = '<div class="empty">Loading&hellip;</div>';
+        if (!$('ftLdFrom').value) $('ftLdFrom').value = ftShiftDays(ranchToday(), -14);
+        if (!$('ftLdTo').value) $('ftLdTo').value = ranchToday();
+        ftRenderPostResult();
+
+        const nameErr = await ftLoadLotNames();
+        if (nameErr) { $('ftLdContent').innerHTML = `<div class="alert error">${escapeHtml(nameErr.message)}</div>`; return; }
+
+        let q = supabase.from('feed_loads')
+            .select('*, feed_load_lines(*), feed_drops(*, feed_drop_lots(*))')
+            .gte('load_date', $('ftLdFrom').value)
+            .lte('load_date', $('ftLdTo').value)
+            .order('load_date', { ascending: false })
+            .order('load_seq', { ascending: false });
+        const st = $('ftLdStatus').value;
+        if (st === 'open') q = q.in('status', ['planned', 'loading', 'mixing', 'dropping']);
+        else if (st) q = q.eq('status', st);
+        const { data, error } = await q;
+        if (error) { $('ftLdContent').innerHTML = `<div class="alert error">${escapeHtml(ftMissingMsg(error))}</div>`; return; }
+        ftLoads = data || [];
+        if (!ftLoads.length) {
+            $('ftLdContent').innerHTML = '<div class="empty">No loads in this range. The feed app writes them as the truck runs.</div>';
+            return;
+        }
+        const rows = ftLoads.map(l => {
+            const t = ftLoadTotals(l);
+            const drops = (l.feed_drops || []).filter(d => Number(d.lb) > 0).length;
+            return `<tr class="clickable ${l.status === 'void' ? 'closed-row' : ''}" data-ft-load-id="${l.id}">
+                <td>${escapeHtml(fmtDate(l.load_date))}</td>
+                <td class="num">${l.load_seq}</td>
+                <td>${escapeHtml(ftRationName(l.ration_id))}</td>
+                <td>${escapeHtml(ftTruckName(l.truck_id))}</td>
+                <td>${ftStatusBadge(l.status)}</td>
+                <td class="num">${fmtNum(t.loaded)}</td>
+                <td class="num">${fmtNum(t.dropped)}<span class="muted"> / ${drops}</span></td>
+                <td class="num">${Number(l.left_in_box_lb) > 0 ? fmtNum(l.left_in_box_lb) : '—'}</td>
+                <td>${t.mix === null ? '<span class="muted">—</span>' : (t.mix ? '<span style="color:var(--success);">mixed</span>' : '<span style="color:var(--danger);">short</span>')}</td>
+                <td>${t.edited ? '<span title="A scale reading was overridden by hand">edited</span>' : ''}</td>
+            </tr>`;
+        }).join('');
+        $('ftLdContent').innerHTML = `
+            <div style="overflow-x:auto;"><table>
+                <thead><tr><th>Date</th><th class="num">#</th><th>Ration</th><th>Truck</th><th>Status</th>
+                    <th class="num">Loaded lb</th><th class="num">Dropped lb / drops</th><th class="num">Left in box</th><th>Mix</th><th></th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>`;
+        $('ftLdContent').querySelectorAll('tr.clickable').forEach(r => {
+            r.addEventListener('click', () => openFtLoadModal(ftLoads.find(l => l.id === r.dataset.ftLoadId)));
+        });
+    }
+
+    function ftFmtTime(ts) {
+        if (!ts) return '—';
+        return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' });
+    }
+
+    function openFtLoadModal(l) {
+        if (!l) return;
+        clearAlert('ftLoadModalAlert');
+        const t = ftLoadTotals(l);
+        $('ftLoadModalTitle').textContent = `${fmtDate(l.load_date)} · load ${l.load_seq} · ${ftRationName(l.ration_id)}`;
+        const lines = (l.feed_load_lines || []).slice().sort((a, b) => a.load_order - b.load_order);
+        const drops = (l.feed_drops || []).slice().sort((a, b) => a.drop_seq - b.drop_seq);
+        const overUnder = x => {
+            const d = (Number(x.lb) || 0) - (Number(x.target_lb) || 0);
+            if (!x.target_lb) return '—';
+            const pct = 100 * d / Number(x.target_lb);
+            return `<span style="color:${Math.abs(pct) > (Number(ftSettings?.feed_truck_tolerance_pct) || 10) ? 'var(--danger)' : 'inherit'};">${d >= 0 ? '+' : ''}${fmtNum(d)} (${pct >= 0 ? '+' : ''}${fmtNum(pct, 1)}%)</span>`;
+        };
+        const editedCell = x => x.edited_at
+            ? `<span title="${escapeHtml(x.edit_reason || '')}">scale ${fmtNum(x.scale_lb)} &rarr; ${fmtNum(x.lb)}${x.edit_reason ? ': ' + escapeHtml(x.edit_reason) : ''}</span>`
+            : '';
+        const head = `
+            <div class="form-grid" style="margin-bottom:12px; font-size:13px;">
+                <div><span class="muted">Status</span><br>${ftStatusBadge(l.status)}${l.void_reason ? ' &mdash; ' + escapeHtml(l.void_reason) : ''}</div>
+                <div><span class="muted">Truck</span><br>${escapeHtml(ftTruckName(l.truck_id))}${l.scale_device_id ? ' <span class="muted">(' + escapeHtml(l.scale_device_id) + ')</span>' : ''}</div>
+                <div><span class="muted">Planned / loaded / dropped</span><br>${fmtNum(l.planned_lb)} / ${fmtNum(t.loaded)} / ${fmtNum(t.dropped)} lb</div>
+                <div><span class="muted">Carried in / left in box</span><br>${fmtNum(l.carried_in_lb)} / ${fmtNum(l.left_in_box_lb)} lb</div>
+                <div><span class="muted">Mix</span><br>${ftFmtTime(l.mix_started_at)} &rarr; first drop ${ftFmtTime(l.first_drop_at)} (${l.mix_minutes_required} min required${t.mix === null ? '' : t.mix ? ', honoured' : ', <b style="color:var(--danger);">short</b>'})</div>
+                <div><span class="muted">Posted</span><br>${l.posted_at ? escapeHtml(fmtDate(l.posted_at)) : '—'}</div>
+            </div>
+            ${l.notes ? `<div class="muted" style="font-size:12px; white-space:pre-line; margin-bottom:10px;">${escapeHtml(l.notes)}</div>` : ''}`;
+        const lineRows = lines.map(x => `<tr>
+            <td class="num">${x.load_order}</td>
+            <td>${escapeHtml(ftItemName(x.item_id))}</td>
+            <td>${escapeHtml(ftLocName(x.location_id))}</td>
+            <td class="num">${fmtNum(x.target_lb)}</td>
+            <td class="num">${fmtNum(x.lb)}</td>
+            <td class="num">${overUnder(x)}</td>
+            <td>${ftFmtTime(x.done_at)}${x.link_ok === false ? ' <span style="color:var(--danger);" title="Scale link was down at Done">no link</span>' : ''}</td>
+            <td>${editedCell(x)}</td>
+        </tr>`).join('');
+        const dropRows = drops.map(d => {
+            const lots = (d.feed_drop_lots || []).map(dl => `${escapeHtml(ftLotName(dl.lot_id))} ${fmtNum(dl.lb)} lb (${dl.head_count} hd)`).join(', ');
+            return `<tr>
+            <td class="num">${d.drop_seq}</td>
+            <td>${escapeHtml(ftPastureLabel(d.pasture_id))}</td>
+            <td class="num">${fmtNum(d.target_lb)}</td>
+            <td class="num">${fmtNum(d.lb)}</td>
+            <td class="num">${overUnder(d)}</td>
+            <td>${ftFmtTime(d.started_at)} &ndash; ${ftFmtTime(d.done_at)}</td>
+            <td style="font-size:12px;">${lots || '<span class="muted">split at posting</span>'}</td>
+            <td>${editedCell(d)}</td>
+        </tr>`;
+        }).join('');
+        $('ftLoadModalBody').innerHTML = head + `
+            <h3 style="margin:8px 0 6px;">Ingredients</h3>
+            <div style="overflow-x:auto;"><table>
+                <thead><tr><th class="num">#</th><th>Ingredient</th><th>Bay</th><th class="num">Target</th><th class="num">Loaded</th><th class="num">Over / under</th><th>Done</th><th>Override</th></tr></thead>
+                <tbody>${lineRows || '<tr><td colspan="8" class="muted">Nothing loaded yet.</td></tr>'}</tbody>
+            </table></div>
+            <h3 style="margin:14px 0 6px;">Drops</h3>
+            <div style="overflow-x:auto;"><table>
+                <thead><tr><th class="num">#</th><th>Pasture</th><th class="num">Target</th><th class="num">Dropped</th><th class="num">Over / under</th><th>Time</th><th>Lots</th><th>Override</th></tr></thead>
+                <tbody>${dropRows || '<tr><td colspan="8" class="muted">No drops yet.</td></tr>'}</tbody>
+            </table></div>`;
+        $('ftLoadUnpostBtn').classList.toggle('hidden', l.status !== 'posted');
+        $('ftLoadVoidBtn').classList.toggle('hidden', l.status === 'posted' || l.status === 'void');
+        $('ftLoadModal').dataset.loadId = l.id;
+        showModal('ftLoadModal');
+    }
+
+    async function ftUnpostLoad() {
+        const id = $('ftLoadModal').dataset.loadId;
+        if (!id) return;
+        const reason = prompt('Unpost this load? Its feed cost rows are reversed and the load reopens for editing; it posts again tomorrow morning. Reason (optional):');
+        if (reason === null) return;
+        $('ftLoadUnpostBtn').disabled = true;
+        try {
+            const { error } = await supabase.rpc('unpost_feed_load', { p_load_id: id, p_reason: reason.trim() || null });
+            if (error) { showAlert('ftLoadModalAlert', error.message); return; }
+            hideModal('ftLoadModal');
+            loadFtLoads();
+        } finally { $('ftLoadUnpostBtn').disabled = false; }
+    }
+
+    async function ftVoidLoad() {
+        const id = $('ftLoadModal').dataset.loadId;
+        if (!id) return;
+        const reason = prompt('Void this load? It stays on record marked void and never posts. A reason is required:');
+        if (reason === null) return;
+        if (!reason.trim()) { showAlert('ftLoadModalAlert', 'A reason is required to void a load.'); return; }
+        $('ftLoadVoidBtn').disabled = true;
+        try {
+            const { error } = await supabase.rpc('void_feed_load', { p_load_id: id, p_reason: reason.trim() });
+            if (error) { showAlert('ftLoadModalAlert', error.message); return; }
+            hideModal('ftLoadModal');
+            loadFtLoads();
+        } finally { $('ftLoadVoidBtn').disabled = false; }
+    }
+
+    async function ftPostDueNow() {
+        clearAlert('ftLdAlert');
+        $('ftLdPostBtn').disabled = true;
+        try {
+            const { data, error } = await supabase.rpc('post_due_feed_loads');
+            if (error) { showAlert('ftLdAlert', error.message); return; }
+            ftLastPost = data;
+            ftAutoPostAt = Date.now();
+            loadFtLoads();
+        } finally { $('ftLdPostBtn').disabled = false; }
+    }
+
+    // ---------------- Tie-out vs PB (D17) ----------------
+    // Monday of the week holding a YYYY-MM-DD, as YYYY-MM-DD, no timezone
+    // arithmetic on a Date - the same calendar-day trap as everywhere else.
+    function ftMondayOf(iso) {
+        const [y, m, d] = iso.split('-').map(Number);
+        const dt = new Date(Date.UTC(y, m - 1, d));
+        const dow = (dt.getUTCDay() + 6) % 7;   // Monday = 0
+        dt.setUTCDate(dt.getUTCDate() - dow);
+        return dt.toISOString().slice(0, 10);
+    }
+    function ftShiftDays(iso, n) {
+        const [y, m, d] = iso.split('-').map(Number);
+        const dt = new Date(Date.UTC(y, m - 1, d + n));
+        return dt.toISOString().slice(0, 10);
+    }
+
+    async function loadFtTieout() {
+        clearAlert('ftToAlert');
+        $('ftToContent').innerHTML = '<div class="empty">Loading&hellip;</div>';
+        if (!$('ftToWeek').value) $('ftToWeek').value = ftMondayOf(ftShiftDays(ranchToday(), -7));
+        const monday = ftMondayOf($('ftToWeek').value);
+        $('ftToWeek').value = monday;
+        const sunday = ftShiftDays(monday, 6);
+        const tol = Number(ftSettings?.feed_truck_tieout_pct);
+        const tolPct = isNaN(tol) ? 5 : tol;
+
+        const nameErr = await ftLoadLotNames();
+        if (nameErr) { $('ftToContent').innerHTML = `<div class="alert error">${escapeHtml(nameErr.message)}</div>`; return; }
+        const [rowsRes, hdRes] = await Promise.all([
+            supabase.from('feed_truck_tieout').select('*').eq('week_start', monday),
+            supabase.from('feed_truck_tieout_headdays').select('*').eq('week_start', monday)
+        ]);
+        const bad = [rowsRes, hdRes].find(r => r.error);
+        if (bad) { $('ftToContent').innerHTML = `<div class="alert error">${escapeHtml(ftMissingMsg(bad.error))}</div>`; return; }
+        const rows = rowsRes.data || [];
+        const hd = hdRes.data || [];
+        const title = `<div style="margin-bottom:10px;"><b>Week of ${escapeHtml(fmtDate(monday))}</b> <span class="muted">(Monday ${escapeHtml(monday)} to Sunday ${escapeHtml(sunday)}, tolerance &plusmn;${fmtNum(tolPct, 1)}%)</span></div>`;
+        if (!rows.length && !hd.length) {
+            $('ftToContent').innerHTML = title + '<div class="empty">Nothing from the truck and nothing from PB for this week.</div>';
+            return;
+        }
+        const byLot = new Map();
+        rows.forEach(r => {
+            const k = r.lot_id || 'none';
+            if (!byLot.has(k)) byLot.set(k, { lot: r.lot_number || ftLotName(r.lot_id), items: [], truck: 0, pb: 0 });
+            const g = byLot.get(k);
+            g.items.push(r); g.truck += Number(r.truck_lb) || 0; g.pb += Number(r.pb_lb) || 0;
+        });
+        const judge = (truck, pb) => {
+            if (!pb && !truck) return '<span class="muted">—</span>';
+            if (!pb) return '<span style="color:var(--warning, #b8860b); font-weight:600;">no PB entry</span>';
+            if (!truck) return '<span style="color:var(--warning, #b8860b); font-weight:600;">no truck loads</span>';
+            const pct = 100 * (truck - pb) / pb;
+            const ok = Math.abs(pct) <= tolPct;
+            return `<span style="color:${ok ? 'var(--success)' : 'var(--warning, #b8860b)'}; font-weight:600;">${pct >= 0 ? '+' : ''}${fmtNum(pct, 1)}%</span>`;
+        };
+        let totalTruck = 0, totalPb = 0;
+        const body = [...byLot.values()].sort((a, b) => a.lot.localeCompare(b.lot)).map(g => {
+            totalTruck += g.truck; totalPb += g.pb;
+            const items = g.items.sort((a, b) => (a.item_name || '').localeCompare(b.item_name || '')).map(r => `<tr>
+                <td class="muted" style="padding-left:24px;">${escapeHtml(r.item_name || ftItemName(r.item_id))}</td>
+                <td class="num">${fmtNum(r.truck_lb)}</td>
+                <td class="num">${fmtNum(r.pb_lb)}</td>
+                <td class="num">${fmtNum(Number(r.truck_lb) - Number(r.pb_lb))}</td>
+                <td class="num">${judge(Number(r.truck_lb), Number(r.pb_lb))}</td>
+            </tr>`).join('');
+            return `<tr style="font-weight:600;">
+                <td>${escapeHtml(g.lot)}</td>
+                <td class="num">${fmtNum(g.truck)}</td>
+                <td class="num">${fmtNum(g.pb)}</td>
+                <td class="num">${fmtNum(g.truck - g.pb)}</td>
+                <td class="num">${judge(g.truck, g.pb)}</td>
+            </tr>${items}`;
+        }).join('');
+        const hdRows = hd.sort((a, b) => (a.lot_number || '').localeCompare(b.lot_number || '')).map(r => {
+            const diff = Number(r.truck_head_days) - Number(r.book_head_days);
+            const pct = Number(r.book_head_days) ? 100 * diff / Number(r.book_head_days) : null;
+            return `<tr>
+                <td>${escapeHtml(r.lot_number || ftLotName(r.lot_id))}</td>
+                <td class="num">${r.days_fed}</td>
+                <td class="num">${fmtNum(r.truck_head_days)}</td>
+                <td class="num">${fmtNum(r.book_head_days)}</td>
+                <td class="num" style="color:${diff === 0 ? 'var(--success)' : 'var(--warning, #b8860b)'}; font-weight:600;">${diff >= 0 ? '+' : ''}${fmtNum(diff)}${pct === null ? '' : ' (' + (pct >= 0 ? '+' : '') + fmtNum(pct, 1) + '%)'}</td>
+            </tr>`;
+        }).join('');
+        $('ftToContent').innerHTML = title + `
+            <div style="overflow-x:auto;"><table>
+                <thead><tr><th>Lot / commodity</th><th class="num">Truck lb</th><th class="num">PB lb</th><th class="num">Difference</th><th class="num">Tie</th></tr></thead>
+                <tbody>${body}</tbody>
+                <tfoot><tr style="font-weight:600;"><td>All lots</td><td class="num">${fmtNum(totalTruck)}</td><td class="num">${fmtNum(totalPb)}</td><td class="num">${fmtNum(totalTruck - totalPb)}</td><td class="num">${judge(totalTruck, totalPb)}</td></tr></tfoot>
+            </table></div>
+            <h3 style="margin:16px 0 6px;">Head the drops were split over vs the books, same days</h3>
+            <div style="overflow-x:auto;"><table>
+                <thead><tr><th>Lot</th><th class="num">Days fed</th><th class="num">Truck head-days</th><th class="num">Book head-days</th><th class="num">Difference</th></tr></thead>
+                <tbody>${hdRows || '<tr><td colspan="5" class="muted">No drops this week.</td></tr>'}</tbody>
+            </table></div>`;
+    }
+
+    // ---------------- Rations ----------------
+    function loadFtRations() {
+        clearAlert('ftRaAlert');
+        const showInactive = $('ftRaShowInactive').checked;
+        const list = ftRations.filter(r => showInactive || r.is_active);
+        if (!list.length) {
+            $('ftRaContent').innerHTML = '<div class="empty">No rations yet. Click "+ Ration" and enter the first one from PB\'s ration sheet.</div>';
+            return;
+        }
+        const rows = list.map(r => `<tr class="clickable ${!r.is_active ? 'closed-row' : ''}" data-ft-ration-id="${r.id}">
+            <td><strong>${escapeHtml(r.name)}</strong></td>
+            <td class="num">${r.mix_minutes}</td>
+            <td class="num">${r.max_load_lb ? fmtNum(r.max_load_lb) : '—'}</td>
+            <td style="font-size:12px;">${ftCompositionText(r)}</td>
+            <td class="num">${ftSetup.filter(s => s.ration_id === r.id && s.is_active).length}</td>
+            <td>${r.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
+        </tr>`).join('');
+        $('ftRaContent').innerHTML = `
+            <div style="overflow-x:auto;"><table>
+                <thead><tr><th>Ration</th><th class="num">Mix (min)</th><th class="num">Max load lb</th><th>As-fed</th><th class="num">Pastures on it</th><th>Status</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>`;
+        $('ftRaContent').querySelectorAll('tr.clickable').forEach(tr => {
+            tr.addEventListener('click', () => openFtRationModal(ftRations.find(r => r.id === tr.dataset.ftRationId)));
+        });
+    }
+
+    function ftRaItemOptions(sel) {
+        return '<option value="">—</option>' + fdItems.filter(i => i.is_active || i.id === sel)
+            .map(i => `<option value="${i.id}" ${i.id === sel ? 'selected' : ''}>${escapeHtml(i.name)}</option>`).join('');
+    }
+    function ftRaLocOptions(sel) {
+        return '<option value="">—</option>' + fdLocations.filter(l => l.is_active || l.id === sel)
+            .map(l => `<option value="${l.id}" ${l.id === sel ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+    }
+
+    function ftRaAddLine(line) {
+        const tb = $('ftRaLines').querySelector('tbody');
+        const n = ++ftRaLineSeq;
+        const order = line ? line.load_order : tb.children.length + 1;
+        const tr = document.createElement('tr');
+        tr.dataset.line = n;
+        tr.innerHTML = `
+            <td><input type="number" step="1" min="0" class="ft-ra-order" value="${order}" style="width:56px;"></td>
+            <td><select class="ft-ra-item">${ftRaItemOptions(line ? line.item_id : '')}</select></td>
+            <td class="num"><input type="number" step="0.01" min="0.01" max="100" class="ft-ra-pct" value="${line ? line.pct_as_fed : ''}" style="width:90px; text-align:right;"></td>
+            <td><select class="ft-ra-loc">${ftRaLocOptions(line ? line.default_location_id : '')}</select></td>
+            <td><button type="button" class="ft-ra-del" title="Remove" style="padding:2px 8px;">&times;</button></td>`;
+        tb.appendChild(tr);
+        tr.querySelector('.ft-ra-del').addEventListener('click', () => { tr.remove(); ftRaRecalc(); });
+        tr.querySelector('.ft-ra-pct').addEventListener('input', ftRaRecalc);
+        // Picking an item pre-fills its usual bay; the line's own bay wins once set.
+        tr.querySelector('.ft-ra-item').addEventListener('change', () => {
+            const it = fdItems.find(i => i.id === tr.querySelector('.ft-ra-item').value);
+            const loc = tr.querySelector('.ft-ra-loc');
+            if (it && it.default_location_id && !loc.value) loc.value = it.default_location_id;
+        });
+        ftRaRecalc();
+    }
+
+    function ftRaRecalc() {
+        let total = 0;
+        $('ftRaLines').querySelectorAll('.ft-ra-pct').forEach(i => { total += Number(i.value) || 0; });
+        $('ftRaPctTotal').textContent = fmtNum(total, 2) + '%';
+        const off = Math.abs(total - 100) > 0.005;
+        $('ftRaPctTotal').style.color = off ? 'var(--danger)' : 'var(--success)';
+        $('ftRaPctHint').textContent = off ? 'Must total 100.00%' : '';
+    }
+
+    function openFtRationModal(r) {
+        clearAlert('ftRationModalAlert');
+        $('ftRationModalTitle').textContent = r ? 'Edit ration' : 'New ration';
+        $('ftRaId').value     = r ? r.id : '';
+        $('ftRaName').value   = r ? r.name : '';
+        $('ftRaMix').value    = r ? r.mix_minutes : '';
+        $('ftRaMax').value    = r && r.max_load_lb != null ? r.max_load_lb : '';
+        $('ftRaActive').checked = r ? !!r.is_active : true;
+        $('ftRaNotes').value  = r ? (r.notes || '') : '';
+        $('ftRaLines').querySelector('tbody').innerHTML = '';
+        (r ? r.ration_lines : []).forEach(ftRaAddLine);
+        if (!r) ftRaAddLine(null);
+        showModal('ftRationModal');
+    }
+
+    async function saveFtRation(e) {
+        e.preventDefault();
+        clearAlert('ftRationModalAlert');
+        const id = $('ftRaId').value;
+        const name = $('ftRaName').value.trim();
+        if (!name) { showAlert('ftRationModalAlert', 'Name is required.'); return; }
+        const lines = [];
+        const seen = new Set();
+        let total = 0;
+        for (const tr of $('ftRaLines').querySelectorAll('tbody tr')) {
+            const item = tr.querySelector('.ft-ra-item').value;
+            const pct = parseFloat(tr.querySelector('.ft-ra-pct').value);
+            const order = parseInt(tr.querySelector('.ft-ra-order').value, 10);
+            const loc = tr.querySelector('.ft-ra-loc').value || null;
+            if (!item && !pct) continue;
+            if (!item) { showAlert('ftRationModalAlert', 'Every line needs an ingredient.'); return; }
+            if (seen.has(item)) { showAlert('ftRationModalAlert', `${ftItemName(item)} is on the ration twice.`); return; }
+            if (!(pct > 0)) { showAlert('ftRationModalAlert', `${ftItemName(item)} needs a percent.`); return; }
+            seen.add(item);
+            total += pct;
+            lines.push({ item_id: item, pct_as_fed: pct, load_order: isNaN(order) ? lines.length + 1 : order, default_location_id: loc });
+        }
+        if (!lines.length) { showAlert('ftRationModalAlert', 'A ration needs at least one ingredient.'); return; }
+        if (Math.abs(total - 100) > 0.005) { showAlert('ftRationModalAlert', `Ingredients total ${fmtNum(total, 2)}%; they must total 100%.`); return; }
+
+        const payload = {
+            name,
+            mix_minutes: parseInt($('ftRaMix').value, 10) || 0,
+            max_load_lb: $('ftRaMax').value ? parseFloat($('ftRaMax').value) : null,
+            is_active: $('ftRaActive').checked,
+            notes: $('ftRaNotes').value.trim() || null
+        };
+        $('ftRaSaveBtn').disabled = true;
+        try {
+            let rationId = id;
+            let res;
+            if (id) res = await supabase.from('rations').update(payload).eq('id', id).select();
+            else { payload.created_by = currentUser ? currentUser.id : null; res = await supabase.from('rations').insert(payload).select(); }
+            if (res.error) { showAlert('ftRationModalAlert', res.error.message); return; }
+            if (!res.data || !res.data.length) { showAlert('ftRationModalAlert', 'Nothing was saved — your role may not be allowed to make that change.'); return; }
+            rationId = res.data[0].id;
+            // Lines are rewritten whole. A ration has a handful and a diff is
+            // more ways to be wrong; loads already run froze their own lines.
+            if (id) {
+                const del = await supabase.from('ration_lines').delete().eq('ration_id', id);
+                if (del.error) { showAlert('ftRationModalAlert', del.error.message); return; }
+            }
+            const ins = await supabase.from('ration_lines').insert(lines.map(l => ({ ...l, ration_id: rationId }))).select();
+            if (ins.error) { showAlert('ftRationModalAlert', 'Ration saved but its ingredients did not: ' + ins.error.message); return; }
+            if (!ins.data || ins.data.length !== lines.length) { showAlert('ftRationModalAlert', 'Ration saved but not all ingredients were — check your role.'); return; }
+            hideModal('ftRationModal');
+            await ftLoadRefs();
+            loadFtRations();
+        } finally { $('ftRaSaveBtn').disabled = false; }
+    }
+
+    // ---------------- Pastures & route ----------------
+    async function loadFtPastures() {
+        clearAlert('ftPaAlert');
+        $('ftPaContent').innerHTML = '<div class="empty">Loading&hellip;</div>';
+        const inv = await loadOpenPastureInventory();
+        if (inv.error) { $('ftPaContent').innerHTML = `<div class="alert error">${escapeHtml(inv.error.message)}</div>`; return; }
+        const headBy = {};
+        const lotsBy = {};
+        (inv.inventory || []).forEach(i => {
+            headBy[i.pasture_id] = (headBy[i.pasture_id] || 0) + i.head_count;
+            (lotsBy[i.pasture_id] = lotsBy[i.pasture_id] || []).push(i.lot_number);
+        });
+        const showAll = $('ftPaShowAll').checked;
+        const setupBy = {};
+        ftSetup.forEach(s => { setupBy[s.pasture_id] = s; });
+        const list = fdPastures
+            .map(p => ({ p, s: setupBy[p.id] || null, head: headBy[p.id] || 0 }))
+            .filter(x => showAll || (x.s && x.s.is_active))
+            .sort((a, b) => {
+                const aa = a.s && a.s.is_active ? 0 : 1, bb = b.s && b.s.is_active ? 0 : 1;
+                if (aa !== bb) return aa - bb;
+                if (aa === 0) return (a.s.route_order - b.s.route_order) || ftPastureLabel(a.p.id).localeCompare(ftPastureLabel(b.p.id));
+                return ftPastureLabel(a.p.id).localeCompare(ftPastureLabel(b.p.id));
+            });
+        if (!list.length) {
+            $('ftPaContent').innerHTML = '<div class="empty">No pastures on the feed route yet. Tick "Show pastures not on the route", set the ones the truck feeds to active, and save.</div>';
+            return;
+        }
+        const rationOpts = sel => '<option value="">—</option>' + ftRations.filter(r => r.is_active || r.id === sel)
+            .map(r => `<option value="${r.id}" ${r.id === sel ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('');
+        const rows = list.map(({ p, s, head }) => `<tr data-ft-pasture="${p.id}" data-ft-has-setup="${s ? '1' : '0'}">
+            <td><strong>${escapeHtml(ftPastureLabel(p.id))}</strong></td>
+            <td class="num">${head ? fmtNum(head) : '<span class="muted">0</span>'}<div class="muted" style="font-size:11px;">${escapeHtml((lotsBy[p.id] || []).join(', '))}</div></td>
+            <td><input type="checkbox" class="ft-pa-active" style="width:auto;" ${s && s.is_active ? 'checked' : ''}></td>
+            <td><select class="ft-pa-type" style="max-width:130px;">
+                <option value="bunk" ${!s || s.feeder_type === 'bunk' ? 'selected' : ''}>Bunk (lb/hd)</option>
+                <option value="bulk" ${s && s.feeder_type === 'bulk' ? 'selected' : ''}>Bulk feeder (total lb)</option>
+            </select></td>
+            <td><select class="ft-pa-ration" style="max-width:190px;">${rationOpts(s ? s.ration_id : '')}</select>
+                ${s && s.ration_since ? `<div class="muted" style="font-size:11px;">since ${escapeHtml(fmtDate(s.ration_since))}</div>` : ''}</td>
+            <td class="num"><input type="number" step="1" class="ft-pa-order" value="${s ? s.route_order : ''}" style="width:64px; text-align:right;"></td>
+            <td><input type="checkbox" class="ft-pa-onepass" style="width:auto;" ${s && s.one_pass ? 'checked' : ''}></td>
+            <td><input type="text" class="ft-pa-notes" value="${escapeHtml(s && s.notes || '')}" placeholder="" style="min-width:120px;"></td>
+        </tr>`).join('');
+        $('ftPaContent').innerHTML = `
+            <div style="overflow-x:auto;"><table>
+                <thead><tr><th>Pasture</th><th class="num">Head standing</th><th>On route</th><th>Feeder</th><th>Ration</th><th class="num">Route order</th><th>One pass</th><th>Notes</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>`;
+        $('ftPaContent').querySelectorAll('input, select').forEach(el => {
+            el.addEventListener('change', () => { el.closest('tr').dataset.ftDirty = '1'; });
+        });
+    }
+
+    async function saveFtPastures() {
+        clearAlert('ftPaAlert');
+        const rows = [...$('ftPaContent').querySelectorAll('tr[data-ft-pasture]')].filter(tr => tr.dataset.ftDirty === '1');
+        if (!rows.length) { showAlert('ftPaAlert', 'Nothing changed.', 'info'); return; }
+        const payload = rows.map(tr => ({
+            pasture_id: tr.dataset.ftPasture,
+            is_active: tr.querySelector('.ft-pa-active').checked,
+            feeder_type: tr.querySelector('.ft-pa-type').value,
+            ration_id: tr.querySelector('.ft-pa-ration').value || null,
+            route_order: parseInt(tr.querySelector('.ft-pa-order').value, 10) || 0,
+            one_pass: tr.querySelector('.ft-pa-onepass').checked,
+            notes: tr.querySelector('.ft-pa-notes').value.trim() || null
+        }));
+        const bad = payload.find(p => p.is_active && !p.ration_id);
+        if (bad) { showAlert('ftPaAlert', `${ftPastureLabel(bad.pasture_id)} is on the route with no ration.`); return; }
+        $('ftPaSaveBtn').disabled = true;
+        try {
+            const res = await supabase.from('pasture_feed_setup').upsert(payload, { onConflict: 'pasture_id' }).select();
+            if (res.error) { showAlert('ftPaAlert', res.error.message); return; }
+            if (!res.data || res.data.length !== payload.length) {
+                showAlert('ftPaAlert', 'Not every row was saved — your role may not be allowed to make that change.');
+                return;
+            }
+            showAlert('ftPaAlert', `Saved ${payload.length} pasture${payload.length === 1 ? '' : 's'}.`, 'success');
+            await ftLoadRefs();
+            loadFtPastures();
+        } finally { $('ftPaSaveBtn').disabled = false; }
+    }
+
+    // ---------------- Trucks ----------------
+    function loadFtTrucks() {
+        clearAlert('ftTrAlert');
+        const showInactive = $('ftTrShowInactive').checked;
+        const list = ftTrucks.filter(t => showInactive || t.is_active);
+        if (!list.length) {
+            $('ftTrContent').innerHTML = '<div class="empty">No trucks yet. Click "+ Truck" and add the main truck first.</div>';
+            return;
+        }
+        const rows = list.map(t => `<tr class="clickable ${!t.is_active ? 'closed-row' : ''}" data-ft-truck-id="${t.id}">
+            <td><strong>${escapeHtml(t.name)}</strong>${t.is_default ? ' <span class="muted" style="font-size:11px;">default</span>' : ''}</td>
+            <td>${escapeHtml(t.scale_device_id || '—')}</td>
+            <td class="num">${t.capacity_lb ? fmtNum(t.capacity_lb) + ' lb' : '—'}</td>
+            <td>${t.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
+        </tr>`).join('');
+        $('ftTrContent').innerHTML = `
+            <table>
+                <thead><tr><th>Truck</th><th>Scale id</th><th class="num">Capacity</th><th>Status</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+        $('ftTrContent').querySelectorAll('tr.clickable').forEach(tr => {
+            tr.addEventListener('click', () => openFtTruckModal(ftTrucks.find(t => t.id === tr.dataset.ftTruckId)));
+        });
+    }
+
+    function openFtTruckModal(t) {
+        clearAlert('ftTruckModalAlert');
+        $('ftTruckModalTitle').textContent = t ? 'Edit truck' : 'New truck';
+        $('ftTrId').value       = t ? t.id : '';
+        $('ftTrName').value     = t ? t.name : '';
+        $('ftTrDevice').value   = t ? (t.scale_device_id || '') : '';
+        $('ftTrCapacity').value = t && t.capacity_lb != null ? t.capacity_lb : '';
+        $('ftTrDefault').checked = t ? !!t.is_default : !ftTrucks.some(x => x.is_default);
+        $('ftTrActive').checked = t ? !!t.is_active : true;
+        $('ftTrNotes').value    = t ? (t.notes || '') : '';
+        showModal('ftTruckModal');
+    }
+
+    async function saveFtTruck(e) {
+        e.preventDefault();
+        clearAlert('ftTruckModalAlert');
+        const id = $('ftTrId').value;
+        const name = $('ftTrName').value.trim();
+        if (!name) { showAlert('ftTruckModalAlert', 'Name is required.'); return; }
+        const payload = {
+            name,
+            scale_device_id: $('ftTrDevice').value.trim() || null,
+            capacity_lb: $('ftTrCapacity').value ? parseFloat($('ftTrCapacity').value) : null,
+            is_default: $('ftTrDefault').checked,
+            is_active: $('ftTrActive').checked,
+            notes: $('ftTrNotes').value.trim() || null
+        };
+        $('ftTrSaveBtn').disabled = true;
+        try {
+            let res;
+            if (id) res = await supabase.from('feed_trucks').update(payload).eq('id', id).select();
+            else { payload.created_by = currentUser ? currentUser.id : null; res = await supabase.from('feed_trucks').insert(payload).select(); }
+            if (res.error) { showAlert('ftTruckModalAlert', res.error.message); return; }
+            if (!res.data || !res.data.length) { showAlert('ftTruckModalAlert', 'Nothing was saved — your role may not be allowed to make that change.'); return; }
+            // One default. Clearing the others after the save means a
+            // failure leaves at most one extra default, never none.
+            if (payload.is_default) {
+                await supabase.from('feed_trucks').update({ is_default: false }).neq('id', res.data[0].id).eq('is_default', true);
+            }
+            hideModal('ftTruckModal');
+            await ftLoadRefs();
+            loadFtTrucks();
+        } finally { $('ftTrSaveBtn').disabled = false; }
+    }
+
+    // ---------------- Settings ----------------
+    function loadFtSettings() {
+        clearAlert('ftStAlert');
+        const s = ftSettings || {};
+        $('ftStTolerance').value = s.feed_truck_tolerance_pct != null ? s.feed_truck_tolerance_pct : 10;
+        $('ftStMinSplit').value  = s.feed_truck_min_split_lb != null ? s.feed_truck_min_split_lb : 500;
+        $('ftStTieout').value    = s.feed_truck_tieout_pct != null ? s.feed_truck_tieout_pct : 5;
+        $('ftStPostFrom').value  = s.feed_truck_post_from || '';
+        $('ftStHint').textContent = s.feed_truck_post_from
+            ? `Loads from ${fmtDate(s.feed_truck_post_from)} on post to the books. Stop the Monday PB entry for those weeks.`
+            : 'Parallel run: loads never post. Set the date when the tie-out has held for a few weeks.';
+    }
+
+    async function saveFtSettings() {
+        clearAlert('ftStAlert');
+        const payload = {
+            feed_truck_tolerance_pct: parseFloat($('ftStTolerance').value),
+            feed_truck_min_split_lb:  parseFloat($('ftStMinSplit').value),
+            feed_truck_tieout_pct:    parseFloat($('ftStTieout').value),
+            feed_truck_post_from:     $('ftStPostFrom').value || null
+        };
+        if ([payload.feed_truck_tolerance_pct, payload.feed_truck_min_split_lb, payload.feed_truck_tieout_pct].some(v => isNaN(v) || v < 0)) {
+            showAlert('ftStAlert', 'All three numbers are required and cannot be negative.'); return;
+        }
+        const was = ftSettings ? ftSettings.feed_truck_post_from : null;
+        if (payload.feed_truck_post_from && payload.feed_truck_post_from !== was) {
+            if (!confirm(`Set the cut-over to ${fmtDate(payload.feed_truck_post_from)}? Every closed load from that date on will post to feed cost the next time this tab opens. The Monday PB entry must stop for those weeks or feed is charged twice.`)) return;
+        }
+        $('ftStSaveBtn').disabled = true;
+        try {
+            const res = await supabase.from('ranch_settings').update({ ...payload, updated_by: currentUser ? currentUser.id : null }).eq('id', true).select();
+            if (res.error) { showAlert('ftStAlert', res.error.message); return; }
+            if (!res.data || !res.data.length) { showAlert('ftStAlert', 'Nothing was saved — your role may not be allowed to change settings.'); return; }
+            ftSettings = { ...(ftSettings || {}), ...payload };
+            ftAutoPostAt = 0;
+            showAlert('ftStAlert', 'Settings saved.', 'success');
+            loadFtSettings();
+        } finally { $('ftStSaveBtn').disabled = false; }
+    }
+
+    // ---------------- Wiring ----------------
+    $('ftLdRefreshBtn').addEventListener('click', loadFtLoads);
+    $('ftLdStatus').addEventListener('change', loadFtLoads);
+    $('ftLdFrom').addEventListener('change', loadFtLoads);
+    $('ftLdTo').addEventListener('change', loadFtLoads);
+    $('ftLdPostBtn').addEventListener('click', ftPostDueNow);
+    $('ftLoadCloseBtn').addEventListener('click', () => hideModal('ftLoadModal'));
+    $('ftLoadUnpostBtn').addEventListener('click', ftUnpostLoad);
+    $('ftLoadVoidBtn').addEventListener('click', ftVoidLoad);
+
+    $('ftToRefreshBtn').addEventListener('click', loadFtTieout);
+    $('ftToWeek').addEventListener('change', loadFtTieout);
+    $('ftToPrevBtn').addEventListener('click', () => { $('ftToWeek').value = ftShiftDays(ftMondayOf($('ftToWeek').value || ranchToday()), -7); loadFtTieout(); });
+    $('ftToNextBtn').addEventListener('click', () => { $('ftToWeek').value = ftShiftDays(ftMondayOf($('ftToWeek').value || ranchToday()), 7); loadFtTieout(); });
+
+    $('ftNewRationBtn').addEventListener('click', () => openFtRationModal(null));
+    $('ftRaShowInactive').addEventListener('change', loadFtRations);
+    $('ftRationForm').addEventListener('submit', saveFtRation);
+    $('ftRaCancelBtn').addEventListener('click', () => hideModal('ftRationModal'));
+    $('ftRaAddLineBtn').addEventListener('click', () => ftRaAddLine(null));
+
+    $('ftPaShowAll').addEventListener('change', loadFtPastures);
+    $('ftPaSaveBtn').addEventListener('click', saveFtPastures);
+
+    $('ftNewTruckBtn').addEventListener('click', () => openFtTruckModal(null));
+    $('ftTrShowInactive').addEventListener('change', loadFtTrucks);
+    $('ftTruckForm').addEventListener('submit', saveFtTruck);
+    $('ftTrCancelBtn').addEventListener('click', () => hideModal('ftTruckModal'));
+
+    $('ftStSaveBtn').addEventListener('click', saveFtSettings);
 
     $('fdNewCostCenterBtn').addEventListener('click', () => openFdCostCenterModal(null));
     $('fdCcShowInactive').addEventListener('change', loadFdCostCenters);

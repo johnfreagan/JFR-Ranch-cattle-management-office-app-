@@ -1,8 +1,15 @@
 # Feed truck: design record (interview of 2026-09-04)
 
-**Status:** DESIGNED, NOT BUILT. Twenty-one decisions taken by John in one
-sitting. Performance Beef stays in use for ration, bunk call and truck-scale
+**Status:** Twenty-one decisions taken by John in one sitting. **Phase 1
+BUILT 2026-09-04** (migration `sql/2026-09-04_feed_truck.sql`, office screens
+under Inventory → Truck ▾). Phases 2 (feed app) and 3 (Flutter shell) designed,
+not built. Performance Beef stays in use for ration, bunk call and truck-scale
 capture until the tie-out (D17) holds and a cut-over date is set.
+
+**Phase 1 note on posting (refines D11):** a load posts what left the bays
+(its lines) over the lots it dropped to, pro-rata by dropped pounds. Left-in-box
+is charged to that load's lots; the next load draws less because Distribute cut
+its targets. See the migration header and CLAUDE.md "Feed truck".
 
 Earlier scoping (sizes, Scale-Tec template, why native is now cheap) is at the
 bottom under "Sizing history".
