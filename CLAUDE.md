@@ -35,6 +35,13 @@ See "Access control" below and `docs/security-model.md`.
   `WHERE cost IS NULL` guard — done 2026-09-04 on the X lots (682 rows,
   $8,873.41, `docs/sql/2026-09-04_backfill_x_lot_med_costs.sql`). The
   non-X lots still carry ~1,178 unpriced rows.
+- **A receipt with no `receiving_protocol_id` has NO processing cost**, and
+  the lot's $/hd reads diluted (dollars from the covered loads over every
+  head in). The lot tile shows "5 of 10 loads" in amber when coverage is
+  partial and "no protocol" when it is zero; the Receiving report prints
+  per head processed AND per head in, and lists the loads without one.
+  Found 2026-09-04: 59X had 5 of 10 loads covered; 37X, 37X-1 and 37X-F
+  had none, and their cattle pre-date every protocol in the system.
 - Processing $/hd is per head IN; Treatment $/hd is per SURVIVING head
   (`head_in − head_dead`, shipped or not). It was per head current until
   2026-09-04, which loaded 60X's whole treatment bill onto its last 29 head.

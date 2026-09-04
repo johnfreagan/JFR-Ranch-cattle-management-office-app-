@@ -5256,7 +5256,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
         $('closeoutContent').innerHTML='<div class="empty">Loading…</div>';
 
-        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes,xferCostRes,xferListRes]=await Promise.all([
+        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes,xferCostRes,xferListRes,procCoverRes]=await Promise.all([
             supabase.from('lots').select('*').eq('id',lotId).single(),
             supabase.from('lot_status').select('*').eq('lot_id',lotId).single(),
             supabase.from('invoices').select('*, delivery_receipts(id, receipt_date, head_count, tag_start, tag_end, missing_tags, notes, receiving_protocol_id, load_out_destinations(*, pastures(name, ranches(name))))').eq('lot_id',lotId).order('invoice_date',{ascending:true}),
@@ -5296,7 +5296,15 @@ window.addEventListener('unhandledrejection', function(e) {
             supabase.from('lot_transfer_provenance')
                 .select('*')
                 .or(`source_lot_id.eq.${lotId},dest_lot_id.eq.${lotId}`)
-                .order('transfer_date', { ascending: false })
+                .order('transfer_date', { ascending: false }),
+            // Which loads carry a receiving protocol. Processing cost is
+            // derived from receipt x protocol, so a load with no protocol
+            // was never processed on paper and the $/hd reads diluted -
+            // 59X showed $15.53 over 241 head when only 99 had a protocol
+            // (2026-09-04). The tile has to say so.
+            supabase.from('delivery_receipts')
+                .select('head_count, receiving_protocol_id')
+                .eq('lot_id', lotId)
         ]);
 
         if(lotRes.error||statusRes.error){
@@ -5337,6 +5345,13 @@ window.addEventListener('unhandledrejection', function(e) {
         // plus any doctoring events explicitly categorized as processing.
         const procFromReceipts = (procCostRes && procCostRes.data)
             ? (Number(procCostRes.data.total_cost) || 0) : 0;
+        const procLoads = (procCoverRes && !procCoverRes.error && procCoverRes.data) ? procCoverRes.data : [];
+        const procCoverage = {
+            loads: procLoads.length,
+            loadsWithProtocol: procLoads.filter(r => r.receiving_protocol_id).length,
+            headWithProtocol: procLoads.filter(r => r.receiving_protocol_id).reduce((t, r) => t + (Number(r.head_count) || 0), 0),
+            headWithout: procLoads.filter(r => !r.receiving_protocol_id).reduce((t, r) => t + (Number(r.head_count) || 0), 0)
+        };
         const procUnpricedLines = (procCostRes && procCostRes.data)
             ? (Number(procCostRes.data.unpriced_line_count) || 0) : 0;
         const procTotal = catTotal('processing') + procFromReceipts;
@@ -5409,6 +5424,8 @@ window.addEventListener('unhandledrejection', function(e) {
             treatment: treatTotal,
             other: otherTotal,
             processingPerHead: headInForCost > 0 ? procTotal / headInForCost : null,
+            processingPerHeadProcessed: procCoverage.headWithProtocol > 0 ? procTotal / procCoverage.headWithProtocol : null,
+            procCoverage,
             treatmentPerHead: headSurvivingForCost > 0 ? treatTotal / headSurvivingForCost : null,
             perHead: headInForCost > 0 ? (procTotal + treatTotal + otherTotal) / headInForCost : null,
             rowsWithCost: medCatRows.reduce((s, r) => s + ((Number(r.med_row_count) || 0) - (Number(r.unpriced_row_count) || 0)), 0),
@@ -5611,13 +5628,29 @@ window.addEventListener('unhandledrejection', function(e) {
         ];
         // Phase 18: split med cost — Processing over head_in, Treatment over
         // surviving head (head_in - head_dead), shipped or still here.
+        const pc = currentActualMedCost ? currentActualMedCost.procCoverage : null;
+        const procPartial = pc && pc.loads > 0 && pc.loadsWithProtocol < pc.loads;
         if (currentActualMedCost && currentActualMedCost.processing > 0) {
             costRows.push({
                 label: 'Proc $/hd',
                 value: currentActualMedCost.processingPerHead != null
                     ? '$' + currentActualMedCost.processingPerHead.toFixed(2)
-                    : '$' + currentActualMedCost.processing.toFixed(2) + ' tot'
+                    : '$' + currentActualMedCost.processing.toFixed(2) + ' tot',
+                color: procPartial ? 'warning' : null
             });
+            if (procPartial) {
+                // Diluted: the dollars cover only the loads that carry a
+                // protocol, the division covers every head in.
+                costRows.push({
+                    label: '',
+                    value: `<span title="${pc.headWithout} head on ${pc.loads - pc.loadsWithProtocol} load${pc.loads - pc.loadsWithProtocol === 1 ? '' : 's'} have no receiving protocol, so their processing is not on the books. $${(currentActualMedCost.processingPerHeadProcessed || 0).toFixed(2)}/hd on the ${pc.headWithProtocol} processed.">${pc.loadsWithProtocol} of ${pc.loads} loads</span>`,
+                    color: 'warning'
+                });
+            }
+        } else if (pc && pc.loads > 0 && pc.loadsWithProtocol === 0) {
+            // No load has a protocol, so processing is not on the books at
+            // all. Silence here looked like "no cost" on the 37X lots.
+            costRows.push({ label: 'Proc $/hd', value: '<span title="No load on this lot has a receiving protocol. Open each load out and set one.">no protocol</span>', color: 'warning' });
         }
         if (currentActualMedCost && currentActualMedCost.treatment > 0) {
             costRows.push({
@@ -14127,13 +14160,21 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         if (!lotId) { content.innerHTML = '<div class="empty">Pick a lot.</div>'; return; }
         content.innerHTML = '<div class="empty">Loading…</div>';
 
-        const [detailRes, statusRes] = await Promise.all([
+        const [detailRes, statusRes, coverRes] = await Promise.all([
             supabase.from('lot_processing_cost_detail')
                 .select('*')
                 .eq('lot_id', lotId)
                 .order('sort_order'),
-            supabase.from('lot_status').select('lot_number, head_in').eq('lot_id', lotId).single()
+            supabase.from('lot_status').select('lot_number, head_in').eq('lot_id', lotId).single(),
+            supabase.from('delivery_receipts')
+                .select('receipt_date, head_count, receiving_protocol_id')
+                .eq('lot_id', lotId)
+                .order('receipt_date')
         ]);
+        const loads = (coverRes && !coverRes.error && coverRes.data) ? coverRes.data : [];
+        const loadsNoProto = loads.filter(r => !r.receiving_protocol_id);
+        const headProcessed = loads.filter(r => r.receiving_protocol_id).reduce((t, r) => t + (Number(r.head_count) || 0), 0);
+        const headNoProto   = loadsNoProto.reduce((t, r) => t + (Number(r.head_count) || 0), 0);
 
         if (detailRes.error) {
             content.innerHTML = `<div class="alert error">Error: ${escapeHtml(detailRes.error.message)}</div>`;
@@ -14141,7 +14182,8 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         }
         const rows = detailRes.data || [];
         if (rows.length === 0) {
-            content.innerHTML = '<div class="empty">No processing data — this lot has no delivery receipts with a receiving protocol.</div>';
+            content.innerHTML = '<div class="empty">No processing data — this lot has no delivery receipts with a receiving protocol.' +
+                (loads.length ? ` ${loads.length} load${loads.length === 1 ? '' : 's'} (${fmtNum(headNoProto)} hd) with no protocol set. Open each load out and set "Receiving protocol".` : '') + '</div>';
             return;
         }
 
@@ -14182,15 +14224,30 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
                     <th class="num">Total</th>
                 </tr></thead>
                 <tbody>${bodyRows}</tbody>
-                <tfoot><tr style="font-weight:600; border-top: 2px solid var(--border);">
-                    <td>Total</td>
-                    <td class="num">${headIn ? fmtNum(headIn) + ' in' : ''}</td>
-                    <td></td>
-                    <td></td>
-                    <td class="num">$${perHeadTotal.toFixed(2)}</td>
-                    <td class="num">$${grandTotal.toFixed(2)}</td>
-                </tr></tfoot>
+                <tfoot>
+                    <tr style="font-weight:600; border-top: 2px solid var(--border);">
+                        <td>Per head processed</td>
+                        <td class="num">${fmtNum(headProcessed)}</td>
+                        <td></td>
+                        <td></td>
+                        <td class="num">$${perHeadTotal.toFixed(2)}</td>
+                        <td class="num">$${grandTotal.toFixed(2)}</td>
+                    </tr>
+                    <tr style="font-weight:600;">
+                        <td>Per head in <span class="muted" style="font-weight:400; font-size:11px;">(what the lot tile shows)</span></td>
+                        <td class="num">${headIn ? fmtNum(headIn) : ''}</td>
+                        <td></td>
+                        <td></td>
+                        <td class="num">${headIn ? '$' + (grandTotal / headIn).toFixed(2) : '—'}</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
             </table>
+            ${loadsNoProto.length ? `<div class="alert" style="background:#fff8e6; border:1px solid #d4a017; color:#6a4c0a; padding:8px 10px; margin-top:10px; border-radius:var(--radius); font-size:12.5px;">
+                <strong>${loadsNoProto.length} load${loadsNoProto.length === 1 ? '' : 's'} (${fmtNum(headNoProto)} hd) carry no receiving protocol</strong>, so their processing is not on the books and the two per-head figures above disagree:
+                ${loadsNoProto.map(r => `${fmtDate(r.receipt_date)} · ${fmtNum(r.head_count)} hd`).join(' · ')}.
+                Open each load out on the lot and set "Receiving protocol".
+            </div>` : ''}
             ${unpricedNote}`;
     }
 
