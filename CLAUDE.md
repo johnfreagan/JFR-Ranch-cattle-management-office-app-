@@ -107,6 +107,14 @@ The Closeout tab shows one set of economics in three columns. It is
   11%. In total dollars death loss needs no line; it falls out of the
   division. The projection estimates only **deaths still to come**:
   `clamp(0, head_current, head_in × pct − head_dead)`.
+  **Since 2026-09-04 death loss IS shown as its own line** (John: "very
+  important line item") — but CARVED OUT of Cattle in, never added on
+  top: `deathLossUsd = head_dead × avgCostIn`, `cattleLive = cattleCost −
+  deathLossUsd`, projection adds `deathsToCome × avgCostIn` and takes it
+  out of cattle in again. The two lines sum to the invoices, total cost
+  is unchanged, and Cattle in per head lands on the same figure as the
+  lot tile. Death loss is valued at cost IN only; the dead animals'
+  processing, feed and doctoring stay in those lines.
 - **Cost of gain and labor are charged against head-days, never against
   today's head count × total days.** Cattle that shipped in June ate grass
   until June. On 37X-1 the old math charged 75 head × 231 days = 17,325

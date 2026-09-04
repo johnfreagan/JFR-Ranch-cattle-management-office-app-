@@ -6740,6 +6740,18 @@ window.addEventListener('unhandledrejection', function(e) {
         const survivingHead = Math.max(0, headIn - headDead - transferOutHead + transferInHead);
         const basisPerHead  = survivingHead > 0 ? totalCost / survivingHead : null;
 
+        // ---- DEATH LOSS AS ITS OWN LINE (John, 2026-09-04: "very important
+        // line item"). Valued at cost IN - the purchase price of the animals
+        // that died - and CARVED OUT of Cattle in, never added on top, so the
+        // two lines sum to the invoice total and nothing is double counted.
+        // Cattle in is then the cost of the head that will sell, and per
+        // head it lands on the same figure as the lot tile. The dead
+        // animals' processing, feed and doctoring stay in those lines: they
+        // were spent, and the head that sell carry them in the division.
+        const avgCostIn    = headIn > 0 ? cattleCost / headIn : 0;
+        const deathLossUsd = headDead * avgCostIn;
+        const cattleLive   = cattleCost - deathLossUsd;
+
         return {
             headIn, headCurrent, headDead, daysToDate, headDays,
             cattleCost, processing, treatment, otherMed, feed, cog, labor, interest,
@@ -6749,6 +6761,7 @@ window.addEventListener('unhandledrejection', function(e) {
             operating, totalCost,
             transferInUsd, transferOutUsd, transferInHead, transferOutHead, transferInterest,
             survivingHead, basisPerHead,
+            avgCostIn, deathLossUsd, cattleLive,
             soldHead, revenue, soldWeight,
             avgCostHead: headIn > 0 ? cattleCost / headIn : 0,
             costPerHeadOnFeed: headCurrent > 0 ? (totalCost - revenue) / headCurrent : null,
@@ -6768,6 +6781,9 @@ window.addEventListener('unhandledrejection', function(e) {
         const assumedTotalDeaths = (rates.deathPct != null) ? actual.headIn * rates.deathPct : 0;
         const deathsToCome = Math.max(0, Math.min(actual.headCurrent, assumedTotalDeaths - actual.headDead));
         const survivingAtClose = Math.max(0, actual.headCurrent - deathsToCome);
+        // Deaths still to come, at cost in. Comes OUT of cattle in, same as
+        // the deaths that already happened.
+        const deathLossFwd = deathsToCome * actual.avgCostIn;
 
         // Head-days still to run. Deaths thin the herd gradually, so take the
         // average of the head on feed now and at close.
@@ -6870,7 +6886,7 @@ window.addEventListener('unhandledrejection', function(e) {
             ? leftCost / (survivingAtClose * finishWt) : null;
 
         return {
-            remainingDays, deathsToCome, survivingAtClose, forwardHeadDays, gainFwdLb,
+            remainingDays, deathsToCome, survivingAtClose, forwardHeadDays, gainFwdLb, deathLossFwd,
             processingProj, processingFwd, headNoProtocol,
             treatmentProj, treatmentBurnFwd, doctoringFloor, doctoringOnFloor,
             cogFwd, laborFwd, treatmentFwd, feedFwd, interestFwd, operatingFwd,
@@ -6897,6 +6913,8 @@ window.addEventListener('unhandledrejection', function(e) {
 
         const cattleCost = head * wtIn * perLbIn;
         const surviving  = head * (1 - deathPct);
+        const deathLoss  = cattleCost * deathPct;      // at cost in, carved out of cattle in
+        const cattleLive = cattleCost - deathLoss;
         const headDays   = days * (head + surviving) / 2;
 
         const cog = b.cog_mode === 'per_day' ? (Number(b.cog_value) || 0) * headDays
@@ -6926,7 +6944,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
         return {
             head, wtIn, perLbIn, days, adg, finishWt, surviving, headDays,
-            cattleCost, cog, labor, med, processing, doctoring, medCombined, interest, operating, totalCost,
+            cattleCost, cattleLive, deathLoss, cog, labor, med, processing, doctoring, medCombined, interest, operating, totalCost,
             revenue, net,
             netPerHeadSold: surviving > 0 ? net / surviving : null,
             breakEvenPerLb: (surviving * finishWt) > 0 ? totalCost / (surviving * finishWt) : null
@@ -7368,11 +7386,14 @@ window.addEventListener('unhandledrejection', function(e) {
                         ? row('Head-days', b('headDays'), actual.soldHeadDays, Math.max(0, actual.headDays - actual.soldHeadDays) + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), unit:'count', drill:'audit', drillTitle:'Every event that changed the head count'}, actual.headDays + proj.forwardHeadDays)
                         : row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), unit:'count', drill:'audit', drillTitle:'Every event that changed the head count'})}
                     ${row('Days on feed', b('days'), split ? (actual.soldHead > 0 ? actual.soldHeadDays / actual.soldHead : null) : actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n)), unit:'count', note: split ? 'avg sold / to ship' : '', drill:'input:calc_shipdate', drillTitle:'Target ship date'}, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null)}
-                    ${row('Cattle in', b('cattleCost'), sp(actual.cattleCost).a, sp(actual.cattleCost).p, {rule:true,
-                        note: perHead && actual.headIn > 0
-                            ? `${fmtMoney(actual.cattleCost / actual.headIn)}/hd in${actual.headDead > 0 ? ` · ${fmtNum(actual.headDead)} dead carried by the head that sell` : ''}`
-                            : '',
-                        drill:'purchases', drillTitle:'Invoices'}, sp(actual.cattleCost).l)}
+                    ${row('Cattle in', b('cattleLive'),
+                        split ? actual.soldHead * actual.avgCostIn : actual.cattleLive,
+                        split ? proj.survivingAtClose * actual.avgCostIn : actual.cattleLive - proj.deathLossFwd,
+                        {rule:true, note: `head that sell, at ${fmtMoney(actual.avgCostIn)}/hd in`, drill:'purchases', drillTitle:'Invoices'},
+                        proj.headSoldAtClose * actual.avgCostIn)}
+                    ${row('Death loss', b('deathLoss'), sp(actual.deathLossUsd, proj.deathLossFwd).a, sp(actual.deathLossUsd, proj.deathLossFwd).p, {
+                        note: `${fmtNum(actual.headDead)} dead at cost in` + (proj.deathsToCome > 0 ? ` · ${fmtNum(Math.round(proj.deathsToCome))} more assumed` : '') + (rates.deathPct != null ? ` · ${(rates.deathPct*100).toFixed(1)}% assumed` : ''),
+                        drill:'deaths', drillTitle:'Death log'}, sp(actual.deathLossUsd, proj.deathLossFwd).l)}
                     ${actual.transferInHead > 0 ? row(
                         `Transferred in <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferInHead)} hd</a>`,
                         null, sp(actual.transferInUsd).a, sp(actual.transferInUsd).p,
@@ -7419,8 +7440,9 @@ window.addEventListener('unhandledrejection', function(e) {
                 ${actual.soldHead > 0
                     ? `Every line in the Actual column is the ${fmtNum(actual.soldHead)} sold head's share of the lot's cost to date (${fmtMoney(proj.actualCostPerHd || 0)}/hd), against the checks banked — nothing projected touches them. The Projection column is the head still here: their share of cost to date plus every dollar still to come, against the target price. Lot at close is the two added back, and is what the budget compares to.`
                     : 'Actual has no Net until cattle ship — revenue only lands as they sell. Projection Net is on the whole lot, since every head is still here.'}
-                Death loss is not a line: the cattle that died are already in Cattle in, so the loss shows up
-                in the division. ${rates.cogMode === 'per_lb'
+                Death loss is the purchase cost of the animals that died, carved out of Cattle in — the two lines
+                add back to the invoices, so nothing is counted twice. Their processing, feed and doctoring stay in
+                those lines; the head that sell carry them. ${rates.cogMode === 'per_lb'
                     ? `Cost of gain is charged per pound gained: ${fmtNum(Math.round(actual.soldGainLb))} lb is real pay weight less weight in on the head already shipped, and the rest is ${rates.adg != null ? Number(rates.adg).toFixed(2) : '—'} lb/day on the ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days not yet weighed out. Each truck that ships replaces its estimate with the scale ticket. Labor is charged on`
                     : `Cost of gain and labor are charged on`} ${fmtNum(Math.round(actual.headDays))} real head-days,
                 so cattle that already shipped carry their share.
