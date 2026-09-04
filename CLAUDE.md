@@ -133,6 +133,16 @@ The Closeout tab shows one set of economics in three columns. It is
 - Treatment carries forward at the lot's own observed $/head-day, not at the
   budgeted med figure — once there is history, the lot's own burn rate beats
   an assumption.
+- **Break-even is the LOT AVERAGE per head sold, never "what the last head
+  must bring".** (2026-09-04) The first cut of the remnant block, and the
+  table's break-even row since the rebuild, took whole-lot cost less banked
+  revenue over the pounds still on feed — so on 60X the last 29 of 251 head
+  carried the entire lot's margin and read $6-10/lb. John: "a $10 pound
+  breakeven can't be correct." Now `costPerHeadSold = totalCost /
+  headSoldAtClose`, break-even is that over finish weight, and the
+  **Cattle still on feed** block prices the remnant at its equal share
+  (`remnantCost`). The lot-shortfall figure survives only as a footnote
+  labelled as the lot's margin landing on its last head.
 - **`lots.target_sale_cwt` is $/lb despite the name**, and the new
   `lot_budgets.budget_cost_per_cwt` follows it for consistency. Both are
   multiplied by a weight in pounds. Do not "fix" one without the other.

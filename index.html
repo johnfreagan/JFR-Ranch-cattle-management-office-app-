@@ -6552,18 +6552,28 @@ window.addEventListener('unhandledrejection', function(e) {
         const totalRevenue = actual.revenue + revenueFwd;
         const net          = totalRevenue - totalCost;
 
-        // What the cattle still on feed have to bring to cover everything
-        // spent on the whole lot, net of what has already been banked.
-        const remainingLb = survivingAtClose * finishWt;
-        const breakEvenPerLb = remainingLb > 0 ? (totalCost - actual.revenue) / remainingLb : null;
+        // Break-even is the LOT AVERAGE per head sold, not "whatever the
+        // last head must bring". The first cut charged the remnant with the
+        // whole lot's cost less what had been banked, so on 60X the last 29
+        // head of 251 carried the lot's entire margin and read $6-10/lb.
+        // Every head sold carries an equal share of the lot's cost - the same
+        // division netPerHeadSold already uses - and the remnant's break-even
+        // is that share over the pounds each one will weigh.
+        const headSoldAtClose = actual.soldHead + survivingAtClose;
+        const costPerHeadSold = headSoldAtClose > 0 ? totalCost / headSoldAtClose : null;
+        const breakEvenPerLb  = (costPerHeadSold != null && finishWt > 0) ? costPerHeadSold / finishWt : null;
+        // The remnant's own numbers: its share of the cost, and what the LOT
+        // would still need from it - kept as a footnote, not a break-even.
+        const remnantCost  = costPerHeadSold != null ? costPerHeadSold * survivingAtClose : null;
+        const lotShortfall = totalCost - actual.revenue;
 
         return {
             remainingDays, deathsToCome, survivingAtClose, forwardHeadDays, gainFwdLb,
             cogFwd, laborFwd, treatmentFwd, feedFwd, interestFwd, operatingFwd,
             revenueFwd, totalCost, totalRevenue, net, breakEvenPerLb,
-            headSoldAtClose: actual.soldHead + survivingAtClose,
-            netPerHeadSold: (actual.soldHead + survivingAtClose) > 0
-                ? net / (actual.soldHead + survivingAtClose) : null
+            costPerHeadSold, remnantCost, lotShortfall,
+            headSoldAtClose,
+            netPerHeadSold: headSoldAtClose > 0 ? net / headSoldAtClose : null
         };
     }
 
@@ -6931,8 +6941,9 @@ window.addEventListener('unhandledrejection', function(e) {
         let remainingBlock = '';
         if (actual.headCurrent > 0 && actual.soldHead > 0) {
             const toCome     = proj.operatingFwd + proj.interestFwd;
-            const stillOwed  = proj.totalCost - actual.revenue;   // whole-lot cost not yet covered by checks
             const survivors  = proj.survivingAtClose;
+            const share      = proj.remnantCost;   // these head's equal share of the lot's projected cost
+            const soldPerHd  = actual.soldHead > 0 ? actual.revenue / actual.soldHead : null;
             const perHd      = n => survivors > 0 ? fmtMoney(n / survivors) + '/hd' : '—';
             const tile = (label, value, sub) => `<div><span class="muted" style="font-size:11px;">${label}</span><br>
                 <strong style="font-size:15px;">${value}</strong>${sub ? `<div class="muted" style="font-size:11px;">${sub}</div>` : ''}</div>`;
@@ -6944,13 +6955,17 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${tile('DAYS TO SHIP', proj.remainingDays != null ? fmtNum(proj.remainingDays) : '—', proj.remainingDays != null ? `${fmtNum(Math.round(proj.forwardHeadDays))} head-days` : 'no ship date')}
                     ${tile('GAIN TO COME', rates.adg > 0 && proj.remainingDays != null ? fmtNum(Math.round(proj.gainFwdLb)) + ' lb' : '—', rates.adg > 0 ? `at ${Number(rates.adg).toFixed(2)} lb/day` : 'no ADG')}
                     ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.treatmentFwd > 0 ? ' · doctoring ' + fmtMoney(proj.treatmentFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`)}
-                    ${tile('MUST BRING', fmtMoney(stillOwed), `${perHd(stillOwed)}${proj.breakEvenPerLb != null ? ' · $' + proj.breakEvenPerLb.toFixed(2) + '/lb' : ''} to break even on the lot`)}
-                    ${rates.salePerLb != null && proj.remainingDays != null ? tile('AT TARGET PRICE', fmtMoney(proj.revenueFwd),
-                        `<span style="color:${proj.revenueFwd - stillOwed >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:600;">${signed(proj.revenueFwd - stillOwed)}</span> lot net on these head`) : ''}
+                    ${share != null ? tile('COST OF THESE HEAD', fmtMoney(share), `${perHd(share)} · their equal share of the lot's cost`) : ''}
+                    ${proj.breakEvenPerLb != null ? tile('BREAK-EVEN', '$' + proj.breakEvenPerLb.toFixed(4) + '/lb', `at ${fmtNum(Math.round(rates.finishWt || 0))} lb`) : ''}
+                    ${rates.salePerLb != null && proj.remainingDays != null && share != null ? tile('AT TARGET PRICE', fmtMoney(proj.revenueFwd),
+                        `<span style="color:${proj.revenueFwd - share >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:600;">${signed(proj.revenueFwd - share)}</span> net on these head`) : ''}
                 </div>
                 <div class="muted" style="font-size:11px; margin-top:6px; line-height:1.5;">
-                    Must bring is everything the whole lot has cost, less the ${fmtMoney(actual.revenue)} already banked —
-                    the remnant carries the lot's margin, which is why its break-even is not the lot's average cost.
+                    Every head sold carries an equal share of the lot's projected cost${proj.costPerHeadSold != null ? ` (${fmtMoney(proj.costPerHeadSold)}/hd)` : ''}.
+                    ${soldPerHd != null ? `The ${fmtNum(actual.soldHead)} already shipped brought ${fmtMoney(soldPerHd)}/hd.` : ''}
+                    ${proj.lotShortfall > 0 && survivors > 0 && rates.finishWt > 0
+                        ? `For the whole lot to break even these head would have to bring ${fmtMoney(proj.lotShortfall)} — ${fmtMoney(proj.lotShortfall / survivors)}/hd, $${(proj.lotShortfall / (survivors * rates.finishWt)).toFixed(2)}/lb — which is the lot's margin landing on its last head, not their cost.`
+                        : proj.lotShortfall <= 0 ? `The lot has already covered its projected cost: ${fmtMoney(-proj.lotShortfall)} banked above it.` : ''}
                 </div>
             </div>`;
         }
@@ -7016,7 +7031,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${row('Revenue', b('revenue'), actual.revenue, proj.totalRevenue, {note: actual.soldHead>0 ? `${fmtNum(actual.soldHead)} hd shipped` : ''})}
                     ${row('Net', b('net'), null, proj.net, {strong:true, rule:true, bg: proj.net>=0?'#eaf3dc':'#fbeaea'})}
                     ${row('Net / head sold', b('netPerHeadSold'), null, proj.netPerHeadSold, {strong:true})}
-                    ${row('Break-even $/lb', b('breakEvenPerLb'), null, proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note:'on cattle still on feed'})}
+                    ${row('Break-even $/lb', b('breakEvenPerLb'), null, proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note:'lot average per head sold'})}
                 </tbody>
             </table>
             ${remainingBlock}
