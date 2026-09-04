@@ -186,6 +186,11 @@ The Closeout tab shows one set of economics in three columns. It is
   (`leftCost`, `leftBreakEvenPerLb`). Sold + left = lot net exactly; a
   "Net, whole lot" row shows the sum once anything has shipped. Before any
   sale the Actual net is blank and the Projection net is the whole lot.
+- **Totals / Per head toggle** above the table (`closeoutView`, remembered
+  in localStorage). Per head divides each column by ITS OWN head: budget
+  survivors, head sold (or surviving head before any sale), head left (or
+  head sold at close), head sold at close. Rows marked `unit:'count'` or
+  `unit:'ratio'` are never divided.
 - **No locks or edit buttons on the closeout inputs.** Every assumption
   is prefilled from the lot; click and type. (A readonly lock with an
   "edit" button was built and removed the same day at John's request.)

@@ -6495,6 +6495,25 @@ window.addEventListener('unhandledrejection', function(e) {
     // today's head count times total days. Cattle that shipped in June ate
     // grass until June. See lot_daily_head / lot_head_days_by_month.
 
+    // Totals or per head, on every money row (John, 2026-09-04). Per head
+    // divides each column by ITS OWN head: budget by planned survivors,
+    // Actual by head sold (or surviving head before any sale), Projection
+    // by head left (or head sold at close), Lot at close by head sold at
+    // close. Remembered per browser.
+    let closeoutView = 'totals';
+    try { closeoutView = localStorage.getItem('closeoutView') === 'per_head' ? 'per_head' : 'totals'; } catch (e) {}
+    function setCloseoutView(v) {
+        closeoutView = v === 'per_head' ? 'per_head' : 'totals';
+        try { localStorage.setItem('closeoutView', closeoutView); } catch (e) {}
+        recalculate();
+    }
+    document.addEventListener('click', (e) => {
+        const b = e.target.closest && e.target.closest('.co-view-btn');
+        if (!b) return;
+        e.preventDefault();
+        setCloseoutView(b.dataset.view);
+    });
+
     function closeoutRates(){
         const num = id => { const el=$(id); if(!el) return null; const v=parseFloat(el.value); return isNaN(v)?null:v; };
         return {
@@ -7294,7 +7313,16 @@ window.addEventListener('unhandledrejection', function(e) {
         const sp = (act, fwd = 0) => split
             ? { a: act * shSold, p: act * shLeft + fwd, l: act + fwd }
             : { a: act, p: act + fwd, l: undefined };
+        const perHead = closeoutView === 'per_head';
+        const divB = budget ? (budget.surviving || 0) : 0;
+        const divA = split ? actual.soldHead : (actual.survivingHead || 0);
+        const divP = split ? proj.survivingAtClose : proj.headSoldAtClose;
+        const divL = proj.headSoldAtClose;
+        const per = (v, d) => (v == null ? null : (perHead ? (d > 0 ? v / d : null) : v));
         const row = (label, bv, av, pv, opts={}, lv) => {
+            // opts.unit: 'count' (head, days) and 'ratio' ($/hd, $/lb) are
+            // never divided; everything else is money.
+            if (perHead && !opts.unit) { bv = per(bv, divB); av = per(av, divA); pv = per(pv, divP); lv = per(lv, divL); }
             const strong = opts.strong ? 'font-weight:600;' : '';
             const top = opts.rule ? 'border-top:2px solid var(--border);' : '';
             const bg = opts.bg ? `background:${opts.bg};` : '';
@@ -7315,23 +7343,31 @@ window.addEventListener('unhandledrejection', function(e) {
         const netColor = proj.net >= 0 ? 'var(--success)' : 'var(--danger)';
         const varianceVsBudget = budget ? proj.net - budget.net : null;
 
-        target.innerHTML = warnBlock + `
+        const viewToggle = `
+            <div class="co-view" style="display:flex; justify-content:flex-end; margin-bottom:6px;">
+                <div class="lot-header-subtabs" style="display:inline-flex;">
+                    <button type="button" class="sub-tab co-view-btn ${!perHead ? 'active' : ''}" data-view="totals">Totals</button>
+                    <button type="button" class="sub-tab co-view-btn ${perHead ? 'active' : ''}" data-view="per_head">Per head</button>
+                </div>
+            </div>`;
+        const ph = perHead ? ' · per head' : '';
+        target.innerHTML = warnBlock + viewToggle + `
             <table style="font-size:13px; width:100%;">
                 <thead><tr>
                     <th style="text-align:left; padding-bottom:6px;"></th>
-                    ${headCell('Budget', currentLotBudget ? 'frozen '+String(currentLotBudget.frozen_at).slice(0,10) : 'not set')}
-                    ${split ? headCell('Actual', `${fmtNum(actual.soldHead)} hd sold · to ${ranchToday()}`) : headCell('Actual', `to ${ranchToday()}`)}
-                    ${split ? headCell('Projection', `${fmtNum(Math.round(proj.survivingAtClose))} hd left · ${rates.shipDate ? 'at '+rates.shipDate : 'no ship date'}`) : headCell('Projection', rates.shipDate ? 'at '+rates.shipDate : 'no ship date')}
-                    ${split ? headCell('Lot at close', 'sold + left') : ''}
+                    ${headCell('Budget', (currentLotBudget ? 'frozen '+String(currentLotBudget.frozen_at).slice(0,10) : 'not set') + (perHead && budget ? ` · per ${fmtNum(Math.round(budget.surviving))} hd` : ''))}
+                    ${split ? headCell('Actual', `${fmtNum(actual.soldHead)} hd sold · to ${ranchToday()}${ph}`) : headCell('Actual', `to ${ranchToday()}${perHead ? ` · per ${fmtNum(divA)} hd` : ''}`)}
+                    ${split ? headCell('Projection', `${fmtNum(Math.round(proj.survivingAtClose))} hd left · ${rates.shipDate ? 'at '+rates.shipDate : 'no ship date'}${ph}`) : headCell('Projection', (rates.shipDate ? 'at '+rates.shipDate : 'no ship date') + (perHead ? ` · per ${fmtNum(Math.round(divP))} hd` : ''))}
+                    ${split ? headCell('Lot at close', 'sold + left' + (perHead ? ` · per ${fmtNum(Math.round(divL))} hd` : '')) : ''}
                 </tr></thead>
                 <tbody>
                     ${split
-                        ? row('Head', b('head'), actual.soldHead, proj.survivingAtClose, {fmt:n=>fmtNum(Math.round(n)), note:`${fmtNum(actual.headIn)} in · sold / left / at close`, drill:'current', drillTitle:'Where they are now'}, proj.headSoldAtClose)
-                        : row('Head', b('head'), actual.headIn, proj.headSoldAtClose, {fmt:n=>fmtNum(Math.round(n)), note:'in / sold at close', drill:'current', drillTitle:'Where they are now'})}
+                        ? row('Head', b('head'), actual.soldHead, proj.survivingAtClose, {fmt:n=>fmtNum(Math.round(n)), unit:'count', note:`${fmtNum(actual.headIn)} in · sold / left / at close`, drill:'current', drillTitle:'Where they are now'}, proj.headSoldAtClose)
+                        : row('Head', b('head'), actual.headIn, proj.headSoldAtClose, {fmt:n=>fmtNum(Math.round(n)), unit:'count', note:'in / sold at close', drill:'current', drillTitle:'Where they are now'})}
                     ${split
-                        ? row('Head-days', b('headDays'), actual.soldHeadDays, Math.max(0, actual.headDays - actual.soldHeadDays) + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), drill:'audit', drillTitle:'Every event that changed the head count'}, actual.headDays + proj.forwardHeadDays)
-                        : row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), drill:'audit', drillTitle:'Every event that changed the head count'})}
-                    ${row('Days on feed', b('days'), split ? (actual.soldHead > 0 ? actual.soldHeadDays / actual.soldHead : null) : actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n)), note: split ? 'avg sold / to ship' : '', drill:'input:calc_shipdate', drillTitle:'Target ship date'}, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null)}
+                        ? row('Head-days', b('headDays'), actual.soldHeadDays, Math.max(0, actual.headDays - actual.soldHeadDays) + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), unit:'count', drill:'audit', drillTitle:'Every event that changed the head count'}, actual.headDays + proj.forwardHeadDays)
+                        : row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), unit:'count', drill:'audit', drillTitle:'Every event that changed the head count'})}
+                    ${row('Days on feed', b('days'), split ? (actual.soldHead > 0 ? actual.soldHeadDays / actual.soldHead : null) : actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n)), unit:'count', note: split ? 'avg sold / to ship' : '', drill:'input:calc_shipdate', drillTitle:'Target ship date'}, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null)}
                     ${row('Cattle in', b('cattleCost'), sp(actual.cattleCost).a, sp(actual.cattleCost).p, {rule:true, drill:'purchases', drillTitle:'Invoices'}, sp(actual.cattleCost).l)}
                     ${actual.transferInHead > 0 ? row(
                         `Transferred in <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferInHead)} hd</a>`,
@@ -7369,8 +7405,8 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${row('Net', b('net'), split ? proj.soldNet : null, split ? proj.leftNet : proj.net, {strong:true, rule:true, fmt: signed,
                         bg: (split ? proj.leftNet : proj.net) >= 0 ? '#eaf3dc' : '#fbeaea',
                         drill: split ? 'sales' : undefined, drillTitle: 'Sales'}, proj.net)}
-                    ${row('Net / head', b('netPerHeadSold'), split ? proj.soldNetPerHd : null, split ? proj.leftNetPerHd : proj.netPerHeadSold, {strong:true, fmt: signed}, proj.netPerHeadSold)}
-                    ${row('Break-even $/lb', b('breakEvenPerLb'), split && actual.soldWeight > 0 ? (actual.totalCost * shSold) / actual.soldWeight : null, split ? proj.leftBreakEvenPerLb : proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note: split ? 'on pay weight sold / at finish wt / lot average' : 'lot average per head sold', drill:'input:calc_finishwt', drillTitle:'Projected finish weight'}, proj.breakEvenPerLb)}
+                    ${row('Net / head', b('netPerHeadSold'), split ? proj.soldNetPerHd : null, split ? proj.leftNetPerHd : proj.netPerHeadSold, {strong:true, fmt: signed, unit:'ratio'}, proj.netPerHeadSold)}
+                    ${row('Break-even $/lb', b('breakEvenPerLb'), split && actual.soldWeight > 0 ? (actual.totalCost * shSold) / actual.soldWeight : null, split ? proj.leftBreakEvenPerLb : proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), unit:'ratio', note: split ? 'on pay weight sold / at finish wt / lot average' : 'lot average per head sold', drill:'input:calc_finishwt', drillTitle:'Projected finish weight'}, proj.breakEvenPerLb)}
                 </tbody>
             </table>
             ${remainingBlock}
