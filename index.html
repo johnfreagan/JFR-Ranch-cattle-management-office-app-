@@ -6920,6 +6920,42 @@ window.addEventListener('unhandledrejection', function(e) {
         const cell = (n, cls='') => `<td class="num"${cls?` style="${cls}"`:''}>${money(n)}</td>`;
         const b = k => budget ? budget[k] : null;
 
+        // ---- CATTLE STILL ON FEED (2026-09-04) --------------------------
+        // Declared AFTER money/signed above: a const used before its
+        // declaration throws at runtime and no parse check catches it.
+        // The remnant, on its own. Once most of a lot has shipped the lot
+        // totals are mostly fact and the only open question is what the
+        // last head still cost and still have to bring. Everything here is
+        // the forward slice of the projection above, so it cannot disagree
+        // with the table.
+        let remainingBlock = '';
+        if (actual.headCurrent > 0 && actual.soldHead > 0) {
+            const toCome     = proj.operatingFwd + proj.interestFwd;
+            const stillOwed  = proj.totalCost - actual.revenue;   // whole-lot cost not yet covered by checks
+            const survivors  = proj.survivingAtClose;
+            const perHd      = n => survivors > 0 ? fmtMoney(n / survivors) + '/hd' : '—';
+            const tile = (label, value, sub) => `<div><span class="muted" style="font-size:11px;">${label}</span><br>
+                <strong style="font-size:15px;">${value}</strong>${sub ? `<div class="muted" style="font-size:11px;">${sub}</div>` : ''}</div>`;
+            remainingBlock = `
+            <div style="margin-top:10px; padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:12.5px;">
+                <div style="font-weight:600; margin-bottom:6px;">Cattle still on feed <span class="muted" style="font-weight:400; font-size:11px;">— ${fmtNum(actual.soldHead)} of ${fmtNum(actual.headIn)} shipped; the forward slice of the projection</span></div>
+                <div style="display:flex; gap:22px; flex-wrap:wrap; align-items:baseline;">
+                    ${tile('HEAD', fmtNum(actual.headCurrent), proj.deathsToCome > 0 ? `${fmtNum(Math.round(survivors))} after ${fmtNum(Math.round(proj.deathsToCome))} more assumed death${Math.round(proj.deathsToCome)===1?'':'s'}` : '')}
+                    ${tile('DAYS TO SHIP', proj.remainingDays != null ? fmtNum(proj.remainingDays) : '—', proj.remainingDays != null ? `${fmtNum(Math.round(proj.forwardHeadDays))} head-days` : 'no ship date')}
+                    ${tile('GAIN TO COME', rates.adg > 0 && proj.remainingDays != null ? fmtNum(Math.round(proj.gainFwdLb)) + ' lb' : '—', rates.adg > 0 ? `at ${Number(rates.adg).toFixed(2)} lb/day` : 'no ADG')}
+                    ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.treatmentFwd > 0 ? ' · doctoring ' + fmtMoney(proj.treatmentFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`)}
+                    ${tile('MUST BRING', fmtMoney(stillOwed), `${perHd(stillOwed)}${proj.breakEvenPerLb != null ? ' · $' + proj.breakEvenPerLb.toFixed(2) + '/lb' : ''} to break even on the lot`)}
+                    ${rates.salePerLb != null && proj.remainingDays != null ? tile('AT TARGET PRICE', fmtMoney(proj.revenueFwd),
+                        `<span style="color:${proj.revenueFwd - stillOwed >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:600;">${signed(proj.revenueFwd - stillOwed)}</span> lot net on these head`) : ''}
+                </div>
+                <div class="muted" style="font-size:11px; margin-top:6px; line-height:1.5;">
+                    Must bring is everything the whole lot has cost, less the ${fmtMoney(actual.revenue)} already banked —
+                    the remnant carries the lot's margin, which is why its break-even is not the lot's average cost.
+                </div>
+            </div>`;
+        }
+
+
         const row = (label, bv, av, pv, opts={}) => {
             const strong = opts.strong ? 'font-weight:600;' : '';
             const top = opts.rule ? 'border-top:2px solid var(--border);' : '';
@@ -6983,6 +7019,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${row('Break-even $/lb', b('breakEvenPerLb'), null, proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note:'on cattle still on feed'})}
                 </tbody>
             </table>
+            ${remainingBlock}
             ${gainBlock}
             <div class="muted" style="font-size:11px; margin-top:8px; line-height:1.5;">
                 Actual has no Net because the lot is not finished — revenue only lands as cattle ship.
