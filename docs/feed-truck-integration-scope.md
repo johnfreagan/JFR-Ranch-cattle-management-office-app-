@@ -1,83 +1,193 @@
-# Feed truck integration — scope (2026-09-04)
+# Feed truck: design record (interview of 2026-09-04)
 
-**Status:** SCOPED, NOT BUILT. John's call pending. Performance Beef stays in
-use for ration, bunk calling and truck-scale capture until then.
+**Status:** DESIGNED, NOT BUILT. Twenty-one decisions taken by John in one
+sitting. Performance Beef stays in use for ration, bunk call and truck-scale
+capture until the tie-out (D17) holds and a cut-over date is set.
 
-## What John told us
+Earlier scoping (sizes, Scale-Tec template, why native is now cheap) is at the
+bottom under "Sizing history".
 
-- Scale heads: Digi-Star with a Scale-Tec Bluetooth dongle, or Scale-Tec Point
-  heads with Bluetooth built in.
-- Device in the truck: iPad most likely, iPhone at times.
-- The day: call bunks, make a ration (mixed load), drop it in a couple of
-  locations. Bunks could go in any pasture; in practice the same ones.
+## Hard rules John set
 
-## What that settles (revised same day after https://build.scale-tec.com)
+- **Straight to Bluetooth. No hand capture of weights.** The scale is the only
+  source of pounds; humans may override a captured number, never type one first.
+- **Nothing advances without a tap.** No auto-advance on stable weight, ever.
+- **No feed until mixed.** The drop screen is LOCKED until the ration's mix
+  timer reaches zero. No override.
+- **Parallel with PB first, cut over later** (D1).
+- **Simple and efficient.** Every screen is PB's, slimmed.
 
-- **The scale side is BLE and the protocol is PUBLIC.** Scale-Tec publishes an
-  MIT-licensed Flutter template (`Dan-Scale-Tec/BLE-Scale-App-Template`,
-  `flutter_blue_plus`) with the protocol PDF checked in. Live weight comes off
-  advertisement packets at 20 ms with no GATT connection; a GATT gross-weight
-  stream, Zero / Tare / Gross commands and `tareStopWithRecord` (logs a load)
-  are wired up. Both heads John named are covered: Point (`Point-` prefix) and
-  the newer Core (`SJB-`). The reverse-engineering risk is gone.
-- **The iPad still rules out the browser for Bluetooth** (WebKit, no Web
-  Bluetooth), but the native app is now a THIN SHELL, not a second field app:
-  Scale-Tec's Flutter app kept as-is for BLE, its example screens replaced by
-  one WebView hosting the field PWA, with a JS bridge pushing weight readings
-  into the page and passing Zero / Tare back. One shell covers iPad, iPhone
-  and Android.
-- **Every feeding screen lives in the PWA**, same JS, same offline queue, same
-  sign-in, same Approvals path. Bridge present → weight box fills live; absent
-  → the driver types it. The shell is rebuilt only when Scale-Tec's core
-  changes, so the "rebuild on every field-app change" tax disappears.
-- **Apple admin that remains:** developer account, the Mac the office app is
-  validated on, and a distribution channel — TestFlight (builds expire every
-  90 days) or an unlisted App Store link (one review, never expires; vote).
-- **The one real risk:** iPadOS WKWebView runs the service worker and local
-  storage only for domains listed in `WKAppBoundDomains` (one Info.plist
-  line). Must be tested on a real iPad in a pasture with no signal before the
-  truck depends on it.
+## Decisions
 
-## Sizes (build-days at this repo's pace)
+### D1. Parallel run: truck pounds never touch the books until cut-over
+Truck loads and drops land in their own tables (`feed_loads`, `feed_drops`,
+`feed_drop_lots`) and never write `feed_usage` while PB's Monday entry is still
+being posted. A ranch-level **cut-over date** flips it: loads on/after that date
+post; the weekly PB entry screen warns past it. Same shape as the 9/1 barn
+cut-over.
 
-| Step | What you get | Size | Ongoing |
-|---|---|---|---|
-| A. Truck screens in the PWA, typed weights | bunk call, load plan, per-drop pounds, daily actuals per lot | ~5 | none new |
-| B. Scale shell: Scale-Tec template + WebView + JS bridge | weights off the scale, on iPad and Android | ~3, plus a day in the cab pairing to the real head, plus Apple admin | shell rebuild only when Scale-Tec's core changes |
-| Full native Flutter rewrite | same, duplicating auth / offline / Supabase in Dart | 15+ | a second field app forever — rejected |
+### D2. Ration = percent as-fed per ingredient, in load order, plus mix time
+New `rations` / `ration_lines`. `feed_recipes` is not reused: it must produce a
+premix item, a ration produces nothing. A line = `feed_item_id`, `pct_as_fed`,
+`load_order`, `default_location_id` (D11). The ration carries `mix_minutes`
+and `max_load_lb` (D6/D14). One ranch-wide tolerance percent; PB's loading
+screen turns yellow inside it and red at zero, copied as-is. An ingredient can
+be a premix item batched earlier.
 
-The earlier "Android tablet + Web Bluetooth" option is dropped: the shell covers
-Android too, on the vendor's own supported path.
+### D3. Bunk read first thing, then the truck runs. Own pages and setup.
+Per pasture the call is **as-fed lb/hd × head standing there** (all lots in the
+pasture combined — a bunk feeds a pasture). **Bulk feeder** pastures are total
+pounds. Setup page per pasture: feeder type (bunk / bulk), ration (change is
+date-stamped — that is a step-up), route order, active.
 
-Everything except Bluetooth lands on existing rails. PB's inventory and costing
-are NOT replicated — the app is already system of record for both.
+### D4. Bunk read records score + lb/hd, prefilled from yesterday
+Score 0–3 one tap; lb/hd with −/+ stepper (quarter-pound, hold to run, tap to
+type). Pasture total and head shown, never typed. Bulk feeders: total-lb box,
+no score. Saved with date so history shows what the bunk looked like against
+what was delivered the day before. Dry matter, DMI, BW%, breed, sex, death loss
+from PB's page are dropped. Two charts reserved at the bottom (D18).
 
-## How the day maps onto what is built
+### D5. One feeding a day, occasional second run, rare third
+One call per pasture per day, one ration per pasture. A second (or third) run is
+another drop record against the same day's call; the day's delivered is the sum.
+No drop slots, no per-drop ration.
 
-```
-bunk call per lot ─▶ load plan = recipe × head × lb/hd
-                          │
-                    make_feed_batch  ──▶ "Feed truck" location (tailings carry honestly)
-                          │
-                    drops: post_feed_usage per lot, off the truck, dated the day
-                          │
-                    pending_field_entries ─▶ Approvals (one click per day's sheet)
-                          │
-                    feed_usage_costs frozen at approval, spread by lot_feed_daily
-```
+### D6. Planner: balanced loads, route order from the bunk reader, driver override
+Loads needed = ceil(total ÷ cap); each sized total ÷ count. Walk route order:
+fits → whole; split-OK pasture that doesn't fit → remainder now, rest opens the
+next load; **one-pass pasture** (setup flag: hard to drive through the cattle
+twice) that doesn't fit → close this load early. Minimum split pounds is a
+setting. Route order is editable on the bunk page by the reader; the driver may
+move a pasture between loads on the plan screen without changing the saved
+route. Plan is proposed, never enforced. **A call is frozen into a load when
+loading starts on that load**; until then the bunk read may change and only
+not-yet-started loads re-plan.
 
-- New tables: `feed_calls` (lot, date, bunk score, lb/hd). Rations reuse
-  `feed_recipes` / `feed_recipe_lines` (pre-fill only, as today).
-- A drop into a mixed pasture splits across the lots standing there pro-rata by
-  head, largest-remainder — the existing mixed-pasture rule.
-- Drops go through Approvals like every other field record; cost freezes there
-  exactly as doctoring does. Nothing new in head math or costing.
-- Daily drops carry ONE date, which retires the weekly-period overlap hazard
-  (feed-design-decisions #21) for anything fed off the truck.
+### D7. Loading: head stays in gross, Done tap per ingredient, no auto-advance
+The app never sends Tare while loading; each ingredient = rise in gross since it
+was selected, so cab indicator and iPad agree and a missed Tare cannot wreck a
+load. Driver taps **Done** on each ingredient; overshoot is recorded as loaded,
+not clipped, with over/under per ingredient on the load. **Timer starts on the
+last ingredient's Done.** Tiles can be tapped to load out of order.
 
-## Recommendation
+### D8. Mix timer: hard block
+Countdown after last Done, chime at zero, keeps counting elapsed. Drop screen
+locked until zero. Load stores mix start, ration mix time, first drop time.
 
-A now, B right behind it. The earlier "never native" call is reversed because
-Scale-Tec removed the part that made native expensive. Run typed weights in the
-truck while the shell is built; the feeding screens do not change between the
-two. Phase 3 PB import remains the fallback if the truck app never takes.
+### D9. Drop = fall in gross between Start and Done, per pasture
+Next planned pasture highlighted, any can be tapped. Start reads gross, countdown
+to the pasture target (same colours), Done reads gross. Actuals recorded, never
+targets; plan re-shows box remaining vs still owed. No GPS pick, no auto-detect.
+**Distribute** (PB's meaning, confirmed by John): leftover stays in the box and
+the next load of the same ration cuts every commodity target proportionally so
+the box ends at its planned total. Leftover is assumed at its ration's own
+percentages; if the next load is a different ration it still carries and counts
+at the old mix, shown on the plan as "N lb of <ration> in box".
+
+### D10. Which lot: pro-rata by head, stored per drop
+Split across the lots on the pasture's open assignments that day, largest-
+remainder, one `feed_drop_lots` row per lot. Read later, never recomputed.
+
+### D11. Bays: default on the ration line; composition frozen on the load
+Tile shows the bay, tap changes it for this load only. Load stores per
+ingredient actual lb + bay. Commodity-by-lot rows are COMPUTED at posting from
+the load's composition × drop lb × lot split and frozen in `feed_usage`; nothing
+stored per drop per commodity. The tie-out (D17) does the same computation live.
+
+### D12. Posting: auto, no Approvals; editable until posted; unpost to edit after
+Truck writes only `feed_loads` / `feed_drops` (no dollars, crew-safe). RPC
+`post_feed_load` → `post_feed_usage` per commodity per lot, FIFO, frozen cost.
+Office app calls it for unposted loads **from prior ranch days** whenever the
+Inventory tab opens (one-day grace: today's loads stay editable in the cab).
+Before posting the truck may move a drop to another pasture or retype its
+pounds; `scale_lb` is kept beside `lb` with who/when/reason. **No deleting a
+drop, no cancelling a load**: a wrong drop is moved or set to 0 lb with a
+reason; a load that ends early is closed with what it did and the rest is
+left-in-box. After posting the truck sees the load locked; office **unpost**
+reverses via `delete_feed_usage`, reopens the load, rows stay, re-posts next
+morning. Void exists for a load that never happened (office/owner).
+
+### D13. Hardware: two trucks, two Scale-Tec heads, none on the loader
+Setup maps head id → truck name. Shell remembers the last head, reconnects
+direct-by-id with scan fallback (Scale-Tec core); picker with live weight only
+when both are in range. **Zero from the iPad is guarded**: if the app believes
+leftover is in the box it asks first. Load records head id and link state at
+each Done.
+
+### D14. Load cap: on the ration, optional capacity on the truck, smaller wins
+Trucks are different but similar; the driver picks the truck on the plan screen
+and loads re-cut.
+
+### D15. Signal: good at the barn, spotty in pastures
+Everything for the day is pulled once at loading (calls, plan, ration, bays,
+head per pasture); the barn is the one place signal is required and the app says
+so if it can't sync there. Every Done writes locally first, client-id upsert.
+Bunk read needs signal to save and says so. Two trucks = two plans.
+
+### D16. Roles, and a SEPARATE feed app
+Crew included on bunk read and truck; rations, setup, trucks, settings, unpost,
+void and the tie-out are office/owner. Load history in pounds is visible to
+crew. **A third PWA, `feed-app/`**, beside `field-app/` and `tally-book/`: same
+sign-in, same queue pattern; keeps the field app uncluttered — cowboys
+generally don't feed. The Flutter shell hosts this app.
+
+### D17. Tie-out vs PB: lb per lot per commodity per PB week
+Office app → Inventory → "Feed truck tie-out", beside the weekly entry. Truck
+computed pounds vs typed PB rows, difference and %, green/amber on a set
+tolerance. Second line per lot: head-days fed vs head-days on the books.
+
+### D18. Reporting v1: three views, then "a complete set of feed metrics"
+Bunk page: delivered lb/hd and score, last 15 days. Feed app: load history
+(ration, truck, total, mix honoured, left in box; ingredients target/actual/
+over-under; drops target/actual/edits). Office: daily feed by lot, lb and
+lb/hd/day, dollars from existing lot feed views after cut-over; anomalies for
+over-tolerance ingredients, skipped mix, short loads, human overrides. Parked by
+name: DMI, 7am feeding email, cost per lb gain from actual feed. John wants the
+full metric set once running.
+
+### D19. Build order
+1. SQL + office side (setup, tie-out, posting/unpost/void RPCs, settings).
+2. `feed-app/` in the browser with a **simulated scale** (slider) so every
+   screen is worked end to end on any iPad/iPhone in Safari before a truck.
+3. Flutter shell: Scale-Tec template + WebView + bridge. Dart written here;
+   **iOS compile/sign/upload needs a Mac with Xcode and John's Apple login**
+   (Claude Code on his Mac, or four commands handed over). Android needs none.
+4. Parallel run until D17 stays green → cut-over date.
+
+### D20. Apple: individual developer account in John's name, started this week
+Approved in days, enough for an unlisted App Store app. Organization enrolment
+(D-U-N-S, weeks) rejected. Xcode onto the Mac the office app is validated on.
+
+### D21. Same person loads and drives; the device rides in the loader cab
+iPad, and **often iPhone — John's preference**. Screens are phone-first: big
+countdown, ingredient strip scrolling under it; iPad gets room. Live weight off
+advertisement packets is exactly the loader-cab-reads-truck-scale case. One
+Flutter build for iPhone and iPad.
+
+### Stated assumptions (not asked)
+Settings card: tolerance %, minimum split lb, tie-out tolerance %, cut-over
+date. Bulk feeders: total lb, no score. A third feeding is a third load. Head
+for call and split = open assignments that morning, cached at the barn.
+
+## Tables (new)
+`rations`, `ration_lines`, `pasture_feed_setup`, `feed_trucks`, `bunk_reads`,
+`feed_loads`, `feed_load_lines` (ingredient actual + bay), `feed_drops`,
+`feed_drop_lots`, plus four settings on `ranch_settings`. RPCs:
+`post_feed_load`, `unpost_feed_load`, `void_feed_load`. All views
+`security_invoker`; crew INSERT/UPDATE on the truck tables only;
+`rls_verify` run after.
+
+---
+
+## Sizing history (2026-09-04, earlier the same day)
+
+- Scale-Tec publishes an MIT Flutter template with the BLE protocol PDF
+  (Point `Point-`, Core `SJB-`); live weight off advertisements, GATT gross
+  stream, Zero/Tare/Gross/`tareStopWithRecord`. Reverse-engineering risk gone.
+- iPad rules out the browser for Bluetooth (WebKit); native is now a THIN SHELL
+  (template + WebView on the feed app + JS bridge), not a second app.
+- Sizes: feed app ~5 build-days; shell ~3 + a day in the cab + Apple admin;
+  full native rewrite 15+ (rejected). Android tablet / Web Bluetooth option
+  dropped — the shell covers Android on the vendor's supported path.
+- Risk: WKWebView runs the service worker only for `WKAppBoundDomains`; test on
+  a real iPad in a pasture with no signal before the truck depends on it.
