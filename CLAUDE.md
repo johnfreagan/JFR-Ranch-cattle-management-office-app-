@@ -688,7 +688,8 @@ rules:
   allocation; from 9/1 every lot charges actual feed. Silage is not being fed and
   is carried as a named reconciling item ($225,155). No backdating.
 - **`feed_direct_from` must be a RANCH-LEVEL DATE, not the per-lot flag phase 4
-  shipped.** That flag has no date and rewrites a lot's whole life: setting it on
+  shipped.** (It only bites on lots that HAVE a non-feed rate — see the
+  one-number rule under phase 4.) That flag has no date and rewrites a lot's whole life: setting it on
   36-27 on 9/1 would re-price August from $2.00 to ~$1.00/hd/day with no actual
   feed to replace it — about $6,400 evaporating. The closeout must SPLIT
   head-days on the date.
@@ -734,9 +735,20 @@ rules:
   vanish, it surfaces there and on `lot_feed_costs.unallocated_usd`, and the
   Closeout warns.
 - **`lots.assumed_nonfeed_cog_per_day` is the COG split, per lot, NULL until
-  known.** While NULL the Closeout charges assumed COG unchanged, shows feed
-  beside it, and says the two OVERLAP. Set it and that lot charges actual feed
-  plus the non-feed rate. Nothing recomputes retroactively.
+  known — and NULL means COG IS ONE NUMBER.** John, 2026-09-04: "I consider
+  COG to be feed and non-feed cost of gain … for now I think in terms of one
+  number." While NULL the assumed COG rate is charged on every head-day, the
+  feed cut-over date is ignored for that lot, and actual feed shows as a
+  **memo row, never added** — the rate already contains it. There is no
+  overlap warning and no Anomalies finding for a missing non-feed rate any
+  more. Set the rate (Closeout → working assumptions, saved with the rest)
+  and that lot switches to actual feed plus the non-feed rate from the
+  cut-over. Nothing recomputes retroactively.
+- **Forward feed rate is dollars-since-cut-over over head-days-since-cut-over**
+  (`currentFeedAfterBoundary / hdAfter`), not the view's `cost_per_head_day`,
+  which divides by the lot's whole life. On 36-27 that view read five cents a
+  head-day off one day of mineral over 8,931 head-days and carried ~$4,000
+  to March. Whole-life is the fallback only when the split is not loaded.
 - Feed carries forward in the Projection at the lot's own observed $/hd/day,
   the same treatment cost already gets.
 - **A premix is many-in-one-out**: `make_feed_batch` consumes N commodities

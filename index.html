@@ -4756,6 +4756,7 @@ window.addEventListener('unhandledrejection', function(e) {
     let currentUser = null, currentProfile = null, currentLot = null, currentStatus = null;
     // Phase 15: cached metrics for the current lot detail view
     let currentRealizedAdg = null;
+    let currentFeedAfterBoundary = null;   // feed $ on/after feed_direct_from, null = not loaded
     let currentHeadDays = null;
     // Cost ledger phase 1: head-days from the real head curve, and the lot's
     // frozen budget if it has one.
@@ -5296,13 +5297,30 @@ window.addEventListener('unhandledrejection', function(e) {
         // before is the remainder - so the row count is days-since-9/1, not
         // the whole life of the lot.
         currentHeadDaysAfterBoundary = null;
+        currentFeedAfterBoundary = null;
         await loadRanchSettings();
         if (feedDirectFrom) {
-            const hdRes = await supabase.from('lot_daily_head')
-                .select('head_on_hand')
-                .eq('lot_id', lotId)
-                .gte('as_of_date', feedDirectFrom)
-                .limit(1200);
+            const [hdRes, fdRes] = await Promise.all([
+                supabase.from('lot_daily_head')
+                    .select('head_on_hand')
+                    .eq('lot_id', lotId)
+                    .gte('as_of_date', feedDirectFrom)
+                    .limit(1200),
+                // Feed dollars since the boundary, so the forward feed rate
+                // is dollars-while-fed over head-days-while-fed. The view's
+                // cost_per_head_day divides by the lot's WHOLE life, which
+                // on a lot with a day of mineral and months of grass reads
+                // as a few cents and carries almost nothing forward.
+                supabase.from('lot_feed_daily')
+                    .select('cost_usd')
+                    .eq('lot_id', lotId)
+                    .gte('day', feedDirectFrom)
+                    .limit(5000)
+            ]);
+            if (!fdRes.error && (fdRes.data || []).length < 5000) {
+                currentFeedAfterBoundary =
+                    (fdRes.data || []).reduce((t, r) => t + (Number(r.cost_usd) || 0), 0);
+            }
             if (!hdRes.error) {
                 currentHeadDaysAfterBoundary =
                     (hdRes.data || []).reduce((t, r) => t + (Number(r.head_on_hand) || 0), 0);
@@ -6323,17 +6341,21 @@ window.addEventListener('unhandledrejection', function(e) {
         // head-days inside each usage's period. A null read means "could
         // not load", not "no feed" - the warning block says so rather than
         // charging zero.
-        const feed = currentLotFeed ? (Number(currentLotFeed.feed_cost_usd) || 0) : 0;
-        const feedPerHeadDay = (currentLotFeed && Number(currentLotFeed.cost_per_head_day)) || 0;
+        const feedLedger = currentLotFeed ? (Number(currentLotFeed.feed_cost_usd) || 0) : 0;
 
-        // The COG split, per lot. While lots.assumed_nonfeed_cog_per_day is
-        // NULL the assumed rate keeps running unchanged and feed shows
-        // beside it - the two OVERLAP, and the warning block says so. Set
-        // the non-feed rate on a lot and that lot charges actual feed plus
-        // this rate instead. Nothing is recomputed retroactively.
+        // The COG split, per lot. John, 2026-09-04: "I consider COG to be
+        // feed and non-feed cost of gain ... for now I think in terms of one
+        // number." So while lots.assumed_nonfeed_cog_per_day is NULL the
+        // assumed COG rate is that one number, charged on every head-day,
+        // and actual feed is a MEMO beside it - shown, never added, because
+        // the rate already contains it. Set a non-feed rate on a lot and
+        // that lot switches to actual feed plus the non-feed rate from the
+        // ranch cut-over date. Nothing is recomputed retroactively.
         const nonFeedCog = rates.nonFeedCog !== undefined ? rates.nonFeedCog
             : (lot && lot.assumed_nonfeed_cog_per_day != null)
                 ? Number(lot.assumed_nonfeed_cog_per_day) : null;
+        const feedInsideCog = nonFeedCog == null;
+        const feed = feedInsideCog ? 0 : feedLedger;
 
         // The boundary. Before feedDirectFrom, feed lives INSIDE the assumed
         // cost of gain and on the cost allocation, so the full assumed rate
@@ -6341,9 +6363,18 @@ window.addEventListener('unhandledrejection', function(e) {
         // non-feed rate. Splitting head-days on the date is the whole point:
         // applying the non-feed rate to a lot's whole life would re-price the
         // months before it with no actual feed to replace what was removed.
-        const boundaryActive = !!feedDirectFrom && currentHeadDaysAfterBoundary != null;
+        const boundaryActive = !feedInsideCog && !!feedDirectFrom && currentHeadDaysAfterBoundary != null;
         const hdAfter  = boundaryActive ? Math.min(currentHeadDaysAfterBoundary, headDays) : 0;
         const hdBefore = Math.max(0, headDays - hdAfter);
+
+        // The rate feed carries forward at. While being fed is the only
+        // period that says anything about feeding: dollars since the
+        // cut-over over head-days since the cut-over when both are known,
+        // else the view's whole-life figure.
+        const feedPerHeadDay = feedInsideCog ? 0
+            : (boundaryActive && hdAfter > 0 && currentFeedAfterBoundary != null)
+                ? currentFeedAfterBoundary / hdAfter
+                : ((currentLotFeed && Number(currentLotFeed.cost_per_head_day)) || 0);
 
         // The boundary is set but the split could not be loaded. Do NOT fall
         // through to the per-lot non-feed rate: with no date to split on it
@@ -6352,7 +6383,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // replace what was removed. That is the exact failure this date
         // exists to prevent. Charge the original assumed rate throughout and
         // say so - too high is visible, evaporated is not.
-        const splitUnavailable = !!feedDirectFrom && currentHeadDaysAfterBoundary == null;
+        const splitUnavailable = !feedInsideCog && !!feedDirectFrom && currentHeadDaysAfterBoundary == null;
 
         // Missing non-feed rate on a lot that has crossed the boundary:
         // charge ZERO for those days and say so, loudly. Falling back to the
@@ -6453,7 +6484,7 @@ window.addEventListener('unhandledrejection', function(e) {
         return {
             headIn, headCurrent, headDead, daysToDate, headDays,
             cattleCost, processing, treatment, otherMed, feed, cog, labor, interest,
-            feedPerHeadDay, cogSplit, cogRate, cogMode,
+            feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, cogRate, cogMode,
             soldGainLb, soldHeadDays, unsettledHeadDays, estGainLb, gainToDateLb,
             boundaryActive, splitUnavailable, hdBefore, hdAfter, nonFeedMissing, nonFeedCog,
             operating, totalCost,
@@ -6498,7 +6529,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // Feed carries forward at the rate this lot has actually been
         // burning, for the same reason treatment does: once there is
         // history, the lot's own number beats an assumption.
-        const feedFwd = actual.feedPerHeadDay * forwardHeadDays;
+        const feedFwd = actual.feedInsideCog ? 0 : actual.feedPerHeadDay * forwardHeadDays;
 
         // Doctoring carries forward at the rate this lot has actually been
         // burning, which beats a budget figure once there is any history.
@@ -6625,7 +6656,7 @@ window.addEventListener('unhandledrejection', function(e) {
                             <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_cog_hint"></div>
                         </div>
                         <div style="grid-column: span 2;">
-                            <label>Non-feed COG $/head/day <span class="muted" style="font-weight:400; font-size:11px;">(grass, yardage — after ${feedDirectFrom ? fmtDate(feedDirectFrom) : 'the feed cut-over'}, charged beside actual feed)</span></label>
+                            <label>Non-feed COG $/head/day <span class="muted" style="font-weight:400; font-size:11px;">(optional — blank keeps COG as one number that includes feed)</span></label>
                             <input type="number" step="0.0001" id="calc_nonfeed" value="${lot.assumed_nonfeed_cog_per_day??''}" placeholder="e.g. 0.40">
                             <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_nonfeed_hint"></div>
                         </div>
@@ -6737,12 +6768,14 @@ window.addEventListener('unhandledrejection', function(e) {
             }
         }
         if ($('calc_nonfeed_hint')) {
-            $('calc_nonfeed_hint').textContent = actual.boundaryActive
+            $('calc_nonfeed_hint').textContent = actual.feedInsideCog
+                ? (actual.feedLedger > 0 ? `COG is one number. ${fmtMoney(actual.feedLedger)} of actual feed is on the ledger and shown as a memo, not added.` : 'COG is one number, feed included.')
+                : actual.boundaryActive
                 ? (actual.hdAfter > 0
                     ? `${fmtNum(Math.round(actual.hdAfter))} head-days since ${fmtDate(feedDirectFrom)}`
                       + (rates.nonFeedCog != null ? ` × $${Number(rates.nonFeedCog).toFixed(4)} = ${fmtMoney(rates.nonFeedCog * actual.hdAfter)}` : ' — nothing charged on them yet')
                     : 'No head-days after the cut-over yet.')
-                : (rates.nonFeedCog != null ? 'Replaces the assumed COG rate on this lot (no cut-over date set).' : '');
+                : 'Replaces the assumed COG rate on this lot (no cut-over date set); actual feed is charged beside it.';
         }
         if ($('calc_labor_hint')) {
             $('calc_labor_hint').textContent = (rates.laborMode==='per_day' && rates.labor)
@@ -6799,10 +6832,8 @@ window.addEventListener('unhandledrejection', function(e) {
         // together, so charging actual feed beside it double-counts whatever
         // part of the rate is feed. On or after the boundary the split is
         // structural and this cannot happen.
-        if (actual.feed > 0 && !actual.boundaryActive && !actual.cogSplit && rates.cog) {
-            warnings.push('Feed and cost of gain OVERLAP on this lot — the assumed COG rate still includes a feed share, ' +
-                'and actual feed is charged beside it. Set the lot\'s non-feed COG rate to split them.');
-        }
+        // (No overlap warning: with no non-feed rate the assumed COG IS the
+        // one number and feed is a memo line, not a charge.)
         // A missing non-feed rate after the boundary charges ZERO for those
         // days rather than falling back to the full assumed rate, which would
         // double-count against actual feed. Zero is visibly incomplete; a
@@ -6817,7 +6848,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 fmtNum(actual.hdBefore, 0) + ' head-days on the old assumed rate (feed included), ' +
                 fmtNum(actual.hdAfter, 0) + ' on the non-feed rate plus actual feed.');
         }
-        if (feedDirectFrom && currentHeadDaysAfterBoundary == null && currentHeadDaysToDate != null) {
+        if (actual.splitUnavailable && currentHeadDaysToDate != null) {
             warnings.push('The head-day split at ' + fmtDate(feedDirectFrom) + ' could not be loaded, so cost of gain is ' +
                 'running on the <b>full assumed rate for the whole lot</b> — deliberately, because applying the non-feed ' +
                 'rate without a date to split on would re-price every month before the boundary. ' +
@@ -6893,7 +6924,8 @@ window.addEventListener('unhandledrejection', function(e) {
             const top = opts.rule ? 'border-top:2px solid var(--border);' : '';
             const bg = opts.bg ? `background:${opts.bg};` : '';
             const fmt = opts.fmt || money;
-            return `<tr style="${top}${bg}">
+            const mutedStyle = opts.muted ? 'color:var(--text-muted); font-style:italic;' : '';
+            return `<tr style="${top}${bg}${mutedStyle}">
                 <td style="${strong}">${label}${opts.note?` <span class="muted" style="font-size:11px;">${opts.note}</span>`:''}</td>
                 <td class="num" style="${strong}color:var(--text-muted);">${bv==null?'—':fmt(bv)}</td>
                 <td class="num" style="${strong}">${av==null?'—':fmt(av)}</td>
@@ -6929,16 +6961,18 @@ window.addEventListener('unhandledrejection', function(e) {
                         {note:'moved to another lot', fmt: signed}) : ''}
                     ${row('Processing', budget ? b('med') : null, actual.processing, actual.processing, {note:'at receiving'})}
                     ${row('Treatment', null, actual.treatment, actual.treatment + proj.treatmentFwd, {note:'doctoring'})}
-                    ${(actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, actual.feed, actual.feed + proj.feedFwd, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day actual' : 'from the feed ledger'}) : ''}
+                    ${actual.feedInsideCog
+                        ? (actual.feedLedger > 0 ? row('Feed (memo)', null, actual.feedLedger, null, {muted:true, note:'inside cost of gain — not added'}) : '')
+                        : (actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, actual.feed, actual.feed + proj.feedFwd, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day' + (actual.boundaryActive ? ' since '+fmtDate(feedDirectFrom) : '') : 'from the feed ledger'}) : ''}
                     ${row('Cost of gain', b('cog'), actual.cog, actual.cog + proj.cogFwd, {note:
                         actual.nonFeedMissing ? '<span style="color:#b58900;">no non-feed rate set</span>'
                         : actual.boundaryActive && actual.hdBefore > 0
                             ? `split at ${fmtDate(feedDirectFrom)} · non-feed after`
                         : actual.cogSplit ? 'non-feed only'
-                        : rates.cogMode === 'per_lb' ? `$${Number(rates.cog||0).toFixed(4)}/lb × ${fmtNum(Math.round(actual.gainToDateLb))} lb`
+                        : rates.cogMode === 'per_lb' ? 'feed included · ' + `$${Number(rates.cog||0).toFixed(4)}/lb × ${fmtNum(Math.round(actual.gainToDateLb))} lb`
                             + (actual.soldGainLb > 0 ? ` · ${fmtNum(Math.round(actual.soldGainLb))} lb trued up` : '')
                             + (proj.gainFwdLb > 0 ? ` · +${fmtNum(Math.round(proj.gainFwdLb))} lb to come` : '')
-                        : ''})}
+                        : 'feed included'})}
                     ${row('Labor', b('labor'), actual.labor, actual.labor + proj.laborFwd)}
                     ${row('Interest', b('interest'), actual.interest, actual.interest + proj.interestFwd)}
                     ${row('Total cost', b('totalCost'), actual.totalCost, proj.totalCost, {strong:true, rule:true})}
@@ -12728,29 +12762,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             });
         });
 
-        // From the boundary date, a lot with no non-feed COG rate charges
-        // actual feed and NOTHING else - no grass, no yardage, no labor
-        // share. Zero is visibly incomplete; falling back to the full
-        // assumed rate would silently double-count against actual feed.
-        if (feedBoundary && feedBoundary <= ranchToday()) {
-            (lotsRes.data || []).forEach(l => {
-                if (l.is_test || l.closed_at) return;
-                if (/^TEST[_-]/i.test(l.lot_number || '')) return;
-                if (l.assumed_nonfeed_cog_per_day != null) return;
-                const st = (statusRes.data || []).find(x => x.lot_id === l.id);
-                if (!st) return;
-                findings.push({
-                    lot_id: l.id,
-                    lot_number: st.lot_number,
-                    severity: 'medium',
-                    type: 'no_nonfeed_cog',
-                    title: 'No non-feed cost of gain rate',
-                    detail: `Feed has charged directly since ${fmtDate(feedBoundary)}, but this lot has no ` +
-                            `non-feed rate, so days on or after that date carry actual feed and nothing else. ` +
-                            `Set it on the lot's assumptions.`
-                });
-            });
-        }
+        // (No "no non-feed COG rate" finding: John's call 2026-09-04, COG is
+        // one number that includes feed until the data supports a split.)
 
         // ---- LOT TRANSFERS: the two loose ends a transfer can leave ----
         // Both are on the DESTINATION lot, because that is the lot still

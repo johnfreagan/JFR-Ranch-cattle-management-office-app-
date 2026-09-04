@@ -204,6 +204,14 @@ unexplained $21K variance is not. A footnote in place of a mystery.
 
 ### 17. A missing `assumed_nonfeed_cog_per_day` charges ZERO and warns loudly
 
+> **Superseded 2026-09-04.** John: "I consider COG to be feed and non-feed
+> cost of gain … for now I think in terms of one number." A NULL non-feed
+> rate now means the assumed COG is that one number, charged on every
+> head-day with the cut-over ignored, and actual feed is a memo row. The
+> zero-and-warn behaviour below, and the Anomalies finding, were removed.
+> The table of suggested non-feed rates still stands for the day a split is
+> wanted.
+
 On the lot and on Anomalies.
 
 **Why not fall back to the full assumed rate.** That silently double-counts
