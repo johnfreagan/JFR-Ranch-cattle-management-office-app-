@@ -170,14 +170,17 @@ The Closeout tab shows one set of economics in three columns. It is
   actual + observed burn, floored at the assumption × head_in while the lot
   is on feed**, so a young lot with two pulls does not project nothing.
 - **Net: Actual is on the head SOLD, Projection is on the head LEFT**
-  (John, 2026-09-04). Both price a head at the same `costPerHeadSold`, so
-  sold net + left net = lot net exactly; a "Net, whole lot" row shows the
-  sum once anything has shipped. Before any sale the Actual net is blank
-  and the Projection net is the whole lot.
-- **Target sale $/lb and target ship date LOCK once saved on the lot**
-  (`closeoutLock`, readonly + "edit" button). They are reused every visit
-  and must not be nudged while playing with other assumptions. A drill
-  onto a locked input unlocks it first.
+  (John, 2026-09-04). The sold head carry their share of cost TO DATE
+  (`actualCostPerHd = actual.totalCost / headSoldAtClose`) against the
+  checks banked — nothing projected touches them ("use actual sales for
+  the sold head, not the projected price for the remainder"). The head
+  left carry that share PLUS every forward dollar against forward revenue
+  (`leftCost`, `leftBreakEvenPerLb`). Sold + left = lot net exactly; a
+  "Net, whole lot" row shows the sum once anything has shipped. Before any
+  sale the Actual net is blank and the Projection net is the whole lot.
+- **No locks or edit buttons on the closeout inputs.** Every assumption
+  is prefilled from the lot; click and type. (A readonly lock with an
+  "edit" button was built and removed the same day at John's request.)
 - **`lots.target_sale_cwt` is $/lb despite the name**, and the new
   `lot_budgets.budget_cost_per_cwt` follows it for consistency. Both are
   multiplied by a weight in pounds. Do not "fix" one without the other.

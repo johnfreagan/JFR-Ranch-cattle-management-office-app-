@@ -560,12 +560,6 @@
         .tile-row[data-drill] { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 0 4px; }
         .tile-row[data-drill]:hover { background: #f3f1ea; }
         .tile-row[data-drill]:hover .tr-value { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
-        .closeout-inputs input.locked { background: #f3f1ea; color: var(--text-muted); border-style: dashed; }
-        .calc-unlock {
-            margin-left: 6px; padding: 0 6px; font-size: 11px; line-height: 16px;
-            border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--accent); cursor: pointer;
-        }
-        .calc-unlock:hover { background: #f3f1ea; }
         #drillBackBar { margin: 0 0 8px 0; }
         #drillBackBar a {
             display: inline-block; padding: 5px 12px; font-size: 13px; font-weight: 500;
@@ -5273,7 +5267,6 @@ window.addEventListener('unhandledrejection', function(e) {
             showLotSubtab('closeout');
             const el = $(target.slice(6));
             if (!el) return;
-            if (el.classList.contains('locked')) closeoutLock(el.id, false);
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             el.focus({ preventScroll: true });
             if (el.select) el.select();
@@ -6839,15 +6832,23 @@ window.addEventListener('unhandledrejection', function(e) {
         const lotShortfall = totalCost - actual.revenue;
 
         // Net on the head SOLD (Actual column) and on the head LEFT
-        // (Projection column), John 2026-09-04. Both price a head at the same
-        // equal share of the lot's projected cost, so the two add back to the
-        // lot net exactly: banked revenue less the sold share, forward
-        // revenue less the remnant share.
-        const soldNet      = (actual.soldHead > 0 && costPerHeadSold != null)
-            ? actual.revenue - costPerHeadSold * actual.soldHead : null;
+        // (Projection column). John, 2026-09-04: "use actual sales for the
+        // sold head, not the projected price for the remainder". So the sold
+        // head carry their equal share of cost TO DATE against the checks
+        // actually banked - nothing projected touches them. The head left
+        // carry their share of cost to date PLUS every forward dollar
+        // against forward revenue. Cost to date is spread over the head that
+        // will be sold in all (deaths still to come fall out of the
+        // division, as everywhere else), so sold + left = lot net exactly.
+        const actualCostPerHd = headSoldAtClose > 0 ? actual.totalCost / headSoldAtClose : null;
+        const soldNet      = (actual.soldHead > 0 && actualCostPerHd != null)
+            ? actual.revenue - actualCostPerHd * actual.soldHead : null;
         const soldNetPerHd = soldNet != null ? soldNet / actual.soldHead : null;
-        const leftNet      = (survivingAtClose > 0 && remnantCost != null) ? revenueFwd - remnantCost : null;
+        const leftCost     = actualCostPerHd != null ? actualCostPerHd * survivingAtClose + operatingFwd + interestFwd : null;
+        const leftNet      = (survivingAtClose > 0 && leftCost != null) ? revenueFwd - leftCost : null;
         const leftNetPerHd = leftNet != null ? leftNet / survivingAtClose : null;
+        const leftBreakEvenPerLb = (leftCost != null && survivingAtClose > 0 && finishWt > 0)
+            ? leftCost / (survivingAtClose * finishWt) : null;
 
         return {
             remainingDays, deathsToCome, survivingAtClose, forwardHeadDays, gainFwdLb,
@@ -6856,7 +6857,7 @@ window.addEventListener('unhandledrejection', function(e) {
             cogFwd, laborFwd, treatmentFwd, feedFwd, interestFwd, operatingFwd,
             revenueFwd, totalCost, totalRevenue, net, breakEvenPerLb,
             costPerHeadSold, remnantCost, lotShortfall,
-            soldNet, soldNetPerHd, leftNet, leftNetPerHd,
+            soldNet, soldNetPerHd, leftNet, leftNetPerHd, actualCostPerHd, leftCost, leftBreakEvenPerLb,
             headSoldAtClose,
             netPerHeadSold: headSoldAtClose > 0 ? net / headSoldAtClose : null
         };
@@ -6955,9 +6956,9 @@ window.addEventListener('unhandledrejection', function(e) {
                 <div>
                     <h4 style="margin-bottom: 10px;">Working assumptions <span class="muted" style="font-weight:400; font-size:11px;">(drive the projection)</span></h4>
                     <div class="closeout-inputs">
-                        <div><label>Target sale $/lb <button type="button" class="calc-unlock hidden" data-for="calc_cwt" title="Saved on the lot. Click to change it.">edit</button></label><input type="number" step="0.0001" id="calc_cwt" value="${lot.target_sale_cwt??''}" placeholder="e.g. 4.95"></div>
+                        <div><label>Target sale $/lb</label><input type="number" step="0.0001" id="calc_cwt" value="${lot.target_sale_cwt??''}" placeholder="e.g. 4.95"></div>
                         <div><label>Target ADG (lb/day)</label><input type="number" step="0.01" id="calc_adg" value="${lot.target_adg??''}" placeholder="e.g. 2.50"></div>
-                        <div><label>Target ship date <button type="button" class="calc-unlock hidden" data-for="calc_shipdate" title="Saved on the lot. Click to change it.">edit</button></label><input type="date" id="calc_shipdate" value="${initialShipDate}"></div>
+                        <div><label>Target ship date</label><input type="date" id="calc_shipdate" value="${initialShipDate}"></div>
                         <div><label>Projected finish wt</label><input type="number" step="1" id="calc_finishwt" value="${defaultFinishWt}" placeholder="auto"></div>
                         <div style="grid-column: span 2;">
                             <label>COG $/lb of gain <span class="muted" style="font-weight:400; font-size:11px;">(feed and non-feed together)</span></label>
@@ -7026,25 +7027,10 @@ window.addEventListener('unhandledrejection', function(e) {
         ['calc_cwt','calc_adg','calc_finishwt','calc_cog','calc_nonfeed','calc_labor','calc_proc','calc_doc','calc_dead','calc_int']
             .forEach(id=>$(id).addEventListener('input',recalculate));
 
-        // Target sale $ and ship date LOCK once saved on the lot (John,
-        // 2026-09-04): they are re-used every visit, so they should not be
-        // retyped or nudged by accident while playing with the other
-        // assumptions. "edit" unlocks; Save re-locks on the next render.
-        if (lot.target_sale_cwt != null) closeoutLock('calc_cwt', true);
-        if (lot.target_ship_date)        closeoutLock('calc_shipdate', true);
-        $('closeoutContent').querySelectorAll('.calc-unlock').forEach(b => {
-            b.addEventListener('click', () => { closeoutLock(b.dataset.for, false); $(b.dataset.for).focus(); });
-        });
+        // Every assumption, target sale $ and ship date included, is
+        // prefilled from the lot and saved back with "Save to lot". No
+        // locks, no edit buttons - click and type (John, 2026-09-04).
         recalculate();
-    }
-
-    function closeoutLock(id, locked) {
-        const el = $(id);
-        if (!el) return;
-        el.readOnly = !!locked;
-        el.classList.toggle('locked', !!locked);
-        const btn = $('closeoutContent').querySelector(`.calc-unlock[data-for="${id}"]`);
-        if (btn) btn.classList.toggle('hidden', !locked);
     }
 
     function recalculate(){
@@ -7263,7 +7249,7 @@ window.addEventListener('unhandledrejection', function(e) {
         if (actual.headCurrent > 0 && actual.soldHead > 0) {
             const toCome     = proj.operatingFwd + proj.interestFwd;
             const survivors  = proj.survivingAtClose;
-            const share      = proj.remnantCost;   // these head's equal share of the lot's projected cost
+            const share      = proj.leftCost;   // their share of cost to date, plus every forward dollar
             const soldPerHd  = actual.soldHead > 0 ? actual.revenue / actual.soldHead : null;
             const perHd      = n => survivors > 0 ? fmtMoney(n / survivors) + '/hd' : '—';
             const tile = (label, value, sub, drill, drillTitle) => `<div${drill ? ` class="co-drill" data-drill="${drill}" title="${drillTitle || 'Open'}"` : ''}><span class="muted" style="font-size:11px;">${label}</span><br>
@@ -7276,13 +7262,13 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${tile('DAYS TO SHIP', proj.remainingDays != null ? fmtNum(proj.remainingDays) : '—', proj.remainingDays != null ? `${fmtNum(Math.round(proj.forwardHeadDays))} head-days` : 'no ship date', 'input:calc_shipdate', 'Target ship date')}
                     ${tile('GAIN TO COME', rates.adg > 0 && proj.remainingDays != null ? fmtNum(Math.round(proj.gainFwdLb)) + ' lb' : '—', rates.adg > 0 ? `at ${Number(rates.adg).toFixed(2)} lb/day` : 'no ADG', 'input:calc_adg', 'Target ADG')}
                     ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.processingFwd > 0 ? ' · processing ' + fmtMoney(proj.processingFwd) : ''}${proj.treatmentFwd > 0 ? ' · doctoring ' + fmtMoney(proj.treatmentFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`, 'input:calc_cog', 'COG assumption')}
-                    ${share != null ? tile('COST OF THESE HEAD', fmtMoney(share), `${perHd(share)} · their equal share of the lot's cost`) : ''}
-                    ${proj.breakEvenPerLb != null ? tile('BREAK-EVEN', '$' + proj.breakEvenPerLb.toFixed(4) + '/lb', `at ${fmtNum(Math.round(rates.finishWt || 0))} lb`, 'input:calc_finishwt', 'Projected finish weight') : ''}
+                    ${share != null ? tile('COST OF THESE HEAD', fmtMoney(share), `${perHd(share)} · share of cost to date + cost to come`) : ''}
+                    ${proj.leftBreakEvenPerLb != null ? tile('BREAK-EVEN', '$' + proj.leftBreakEvenPerLb.toFixed(4) + '/lb', `at ${fmtNum(Math.round(rates.finishWt || 0))} lb`, 'input:calc_finishwt', 'Projected finish weight') : ''}
                     ${rates.salePerLb != null && proj.remainingDays != null && share != null ? tile('AT TARGET PRICE', fmtMoney(proj.revenueFwd),
                         `<span style="color:${proj.revenueFwd - share >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:600;">${signed(proj.revenueFwd - share)}</span> net on these head`, 'input:calc_cwt', 'Target sale $/lb') : ''}
                 </div>
                 <div class="muted" style="font-size:11px; margin-top:6px; line-height:1.5;">
-                    Every head sold carries an equal share of the lot's projected cost${proj.costPerHeadSold != null ? ` (${fmtMoney(proj.costPerHeadSold)}/hd)` : ''}.
+                    Cost to date is ${fmtMoney(proj.actualCostPerHd || 0)}/hd over every head that will sell; the head sold carry that against their checks, the head left carry it plus every dollar still to come.
                     ${soldPerHd != null ? `The ${fmtNum(actual.soldHead)} already shipped brought ${fmtMoney(soldPerHd)}/hd.` : ''}
                     ${proj.lotShortfall > 0 && survivors > 0 && rates.finishWt > 0
                         ? `For the whole lot to break even these head would have to bring ${fmtMoney(proj.lotShortfall)} — ${fmtMoney(proj.lotShortfall / survivors)}/hd, $${(proj.lotShortfall / (survivors * rates.finishWt)).toFixed(2)}/lb — which is the lot's margin landing on its last head, not their cost.`
@@ -7371,7 +7357,7 @@ window.addEventListener('unhandledrejection', function(e) {
             ${gainBlock}
             <div class="muted" style="font-size:11px; margin-top:8px; line-height:1.5;">
                 ${actual.soldHead > 0
-                    ? `Net in the Actual column is on the ${fmtNum(actual.soldHead)} head already sold: their checks less their equal share of the lot's projected cost per head (${fmtMoney(proj.costPerHeadSold || 0)}). Net in the Projection column is on the head still here, priced the same way. The two add back to the whole-lot net.`
+                    ? `Net in the Actual column is on the ${fmtNum(actual.soldHead)} head already sold: their checks less their share of cost to date (${fmtMoney(proj.actualCostPerHd || 0)}/hd) — nothing projected touches them. Net in the Projection column is on the head still here: their share of cost to date plus every dollar still to come, against the target price. The two add back to the whole-lot net.`
                     : 'Actual has no Net until cattle ship — revenue only lands as they sell. Projection Net is on the whole lot, since every head is still here.'}
                 Death loss is not a line: the cattle that died are already in Cattle in, so the loss shows up
                 in the division. ${rates.cogMode === 'per_lb'
