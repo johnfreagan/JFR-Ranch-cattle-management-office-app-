@@ -101,6 +101,22 @@ The Closeout tab shows one set of economics in three columns. It is
   nowhere.
 - A **per-head** (flat) COG or labor rate is charged once on `head_in` and
   never carried forward again. Only **per-day** rates accrue on head-days.
+- **COG mode `per_lb` (2026-09-04, John's call) charges the rate on POUNDS
+  GAINED, trued up to the scale.** Migration
+  `docs/sql/2026-09-04_cog_per_lb.sql` adds `lots.assumed_cog_per_lb` and
+  widens both `cog_mode` CHECKs. Gain to date = `lot_realized_adg.
+  total_gain_lb` (real pay weight less weight in, on head already shipped)
+  + target ADG × the head-days NOT covered by `sold_head_days`. The
+  projection adds target ADG × forward head-days. Each sale with a pay
+  weight moves its slice from estimate to fact, so a fully shipped lot has
+  no estimate left. The budget column uses its own frozen `target_adg`.
+  Before the feed boundary the gain is pro-rated onto `hdBefore` by
+  head-days. This deliberately reverses the older "per-pound is display
+  only" rule below: the assumed ADG is biased low, so the estimated slice
+  reads LIGHT until the cattle ship — the screen warns when realized ADG on
+  shipped head runs more than 5% over the assumption, with both dollar
+  figures. The transfer basis (`ltStoredRates`) feeds `lots.target_adg` in
+  for this mode only.
 - **Interest** accrues on the cattle for the whole period and on operating
   cost at half the period, the usual convention for a cost that builds
   linearly. The old screen charged interest on the purchase price only.
@@ -691,12 +707,14 @@ rules:
 - **A count variance means different things per item.** Barn commodities: we know
   what was fed, so it is SHRINK. Mineral: no feeding record exists, so it is
   CONSUMPTION, allocated by head-days across every open lot. One per-item setting.
-- **Per-pound cost of gain is a DISPLAY metric and an input convenience only —
-  never a projection driver.** John's assumed ADG is deliberately biased low;
-  converting a $/lb cost rate through it makes the cost projection optimistic
-  ($94/head in the worked example) while the revenue side is already conservative.
-  Assumed ADG drives weight and revenue; REALIZED ADG drives anything touching
-  cost.
+- **The observed cost-per-pound-of-gain read-out stays on REALIZED ADG only.**
+  John's assumed ADG is deliberately biased low; converting a $/lb cost rate
+  through it makes the cost projection optimistic ($94/head in the worked
+  example) while the revenue side is already conservative. **Superseded in
+  part 2026-09-04:** the `per_lb` COG mode (Closeout section) does charge a
+  $/lb rate on assumed-ADG gain, by John's decision, and mitigates this by
+  truing up to real pay weights as head ship and warning when the shipped
+  head ran ahead of the assumption.
 - **A premix short is not an ordinary short.** It means the ingredients are still
   on the books — two errors, and the feed still allocates cleanly so nothing looks
   broken. That is how PB reached −1,109,171 lb. It needs its own anomaly wording.
