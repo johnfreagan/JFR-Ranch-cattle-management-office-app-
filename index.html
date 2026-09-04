@@ -556,6 +556,10 @@
         .tr-value.tr-danger { color: var(--danger); }
         .tr-value.tr-warning { color: #b58900; }
         .tr-value.tr-success { color: var(--success); }
+        /* Every tile value is a drill-down (2026-09-04). */
+        .tile-row[data-drill] { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 0 4px; }
+        .tile-row[data-drill]:hover { background: #f3f1ea; }
+        .tile-row[data-drill]:hover .tr-value { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
 
         /* Count badges in card headers */
         .card-count {
@@ -5210,6 +5214,35 @@ window.addEventListener('unhandledrejection', function(e) {
             loadAuditLog(currentLot.id);
         }
     }
+    // Tile drill-downs. A section name lands in that section; 'deaths'
+    // lands in Animal Health scrolled to the death log; 'receiving' leaves
+    // the lot for Reports -> Health -> Receiving with this lot picked.
+    function lotDrill(target) {
+        if (!currentLot) return;
+        const flash = el => {
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.transition = 'box-shadow .3s';
+            el.style.boxShadow = '0 0 0 3px var(--accent, #d4a017)';
+            setTimeout(() => { el.style.boxShadow = ''; }, 1400);
+        };
+        if (target === 'deaths') { showLotSubtab('health'); flash($('deathLogCard')); return; }
+        if (target === 'receiving') {
+            processingReportPendingLot = currentLot.id;
+            showReportsTab('processing-costs');
+            return;
+        }
+        if (LOT_SECTIONS.includes(target)) {
+            showLotSubtab(target);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }
+    document.addEventListener('click', (e) => {
+        const row = e.target.closest && e.target.closest('.tile-row[data-drill]');
+        if (!row) return;
+        e.preventDefault();
+        lotDrill(row.dataset.drill);
+    });
     // Counts on the section tabs, so the header says where the work is.
     // Read off the card counts the loaders already write ("(3)"), after
     // every loader has run, rather than taught to each of ten loaders.
@@ -5594,37 +5627,40 @@ window.addEventListener('unhandledrejection', function(e) {
         // Each tile is rendered as a label header + stacked label/value rows,
         // all same size. Helper function builds rows from an array of
         // {label, value, color?} objects.
+        // Every row carries a drill target: click the number, land where it
+        // came from. Routed by lotDrill() below; unknown targets just render.
         function buildTileRows(rows) {
             return rows.map(r => {
                 const colorClass = r.color ? ` tr-${r.color}` : '';
-                return `<div class="tile-row"><span class="tr-label">${r.label}</span><span class="tr-value${colorClass}">${r.value}</span></div>`;
+                const drill = r.drill ? ` data-drill="${r.drill}" title="${r.drillTitle || 'Open'}"` : '';
+                return `<div class="tile-row"${drill}><span class="tr-label">${r.label}</span><span class="tr-value${colorClass}">${r.value}</span></div>`;
             }).join('');
         }
 
         // ---- TIER 1: HEAD ----
         const headRows = [
-            { label: 'In',      value: fmtNum(headIn) },
-            { label: 'On feed', value: fmtNum(headNow) }
+            { label: 'In',      value: fmtNum(headIn),  drill: 'purchases', drillTitle: 'Invoices and load outs' },
+            { label: 'On feed', value: fmtNum(headNow), drill: 'current',   drillTitle: 'Where they are' }
         ];
         if (headShipped > 0) {
-            headRows.push({ label: 'Shipped', value: fmtNum(headShipped) });
+            headRows.push({ label: 'Shipped', value: fmtNum(headShipped), drill: 'sales', drillTitle: 'Sales' });
         }
         if (headPendingInvoice > 0) {
-            headRows.push({ label: 'Pending invoice', value: fmtNum(headPendingInvoice), color: 'warning' });
+            headRows.push({ label: 'Pending invoice', value: fmtNum(headPendingInvoice), color: 'warning', drill: 'purchases', drillTitle: 'Load outs not yet under an invoice' });
         }
 
         // ---- TIER 1: WEIGHT ----
         const wtRows = [
-            { label: 'Arrival', value: arrivalWt ? fmtNum(arrivalWt) + ' lb' : '—' },
-            { label: 'Now',     value: projWt ? fmtNum(projWt) + ' lb' : '—' },
-            { label: useTargetForThird ? 'Target' : 'Est ship', value: wtThird ? fmtNum(wtThird) + ' lb' : '—' }
+            { label: 'Arrival', value: arrivalWt ? fmtNum(arrivalWt) + ' lb' : '—', drill: 'purchases', drillTitle: 'Invoice weights' },
+            { label: 'Now',     value: projWt ? fmtNum(projWt) + ' lb' : '—', drill: 'closeout', drillTitle: 'ADG and ship assumptions' },
+            { label: useTargetForThird ? 'Target' : 'Est ship', value: wtThird ? fmtNum(wtThird) + ' lb' : '—', drill: 'closeout', drillTitle: 'Ship weight assumption' }
         ];
 
         // ---- TIER 1: COST / HEAD ----
         const costRows = [
-            { label: '$/head', value: fmtMoney(costPerHead) },
-            { label: '$/lb',   value: costPerLb ? '$' + Number(costPerLb).toFixed(4) : '—' },
-            { label: '$/cwt',  value: costPerLb ? '$' + (Number(costPerLb) * 100).toFixed(2) : '—' }
+            { label: '$/head', value: fmtMoney(costPerHead), drill: 'purchases', drillTitle: 'Invoices' },
+            { label: '$/lb',   value: costPerLb ? '$' + Number(costPerLb).toFixed(4) : '—', drill: 'purchases', drillTitle: 'Invoices' },
+            { label: '$/cwt',  value: costPerLb ? '$' + (Number(costPerLb) * 100).toFixed(2) : '—', drill: 'purchases', drillTitle: 'Invoices' }
         ];
         // Phase 18: split med cost — Processing over head_in, Treatment over
         // surviving head (head_in - head_dead), shipped or still here.
@@ -5636,7 +5672,8 @@ window.addEventListener('unhandledrejection', function(e) {
                 value: currentActualMedCost.processingPerHead != null
                     ? '$' + currentActualMedCost.processingPerHead.toFixed(2)
                     : '$' + currentActualMedCost.processing.toFixed(2) + ' tot',
-                color: procPartial ? 'warning' : null
+                color: procPartial ? 'warning' : null,
+                drill: 'receiving', drillTitle: 'Receiving report: processing cost per head'
             });
             if (procPartial) {
                 // Diluted: the dollars cover only the loads that carry a
@@ -5644,20 +5681,22 @@ window.addEventListener('unhandledrejection', function(e) {
                 costRows.push({
                     label: '',
                     value: `<span title="${pc.headWithout} head on ${pc.loads - pc.loadsWithProtocol} load${pc.loads - pc.loadsWithProtocol === 1 ? '' : 's'} have no receiving protocol, so their processing is not on the books. $${(currentActualMedCost.processingPerHeadProcessed || 0).toFixed(2)}/hd on the ${pc.headWithProtocol} processed.">${pc.loadsWithProtocol} of ${pc.loads} loads</span>`,
-                    color: 'warning'
+                    color: 'warning',
+                    drill: 'purchases', drillTitle: 'Set the receiving protocol on each load out'
                 });
             }
         } else if (pc && pc.loads > 0 && pc.loadsWithProtocol === 0) {
             // No load has a protocol, so processing is not on the books at
             // all. Silence here looked like "no cost" on the 37X lots.
-            costRows.push({ label: 'Proc $/hd', value: '<span title="No load on this lot has a receiving protocol. Open each load out and set one.">no protocol</span>', color: 'warning' });
+            costRows.push({ label: 'Proc $/hd', value: 'no protocol', color: 'warning', drill: 'purchases', drillTitle: 'No load on this lot has a receiving protocol. Open each load out and set one.' });
         }
         if (currentActualMedCost && currentActualMedCost.treatment > 0) {
             costRows.push({
                 label: 'Treat $/hd',
                 value: currentActualMedCost.treatmentPerHead != null
                     ? '$' + currentActualMedCost.treatmentPerHead.toFixed(2)
-                    : '$' + currentActualMedCost.treatment.toFixed(2) + ' tot'
+                    : '$' + currentActualMedCost.treatment.toFixed(2) + ' tot',
+                drill: 'health', drillTitle: 'Doctoring on this lot'
             });
         }
 
@@ -5666,8 +5705,8 @@ window.addEventListener('unhandledrejection', function(e) {
             ? 'danger'
             : (deathLossPct != null && deathLossPct >= 5 ? 'warning' : null);
         const deathRows = [
-            { label: '%',    value: deathLossDisplay, color: deathLossColorClass },
-            { label: 'Head', value: fmtNum(headDead) }
+            { label: '%',    value: deathLossDisplay, color: deathLossColorClass, drill: 'deaths', drillTitle: 'Death log' },
+            { label: 'Head', value: fmtNum(headDead), drill: 'deaths', drillTitle: 'Death log' }
         ];
 
         $('lotStatsTier1').innerHTML = `
@@ -5709,16 +5748,16 @@ window.addEventListener('unhandledrejection', function(e) {
         // Phase 16: noted future addition — "Forecast" and "Realized" breakevens
         // (right now only the floor / purchase-only breakeven exists).
         const breakevenRows = [
-            { label: 'Floor (purchase)', value: breakevenFloor != null ? '$' + breakevenFloor.toFixed(4) + '/lb' : '—' }
+            { label: 'Floor (purchase)', value: breakevenFloor != null ? '$' + breakevenFloor.toFixed(4) + '/lb' : '—', drill: 'closeout', drillTitle: 'Closeout: budget, actual, projection' }
         ];
 
         // ---- TIER 2: ADG ----
         // Target / actual format per user preference.
         const adgRows = [
-            { label: 'Target', value: targetAdg != null ? targetAdg.toFixed(2) : '—' },
+            { label: 'Target', value: targetAdg != null ? targetAdg.toFixed(2) : '—', drill: 'closeout', drillTitle: 'ADG assumption' },
             { label: 'Actual', value: (realizedAdgVal != null && realizedHeadSold > 0)
                 ? realizedAdgVal.toFixed(2)
-                : '—' }
+                : '—', drill: 'sales', drillTitle: 'Realized on sale weights' }
         ];
 
         // ---- TIER 2: HEAD DAYS (renamed from Days to Ship) ----
@@ -5726,9 +5765,9 @@ window.addEventListener('unhandledrejection', function(e) {
         const headDaysRows = [
             { label: 'Hd-days',      value: (currentHeadDays != null && currentHeadDays > 0)
                 ? fmtNum(Math.round(currentHeadDays))
-                : '—' },
-            { label: 'DOF',          value: dof != null ? fmtNum(dof) : '—' },
-            { label: 'Days to ship', value: daysToShipDisplay, color: daysToShipColorClass }
+                : '—', drill: 'closeout', drillTitle: 'Head-days drive cost of gain and labor' },
+            { label: 'DOF',          value: dof != null ? fmtNum(dof) : '—', drill: 'audit', drillTitle: 'Full audit log' },
+            { label: 'Days to ship', value: daysToShipDisplay, color: daysToShipColorClass, drill: 'closeout', drillTitle: 'Ship date assumption' }
         ];
 
         $('lotStatsTier2').innerHTML = `
@@ -13937,6 +13976,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     // ==========================================================
     // ============ Processing cost report (Phase 18c) ============
     let processingReportInit = false;
+    let processingReportPendingLot = null;   // set by a lot-tile drill-down; wins over the remembered pick once
     async function initProcessingReport() {
         const sel = $('reportProcessingLot');
         // (Re)populate lot picker every time: open lots first (newest arrival first), then closed
@@ -13951,8 +13991,11 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             sel.innerHTML = '<option value="">— Pick lot —</option>'
                 + open.map(l => `<option value="${l.id}">${escapeHtml(l.lot_number)}</option>`).join('')
                 + (closed.length ? '<optgroup label="Closed">' + closed.map(l => `<option value="${l.id}">${escapeHtml(l.lot_number)}</option>`).join('') + '</optgroup>' : '');
-            if (prev && lots.some(l => l.id === prev)) sel.value = prev;
+            if (processingReportPendingLot && lots.some(l => l.id === processingReportPendingLot)) {
+                sel.value = processingReportPendingLot;
+            } else if (prev && lots.some(l => l.id === prev)) sel.value = prev;
             else if (open.length > 0) sel.value = open[0].id;  // default: newest open lot
+            processingReportPendingLot = null;
         }
         if (!processingReportInit) {
             processingReportInit = true;

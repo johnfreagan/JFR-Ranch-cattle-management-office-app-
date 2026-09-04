@@ -1037,6 +1037,10 @@ closes it early.
   There is no node on this machine — run `osascript -l JavaScript
   scripts/validate.jxa.js index.html`, which does both checks on JavaScriptCore.
 - Tiles on lot detail use buildTileRows() row-style (label left, value right).
+  **Every tile row is a drill-down** (2026-09-04): a row carries `drill`
+  (a lot section name, `deaths`, or `receiving`) and `lotDrill()` routes
+  one delegated click. `receiving` leaves the lot for Reports → Health →
+  Receiving with the lot pre-picked via `processingReportPendingLot`.
 - **The lot page is one section per PROCESS** (John's sketch, 2026-09-04):
   Currently in · Purchases (invoices, unlinked load outs, tags) · Animal
   Health (doctoring, deaths) · Moves (moves, transfers, merge) · Sales ·
