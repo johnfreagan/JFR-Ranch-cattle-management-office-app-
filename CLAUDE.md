@@ -30,7 +30,11 @@ See "Access control" below and `docs/security-model.md`.
   receiving_protocol_id** — NOT as doctoring events. Cost views derive from
   receipts × protocol_meds × medication pricing.
 - Treatment cost comes from doctoring_events + doctoring_event_meds (cost is
-  FROZEN per row at save time).
+  FROZEN per row at save time). **A NULL cost is a hole, not a frozen
+  number**, and may be back-filled from the current price list with a
+  `WHERE cost IS NULL` guard — done 2026-09-04 on the X lots (682 rows,
+  $8,873.41, `docs/sql/2026-09-04_backfill_x_lot_med_costs.sql`). The
+  non-X lots still carry ~1,178 unpriced rows.
 - Processing $/hd is per head IN; Treatment $/hd is per LIVE head current.
 
 ### Changing a protocol or a drug price — read before editing either
