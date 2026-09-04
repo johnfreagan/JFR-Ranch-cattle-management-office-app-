@@ -7278,7 +7278,23 @@ window.addEventListener('unhandledrejection', function(e) {
         }
 
 
-        const row = (label, bv, av, pv, opts={}) => {
+        // Once any head have shipped the table SPLITS (John, 2026-09-04:
+        // "on the actual you include total cost not the proportion that
+        // goes with sold hd count"). Actual = the sold head's share of every
+        // line to date; Projection = the head left, their share of cost to
+        // date plus every forward dollar; a fourth column, Lot at close, is
+        // the two added back and is what the budget compares to. Shares are
+        // per head over the head that will sell in all, the same division
+        // net/head already uses. Before any sale the columns are whole-lot
+        // to date and whole-lot at close, as they always were.
+        const split = actual.soldHead > 0 && proj.headSoldAtClose > 0;
+        const shSold = split ? actual.soldHead / proj.headSoldAtClose : 1;
+        const shLeft = split ? proj.survivingAtClose / proj.headSoldAtClose : 1;
+        // a line's actual-to-date and its forward part -> the three cells
+        const sp = (act, fwd = 0) => split
+            ? { a: act * shSold, p: act * shLeft + fwd, l: act + fwd }
+            : { a: act, p: act + fwd, l: undefined };
+        const row = (label, bv, av, pv, opts={}, lv) => {
             const strong = opts.strong ? 'font-weight:600;' : '';
             const top = opts.rule ? 'border-top:2px solid var(--border);' : '';
             const bg = opts.bg ? `background:${opts.bg};` : '';
@@ -7290,6 +7306,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <td class="num" style="${strong}color:var(--text-muted);">${bv==null?'—':fmt(bv)}</td>
                 <td class="num" style="${strong}">${av==null?'—':fmt(av)}</td>
                 <td class="num" style="${strong}">${pv==null?'—':fmt(pv)}</td>
+                ${split ? `<td class="num" style="${strong}border-left:1px solid var(--border);">${lv==null?'—':fmt(lv)}</td>` : ''}
             </tr>`;
         };
 
@@ -7303,35 +7320,40 @@ window.addEventListener('unhandledrejection', function(e) {
                 <thead><tr>
                     <th style="text-align:left; padding-bottom:6px;"></th>
                     ${headCell('Budget', currentLotBudget ? 'frozen '+String(currentLotBudget.frozen_at).slice(0,10) : 'not set')}
-                    ${headCell('Actual', `to ${ranchToday()}`)}
-                    ${headCell('Projection', rates.shipDate ? 'at '+rates.shipDate : 'no ship date')}
+                    ${split ? headCell('Actual', `${fmtNum(actual.soldHead)} hd sold · to ${ranchToday()}`) : headCell('Actual', `to ${ranchToday()}`)}
+                    ${split ? headCell('Projection', `${fmtNum(Math.round(proj.survivingAtClose))} hd left · ${rates.shipDate ? 'at '+rates.shipDate : 'no ship date'}`) : headCell('Projection', rates.shipDate ? 'at '+rates.shipDate : 'no ship date')}
+                    ${split ? headCell('Lot at close', 'sold + left') : ''}
                 </tr></thead>
                 <tbody>
-                    ${row('Head', b('head'), actual.headIn, proj.headSoldAtClose, {fmt:n=>fmtNum(Math.round(n)), note:'in / sold at close', drill:'current', drillTitle:'Where they are now'})}
-                    ${row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), drill:'audit', drillTitle:'Every event that changed the head count'})}
-                    ${row('Days on feed', b('days'), actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n)), drill:'input:calc_shipdate', drillTitle:'Target ship date'})}
-                    ${row('Cattle in', b('cattleCost'), actual.cattleCost, actual.cattleCost, {rule:true, drill:'purchases', drillTitle:'Invoices'})}
+                    ${split
+                        ? row('Head', b('head'), actual.soldHead, proj.survivingAtClose, {fmt:n=>fmtNum(Math.round(n)), note:`${fmtNum(actual.headIn)} in · sold / left / at close`, drill:'current', drillTitle:'Where they are now'}, proj.headSoldAtClose)
+                        : row('Head', b('head'), actual.headIn, proj.headSoldAtClose, {fmt:n=>fmtNum(Math.round(n)), note:'in / sold at close', drill:'current', drillTitle:'Where they are now'})}
+                    ${split
+                        ? row('Head-days', b('headDays'), actual.soldHeadDays, Math.max(0, actual.headDays - actual.soldHeadDays) + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), drill:'audit', drillTitle:'Every event that changed the head count'}, actual.headDays + proj.forwardHeadDays)
+                        : row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), drill:'audit', drillTitle:'Every event that changed the head count'})}
+                    ${row('Days on feed', b('days'), split ? (actual.soldHead > 0 ? actual.soldHeadDays / actual.soldHead : null) : actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n)), note: split ? 'avg sold / to ship' : '', drill:'input:calc_shipdate', drillTitle:'Target ship date'}, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null)}
+                    ${row('Cattle in', b('cattleCost'), sp(actual.cattleCost).a, sp(actual.cattleCost).p, {rule:true, drill:'purchases', drillTitle:'Invoices'}, sp(actual.cattleCost).l)}
                     ${actual.transferInHead > 0 ? row(
                         `Transferred in <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferInHead)} hd</a>`,
-                        null, actual.transferInUsd, actual.transferInUsd,
-                        {note:'at the giving lot&rsquo;s cost'}) : ''}
+                        null, sp(actual.transferInUsd).a, sp(actual.transferInUsd).p,
+                        {note:'at the giving lot&rsquo;s cost'}, sp(actual.transferInUsd).l) : ''}
                     ${actual.transferOutHead > 0 ? row(
                         `Transferred out <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferOutHead)} hd</a>`,
-                        null, -actual.transferOutUsd, -actual.transferOutUsd,
-                        {note:'moved to another lot', fmt: signed}) : ''}
-                    ${row('Processing', budget ? b('processing') : null, actual.processing, proj.processingProj, {
+                        null, -sp(actual.transferOutUsd).a, -sp(actual.transferOutUsd).p,
+                        {note:'moved to another lot', fmt: signed}, split ? -actual.transferOutUsd : undefined) : ''}
+                    ${row('Processing', budget ? b('processing') : null, sp(actual.processing, proj.processingFwd).a, sp(actual.processing, proj.processingFwd).p, {
                         note: budget && b('medCombined') ? 'budget is processing + doctoring combined'
                             : proj.headNoProtocol > 0 && actual.processing > 0 ? `${fmtNum(proj.headNoProtocol)} hd still at the assumption`
                             : proj.headNoProtocol > 0 ? 'assumed — no protocol on the loads yet'
                             : 'actual, from the receipts',
-                        drill:'receiving', drillTitle:'Receiving report: processing cost per head'})}
-                    ${row('Doctoring', budget ? b('doctoring') : null, actual.treatment, proj.treatmentProj, {
+                        drill:'receiving', drillTitle:'Receiving report: processing cost per head'}, sp(actual.processing, proj.processingFwd).l)}
+                    ${row('Doctoring', budget ? b('doctoring') : null, sp(actual.treatment, proj.treatmentFwd).a, sp(actual.treatment, proj.treatmentFwd).p, {
                         note: proj.doctoringOnFloor ? 'held at the assumed floor' : actual.treatment > 0 ? 'actual + observed burn' : '',
-                        drill:'health', drillTitle:'Doctoring on this lot'})}
+                        drill:'health', drillTitle:'Doctoring on this lot'}, sp(actual.treatment, proj.treatmentFwd).l)}
                     ${actual.feedInsideCog
-                        ? (actual.feedLedger > 0 ? row('Feed (memo)', null, actual.feedLedger, null, {muted:true, note:'inside cost of gain — not added', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}) : '')
-                        : (actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, actual.feed, actual.feed + proj.feedFwd, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day' + (actual.boundaryActive ? ' since '+fmtDate(feedDirectFrom) : '') : 'from the feed ledger', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}) : ''}
-                    ${row('Cost of gain', b('cog'), actual.cog, actual.cog + proj.cogFwd, {note:
+                        ? (actual.feedLedger > 0 ? row('Feed (memo)', null, split ? null : actual.feedLedger, null, {muted:true, note:'inside cost of gain — not added', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}, split ? actual.feedLedger : undefined) : '')
+                        : (actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, sp(actual.feed, proj.feedFwd).a, sp(actual.feed, proj.feedFwd).p, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day' + (actual.boundaryActive ? ' since '+fmtDate(feedDirectFrom) : '') : 'from the feed ledger', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}, sp(actual.feed, proj.feedFwd).l) : ''}
+                    ${row('Cost of gain', b('cog'), sp(actual.cog, proj.cogFwd).a, sp(actual.cog, proj.cogFwd).p, {note:
                         actual.nonFeedMissing ? '<span style="color:#b58900;">no non-feed rate set</span>'
                         : actual.boundaryActive && actual.hdBefore > 0
                             ? `split at ${fmtDate(feedDirectFrom)} · non-feed after`
@@ -7339,25 +7361,23 @@ window.addEventListener('unhandledrejection', function(e) {
                         : rates.cogMode === 'per_lb' ? 'feed included · ' + `$${Number(rates.cog||0).toFixed(4)}/lb × ${fmtNum(Math.round(actual.gainToDateLb))} lb`
                             + (actual.soldGainLb > 0 ? ` · ${fmtNum(Math.round(actual.soldGainLb))} lb trued up` : '')
                             + (proj.gainFwdLb > 0 ? ` · +${fmtNum(Math.round(proj.gainFwdLb))} lb to come` : '')
-                        : 'feed included', drill:'input:calc_cog', drillTitle:'COG $/lb of gain assumption'})}
-                    ${row('Labor', b('labor'), actual.labor, actual.labor + proj.laborFwd, {drill:'input:calc_labor', drillTitle:'Labor assumption'})}
-                    ${row('Interest', b('interest'), actual.interest, actual.interest + proj.interestFwd, {drill:'input:calc_int', drillTitle:'Interest assumption'})}
-                    ${row('Total cost', b('totalCost'), actual.totalCost, proj.totalCost, {strong:true, rule:true})}
-                    ${row('Revenue', b('revenue'), actual.revenue, proj.totalRevenue, {note: actual.soldHead>0 ? `${fmtNum(actual.soldHead)} hd shipped` : '', drill:'sales', drillTitle:'Sales'})}
-                    ${row('Net', b('net'), proj.soldNet, proj.leftNet, {strong:true, rule:true, fmt: signed,
-                        bg: (proj.leftNet ?? proj.net) >= 0 ? '#eaf3dc' : '#fbeaea',
-                        note: actual.soldHead > 0 ? `${fmtNum(actual.soldHead)} hd sold / ${fmtNum(Math.round(proj.survivingAtClose))} hd left` : 'on the head left',
-                        drill: actual.soldHead > 0 ? 'sales' : undefined, drillTitle: 'Sales'})}
-                    ${row('Net / head', b('netPerHeadSold'), proj.soldNetPerHd, proj.leftNetPerHd, {strong:true, fmt: signed, note:'sold / left'})}
-                    ${actual.soldHead > 0 ? row('Net, whole lot', null, null, proj.net, {fmt: signed, note:`sold + left, ${fmtNum(Math.round(proj.headSoldAtClose))} hd · ${signed(proj.netPerHeadSold)}/hd`}) : ''}
-                    ${row('Break-even $/lb', b('breakEvenPerLb'), null, proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note:'lot average per head sold', drill:'input:calc_finishwt', drillTitle:'Projected finish weight'})}
+                        : 'feed included', drill:'input:calc_cog', drillTitle:'COG $/lb of gain assumption'}, sp(actual.cog, proj.cogFwd).l)}
+                    ${row('Labor', b('labor'), sp(actual.labor, proj.laborFwd).a, sp(actual.labor, proj.laborFwd).p, {drill:'input:calc_labor', drillTitle:'Labor assumption'}, sp(actual.labor, proj.laborFwd).l)}
+                    ${row('Interest', b('interest'), sp(actual.interest + actual.transferInterest, proj.interestFwd).a, sp(actual.interest + actual.transferInterest, proj.interestFwd).p, {drill:'input:calc_int', drillTitle:'Interest assumption'}, sp(actual.interest + actual.transferInterest, proj.interestFwd).l)}
+                    ${row('Total cost', b('totalCost'), split ? actual.totalCost * shSold : actual.totalCost, split ? proj.leftCost : proj.totalCost, {strong:true, rule:true}, proj.totalCost)}
+                    ${row('Revenue', b('revenue'), actual.revenue, split ? proj.revenueFwd : proj.totalRevenue, {note: split ? 'checks banked / at target price' : '', drill:'sales', drillTitle:'Sales'}, proj.totalRevenue)}
+                    ${row('Net', b('net'), split ? proj.soldNet : null, split ? proj.leftNet : proj.net, {strong:true, rule:true, fmt: signed,
+                        bg: (split ? proj.leftNet : proj.net) >= 0 ? '#eaf3dc' : '#fbeaea',
+                        drill: split ? 'sales' : undefined, drillTitle: 'Sales'}, proj.net)}
+                    ${row('Net / head', b('netPerHeadSold'), split ? proj.soldNetPerHd : null, split ? proj.leftNetPerHd : proj.netPerHeadSold, {strong:true, fmt: signed}, proj.netPerHeadSold)}
+                    ${row('Break-even $/lb', b('breakEvenPerLb'), split && actual.soldWeight > 0 ? (actual.totalCost * shSold) / actual.soldWeight : null, split ? proj.leftBreakEvenPerLb : proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note: split ? 'on pay weight sold / at finish wt / lot average' : 'lot average per head sold', drill:'input:calc_finishwt', drillTitle:'Projected finish weight'}, proj.breakEvenPerLb)}
                 </tbody>
             </table>
             ${remainingBlock}
             ${gainBlock}
             <div class="muted" style="font-size:11px; margin-top:8px; line-height:1.5;">
                 ${actual.soldHead > 0
-                    ? `Net in the Actual column is on the ${fmtNum(actual.soldHead)} head already sold: their checks less their share of cost to date (${fmtMoney(proj.actualCostPerHd || 0)}/hd) — nothing projected touches them. Net in the Projection column is on the head still here: their share of cost to date plus every dollar still to come, against the target price. The two add back to the whole-lot net.`
+                    ? `Every line in the Actual column is the ${fmtNum(actual.soldHead)} sold head's share of the lot's cost to date (${fmtMoney(proj.actualCostPerHd || 0)}/hd), against the checks banked — nothing projected touches them. The Projection column is the head still here: their share of cost to date plus every dollar still to come, against the target price. Lot at close is the two added back, and is what the budget compares to.`
                     : 'Actual has no Net until cattle ship — revenue only lands as they sell. Projection Net is on the whole lot, since every head is still here.'}
                 Death loss is not a line: the cattle that died are already in Cattle in, so the loss shows up
                 in the division. ${rates.cogMode === 'per_lb'

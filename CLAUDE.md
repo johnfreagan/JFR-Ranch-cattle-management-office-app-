@@ -169,6 +169,14 @@ The Closeout tab shows one set of economics in three columns. It is
   projection number, adjusted for actual"). **Doctoring projection =
   actual + observed burn, floored at the assumption × head_in while the lot
   is on feed**, so a young lot with two pulls does not project nothing.
+- **Once any head have shipped the whole table SPLITS** (John, 2026-09-04:
+  "on the actual you include total cost not the proportion that goes with
+  sold hd count"). `split = soldHead > 0`; every cost line goes through
+  `sp(actual, fwd)` → Actual = sold share of the line to date, Projection =
+  left share + forward, and a fourth column **Lot at close** = the two
+  added back, which is what the budget variance compares to. Shares are per
+  head over `headSoldAtClose`. Before any sale there are three columns,
+  whole-lot to date and whole-lot at close, as always.
 - **Net: Actual is on the head SOLD, Projection is on the head LEFT**
   (John, 2026-09-04). The sold head carry their share of cost TO DATE
   (`actualCostPerHd = actual.totalCost / headSoldAtClose`) against the
