@@ -7368,7 +7368,11 @@ window.addEventListener('unhandledrejection', function(e) {
                         ? row('Head-days', b('headDays'), actual.soldHeadDays, Math.max(0, actual.headDays - actual.soldHeadDays) + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), unit:'count', drill:'audit', drillTitle:'Every event that changed the head count'}, actual.headDays + proj.forwardHeadDays)
                         : row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), unit:'count', drill:'audit', drillTitle:'Every event that changed the head count'})}
                     ${row('Days on feed', b('days'), split ? (actual.soldHead > 0 ? actual.soldHeadDays / actual.soldHead : null) : actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n)), unit:'count', note: split ? 'avg sold / to ship' : '', drill:'input:calc_shipdate', drillTitle:'Target ship date'}, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null)}
-                    ${row('Cattle in', b('cattleCost'), sp(actual.cattleCost).a, sp(actual.cattleCost).p, {rule:true, drill:'purchases', drillTitle:'Invoices'}, sp(actual.cattleCost).l)}
+                    ${row('Cattle in', b('cattleCost'), sp(actual.cattleCost).a, sp(actual.cattleCost).p, {rule:true,
+                        note: perHead && actual.headIn > 0
+                            ? `${fmtMoney(actual.cattleCost / actual.headIn)}/hd in${actual.headDead > 0 ? ` · ${fmtNum(actual.headDead)} dead carried by the head that sell` : ''}`
+                            : '',
+                        drill:'purchases', drillTitle:'Invoices'}, sp(actual.cattleCost).l)}
                     ${actual.transferInHead > 0 ? row(
                         `Transferred in <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferInHead)} hd</a>`,
                         null, sp(actual.transferInUsd).a, sp(actual.transferInUsd).p,
