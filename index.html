@@ -560,6 +560,11 @@
         .tile-row[data-drill] { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 0 4px; }
         .tile-row[data-drill]:hover { background: #f3f1ea; }
         .tile-row[data-drill]:hover .tr-value { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+        tr.co-drill[data-drill] { cursor: pointer; }
+        tr.co-drill[data-drill]:hover td { background: #f3f1ea; }
+        tr.co-drill[data-drill]:hover td:first-child { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+        div.co-drill[data-drill] { cursor: pointer; border-radius: 4px; margin: -2px -6px; padding: 2px 6px; }
+        div.co-drill[data-drill]:hover { background: #f3f1ea; }
 
         /* Count badges in card headers */
         .card-count {
@@ -903,6 +908,7 @@
             <div class="sub-group" data-group="health">
                 <button type="button" class="sub-tab group-btn">Health <span class="caret">&#9662;</span></button>
                 <div class="group-menu">
+                    <button class="sub-tab" data-subtab="fresh-cattle">Fresh Cattle</button>
                     <button class="sub-tab" data-subtab="processing-costs">Receiving</button>
                     <button class="sub-tab" data-subtab="doctoring">Doctoring &amp; Deaths</button>
                     <button class="sub-tab" data-subtab="death-analysis">Death Analysis</button>
@@ -1662,7 +1668,9 @@
         </div>
 
         <!-- Receiving report: fresh cattle eligibility + processing cost (Phase 18c/19b) -->
-        <div id="reportProcessingView" class="hidden">
+        <!-- Fresh cattle: its own report (John, 2026-09-04). It used to sit
+             above Processing Cost on the Receiving page. -->
+        <div id="reportFreshView" class="hidden">
             <div class="card">
                 <div class="card-header">
                     <h2>Fresh Cattle — Doctoring Eligibility</h2>
@@ -1675,6 +1683,9 @@
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Receipts within 17 days of receiving on open lots, by in-date, tag range, and pasture. Loads drop off automatically after day 17. "OK to pull" = in-date + 8 days (Draxxin post-metaphylaxis window; day 9 in parentheses).</p>
                 <div id="reportFreshContent"><div class="empty">Loading…</div></div>
             </div>
+        </div>
+
+        <div id="reportProcessingView" class="hidden">
             <div class="card">
                 <div class="card-header">
                     <h2>Processing Cost</h2>
@@ -5232,14 +5243,36 @@ window.addEventListener('unhandledrejection', function(e) {
             showReportsTab('processing-costs');
             return;
         }
+        if (target === 'feedcost') { showInventoryTab('cost'); return; }
+        // 'input:calc_cog' - a closeout number that is driven by an
+        // assumption lands on that assumption, ready to type.
+        if (target.startsWith('input:')) {
+            const coBtn = $('lotDetailSubtabs').querySelector('.sub-tab[data-lot-subtab="closeout"]');
+            if (coBtn && getComputedStyle(coBtn).display === 'none') return;
+            showLotSubtab('closeout');
+            const el = $(target.slice(6));
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.focus({ preventScroll: true });
+            if (el.select) el.select();
+            el.style.transition = 'box-shadow .3s';
+            el.style.boxShadow = '0 0 0 3px var(--accent, #d4a017)';
+            setTimeout(() => { el.style.boxShadow = ''; }, 1400);
+            return;
+        }
         if (LOT_SECTIONS.includes(target)) {
+            // Sales and Closeout are hidden from crew by the data-perm CSS.
+            // A drill from a tile they CAN see must not open them.
+            const btn = $('lotDetailSubtabs').querySelector(`.sub-tab[data-lot-subtab="${target}"]`);
+            if (btn && getComputedStyle(btn).display === 'none') return;
             showLotSubtab(target);
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     }
     document.addEventListener('click', (e) => {
-        const row = e.target.closest && e.target.closest('.tile-row[data-drill]');
+        const row = e.target.closest && e.target.closest('.tile-row[data-drill], .co-drill[data-drill]');
         if (!row) return;
+        if (e.target.closest('a, button, input, select')) return;   // a real control inside wins
         e.preventDefault();
         lotDrill(row.dataset.drill);
     });
@@ -7059,13 +7092,13 @@ window.addEventListener('unhandledrejection', function(e) {
         const gainBlock = `
             <div style="margin-top:10px; padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:12.5px;">
                 <div style="display:flex; gap:22px; flex-wrap:wrap; align-items:baseline;">
-                    <div><span class="muted" style="font-size:11px;">COST OF GAIN, PER LB</span><br>
+                    <div class="co-drill" data-drill="input:calc_cog" title="COG assumption"><span class="muted" style="font-size:11px;">COST OF GAIN, PER LB</span><br>
                         <strong style="font-size:16px;">${costOfGainPerLb != null
                             ? '$' + costOfGainPerLb.toFixed(4) + '/lb'
                             : '<span class="muted" style="font-size:13px;">needs real weights</span>'}</strong></div>
-                    <div><span class="muted" style="font-size:11px;">ADG ASSUMED</span><br>
+                    <div class="co-drill" data-drill="input:calc_adg" title="Target ADG"><span class="muted" style="font-size:11px;">ADG ASSUMED</span><br>
                         <strong style="font-size:16px;">${rates.adg != null ? Number(rates.adg).toFixed(2) : '—'}</strong></div>
-                    <div><span class="muted" style="font-size:11px;">ADG REALIZED</span><br>
+                    <div class="co-drill" data-drill="sales" title="Realized on sale weights"><span class="muted" style="font-size:11px;">ADG REALIZED</span><br>
                         <strong style="font-size:16px; ${realizedAdg != null ? 'color:var(--success);' : ''}">${
                             realizedAdg != null ? realizedAdg.toFixed(2)
                             : '<span class="muted" style="font-size:13px;">no weigh-outs yet</span>'}</strong></div>
@@ -7105,20 +7138,20 @@ window.addEventListener('unhandledrejection', function(e) {
             const share      = proj.remnantCost;   // these head's equal share of the lot's projected cost
             const soldPerHd  = actual.soldHead > 0 ? actual.revenue / actual.soldHead : null;
             const perHd      = n => survivors > 0 ? fmtMoney(n / survivors) + '/hd' : '—';
-            const tile = (label, value, sub) => `<div><span class="muted" style="font-size:11px;">${label}</span><br>
+            const tile = (label, value, sub, drill, drillTitle) => `<div${drill ? ` class="co-drill" data-drill="${drill}" title="${drillTitle || 'Open'}"` : ''}><span class="muted" style="font-size:11px;">${label}</span><br>
                 <strong style="font-size:15px;">${value}</strong>${sub ? `<div class="muted" style="font-size:11px;">${sub}</div>` : ''}</div>`;
             remainingBlock = `
             <div style="margin-top:10px; padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:12.5px;">
                 <div style="font-weight:600; margin-bottom:6px;">Cattle still on feed <span class="muted" style="font-weight:400; font-size:11px;">— ${fmtNum(actual.soldHead)} of ${fmtNum(actual.headIn)} shipped; the forward slice of the projection</span></div>
                 <div style="display:flex; gap:22px; flex-wrap:wrap; align-items:baseline;">
-                    ${tile('HEAD', fmtNum(actual.headCurrent), proj.deathsToCome > 0 ? `${fmtNum(Math.round(survivors))} after ${fmtNum(Math.round(proj.deathsToCome))} more assumed death${Math.round(proj.deathsToCome)===1?'':'s'}` : '')}
-                    ${tile('DAYS TO SHIP', proj.remainingDays != null ? fmtNum(proj.remainingDays) : '—', proj.remainingDays != null ? `${fmtNum(Math.round(proj.forwardHeadDays))} head-days` : 'no ship date')}
-                    ${tile('GAIN TO COME', rates.adg > 0 && proj.remainingDays != null ? fmtNum(Math.round(proj.gainFwdLb)) + ' lb' : '—', rates.adg > 0 ? `at ${Number(rates.adg).toFixed(2)} lb/day` : 'no ADG')}
-                    ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.treatmentFwd > 0 ? ' · doctoring ' + fmtMoney(proj.treatmentFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`)}
+                    ${tile('HEAD', fmtNum(actual.headCurrent), proj.deathsToCome > 0 ? `${fmtNum(Math.round(survivors))} after ${fmtNum(Math.round(proj.deathsToCome))} more assumed death${Math.round(proj.deathsToCome)===1?'':'s'}` : '', 'current', 'Where they are now')}
+                    ${tile('DAYS TO SHIP', proj.remainingDays != null ? fmtNum(proj.remainingDays) : '—', proj.remainingDays != null ? `${fmtNum(Math.round(proj.forwardHeadDays))} head-days` : 'no ship date', 'input:calc_shipdate', 'Target ship date')}
+                    ${tile('GAIN TO COME', rates.adg > 0 && proj.remainingDays != null ? fmtNum(Math.round(proj.gainFwdLb)) + ' lb' : '—', rates.adg > 0 ? `at ${Number(rates.adg).toFixed(2)} lb/day` : 'no ADG', 'input:calc_adg', 'Target ADG')}
+                    ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.treatmentFwd > 0 ? ' · doctoring ' + fmtMoney(proj.treatmentFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`, 'input:calc_cog', 'COG assumption')}
                     ${share != null ? tile('COST OF THESE HEAD', fmtMoney(share), `${perHd(share)} · their equal share of the lot's cost`) : ''}
-                    ${proj.breakEvenPerLb != null ? tile('BREAK-EVEN', '$' + proj.breakEvenPerLb.toFixed(4) + '/lb', `at ${fmtNum(Math.round(rates.finishWt || 0))} lb`) : ''}
+                    ${proj.breakEvenPerLb != null ? tile('BREAK-EVEN', '$' + proj.breakEvenPerLb.toFixed(4) + '/lb', `at ${fmtNum(Math.round(rates.finishWt || 0))} lb`, 'input:calc_finishwt', 'Projected finish weight') : ''}
                     ${rates.salePerLb != null && proj.remainingDays != null && share != null ? tile('AT TARGET PRICE', fmtMoney(proj.revenueFwd),
-                        `<span style="color:${proj.revenueFwd - share >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:600;">${signed(proj.revenueFwd - share)}</span> net on these head`) : ''}
+                        `<span style="color:${proj.revenueFwd - share >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:600;">${signed(proj.revenueFwd - share)}</span> net on these head`, 'input:calc_cwt', 'Target sale $/lb') : ''}
                 </div>
                 <div class="muted" style="font-size:11px; margin-top:6px; line-height:1.5;">
                     Every head sold carries an equal share of the lot's projected cost${proj.costPerHeadSold != null ? ` (${fmtMoney(proj.costPerHeadSold)}/hd)` : ''}.
@@ -7137,7 +7170,8 @@ window.addEventListener('unhandledrejection', function(e) {
             const bg = opts.bg ? `background:${opts.bg};` : '';
             const fmt = opts.fmt || money;
             const mutedStyle = opts.muted ? 'color:var(--text-muted); font-style:italic;' : '';
-            return `<tr style="${top}${bg}${mutedStyle}">
+            const drill = opts.drill ? ` class="co-drill" data-drill="${opts.drill}" title="${opts.drillTitle || 'Open'}"` : '';
+            return `<tr${drill} style="${top}${bg}${mutedStyle}">
                 <td style="${strong}">${label}${opts.note?` <span class="muted" style="font-size:11px;">${opts.note}</span>`:''}</td>
                 <td class="num" style="${strong}color:var(--text-muted);">${bv==null?'—':fmt(bv)}</td>
                 <td class="num" style="${strong}">${av==null?'—':fmt(av)}</td>
@@ -7159,10 +7193,10 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${headCell('Projection', rates.shipDate ? 'at '+rates.shipDate : 'no ship date')}
                 </tr></thead>
                 <tbody>
-                    ${row('Head', b('head'), actual.headIn, proj.headSoldAtClose, {fmt:n=>fmtNum(Math.round(n)), note:'in / sold at close'})}
-                    ${row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n))})}
-                    ${row('Days on feed', b('days'), actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n))})}
-                    ${row('Cattle in', b('cattleCost'), actual.cattleCost, actual.cattleCost, {rule:true})}
+                    ${row('Head', b('head'), actual.headIn, proj.headSoldAtClose, {fmt:n=>fmtNum(Math.round(n)), note:'in / sold at close', drill:'current', drillTitle:'Where they are now'})}
+                    ${row('Head-days', b('headDays'), actual.headDays, actual.headDays + proj.forwardHeadDays, {fmt:n=>fmtNum(Math.round(n)), drill:'audit', drillTitle:'Every event that changed the head count'})}
+                    ${row('Days on feed', b('days'), actual.daysToDate, rates.shipDate && status.weighted_arrival_date ? daysBetween(status.weighted_arrival_date, rates.shipDate) : null, {fmt:n=>fmtNum(Math.round(n)), drill:'input:calc_shipdate', drillTitle:'Target ship date'})}
+                    ${row('Cattle in', b('cattleCost'), actual.cattleCost, actual.cattleCost, {rule:true, drill:'purchases', drillTitle:'Invoices'})}
                     ${actual.transferInHead > 0 ? row(
                         `Transferred in <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferInHead)} hd</a>`,
                         null, actual.transferInUsd, actual.transferInUsd,
@@ -7171,11 +7205,11 @@ window.addEventListener('unhandledrejection', function(e) {
                         `Transferred out <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferOutHead)} hd</a>`,
                         null, -actual.transferOutUsd, -actual.transferOutUsd,
                         {note:'moved to another lot', fmt: signed}) : ''}
-                    ${row('Processing', budget ? b('med') : null, actual.processing, actual.processing, {note:'at receiving'})}
-                    ${row('Treatment', null, actual.treatment, actual.treatment + proj.treatmentFwd, {note:'doctoring'})}
+                    ${row('Processing', budget ? b('med') : null, actual.processing, actual.processing, {note:'at receiving', drill:'receiving', drillTitle:'Receiving report: processing cost per head'})}
+                    ${row('Treatment', null, actual.treatment, actual.treatment + proj.treatmentFwd, {note:'doctoring', drill:'health', drillTitle:'Doctoring on this lot'})}
                     ${actual.feedInsideCog
-                        ? (actual.feedLedger > 0 ? row('Feed (memo)', null, actual.feedLedger, null, {muted:true, note:'inside cost of gain — not added'}) : '')
-                        : (actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, actual.feed, actual.feed + proj.feedFwd, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day' + (actual.boundaryActive ? ' since '+fmtDate(feedDirectFrom) : '') : 'from the feed ledger'}) : ''}
+                        ? (actual.feedLedger > 0 ? row('Feed (memo)', null, actual.feedLedger, null, {muted:true, note:'inside cost of gain — not added', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}) : '')
+                        : (actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, actual.feed, actual.feed + proj.feedFwd, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day' + (actual.boundaryActive ? ' since '+fmtDate(feedDirectFrom) : '') : 'from the feed ledger', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}) : ''}
                     ${row('Cost of gain', b('cog'), actual.cog, actual.cog + proj.cogFwd, {note:
                         actual.nonFeedMissing ? '<span style="color:#b58900;">no non-feed rate set</span>'
                         : actual.boundaryActive && actual.hdBefore > 0
@@ -7184,14 +7218,14 @@ window.addEventListener('unhandledrejection', function(e) {
                         : rates.cogMode === 'per_lb' ? 'feed included · ' + `$${Number(rates.cog||0).toFixed(4)}/lb × ${fmtNum(Math.round(actual.gainToDateLb))} lb`
                             + (actual.soldGainLb > 0 ? ` · ${fmtNum(Math.round(actual.soldGainLb))} lb trued up` : '')
                             + (proj.gainFwdLb > 0 ? ` · +${fmtNum(Math.round(proj.gainFwdLb))} lb to come` : '')
-                        : 'feed included'})}
-                    ${row('Labor', b('labor'), actual.labor, actual.labor + proj.laborFwd)}
-                    ${row('Interest', b('interest'), actual.interest, actual.interest + proj.interestFwd)}
+                        : 'feed included', drill:'input:calc_cog', drillTitle:'COG $/lb of gain assumption'})}
+                    ${row('Labor', b('labor'), actual.labor, actual.labor + proj.laborFwd, {drill:'input:calc_labor', drillTitle:'Labor assumption'})}
+                    ${row('Interest', b('interest'), actual.interest, actual.interest + proj.interestFwd, {drill:'input:calc_int', drillTitle:'Interest assumption'})}
                     ${row('Total cost', b('totalCost'), actual.totalCost, proj.totalCost, {strong:true, rule:true})}
-                    ${row('Revenue', b('revenue'), actual.revenue, proj.totalRevenue, {note: actual.soldHead>0 ? `${fmtNum(actual.soldHead)} hd shipped` : ''})}
+                    ${row('Revenue', b('revenue'), actual.revenue, proj.totalRevenue, {note: actual.soldHead>0 ? `${fmtNum(actual.soldHead)} hd shipped` : '', drill:'sales', drillTitle:'Sales'})}
                     ${row('Net', b('net'), null, proj.net, {strong:true, rule:true, bg: proj.net>=0?'#eaf3dc':'#fbeaea'})}
                     ${row('Net / head sold', b('netPerHeadSold'), null, proj.netPerHeadSold, {strong:true})}
-                    ${row('Break-even $/lb', b('breakEvenPerLb'), null, proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note:'lot average per head sold'})}
+                    ${row('Break-even $/lb', b('breakEvenPerLb'), null, proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note:'lot average per head sold', drill:'input:calc_finishwt', drillTitle:'Projected finish weight'})}
                 </tbody>
             </table>
             ${remainingBlock}
@@ -7747,7 +7781,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'fieldActionsView', 'fieldProtocolsView',
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
-         'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportDoctoringView',
+         'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportFreshView', 'reportDoctoringView',
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
          'feedBatchesView', 'feedCostView', 'feedRedwingView', 'invPurchasesView',
@@ -9178,6 +9212,9 @@ window.addEventListener('unhandledrejection', function(e) {
         } else if (subtab === 'death-analysis') {
             $('reportDeathAnalysisView').classList.remove('hidden');
             loadDeathAnalysisReport();
+        } else if (subtab === 'fresh-cattle') {
+            $('reportFreshView').classList.remove('hidden');
+            initFreshCattleReport();
         } else if (subtab === 'processing-costs') {
             $('reportProcessingView').classList.remove('hidden');
             initProcessingReport();
@@ -14001,11 +14038,18 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             processingReportInit = true;
             sel.addEventListener('change', loadProcessingReport);
             $('reportProcessingRefreshBtn').addEventListener('click', loadProcessingReport);
+        }
+        loadProcessingReport();
+    }
+
+    let freshCattleReportInit = false;
+    function initFreshCattleReport() {
+        if (!freshCattleReportInit) {
+            freshCattleReportInit = true;
             $('reportFreshRefreshBtn').addEventListener('click', loadFreshCattleReport);
             $('reportFreshPrintBtn').addEventListener('click', printFreshCattleReport);
             $('reportFreshShareBtn').addEventListener('click', shareFreshCattlePdf);
         }
-        loadProcessingReport();
         loadFreshCattleReport();
     }
 

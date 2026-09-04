@@ -1041,6 +1041,13 @@ closes it early.
   (a lot section name, `deaths`, or `receiving`) and `lotDrill()` routes
   one delegated click. `receiving` leaves the lot for Reports → Health →
   Receiving with the lot pre-picked via `processingReportPendingLot`.
+  Closeout table rows and the remnant / gain tiles drill the same way
+  (`.co-drill`); `input:calc_cog` style targets land on that assumption
+  input, focused. A drill into Sales or Closeout is refused when the role's
+  CSS hides that tab, so crew never opens a dollar section from a head tile.
+- **Fresh Cattle is its own report** under Reports → Health (2026-09-04),
+  `reportFreshView` / `initFreshCattleReport()`. It used to sit above
+  Processing Cost on the Receiving page.
 - **The lot page is one section per PROCESS** (John's sketch, 2026-09-04):
   Currently in · Purchases (invoices, unlinked load outs, tags) · Animal
   Health (doctoring, deaths) · Moves (moves, transfers, merge) · Sales ·
