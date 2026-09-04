@@ -6838,6 +6838,17 @@ window.addEventListener('unhandledrejection', function(e) {
         const remnantCost  = costPerHeadSold != null ? costPerHeadSold * survivingAtClose : null;
         const lotShortfall = totalCost - actual.revenue;
 
+        // Net on the head SOLD (Actual column) and on the head LEFT
+        // (Projection column), John 2026-09-04. Both price a head at the same
+        // equal share of the lot's projected cost, so the two add back to the
+        // lot net exactly: banked revenue less the sold share, forward
+        // revenue less the remnant share.
+        const soldNet      = (actual.soldHead > 0 && costPerHeadSold != null)
+            ? actual.revenue - costPerHeadSold * actual.soldHead : null;
+        const soldNetPerHd = soldNet != null ? soldNet / actual.soldHead : null;
+        const leftNet      = (survivingAtClose > 0 && remnantCost != null) ? revenueFwd - remnantCost : null;
+        const leftNetPerHd = leftNet != null ? leftNet / survivingAtClose : null;
+
         return {
             remainingDays, deathsToCome, survivingAtClose, forwardHeadDays, gainFwdLb,
             processingProj, processingFwd, headNoProtocol,
@@ -6845,6 +6856,7 @@ window.addEventListener('unhandledrejection', function(e) {
             cogFwd, laborFwd, treatmentFwd, feedFwd, interestFwd, operatingFwd,
             revenueFwd, totalCost, totalRevenue, net, breakEvenPerLb,
             costPerHeadSold, remnantCost, lotShortfall,
+            soldNet, soldNetPerHd, leftNet, leftNetPerHd,
             headSoldAtClose,
             netPerHeadSold: headSoldAtClose > 0 ? net / headSoldAtClose : null
         };
@@ -7346,15 +7358,21 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${row('Interest', b('interest'), actual.interest, actual.interest + proj.interestFwd, {drill:'input:calc_int', drillTitle:'Interest assumption'})}
                     ${row('Total cost', b('totalCost'), actual.totalCost, proj.totalCost, {strong:true, rule:true})}
                     ${row('Revenue', b('revenue'), actual.revenue, proj.totalRevenue, {note: actual.soldHead>0 ? `${fmtNum(actual.soldHead)} hd shipped` : '', drill:'sales', drillTitle:'Sales'})}
-                    ${row('Net', b('net'), null, proj.net, {strong:true, rule:true, bg: proj.net>=0?'#eaf3dc':'#fbeaea'})}
-                    ${row('Net / head sold', b('netPerHeadSold'), null, proj.netPerHeadSold, {strong:true})}
+                    ${row('Net', b('net'), proj.soldNet, proj.leftNet, {strong:true, rule:true, fmt: signed,
+                        bg: (proj.leftNet ?? proj.net) >= 0 ? '#eaf3dc' : '#fbeaea',
+                        note: actual.soldHead > 0 ? `${fmtNum(actual.soldHead)} hd sold / ${fmtNum(Math.round(proj.survivingAtClose))} hd left` : 'on the head left',
+                        drill: actual.soldHead > 0 ? 'sales' : undefined, drillTitle: 'Sales'})}
+                    ${row('Net / head', b('netPerHeadSold'), proj.soldNetPerHd, proj.leftNetPerHd, {strong:true, fmt: signed, note:'sold / left'})}
+                    ${actual.soldHead > 0 ? row('Net, whole lot', null, null, proj.net, {fmt: signed, note:`sold + left, ${fmtNum(Math.round(proj.headSoldAtClose))} hd · ${signed(proj.netPerHeadSold)}/hd`}) : ''}
                     ${row('Break-even $/lb', b('breakEvenPerLb'), null, proj.breakEvenPerLb, {fmt:n=>'$'+Number(n).toFixed(4), note:'lot average per head sold', drill:'input:calc_finishwt', drillTitle:'Projected finish weight'})}
                 </tbody>
             </table>
             ${remainingBlock}
             ${gainBlock}
             <div class="muted" style="font-size:11px; margin-top:8px; line-height:1.5;">
-                Actual has no Net because the lot is not finished — revenue only lands as cattle ship.
+                ${actual.soldHead > 0
+                    ? `Net in the Actual column is on the ${fmtNum(actual.soldHead)} head already sold: their checks less their equal share of the lot's projected cost per head (${fmtMoney(proj.costPerHeadSold || 0)}). Net in the Projection column is on the head still here, priced the same way. The two add back to the whole-lot net.`
+                    : 'Actual has no Net until cattle ship — revenue only lands as they sell. Projection Net is on the whole lot, since every head is still here.'}
                 Death loss is not a line: the cattle that died are already in Cattle in, so the loss shows up
                 in the division. ${rates.cogMode === 'per_lb'
                     ? `Cost of gain is charged per pound gained: ${fmtNum(Math.round(actual.soldGainLb))} lb is real pay weight less weight in on the head already shipped, and the rest is ${rates.adg != null ? Number(rates.adg).toFixed(2) : '—'} lb/day on the ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days not yet weighed out. Each truck that ships replaces its estimate with the scale ticket. Labor is charged on`

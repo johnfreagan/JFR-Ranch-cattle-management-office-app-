@@ -169,6 +169,11 @@ The Closeout tab shows one set of economics in three columns. It is
   projection number, adjusted for actual"). **Doctoring projection =
   actual + observed burn, floored at the assumption × head_in while the lot
   is on feed**, so a young lot with two pulls does not project nothing.
+- **Net: Actual is on the head SOLD, Projection is on the head LEFT**
+  (John, 2026-09-04). Both price a head at the same `costPerHeadSold`, so
+  sold net + left net = lot net exactly; a "Net, whole lot" row shows the
+  sum once anything has shipped. Before any sale the Actual net is blank
+  and the Projection net is the whole lot.
 - **Target sale $/lb and target ship date LOCK once saved on the lot**
   (`closeoutLock`, readonly + "edit" button). They are reused every visit
   and must not be nudged while playing with other assumptions. A drill
