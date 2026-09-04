@@ -6249,6 +6249,10 @@ window.addEventListener('unhandledrejection', function(e) {
             finishWt  : num('calc_finishwt'),
             cog       : num('calc_cog'),
             cogMode   : $('calc_cog_mode')   ? $('calc_cog_mode').value   : 'per_day',
+            // The per-day rate charged on head-days after the feed boundary,
+            // when actual feed is charged beside it. Undefined (no input on
+            // the page) means "use what the lot has stored".
+            nonFeedCog: $('calc_nonfeed') ? num('calc_nonfeed') : undefined,
             labor     : num('calc_labor'),
             laborMode : $('calc_labor_mode') ? $('calc_labor_mode').value : 'per_day',
             medPerHead: num('calc_med'),
@@ -6327,8 +6331,9 @@ window.addEventListener('unhandledrejection', function(e) {
         // beside it - the two OVERLAP, and the warning block says so. Set
         // the non-feed rate on a lot and that lot charges actual feed plus
         // this rate instead. Nothing is recomputed retroactively.
-        const nonFeedCog = (lot && lot.assumed_nonfeed_cog_per_day != null)
-            ? Number(lot.assumed_nonfeed_cog_per_day) : null;
+        const nonFeedCog = rates.nonFeedCog !== undefined ? rates.nonFeedCog
+            : (lot && lot.assumed_nonfeed_cog_per_day != null)
+                ? Number(lot.assumed_nonfeed_cog_per_day) : null;
 
         // The boundary. Before feedDirectFrom, feed lives INSIDE the assumed
         // cost of gain and on the cost allocation, so the full assumed rate
@@ -6620,6 +6625,11 @@ window.addEventListener('unhandledrejection', function(e) {
                             <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_cog_hint"></div>
                         </div>
                         <div style="grid-column: span 2;">
+                            <label>Non-feed COG $/head/day <span class="muted" style="font-weight:400; font-size:11px;">(grass, yardage — after ${feedDirectFrom ? fmtDate(feedDirectFrom) : 'the feed cut-over'}, charged beside actual feed)</span></label>
+                            <input type="number" step="0.0001" id="calc_nonfeed" value="${lot.assumed_nonfeed_cog_per_day??''}" placeholder="e.g. 0.40">
+                            <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_nonfeed_hint"></div>
+                        </div>
+                        <div style="grid-column: span 2;">
                             <label>Labor <select id="calc_labor_mode" style="display:inline-block; width:auto; padding:2px 6px; font-size:12px; margin-left:6px;">
                                 <option value="per_day" ${laborMode==='per_day'?'selected':''}>$/head/day</option>
                                 <option value="per_head" ${laborMode==='per_head'?'selected':''}>$/head (flat)</option>
@@ -6678,7 +6688,7 @@ window.addEventListener('unhandledrejection', function(e) {
             recalculate();
         });
 
-        ['calc_cwt','calc_adg','calc_finishwt','calc_cog','calc_labor','calc_med','calc_dead','calc_int']
+        ['calc_cwt','calc_adg','calc_finishwt','calc_cog','calc_nonfeed','calc_labor','calc_med','calc_dead','calc_int']
             .forEach(id=>$(id).addEventListener('input',recalculate));
         recalculate();
     }
@@ -6725,6 +6735,14 @@ window.addEventListener('unhandledrejection', function(e) {
                     ? `${fmtNum(Math.round(actual.headDays))} head-days run so far = ${fmtMoney(actual.cog)}`
                     : '';
             }
+        }
+        if ($('calc_nonfeed_hint')) {
+            $('calc_nonfeed_hint').textContent = actual.boundaryActive
+                ? (actual.hdAfter > 0
+                    ? `${fmtNum(Math.round(actual.hdAfter))} head-days since ${fmtDate(feedDirectFrom)}`
+                      + (rates.nonFeedCog != null ? ` × $${Number(rates.nonFeedCog).toFixed(4)} = ${fmtMoney(rates.nonFeedCog * actual.hdAfter)}` : ' — nothing charged on them yet')
+                    : 'No head-days after the cut-over yet.')
+                : (rates.nonFeedCog != null ? 'Replaces the assumed COG rate on this lot (no cut-over date set).' : '');
         }
         if ($('calc_labor_hint')) {
             $('calc_labor_hint').textContent = (rates.laborMode==='per_day' && rates.labor)
@@ -6975,6 +6993,7 @@ window.addEventListener('unhandledrejection', function(e) {
             med: lot.assumed_med_per_head!=null?Number(lot.assumed_med_per_head):null,
             deadPct: lot.assumed_death_loss_pct!=null?Number(lot.assumed_death_loss_pct):null,
             intPct: lot.assumed_interest_pct!=null?Number(lot.assumed_interest_pct):null,
+            nonFeed: lot.assumed_nonfeed_cog_per_day!=null?Number(lot.assumed_nonfeed_cog_per_day):null,
             cogMode: lot.cog_mode || 'per_day',
             laborMode: lot.labor_mode || 'per_day',
             shipDate: lot.target_ship_date || null
@@ -6983,7 +7002,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const dirty = !(eq(rates.salePerLb,stored.cwt) && eq(rates.adg,stored.adg)
             && eq(rates.cog,stored.cog) && eq(rates.labor,stored.labor)
             && eq(rates.medPerHead,stored.med) && eq(rates.deathPct,stored.deadPct)
-            && eq(rates.intPct,stored.intPct)
+            && eq(rates.intPct,stored.intPct) && eq(rates.nonFeedCog,stored.nonFeed)
             && rates.cogMode===stored.cogMode && rates.laborMode===stored.laborMode
             && (rates.shipDate||null)===stored.shipDate);
         $('saveAssumptionsBtn').classList.toggle('hidden',!dirty);
@@ -7106,6 +7125,7 @@ window.addEventListener('unhandledrejection', function(e) {
             assumed_cog_per_day:  rates.cogMode   === 'per_day'  ? rates.cog   : null,
             assumed_cog_per_lb:   rates.cogMode   === 'per_lb'   ? rates.cog   : null,
             assumed_cog_per_head: rates.cogMode   === 'per_head' ? rates.cog   : null,
+            assumed_nonfeed_cog_per_day: rates.nonFeedCog ?? null,
             assumed_labor_per_day:  rates.laborMode === 'per_day'  ? rates.labor : null,
             assumed_labor_per_head: rates.laborMode === 'per_head' ? rates.labor : null,
             assumed_med_per_head: rates.medPerHead,
@@ -7178,6 +7198,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 payload.assumed_cog_per_day=seed.assumed_cog_per_day;
                 payload.assumed_cog_per_lb=seed.assumed_cog_per_lb;
                 payload.assumed_cog_per_head=seed.assumed_cog_per_head;
+                payload.assumed_nonfeed_cog_per_day=seed.assumed_nonfeed_cog_per_day;
                 payload.assumed_labor_per_day=seed.assumed_labor_per_day;
                 payload.assumed_labor_per_head=seed.assumed_labor_per_head;
                 payload.assumed_med_per_head=seed.assumed_med_per_head;
@@ -11853,6 +11874,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             // out is the lot's stored target ADG times head-days - so ADG
             // reaches the basis in that one mode only.
             adg: cogMode === 'per_lb' ? n(l.target_adg) : null,
+            nonFeedCog: n(l.assumed_nonfeed_cog_per_day),
             cogMode, laborMode,
             cog:   cogMode   === 'per_day' ? n(l.assumed_cog_per_day)
                  : cogMode   === 'per_lb'  ? n(l.assumed_cog_per_lb)
