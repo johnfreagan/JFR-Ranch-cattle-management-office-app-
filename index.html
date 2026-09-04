@@ -5328,7 +5328,11 @@ window.addEventListener('unhandledrejection', function(e) {
             return row ? (Number(row.total_cost) || 0) : 0;
         };
         const headInForCost = Number(currentStatus.head_in) || 0;
-        const headCurrentForCost = Number(currentStatus.head_current) || 0;
+        // Treatment $/hd is over every head that SURVIVED, doctored or not -
+        // not over the head still here. Dividing by head_current put 60X's
+        // whole treatment bill on its last 29 of 251 head and read $57/hd
+        // (John, 2026-09-04). Deaths are the only thing that raises it.
+        const headSurvivingForCost = Math.max(0, headInForCost - (Number(currentStatus.head_dead) || 0));
         // Phase 18b: processing from receipts x protocol (the normal JFR path),
         // plus any doctoring events explicitly categorized as processing.
         const procFromReceipts = (procCostRes && procCostRes.data)
@@ -5405,7 +5409,7 @@ window.addEventListener('unhandledrejection', function(e) {
             treatment: treatTotal,
             other: otherTotal,
             processingPerHead: headInForCost > 0 ? procTotal / headInForCost : null,
-            treatmentPerHead: headCurrentForCost > 0 ? treatTotal / headCurrentForCost : null,
+            treatmentPerHead: headSurvivingForCost > 0 ? treatTotal / headSurvivingForCost : null,
             perHead: headInForCost > 0 ? (procTotal + treatTotal + otherTotal) / headInForCost : null,
             rowsWithCost: medCatRows.reduce((s, r) => s + ((Number(r.med_row_count) || 0) - (Number(r.unpriced_row_count) || 0)), 0),
             unpricedRows: medCatRows.reduce((s, r) => s + (Number(r.unpriced_row_count) || 0), 0) + procUnpricedLines
@@ -5606,7 +5610,7 @@ window.addEventListener('unhandledrejection', function(e) {
             { label: '$/cwt',  value: costPerLb ? '$' + (Number(costPerLb) * 100).toFixed(2) : '—' }
         ];
         // Phase 18: split med cost — Processing over head_in, Treatment over
-        // live head_current (deaths factored into true per-head carry cost).
+        // surviving head (head_in - head_dead), shipped or still here.
         if (currentActualMedCost && currentActualMedCost.processing > 0) {
             costRows.push({
                 label: 'Proc $/hd',

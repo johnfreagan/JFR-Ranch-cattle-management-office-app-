@@ -35,7 +35,9 @@ See "Access control" below and `docs/security-model.md`.
   `WHERE cost IS NULL` guard — done 2026-09-04 on the X lots (682 rows,
   $8,873.41, `docs/sql/2026-09-04_backfill_x_lot_med_costs.sql`). The
   non-X lots still carry ~1,178 unpriced rows.
-- Processing $/hd is per head IN; Treatment $/hd is per LIVE head current.
+- Processing $/hd is per head IN; Treatment $/hd is per SURVIVING head
+  (`head_in − head_dead`, shipped or not). It was per head current until
+  2026-09-04, which loaded 60X's whole treatment bill onto its last 29 head.
 
 ### Changing a protocol or a drug price — read before editing either
 
