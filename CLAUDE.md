@@ -116,7 +116,10 @@ The Closeout tab shows one set of economics in three columns. It is
   reads LIGHT until the cattle ship — the screen warns when realized ADG on
   shipped head runs more than 5% over the assumption, with both dollar
   figures. The transfer basis (`ltStoredRates`) feeds `lots.target_adg` in
-  for this mode only.
+  for this mode only. **`per_lb` is the DEFAULT COG mode** (John, later
+  2026-09-04): the app falls back to it, the column default is `per_lb`,
+  and the open lots were converted at per-day ÷ target ADG. Labor stays
+  per head-day.
 - **Interest** accrues on the cattle for the whole period and on operating
   cost at half the period, the usual convention for a cost that builds
   linearly. The old screen charged interest on the purchase price only.
