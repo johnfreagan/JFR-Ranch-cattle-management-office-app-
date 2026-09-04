@@ -1024,6 +1024,24 @@ closes it early.
   There is no node on this machine — run `osascript -l JavaScript
   scripts/validate.jxa.js index.html`, which does both checks on JavaScriptCore.
 - Tiles on lot detail use buildTileRows() row-style (label left, value right).
+- **The lot page is one section per PROCESS** (John's sketch, 2026-09-04):
+  Currently in · Purchases (invoices, unlinked load outs, tags) · Animal
+  Health (doctoring, deaths) · Moves (moves, transfers, merge) · Sales ·
+  Closeout · Audit log. `showLotSubtab()` switches; `LOT_SECTIONS` is the
+  list; `'activity'` still maps to `current` for old call sites. **The
+  section and scroll position survive a re-render of the SAME lot** — every
+  action calls `showLotDetail(currentLot.id)`, and before this that threw
+  you to the top of one long page after each death or invoice. Only opening
+  a different lot starts at Currently in. **The audit log loads only when
+  its section is opened** (`auditLogLoadedFor`); it is the heaviest read
+  on the page and John's note says "only open if selected". Tab counts are
+  read off the card counts the loaders already write (`refreshLotTabCounts`)
+  rather than taught to ten loaders.
+- **Break-even tiles divide by head SOLD, never by head still here.** The
+  lot-header floor tile did `total_cost / (head_now × weight)` and read
+  $27.16/lb on 60X's last 29 of 251 head; the closeout row and remnant
+  block had the same shape. All three now use surviving head (`head_in −
+  head_dead`, or `headSoldAtClose` in the projection).
 - Modals: showModal()/hideModal(); alerts via showAlert(id, msg, type).
 - Print/share pattern: window.open + document.write for print; jsPDF +
   navigator.share({files}) for textable PDFs, download fallback on desktop.

@@ -423,6 +423,19 @@
             color: var(--accent);
             box-shadow: 0 1px 2px rgba(0,0,0,0.06);
         }
+        .lot-header-subtabs .tab-count:not(:empty) {
+            display: inline-block;
+            margin-left: 5px;
+            padding: 0 6px;
+            min-width: 18px;
+            font-size: 11px;
+            line-height: 17px;
+            border-radius: 9px;
+            background: #eceae2;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        .lot-header-subtabs .sub-tab.active .tab-count:not(:empty) { background: #f3ead0; color: var(--accent); }
 
         .test-badge {
             display: inline-block;
@@ -923,10 +936,18 @@
                     </div>
                     <div class="lot-header-actions">
                         <!-- Sub-tabs live in the header now -->
+                        <!-- The lot page, per John's sketch of 2026-09-04: one
+                             section per PROCESS, one click apart, and the audit
+                             log only when asked for. Counts on the tabs say
+                             where the work is without opening anything. -->
                         <div class="sub-tabs lot-header-subtabs" id="lotDetailSubtabs">
-                            <button class="sub-tab active" data-lot-subtab="activity">Activity</button>
-                            <button class="sub-tab" data-perm="office" data-lot-subtab="sales">Sales</button>
+                            <button class="sub-tab active" data-lot-subtab="current">Currently in</button>
+                            <button class="sub-tab" data-lot-subtab="purchases">Purchases <span class="tab-count" id="tabCountPurchases"></span></button>
+                            <button class="sub-tab" data-lot-subtab="health">Animal Health <span class="tab-count" id="tabCountHealth"></span></button>
+                            <button class="sub-tab" data-lot-subtab="moves">Moves <span class="tab-count" id="tabCountMoves"></span></button>
+                            <button class="sub-tab" data-perm="office" data-lot-subtab="sales">Sales <span class="tab-count" id="tabCountSales"></span></button>
                             <button class="sub-tab" data-perm="office" data-lot-subtab="closeout">Closeout</button>
+                            <button class="sub-tab" data-lot-subtab="audit">Audit log</button>
                         </div>
                         <!-- Kebab menu for admin actions -->
                         <div class="kebab-wrap">
@@ -955,8 +976,8 @@
                 <button id="newInvoiceBtn" class="hidden"></button>
             </div>
 
-            <!-- Activity tab content -->
-            <div id="lotTabActivity">
+            <!-- Currently in -->
+            <div id="lotTabCurrent">
                 <!-- Currently in (pastures) -->
                 <div class="card" id="currentLocationsCard">
                     <div class="card-header">
@@ -964,7 +985,10 @@
                     </div>
                     <div id="currentLocationsContent"></div>
                 </div>
+            </div>
 
+            <!-- Purchases: invoices, the load outs not yet under one, and the tags -->
+            <div id="lotTabPurchases" class="hidden">
                 <!-- Invoices card -->
                 <div class="card" id="invoicesCard" data-perm="office">
                     <div class="card-header">
@@ -996,7 +1020,10 @@
                     </div>
                     <div id="tagsContent"><div class="empty">Loading…</div></div>
                 </div>
+            </div>
 
+            <!-- Animal Health: doctoring and deaths -->
+            <div id="lotTabHealth" class="hidden">
                 <!-- Doctoring card -->
                 <div class="card" id="doctoringCard">
                     <div class="card-header">
@@ -1016,6 +1043,18 @@
                     <div id="doctoringContent"><div class="empty">Loading…</div></div>
                 </div>
 
+                <!-- Death log -->
+                <div class="card" id="deathLogCard">
+                    <div class="card-header">
+                        <h3>Death log <span class="card-count" id="deathLogCount">(0)</span></h3>
+                        <button class="primary card-add-btn" id="newDeathBtn" data-perm="office">⚠ + Record deaths</button>
+                    </div>
+                    <div id="deathLogContent"></div>
+                </div>
+            </div>
+
+            <!-- Moves, transfers and merge -->
+            <div id="lotTabMoves" class="hidden">
                 <!-- Move history -->
                 <div class="card" id="moveHistoryCard">
                     <div class="card-header">
@@ -1040,16 +1079,10 @@
                     </div>
                     <div id="lotTransfersContent"></div>
                 </div>
+            </div>
 
-                <!-- Death log -->
-                <div class="card" id="deathLogCard">
-                    <div class="card-header">
-                        <h3>Death log <span class="card-count" id="deathLogCount">(0)</span></h3>
-                        <button class="primary card-add-btn" id="newDeathBtn" data-perm="office">⚠ + Record deaths</button>
-                    </div>
-                    <div id="deathLogContent"></div>
-                </div>
-
+            <!-- Full audit log: rendered only when this section is opened -->
+            <div id="lotTabAudit" class="hidden">
                 <!-- Full audit log -->
                 <div class="card" id="auditLogCard">
                     <div class="card-header">
@@ -5150,14 +5183,43 @@ window.addEventListener('unhandledrejection', function(e) {
     })();
 
     // ---- LOT DETAIL ----
+    // One section per process (John's sketch, 2026-09-04). The section you
+    // are in SURVIVES a re-render: every action on a lot - a death, an
+    // invoice, a move - calls showLotDetail(currentLot.id) again, and until
+    // now that threw you back to the top of one long page. Now the same lot
+    // re-renders into the same section at the same scroll position, and only
+    // opening a DIFFERENT lot starts you at Currently in.
+    const LOT_SECTIONS = ['current', 'purchases', 'health', 'moves', 'sales', 'closeout', 'audit'];
+    let currentLotSubtab = 'current';
+    let auditLogLoadedFor = null;   // lot id the audit log was last rendered for; it loads on demand
     function showLotSubtab(subtab) {
+        if (subtab === 'activity') subtab = 'current';   // older call sites
+        if (!LOT_SECTIONS.includes(subtab)) subtab = 'current';
+        currentLotSubtab = subtab;
         $('lotDetailSubtabs').querySelectorAll('.sub-tab').forEach(b => {
             b.classList.toggle('active', b.dataset.lotSubtab === subtab);
         });
-        ['activity', 'sales', 'closeout'].forEach(name => {
+        LOT_SECTIONS.forEach(name => {
             const el = $('lotTab' + name.charAt(0).toUpperCase() + name.slice(1));
             if (el) el.classList.toggle('hidden', name !== subtab);
         });
+        // The audit log is the one section that is not loaded with the lot:
+        // it is the heaviest read on the page and "only open if selected".
+        if (subtab === 'audit' && currentLot && auditLogLoadedFor !== currentLot.id) {
+            auditLogLoadedFor = currentLot.id;
+            loadAuditLog(currentLot.id);
+        }
+    }
+    // Counts on the section tabs, so the header says where the work is.
+    // Read off the card counts the loaders already write ("(3)"), after
+    // every loader has run, rather than taught to each of ten loaders.
+    function refreshLotTabCounts() {
+        const n = id => { const el = $(id); if (!el) return 0; const m = /\d+/.exec(el.textContent || ''); return m ? Number(m[0]) : 0; };
+        const set = (id, v) => { const el = $(id); if (el) el.textContent = v > 0 ? String(v) : ''; };
+        set('tabCountPurchases', n('invoicesCount') + n('receiptsCount'));
+        set('tabCountHealth',    n('doctoringCount') + n('deathLogCount'));
+        set('tabCountMoves',     n('moveHistoryCount') + n('lotTransfersCount'));
+        set('tabCountSales',     (currentLotSalesCache || []).length);
     }
     // Wire up sub-tab clicks (delegated)
     document.addEventListener('DOMContentLoaded', () => {
@@ -5178,10 +5240,17 @@ window.addEventListener('unhandledrejection', function(e) {
         });
     }
 
+    let lastDetailLotId = null;
     async function showLotDetail(lotId){
         $('lotsView').classList.add('hidden');
         $('detailView').classList.remove('hidden');
-        showLotSubtab('activity');  // default to Activity tab
+        // Same lot again = an action just posted; stay put. A different lot
+        // starts at Currently in.
+        const sameLot = lastDetailLotId === lotId;
+        const keepScroll = sameLot ? window.scrollY : 0;
+        lastDetailLotId = lotId;
+        auditLogLoadedFor = null;
+        showLotSubtab(sameLot ? currentLotSubtab : 'current');
         $('lotStatsTier1').innerHTML='';
         $('lotStatsTier2').innerHTML='';
         $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
@@ -5439,13 +5508,18 @@ window.addEventListener('unhandledrejection', function(e) {
         if (deathLossPct != null && deathLossPct >= 5) deathLossColor = 'color: var(--warn, #b58900);';
         if (deathLossPct != null && deathLossPct >= 8) deathLossColor = 'color: var(--danger);';
 
-        // Floor breakeven (purchase-only): total_cost / (head_now × projected ship weight)
+        // Floor breakeven (purchase-only): purchase cost over the pounds
+        // EVERY surviving head will sell at - not over the head still here.
+        // Dividing by head_now put the whole purchase on whoever had not
+        // shipped yet: 60X read $27.16/lb on its last 29 of 251 head
+        // (2026-09-04). Death loss is the only thing that raises it.
+        const survivingForBe = Math.max(0, headIn - headDead);
         let breakevenFloor = null;
-        if (totalCost > 0 && headNow > 0 && targetWt) {
-            breakevenFloor = totalCost / (headNow * targetWt);
-        } else if (totalCost > 0 && headNow > 0 && projWt) {
+        if (totalCost > 0 && survivingForBe > 0 && targetWt) {
+            breakevenFloor = totalCost / (survivingForBe * targetWt);
+        } else if (totalCost > 0 && survivingForBe > 0 && projWt) {
             // Fallback: use projected current weight if no target ship weight set
-            breakevenFloor = totalCost / (headNow * projWt);
+            breakevenFloor = totalCost / (survivingForBe * projWt);
         }
 
         // Days until target ship date
@@ -5779,7 +5853,17 @@ window.addEventListener('unhandledrejection', function(e) {
         renderLotTransfers();
         await loadTags(lotId);
         await loadDoctoring(lotId);
-        await loadAuditLog(lotId);
+        // The audit log loads only when its section is open (see
+        // showLotSubtab). If it IS open, refresh it now - the action that
+        // triggered this re-render is exactly what it should show.
+        if (currentLotSubtab === 'audit') {
+            auditLogLoadedFor = lotId;
+            await loadAuditLog(lotId);
+        } else {
+            $('auditLogContent').innerHTML = '<div class="empty">Loading…</div>';
+        }
+        refreshLotTabCounts();
+        if (keepScroll > 0) window.scrollTo({ top: keepScroll });
 
         if(currentLot.notes){
             $('notesCard').classList.remove('hidden');
@@ -12584,7 +12668,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             const a = e.target.closest && e.target.closest('.xfer-drill');
             if (!a) return;
             e.preventDefault();
-            showLotSubtab('activity');
+            showLotSubtab('moves');
             const card = document.getElementById('lotTransfersCard');
             if (!card) return;
             card.scrollIntoView({ behavior: 'smooth', block: 'center' });
