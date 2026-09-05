@@ -986,11 +986,41 @@ bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   
 - **Posting refuses** a load with no dropped pounds ("void it and let the
   next load carry the pounds"): the bays are then over-stated by that
   leftover until a count. Rare; documented, not solved.
-- **Not built yet:** phase 2 `feed-app/` (bunk read, planner, load screen
-  with PB's countdown tiles, timer, drops, edits, simulated scale), phase 3
-  Flutter shell (Scale-Tec template + WebView + bridge; iPad build needs a
-  Mac with Xcode and John's individual Apple developer account, started
-  2026-09-04 week), Anomalies rows for over-tolerance / skipped mix / overrides.
+- **Phase 2, `feed-app/` (built 2026-09-04).** Third PWA beside
+  `field-app/` and `tally-book/`, same sign-in and boot-error pattern.
+  Tabs: Bunks · Plan · Truck · History · More. `planner.js` is a pure
+  module (`node feed-app/planner.test.js`, 300 random plans fuzzed for
+  conservation of pounds); `app.js` holds the rest. Verified end to end in
+  headless Chromium against a stubbed client (`/tmp/smoke` harness, 36
+  assertions: prefill, stepper, save, plan, start, countdown bands, Done
+  per ingredient, mix gate, two drops with the head split, an edit with a
+  reason, close with leftover, queue drained, leftover carried forward).
+  - **Every truck row carries a client uuid and syncs by `upsert(onConflict:
+    'id')`** from a localStorage queue, load row first then lines, drops,
+    lot splits. NOT by `client_id`: the partial unique indexes on it do not
+    satisfy `ON CONFLICT (client_id)` without the predicate PostgREST
+    cannot send. Rows queued while a sync is in flight go on the next round
+    (`queueGen`), not the 45 s timer.
+  - **Bunk calls save straight to the ranch and need signal** (D15); the
+    screen says so. Every pasture on the route is saved, so an untouched
+    bunk still carries yesterday's lb/hd (D4). Saved via
+    `upsert(onConflict:'read_date,pasture_id')`. A read the truck has
+    loaded is locked on screen and by the DB guard.
+  - **Scale bridge:** the shell calls `window.FeedScale.onWeight({lb,
+    stable, deviceId})` / `.onStatus({connected, deviceId, name})`; the
+    page posts `{cmd:'zero'|'scan'}` to the `FeedShell` JavaScript channel.
+    A reading older than 5 s is "no link" and every Done disables. Contract
+    in `feed-app/README.md`. **The head stays in gross**; each ingredient
+    and drop is a difference in gross since its tile was selected / Start
+    was tapped, so the cab indicator and the iPad always agree.
+  - **Simulated scale** (More › Simulated scale): slider + Auto
+    filling/emptying at 400 lb/s. It is how everything is tested in Safari.
+  - `_ui` on a local load (current tile, start gross) is device state and
+    is stripped before sync (`loadRow`).
+- **Not built yet:** phase 3 Flutter shell (Scale-Tec template + WebView +
+  bridge; iPad build needs a Mac with Xcode and John's individual Apple
+  developer account, started 2026-09-04 week), the two charts on the bunk
+  page, Anomalies rows for over-tolerance / skipped mix / overrides.
 
 ## Tally Book (built 2026-08-28, ported the same day)
 

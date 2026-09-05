@@ -2,8 +2,9 @@
 
 **Status:** Twenty-one decisions taken by John in one sitting. **Phase 1
 BUILT 2026-09-04** (migration `sql/2026-09-04_feed_truck.sql`, office screens
-under Inventory → Truck ▾). Phases 2 (feed app) and 3 (Flutter shell) designed,
-not built. Performance Beef stays in use for ration, bunk call and truck-scale
+under Inventory → Truck ▾). **Phase 2 BUILT the same day** (`feed-app/`, see
+its README for the scale bridge contract). Phase 3 (Flutter shell) designed,
+not built; waits on the Apple developer account. Performance Beef stays in use for ration, bunk call and truck-scale
 capture until the tie-out (D17) holds and a cut-over date is set.
 
 **Phase 1 note on posting (refines D11):** a load posts what left the bays
