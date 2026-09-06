@@ -56,6 +56,12 @@ t('every plan conserves pounds and respects the cap unless one-pass', () => {
         calls.forEach(c => { const parts = p.flatMap(l => l.drops).filter(d => d.pasture_id === c.pasture_id); assert(Math.abs(sum(parts.map(d => d.lb)) - c.lb) < 0.01); });
     }
 });
+t('a small pasture rides along after a one-pass pasture instead of its own trip', () => {
+    const p = planLoads({ calls: [{ pasture_id: 'a', lb: 916 }, { pasture_id: 'b', lb: 4770, one_pass: true }, { pasture_id: 'c', lb: 600 }], cap: 6000, minSplit: 500 });
+    assert.strictEqual(p.length, 2);
+    assert.deepStrictEqual(p[1].drops.map(d => d.pasture_id), ['b', 'c']);
+    assert.strictEqual(p[1].lb, 5370);
+});
 t('lrSplit sums exactly and matches the DB rule', () => {
     assert.deepStrictEqual(lrSplit(100, [3, 3, 3]), [33.34, 33.33, 33.33]);
     assert.deepStrictEqual(lrSplit(4000, [20, 30]), [1600, 2400]);

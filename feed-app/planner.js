@@ -62,8 +62,12 @@
             let remaining = Number(c.lb);
             let guard = 0;
             while (remaining > 0 && guard++ < 50) {
-                // Room against the balanced size, but never past the cap.
-                const room = round1(Math.max(0, Math.min(size, cap) - cur.lb));
+                // Room against the balanced size, but never past the cap. A
+                // load a one-pass pasture has already pushed past the balanced
+                // size may still fill to the cap - a 600 lb feeder should ride
+                // along, not become its own trip.
+                const limit = cur.lb > size ? cap : Math.min(size, cap);
+                const room = round1(Math.max(0, limit - cur.lb));
                 if (remaining <= room + 0.5) { put(c, remaining); remaining = 0; break; }
 
                 if (c.one_pass) {
