@@ -1028,6 +1028,18 @@ bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   
     under Plan. Order changes from the cab go as UPDATEs keyed on
     `pasture_id` (`queueOrder`), never upserts - an upsert is an INSERT
     first and crew may not insert a setup row.
+  - **Bunk calling is SDSU slick-bunk with John's fast/slow rule (2026-09-06).**
+    Scores 0 / ½ / 1 / 2 / 3 (`bunk_reads.bunk_score` is numeric(2,1));
+    clean = 0 or ½. Migration `docs/sql/2026-09-06_bunk_scoring.sql` adds
+    `rations.dry_matter_pct` + `expected_dmi_lb` and six bump rules on
+    `ranch_settings` (defaults: below expected DMI bump +0.75 lb DM after 2
+    clean days; at/above +0.5 after 3; score 1 holds; 2 cuts 0.5; 3 cuts
+    1.0). `suggestCall()` in the feed app turns the tapped score into
+    today's lb/hd (as-fed, quarter-pound), writes `suggested_lb_per_head`,
+    `clean_days` and `suggest_note` beside the call so a hand adjustment is
+    visible later. `cleanStreak()` walks the read history back from
+    yesterday and stops at a bump (lb/hd rose that day) or a missing day.
+    No DM % on the ration → the bump is taken as-fed and the screen says so.
   - **Bunk page is one pasture per screen** with prev/next and the reading
     order down the side (PB's shape, John's ask). **Plan is PB's Delivery
     overview**: one card per load, pens with Target/Fed and a Total, then

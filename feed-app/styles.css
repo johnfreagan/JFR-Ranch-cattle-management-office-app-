@@ -127,6 +127,16 @@ input[type=number], input[type=text], select, textarea { font-size: 16px; paddin
 .bunk-one .hist { display: flex; gap: 4px; margin-top: 10px; }
 .bunk-one .hist span { flex: 1; text-align: center; font-size: 11px; color: var(--muted); background: #f2f2f7; border-radius: 6px; padding: 4px 0; }
 .bunk-one .hist span b { display: block; color: var(--text); font-size: 13px; }
+.bunk-one .hist span.clean { background: #e8f3dc; }
+.bunk-one .scores button { min-width: 0; }
+.suggest { margin: 10px 0 2px; padding: 8px 10px; border-radius: 8px; background: #f2f2f7; font-size: 15px; }
+.suggest.up { background: #e8f3dc; } .suggest.down { background: #ffe5e7; }
+.suggest .why { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.dmi { margin-top: 10px; }
+.dmi-bar { height: 10px; background: #e5e5ea; border-radius: 5px; overflow: hidden; }
+.dmi-fill { height: 100%; background: var(--amber); }
+.dmi-fill.at { background: var(--green); }
+.dmi-txt { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .side-head { margin-bottom: 6px; }
 .side-list { background: var(--card); border: 1px solid #e5e5ea; border-radius: 12px; overflow: hidden; }
 .side-item { display: flex; align-items: center; gap: 8px; padding: 10px 10px; border-bottom: 1px solid #f0f0f0; font-size: 14px; }

@@ -181,6 +181,16 @@ reorder, no bay column. Bunk page: one pasture per page, arrows, reading order
 down the side. Plan page: PB's Delivery overview (load card, pens Target/Fed,
 Total, feed Target/Loaded).
 
+### D23. SDSU bunk calling with a fast/slow rule (2026-09-06)
+Scores 0, ½, 1, 2, 3 per SDSU (Pritchard). Ration carries dry matter % and
+expected DMI (lb DM/hd/day). Below expected intake: bump after 2 clean days
+(0 or ½) by 0.75 lb DM; at or above: after 3 clean days by 0.5 lb DM (SDSU's
+0.25-0.75 band). Score 1 holds, 2 cuts 0.5, 3 cuts 1.0. All six numbers on
+Truck › Settings. The app applies the suggestion when the score is tapped,
+shows the reason and a DMI bar, and records suggested vs called.
+Sources: SDSU Extension "Feed Bunk Management"; Feedlot Magazine "Scoring for
+better bunk management"; Drovers "Feed Bunk Management"; UNL BeefWatch.
+
 ### Stated assumptions (not asked)
 Settings card: tolerance %, minimum split lb, tie-out tolerance %, cut-over
 date. Bulk feeders: total lb, no score. A third feeding is a third load. Head

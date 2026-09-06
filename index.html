@@ -2524,6 +2524,39 @@
                             <div class="muted" style="font-size:11px; margin-top:2px;">Blank = parallel run. Loads before this date never post.</div>
                         </div>
                     </div>
+                    <h3 style="margin:18px 0 6px;">Bunk calling (SDSU slick-bunk)</h3>
+                    <p class="muted" style="font-size:12px; margin:0 0 10px;">
+                        Scores 0, &frac12;, 1, 2, 3. A clean bunk is 0 or &frac12;. While a pen is <b>below</b> its ration's
+                        expected dry-matter intake the caller bumps fast; <b>at or above</b> it, slow. A score of 1 holds;
+                        2 and 3 cut. Bumps are in lb of dry matter and converted with the ration's DM %.
+                        SDSU: 0.25&ndash;0.75 lb DM per bump, hold 3 days between bumps once on feed.
+                    </p>
+                    <div class="form-grid">
+                        <div>
+                            <label for="ftStFastDays">Below expected DMI: clean days before a bump</label>
+                            <input type="number" step="1" min="1" id="ftStFastDays">
+                        </div>
+                        <div>
+                            <label for="ftStFastBump">Below expected DMI: bump (lb DM / hd)</label>
+                            <input type="number" step="0.05" min="0" id="ftStFastBump">
+                        </div>
+                        <div>
+                            <label for="ftStSlowDays">At expected DMI: clean days before a bump</label>
+                            <input type="number" step="1" min="1" id="ftStSlowDays">
+                        </div>
+                        <div>
+                            <label for="ftStSlowBump">At expected DMI: bump (lb DM / hd)</label>
+                            <input type="number" step="0.05" min="0" id="ftStSlowBump">
+                        </div>
+                        <div>
+                            <label for="ftStCut2">Score 2: cut (lb DM / hd)</label>
+                            <input type="number" step="0.05" min="0" id="ftStCut2">
+                        </div>
+                        <div>
+                            <label for="ftStCut3">Score 3: cut (lb DM / hd)</label>
+                            <input type="number" step="0.05" min="0" id="ftStCut3">
+                        </div>
+                    </div>
                     <div style="display:flex; gap:10px; align-items:center; margin-top:14px;">
                         <button class="primary" id="ftStSaveBtn" data-write>Save settings</button>
                         <span class="muted" style="font-size:12px;" id="ftStHint"></span>
@@ -3112,6 +3145,16 @@
                 <div>
                     <label for="ftRaMax">Max load (lb)</label>
                     <input type="number" step="1" min="0" id="ftRaMax" placeholder="e.g. 15000">
+                </div>
+                <div>
+                    <label for="ftRaDm">Dry matter (%)</label>
+                    <input type="number" step="0.1" min="1" max="100" id="ftRaDm" placeholder="e.g. 62">
+                    <div class="muted" style="font-size:11px; margin-top:2px;">As-fed to dry matter. Bumps are sized in lb DM and converted with this.</div>
+                </div>
+                <div>
+                    <label for="ftRaDmi">Expected intake (lb DM / hd / day)</label>
+                    <input type="number" step="0.1" min="0" id="ftRaDmi" placeholder="e.g. 9.0">
+                    <div class="muted" style="font-size:11px; margin-top:2px;">Below this the bunk caller bumps fast; at or above it, slow.</div>
                 </div>
             </div>
             <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
@@ -27688,7 +27731,7 @@ ${ranchBlocks}
             supabase.from('pasture_feed_setup').select('*'),
             supabase.from('feed_trucks').select('*').order('name'),
             supabase.from('ranch_settings')
-                .select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from')
+                .select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_lb_dm, bunk_cut3_lb_dm')
                 .maybeSingle()
         ]);
         const bad = [r, s, t, st].find(x => x.error);
@@ -28069,13 +28112,15 @@ ${ranchBlocks}
             <td><strong>${escapeHtml(r.name)}</strong></td>
             <td class="num">${r.mix_minutes}</td>
             <td class="num">${r.max_load_lb ? fmtNum(r.max_load_lb) : '—'}</td>
+            <td class="num">${r.dry_matter_pct != null ? fmtNum(r.dry_matter_pct, 1) : '<span class="tag red">set</span>'}</td>
+            <td class="num">${r.expected_dmi_lb != null ? fmtNum(r.expected_dmi_lb, 1) + ' lb' : '<span class="tag red">set</span>'}</td>
             <td style="font-size:12px;">${ftCompositionText(r)}</td>
             <td class="num">${ftSetup.filter(s => s.ration_id === r.id && s.is_active).length}</td>
             <td>${r.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
         </tr>`).join('');
         $('ftRaContent').innerHTML = `
             <div style="overflow-x:auto;"><table>
-                <thead><tr><th>Ration</th><th class="num">Mix (min)</th><th class="num">Max load lb</th><th>As-fed</th><th class="num">Pastures on it</th><th>Status</th></tr></thead>
+                <thead><tr><th>Ration</th><th class="num">Mix (min)</th><th class="num">Max load lb</th><th class="num">DM %</th><th class="num">Expected DMI</th><th>As-fed</th><th class="num">Pastures on it</th><th>Status</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table></div>`;
         $('ftRaContent').querySelectorAll('tr.clickable').forEach(tr => {
@@ -28167,6 +28212,8 @@ ${ranchBlocks}
         $('ftRaName').value   = r ? r.name : '';
         $('ftRaMix').value    = r ? r.mix_minutes : '';
         $('ftRaMax').value    = r && r.max_load_lb != null ? r.max_load_lb : '';
+        $('ftRaDm').value     = r && r.dry_matter_pct != null ? r.dry_matter_pct : '';
+        $('ftRaDmi').value    = r && r.expected_dmi_lb != null ? r.expected_dmi_lb : '';
         $('ftRaActive').checked = r ? !!r.is_active : true;
         $('ftRaNotes').value  = r ? (r.notes || '') : '';
         $('ftRaLines').querySelector('tbody').innerHTML = '';
@@ -28208,6 +28255,8 @@ ${ranchBlocks}
             name,
             mix_minutes: parseInt($('ftRaMix').value, 10) || 0,
             max_load_lb: $('ftRaMax').value ? parseFloat($('ftRaMax').value) : null,
+            dry_matter_pct: $('ftRaDm').value ? parseFloat($('ftRaDm').value) : null,
+            expected_dmi_lb: $('ftRaDmi').value ? parseFloat($('ftRaDmi').value) : null,
             is_active: $('ftRaActive').checked,
             notes: $('ftRaNotes').value.trim() || null
         };
@@ -28420,6 +28469,12 @@ ${ranchBlocks}
         $('ftStMinSplit').value  = s.feed_truck_min_split_lb != null ? s.feed_truck_min_split_lb : 500;
         $('ftStTieout').value    = s.feed_truck_tieout_pct != null ? s.feed_truck_tieout_pct : 5;
         $('ftStPostFrom').value  = s.feed_truck_post_from || '';
+        $('ftStFastDays').value  = s.bunk_fast_days != null ? s.bunk_fast_days : 2;
+        $('ftStFastBump').value  = s.bunk_fast_bump_lb_dm != null ? s.bunk_fast_bump_lb_dm : 0.75;
+        $('ftStSlowDays').value  = s.bunk_slow_days != null ? s.bunk_slow_days : 3;
+        $('ftStSlowBump').value  = s.bunk_slow_bump_lb_dm != null ? s.bunk_slow_bump_lb_dm : 0.5;
+        $('ftStCut2').value      = s.bunk_cut2_lb_dm != null ? s.bunk_cut2_lb_dm : 0.5;
+        $('ftStCut3').value      = s.bunk_cut3_lb_dm != null ? s.bunk_cut3_lb_dm : 1.0;
         $('ftStHint').textContent = s.feed_truck_post_from
             ? `Loads from ${fmtDate(s.feed_truck_post_from)} on post to the books. Stop the Monday PB entry for those weeks.`
             : 'Parallel run: loads never post. Set the date when the tie-out has held for a few weeks.';
@@ -28431,10 +28486,18 @@ ${ranchBlocks}
             feed_truck_tolerance_pct: parseFloat($('ftStTolerance').value),
             feed_truck_min_split_lb:  parseFloat($('ftStMinSplit').value),
             feed_truck_tieout_pct:    parseFloat($('ftStTieout').value),
-            feed_truck_post_from:     $('ftStPostFrom').value || null
+            feed_truck_post_from:     $('ftStPostFrom').value || null,
+            bunk_fast_days:           parseInt($('ftStFastDays').value, 10),
+            bunk_fast_bump_lb_dm:     parseFloat($('ftStFastBump').value),
+            bunk_slow_days:           parseInt($('ftStSlowDays').value, 10),
+            bunk_slow_bump_lb_dm:     parseFloat($('ftStSlowBump').value),
+            bunk_cut2_lb_dm:          parseFloat($('ftStCut2').value),
+            bunk_cut3_lb_dm:          parseFloat($('ftStCut3').value)
         };
-        if ([payload.feed_truck_tolerance_pct, payload.feed_truck_min_split_lb, payload.feed_truck_tieout_pct].some(v => isNaN(v) || v < 0)) {
-            showAlert('ftStAlert', 'All three numbers are required and cannot be negative.'); return;
+        if ([payload.feed_truck_tolerance_pct, payload.feed_truck_min_split_lb, payload.feed_truck_tieout_pct,
+             payload.bunk_fast_bump_lb_dm, payload.bunk_slow_bump_lb_dm, payload.bunk_cut2_lb_dm, payload.bunk_cut3_lb_dm].some(v => isNaN(v) || v < 0)
+            || [payload.bunk_fast_days, payload.bunk_slow_days].some(v => isNaN(v) || v < 1)) {
+            showAlert('ftStAlert', 'Every number is required; days at least 1, pounds not negative.'); return;
         }
         const was = ftSettings ? ftSettings.feed_truck_post_from : null;
         if (payload.feed_truck_post_from && payload.feed_truck_post_from !== was) {

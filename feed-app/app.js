@@ -269,7 +269,7 @@ async function pullRefs(quiet) {
             sb.from('feed_items').select('id, name, default_location_id, is_active'),
             sb.from('feed_storage_locations').select('id, name, is_active'),
             sb.from('feed_trucks').select('*').eq('is_active', true).order('name'),
-            sb.from('ranch_settings').select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from').maybeSingle(),
+            sb.from('ranch_settings').select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_lb_dm, bunk_cut3_lb_dm').maybeSingle(),
             fetchAll(() => sb.from('lot_pasture_assignments').select('lot_id, pasture_id, head_count, lots!inner(lot_number, closed_at, is_test)').is('moved_out', null).order('id')),
             sb.from('bunk_reads').select('*').gte('read_date', shiftDays(today, -21)).order('read_date', { ascending: false }),
             sb.from('feed_loads').select('*, feed_load_lines(*), feed_drops(*, feed_drop_lots(*))').gte('load_date', shiftDays(today, -14)).order('load_date', { ascending: false }).order('load_seq', { ascending: false })
@@ -412,10 +412,68 @@ function readFor(pid) {
         bunk_score: null, lb_per_head: lbhd, head_count: head,
         target_lb: bulk ? (last ? Number(last.target_lb) || 0 : 0) : round1((lbhd || 0) * head),
         ration_id: s.ration_id || null, route_order: s.route_order || 0, frozen_load_id: null,
+        suggested_lb_per_head: null, clean_days: null, suggest_note: null,
         notes: null, client_id: null, read_by: S.userId, _new: true
     };
     S.reads.rows[pid] = r;
     return r;
+}
+// ---------------------------------------------------------
+// The bunk caller (SDSU slick bunk, John's fast/slow rule on top).
+// Score 0 or ½ is clean. Bump after N clean days: N and the bump size come
+// from settings, one pair while the pen is below the ration's expected
+// dry-matter intake (fast), another at or above it (slow). Score 1 holds;
+// 2 and 3 cut. Bumps are lb DM, converted to as-fed with the ration's DM %.
+// A bump resets the clean-day count; a day with no read breaks it.
+// ---------------------------------------------------------
+const SCORES = [0, 0.5, 1, 2, 3];
+function scoreLabel(v) { return v === 0.5 ? '½' : String(v); }
+function bunkRules() {
+    const st = settings();
+    return { fastDays: Number(st.bunk_fast_days) || 2, fastBump: Number(st.bunk_fast_bump_lb_dm) || 0.75,
+             slowDays: Number(st.bunk_slow_days) || 3, slowBump: Number(st.bunk_slow_bump_lb_dm) || 0.5,
+             cut2: Number(st.bunk_cut2_lb_dm) || 0.5, cut3: Number(st.bunk_cut3_lb_dm) || 1.0 };
+}
+// Consecutive clean days before today, newest first, stopping at a bump
+// (lb/hd went up that day) or a gap. Today's score is passed in.
+function cleanStreak(pid, todayScore) {
+    if (!(todayScore != null && todayScore <= 0.5)) return 0;
+    let n = 1;
+    const hist = ((S.refs && S.refs.history || {})[pid] || []).slice().sort((a, b) => b.d.localeCompare(a.d));
+    let expect = shiftDays(ranchToday(), -1);
+    for (let i = 0; i < hist.length; i++) {
+        const h = hist[i];
+        if (h.d !== expect) break;                 // a day with no read breaks it
+        if (h.s == null || h.s > 0.5) break;       // not clean
+        const prev = hist[i + 1];
+        if (prev && prev.d === shiftDays(h.d, -1) && Number(h.lb) > Number(prev.lb) + 0.001) break;   // that day was a bump
+        n += 1; expect = shiftDays(h.d, -1);
+    }
+    return n;
+}
+function suggestCall(pid, score) {
+    const r = readFor(pid); const ration = R.ration(r.ration_id);
+    const last = (S.refs && S.refs.lastReads && S.refs.lastReads[pid]) || null;
+    const lastLb = last && last.lb_per_head != null ? Number(last.lb_per_head) : (Number(r.lb_per_head) || 0);
+    if (r.feeder_type === 'bulk' || score == null) return null;
+    const dm = ration && Number(ration.dry_matter_pct) > 0 ? Number(ration.dry_matter_pct) / 100 : null;
+    const exp = ration && Number(ration.expected_dmi_lb) > 0 ? Number(ration.expected_dmi_lb) : null;
+    const rules = bunkRules();
+    const dmi = dm ? lastLb * dm : null;
+    const below = (dmi != null && exp != null) ? dmi < exp - 0.05 : true;   // no target set: treat as getting up
+    const streak = cleanStreak(pid, score);
+    let deltaDm = 0, why = '';
+    if (score <= 0.5) {
+        const need = below ? rules.fastDays : rules.slowDays, bump = below ? rules.fastBump : rules.slowBump;
+        if (streak >= need) { deltaDm = bump; why = `${streak} clean day${streak === 1 ? '' : 's'} · ${below ? 'below' : 'at'} expected intake · +${fmt(bump, 2)} lb DM`; }
+        else why = `clean ${streak} of ${need} day${need === 1 ? '' : 's'} · hold`;
+    } else if (score === 1) { why = 'score 1 · hold'; }
+    else if (score === 2) { deltaDm = -rules.cut2; why = `score 2 · −${fmt(rules.cut2, 2)} lb DM`; }
+    else { deltaDm = -rules.cut3; why = `score 3 · −${fmt(rules.cut3, 2)} lb DM`; }
+    const toAsFed = x => dm ? x / dm : x;
+    const lb = Math.max(0, Math.round((lastLb + toAsFed(deltaDm)) * 4) / 4);
+    if (!dm) why += ' · no DM % on ration, bump taken as-fed';
+    return { lb, lastLb, deltaDm, streak, why, dmi, exp, dm };
 }
 function readFrozen(r) { return !!r.frozen_load_id && allLoads().some(l => l.id === r.frozen_load_id && l.status !== 'void'); }
 function setRead(pid, patch) {
@@ -434,7 +492,7 @@ function bunkGo(delta) {
 function readStatus(r) {
     if (r.feeder_type === 'bulk') return { txt: fmt(r.target_lb) + ' lb', done: !r._new };
     const scored = r.bunk_score != null;
-    return { txt: (scored ? 'score ' + r.bunk_score + ' · ' : '') + fmt(r.lb_per_head, 2) + ' lb/hd', done: scored };
+    return { txt: (scored ? 'score ' + scoreLabel(Number(r.bunk_score)) + ' · ' : '') + fmt(r.lb_per_head, 2) + ' lb/hd', done: scored };
 }
 function renderBunks() {
     $('bunkDateH').textContent = 'Bunk read · ' + fmtDate(ranchToday());
@@ -450,19 +508,32 @@ function renderBunks() {
     const bulk = r.feeder_type === 'bulk';
     $('bunkPos').innerHTML = `${S.bunkIdx + 1} of ${order.length}<span class="sub">${order.filter(x => readStatus(readFor(x.pasture_id)).done).length} read</span>`;
     $('bunkPrevBtn').disabled = S.bunkIdx === 0; $('bunkNextBtn').disabled = S.bunkIdx === order.length - 1;
-    const scores = [0, 1, 2, 3].map(n => `<button type="button" data-score="${n}" class="${r.bunk_score === n ? 'on' : ''}" ${frozen ? 'disabled' : ''}>${n}</button>`).join('');
+    const scores = SCORES.map(n => `<button type="button" data-score="${n}" class="${Number(r.bunk_score) === n ? 'on' : ''}" ${frozen ? 'disabled' : ''}>${scoreLabel(n)}</button>`).join('');
+    const sug = r.bunk_score != null && !bulk ? suggestCall(pid, Number(r.bunk_score)) : null;
+    const dmNow = ration && Number(ration.dry_matter_pct) > 0 ? (Number(r.lb_per_head) || 0) * Number(ration.dry_matter_pct) / 100 : null;
+    const exp = ration && Number(ration.expected_dmi_lb) > 0 ? Number(ration.expected_dmi_lb) : null;
+    const dmiBar = !bulk && dmNow != null && exp ? `<div class="dmi"><div class="dmi-bar"><div class="dmi-fill ${dmNow >= exp - 0.05 ? 'at' : ''}" style="width:${Math.min(100, 100 * dmNow / exp).toFixed(0)}%"></div></div>
+        <div class="dmi-txt">${fmt(dmNow, 1)} of ${fmt(exp, 1)} lb DM/hd · ${fmt(100 * dmNow / exp, 0)}%${dmNow >= exp - 0.05 ? ' · on feed, slow bumps' : ' · getting up, fast bumps'}</div></div>`
+        : (!bulk && ration && !(exp && dmNow != null) ? '<div class="dmi-txt muted">Set dry matter % and expected intake on the ration for intake-based bumps.</div>' : '');
+    const sugTxt = sug ? `<div class="suggest ${sug.deltaDm > 0 ? 'up' : sug.deltaDm < 0 ? 'down' : ''}">${sug.deltaDm > 0 ? '▲' : sug.deltaDm < 0 ? '▼' : '='} ${fmt(sug.lastLb, 2)} → <b>${fmt(sug.lb, 2)}</b> lb/hd <span class="why">${esc(sug.why)}</span>${Number(r.lb_per_head) !== sug.lb ? ' <span class="tag amber">adjusted by hand</span>' : ''}</div>` : (!bulk ? '<div class="suggest muted">Tap a score to get today\'s call.</div>' : '');
     card.innerHTML = `<div class="card bunk-one ${frozen ? 'locked' : ''}" data-pid="${pid}">
         <div class="name">${esc(pastureLabel(pid))}</div>
         <div class="lots">${fmt(r.head_count)} hd${head.length ? ' · ' + head.map(h => esc(h.lot_number) + ' ' + h.head).join(', ') : ''}${ration ? ' · ' + esc(ration.name) : ' · <span class="tag red">no ration</span>'}${frozen ? ' · <span class="frozen">on the truck</span>' : ''}</div>
         ${bulk ? `<div class="label">Total pounds in the feeder</div>
                   <div class="stepper"><button type="button" data-step="-100" ${frozen ? 'disabled' : ''}>−</button><span class="val" data-edit="total">${fmt(r.target_lb)}</span><button type="button" data-step="100" ${frozen ? 'disabled' : ''}>+</button></div>`
                : `<div class="label">Bunk score</div><div class="scores">${scores}</div>
+                  ${sugTxt}
                   <div class="label">Pounds per head, as fed</div>
                   <div class="stepper"><button type="button" data-step="-0.25" ${frozen ? 'disabled' : ''}>−</button><span class="val" data-edit="lbhd">${fmt(r.lb_per_head, 2)}</span><button type="button" data-step="0.25" ${frozen ? 'disabled' : ''}>+</button></div>`}
         <div class="total"><span class="muted">${bulk ? 'Bulk feeder' : 'Pasture total'}</span><b>${fmt(r.target_lb)} lb</b></div>
-        ${hist.length ? `<div class="label">Last ${hist.length} days · score / lb</div><div class="hist">${hist.map(h => `<span>${h.s != null ? h.s : '·'}<b>${h.lb != null ? fmt(h.lb, 1) : fmt(h.t)}</b></span>`).join('')}</div>` : ''}
+        ${dmiBar}
+        ${hist.length ? `<div class="label">Last ${hist.length} days · score / lb</div><div class="hist">${hist.map(h => `<span class="${h.s != null && h.s <= 0.5 ? 'clean' : ''}">${h.s != null ? scoreLabel(Number(h.s)) : '·'}<b>${h.lb != null ? fmt(h.lb, 2) : fmt(h.t)}</b></span>`).join('')}</div>` : ''}
     </div>`;
-    card.querySelectorAll('[data-score]').forEach(b => b.addEventListener('click', () => { const x = readFor(pid); setRead(pid, { bunk_score: x.bunk_score === Number(b.dataset.score) ? null : Number(b.dataset.score) }); }));
+    card.querySelectorAll('[data-score]').forEach(b => b.addEventListener('click', () => {
+        const x = readFor(pid); const sc = x.bunk_score === Number(b.dataset.score) ? null : Number(b.dataset.score);
+        const sug = sc == null ? null : suggestCall(pid, sc);
+        setRead(pid, { bunk_score: sc, lb_per_head: sug ? sug.lb : x.lb_per_head, suggested_lb_per_head: sug ? sug.lb : null, clean_days: sug ? sug.streak : null, suggest_note: sug ? sug.why : null });
+    }));
     card.querySelectorAll('[data-step]').forEach(b => {
         let hold = null, fired = false;
         const step = () => { const x = readFor(pid); const d = Number(b.dataset.step);
