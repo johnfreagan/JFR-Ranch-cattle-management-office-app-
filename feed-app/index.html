@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="JFR Feed">
+    <meta name="theme-color" content="#8b1a1a">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <title>JFR Feed</title>
+    <link rel="stylesheet" href="styles.css?v=v5">
+</head>
+<body>
+
+<!-- Boot-error reporter, same shape as the field app: if app.js dies
+     before its handlers are wired, say so on the login card instead of
+     showing a page of dead buttons. -->
+<script>
+(function () {
+    var BUILD = 'v5';
+    window.__FEED_BUILD = BUILD;
+    function report(msg) {
+        var box = document.getElementById('bootError');
+        if (!box) return;
+        box.textContent = 'App error: ' + msg;
+        box.style.display = 'block';
+    }
+    window.addEventListener('error', function (e) {
+        report((e && e.message) ? e.message : 'script error');
+    });
+    window.__reportBootError = report;
+    document.addEventListener('DOMContentLoaded', function () {
+        var s = document.querySelector('.build-stamp');
+        if (s) s.textContent = 'build ' + BUILD;
+        var r = document.getElementById('loginResetBtn');
+        if (r) r.addEventListener('click', function () {
+            if (!confirm('Reload a fresh copy of the app? Unsynced loads on this device will be lost.')) return;
+            try { Object.keys(localStorage).filter(function (k) { return k.indexOf('feedApp') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {}
+            var done = function () { location.replace(location.pathname + '?reset=' + Date.now()); };
+            var jobs = [];
+            try {
+                if (window.caches) jobs.push(caches.keys().then(function (ns) { return Promise.all(ns.map(function (n) { return caches.delete(n); })); }));
+                if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (x) { return x.unregister(); })); }));
+            } catch (e) {}
+            Promise.all(jobs).then(done, done);
+            setTimeout(done, 4000);
+        });
+    });
+})();
+</script>
+
+<!-- ================= LOGIN ================= -->
+<div id="loginScreen">
+    <form class="login-card" id="loginForm">
+        <h2>JFR Feed</h2>
+        <p class="login-sub">Sign in with your ranch account.</p>
+        <div id="bootError" style="display:none;"></div>
+        <div id="loginAlert"></div>
+        <label for="loginEmail">Email</label>
+        <input type="email" id="loginEmail" autocomplete="username" inputmode="email" required>
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" required>
+        <button type="submit" id="loginBtn">Sign in</button>
+        <div class="login-help">
+            <span>Same account as the field app.</span>
+            <button type="button" id="loginResetBtn">Reset app</button>
+        </div>
+        <div class="build-stamp"></div>
+    </form>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app" class="app hidden">
+    <header class="top">
+        <div class="top-left">
+            <div class="top-title" id="topTitle">JFR Feed</div>
+            <div class="top-sub" id="topSub">—</div>
+        </div>
+        <div class="top-right">
+            <button type="button" class="chip" id="scaleChip" title="Scale link">scale</button>
+            <button type="button" class="chip" id="syncChip" title="Sync">sync</button>
+        </div>
+    </header>
+
+    <main class="stage" id="stage">
+
+        <!-- ---------- BUNKS: one pasture per page, reading order down the side ---------- -->
+        <section class="view" id="v-bunks">
+            <div class="row-between">
+                <h2 id="bunkDateH">Bunk read</h2>
+                <button type="button" class="btn small ghost" id="bunkRefreshBtn">Refresh head</button>
+            </div>
+            <div id="bunkAlert"></div>
+            <div class="bunk-layout">
+                <div class="bunk-main">
+                    <div class="bunk-nav">
+                        <button type="button" class="btn ghost nav-arrow" id="bunkPrevBtn">&#9664;</button>
+                        <div class="bunk-pos" id="bunkPos">—</div>
+                        <button type="button" class="btn ghost nav-arrow" id="bunkNextBtn">&#9654;</button>
+                    </div>
+                    <div id="bunkCard"></div>
+                </div>
+                <aside class="bunk-side">
+                    <div class="row-between side-head">
+                        <b>Reading order</b>
+                        <button type="button" class="btn small ghost" id="bunkLockBtn">&#128274;</button>
+                    </div>
+                    <div id="bunkSideList" class="side-list locked"></div>
+                </aside>
+            </div>
+            <div class="sticky-bar" id="bunkSaveBar">
+                <span class="muted small" id="bunkSaveHint"></span>
+                <button type="button" class="btn primary" id="bunkSaveBtn">Save calls</button>
+            </div>
+        </section>
+
+        <!-- ---------- PLAN ---------- -->
+        <section class="view" id="v-plan">
+            <div class="row-between">
+                <h2>Today's loads</h2>
+                <select id="planTruck" class="inline-select"></select>
+            </div>
+            <p class="muted small">Balanced loads from today's calls, in route order. Move a pasture between loads or change a split before starting. Once a load starts, its calls are frozen.</p>
+            <div id="planAlert"></div>
+            <div id="planList"></div>
+            <div class="card" id="routeCard">
+                <div class="row-between side-head">
+                    <div><b>Feed route order</b><div class="muted small">The order the truck drives. Separate from the bunk reading order.</div></div>
+                    <button type="button" class="btn small ghost" id="routeLockBtn">&#128274;</button>
+                </div>
+                <div id="routeList" class="side-list locked"></div>
+            </div>
+        </section>
+
+        <!-- ---------- TRUCK (load / mix / drop) ---------- -->
+        <section class="view" id="v-truck">
+            <div id="truckNone" class="empty">
+                No load in progress. Go to <b>Plan</b> and start one.
+            </div>
+
+            <!-- PB's Load screen (John's example): red panel header, grey
+                 sub-header, big countdown; Scale panel beside it; tile strip
+                 below. Same shape for delivery with pastures as the tiles. -->
+            <div id="truckLoad" class="hidden pb-screen">
+                <div class="pb-bar">
+                    <button type="button" class="pb-btn green" id="ldDoneBtn">Done</button>
+                    <div class="pb-bar-title">Load</div>
+                    <button type="button" class="pb-btn grey" id="ldEditBtn">Edit</button>
+                </div>
+                <div class="pb-grid">
+                    <div class="pb-panel">
+                        <div class="pb-panel-head" id="ldTitle">—</div>
+                        <div class="pb-panel-sub" id="ldBigLabel">—</div>
+                        <div class="big-panel" id="ldBig">
+                            <div class="big-num" id="ldBigNum">—</div>
+                            <div class="big-foot" id="ldBigFoot">—</div>
+                        </div>
+                    </div>
+                    <div class="pb-panel">
+                        <div class="pb-panel-head">Scale</div>
+                        <div class="pb-scale-row">
+                            <button type="button" class="pb-btn green small" id="ldZeroBtn">Zero</button>
+                            <div class="pb-link"><span class="scale-state" id="ldLink">no link</span></div>
+                            <button type="button" class="pb-btn red small" id="ldSkipBtn">Skip</button>
+                        </div>
+                        <div class="pb-scale-box"><span id="ldGross">—</span><span class="pb-scale-unit">lb</span></div>
+                        <div class="pb-panel-foot" id="ldSub">—</div>
+                    </div>
+                </div>
+                <div class="pb-select-head">Feed Select</div>
+                <div class="pb-strip"><div class="pb-strip-labels"><span>Target</span><span>Loaded</span></div><div class="tiles" id="ldTiles"></div></div>
+            </div>
+
+            <div id="truckMix" class="hidden pb-screen">
+                <div class="pb-bar">
+                    <div class="pb-bar-title">Mixing</div>
+                </div>
+                <div class="pb-panel">
+                    <div class="pb-panel-head" id="mxTitle">—</div>
+                    <div class="pb-panel-sub" id="mxSub">—</div>
+                    <div class="big-panel mix" id="mxBig">
+                        <div class="big-label">time left</div>
+                        <div class="big-num" id="mxNum">—</div>
+                        <div class="big-foot" id="mxFoot">No feed until the timer hits zero.</div>
+                    </div>
+                </div>
+                <div class="action-row">
+                    <button type="button" class="btn primary big" id="mxGoBtn" disabled>Go feed</button>
+                </div>
+            </div>
+
+            <div id="truckDrop" class="hidden pb-screen">
+                <div class="pb-bar">
+                    <button type="button" class="pb-btn green" id="drStartBtn">Start</button>
+                    <button type="button" class="pb-btn green hidden" id="drDoneBtn">Done</button>
+                    <div class="pb-bar-title">Deliver</div>
+                    <button type="button" class="pb-btn grey" id="drEditBtn">Edit</button>
+                </div>
+                <div class="pb-grid">
+                    <div class="pb-panel">
+                        <div class="pb-panel-head" id="drTitle">—</div>
+                        <div class="pb-panel-sub" id="drBigLabel">—</div>
+                        <div class="big-panel" id="drBig">
+                            <div class="big-num" id="drBigNum">—</div>
+                            <div class="big-foot" id="drBigFoot">—</div>
+                        </div>
+                    </div>
+                    <div class="pb-panel">
+                        <div class="pb-panel-head">Scale</div>
+                        <div class="pb-scale-row">
+                            <button type="button" class="pb-btn green small" id="drAddBtn">+ Pasture</button>
+                            <div class="pb-link"><span class="scale-state" id="drLink">no link</span></div>
+                            <button type="button" class="pb-btn red small" id="drCloseBtn">Close load</button>
+                        </div>
+                        <div class="pb-scale-box"><span id="drGross">—</span><span class="pb-scale-unit">lb</span></div>
+                        <div class="pb-panel-foot" id="drSub">—</div>
+                    </div>
+                </div>
+                <div class="pb-select-head">Pasture Select</div>
+                <div class="pb-strip"><div class="pb-strip-labels"><span>Target</span><span>Fed</span></div><div class="tiles drops" id="drTiles"></div></div>
+            </div>
+
+            <div id="simBar" class="sim-bar hidden">
+                <div class="sim-title">Simulated scale</div>
+                <input type="range" id="simSlider" min="0" max="30000" step="10" value="0">
+                <div class="sim-btns">
+                    <button type="button" class="btn ghost small" data-sim="-1000">−1000</button>
+                    <button type="button" class="btn ghost small" data-sim="-100">−100</button>
+                    <button type="button" class="btn ghost small" data-sim="+100">+100</button>
+                    <button type="button" class="btn ghost small" data-sim="+1000">+1000</button>
+                    <button type="button" class="btn ghost small" id="simAutoBtn">Auto ▶</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ---------- HISTORY ---------- -->
+        <section class="view" id="v-history">
+            <div class="row-between">
+                <h2>Loads</h2>
+                <button type="button" class="btn small ghost" id="histRefreshBtn">Refresh</button>
+            </div>
+            <p class="muted small">Last two weeks. A load can be edited until the office posts it; nothing is ever deleted.</p>
+            <div id="histList"></div>
+        </section>
+
+        <!-- ---------- MORE ---------- -->
+        <section class="view" id="v-more">
+            <h2>More</h2>
+            <div class="card">
+                <div class="krow"><span class="k">Signed in</span><span class="v" id="moreUser">—</span></div>
+                <div class="krow"><span class="k">Truck</span><span class="v"><select id="moreTruck" class="inline-select"></select></span></div>
+                <div class="krow"><span class="k">Scale</span><span class="v" id="moreScale">—</span></div>
+                <div class="krow"><span class="k">Simulated scale</span><span class="v"><label class="switch"><input type="checkbox" id="moreSim"><span></span></label></span></div>
+                <div class="krow"><span class="k">Data pulled</span><span class="v" id="morePulled">—</span></div>
+                <div class="krow"><span class="k">Waiting to sync</span><span class="v" id="moreQueue">—</span></div>
+            </div>
+            <button type="button" class="btn" id="morePullBtn">Pull ranch data</button>
+            <button type="button" class="btn" id="moreSyncBtn">Sync now</button>
+            <button type="button" class="btn ghost" id="moreScanBtn">Scan for scale</button>
+            <div id="moreRejected"></div>
+            <button type="button" class="btn danger" id="moreSignOutBtn">Sign out (all JFR apps on this device)</button>
+            <div class="build-stamp"></div>
+        </section>
+    </main>
+
+    <nav class="tabbar">
+        <button type="button" data-tab="bunks">Bunks</button>
+        <button type="button" data-tab="plan">Plan</button>
+        <button type="button" data-tab="truck">Truck</button>
+        <button type="button" data-tab="history">History</button>
+        <button type="button" data-tab="more">More</button>
+    </nav>
+</div>
+
+<!-- ================= SHEETS ================= -->
+<div class="sheet-backdrop" id="sheetBackdrop">
+    <div class="sheet" id="sheet">
+        <div class="sheet-title" id="sheetTitle">—</div>
+        <div id="sheetBody"></div>
+        <div class="sheet-actions">
+            <button type="button" class="btn ghost" id="sheetCancel">Cancel</button>
+            <button type="button" class="btn primary" id="sheetOk">OK</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="supabase.min.js?v=2.46.1"></script>
+<script src="planner.js?v=v5"></script>
+<script src="app.js?v=v5"></script>
+</body>
+</html>

@@ -996,6 +996,164 @@ bookkeeping marker became a vendor.
   Blocked on John: a Resend account with a verified domain, and `pg_cron` +
   `pg_net` enabled. 7:00am pinned to `America/Chicago`.
 
+## Feed truck (phase 1 built 2026-09-04; phases 2-3 designed)
+
+Design record with all 21 of John's decisions: `docs/feed-truck-integration-scope.md`.
+Migration: `docs/sql/2026-09-04_feed_truck.sql` (tested locally on PG16 against
+a stub schema, idempotent). Office+owner screens under Inventory → **Truck ▾**:
+Loads · Tie-out vs PB · Rations · Pastures & route · Trucks · Settings.
+
+```
+bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   ← the feed app (phase 2)
+                  └──────── feed_drops ── feed_drop_lots (lot, head, lb)
+                                 │  post_feed_load()  (prior-day, on/after cut-over)
+                                 ▼
+                            feed_usage (source='truck')  ← feed_load_usage links them for unpost
+```
+
+- **Parallel first (D1).** Truck pounds live in their own tables and never
+  touch `feed_usage` until `ranch_settings.feed_truck_post_from` is set. PB's
+  Monday entry keeps posting meanwhile. The tie-out views
+  (`feed_truck_tieout`, `feed_truck_tieout_headdays`) compare lb per lot per
+  commodity per PB week (Mon–Sun) and the split head vs `lot_daily_head` on
+  the same days. Set the date only when the tie-out has held; from then the
+  Monday PB entry must STOP for those weeks or feed is charged twice.
+- **Hard rules from John:** scale is the only source of pounds, nothing
+  advances without a tap, **no feed until the mix timer hits zero (no
+  override)**, no deleting a drop or cancelling a load.
+- **A load posts what left the bays, over the lots it dropped to.** Each
+  line's `lb` splits across lots pro-rata by dropped pounds (`lr_split`,
+  largest-remainder, sums exactly) and goes through `post_feed_usage` one row
+  per (line, lot), dated the load date. Left-in-box is therefore charged to
+  that load's lots and the NEXT load draws less (Distribute cut its targets
+  by the leftover). Nothing is stored per drop per commodity. Composition is
+  frozen on `feed_load_lines`; `scale_lb` is never overwritten, `lb` is what
+  the books use, `edited_*` says who overrode and why.
+- **Editable until posted, one-day grace, unpost to fix.** `post_due_feed_loads()`
+  runs when the Inventory tab opens (office/owner, throttled 10 min) and posts
+  closed loads dated BEFORE ranch today. `feed_load_guard()` freezes lines,
+  drops and splits of a posted/void load; `unpost_feed_load()` reverses via
+  `delete_feed_usage`, reopens the load with rows intact. `void_feed_load()`
+  needs a reason and refuses a posted load. Status cannot be set to
+  posted/void by hand (`feed_loads_status_guard`, bypassed only inside the
+  RPCs via `set_config('feed_truck.rpc','on',true)`).
+- **A bunk read frozen into a load cannot change its call**
+  (`bunk_reads.frozen_load_id`, guard trigger); route order and notes may.
+  Void clears the freeze.
+- **`split_drop_to_lots()` is the fallback**, not the rule: the feed app
+  writes the head split from what it cached at the barn; posting fills any
+  it missed from open assignments on the load date (`moved_out >= date`
+  counts, cattle that left that day ate that morning).
+- **Ration cap on the ration (`max_load_lb`), optional `feed_trucks.capacity_lb`,
+  smaller wins.** `pasture_feed_setup.one_pass` = never split across loads.
+  `ration_since` is stamped by trigger on every ration change (a step-up).
+- **RLS:** setup tables read operational / write office+owner (ration_lines
+  DELETE includes office because the screen rewrites lines whole); truck
+  tables insert/update owner+office+crew, crew only while the load is open,
+  DELETE owner only; `feed_load_usage` books-readers. All three views
+  `security_invoker`. **`ranch_settings` UPDATE widened to office** (was
+  owner) so office can set the four truck settings; that row also carries
+  `feed_direct_from`.
+- **Posting refuses** a load with no dropped pounds ("void it and let the
+  next load carry the pounds"): the bays are then over-stated by that
+  leftover until a count. Rare; documented, not solved.
+- **Phase 2, `feed-app/` (built 2026-09-04).** Third PWA beside
+  `field-app/` and `tally-book/`, same sign-in and boot-error pattern.
+  Tabs: Bunks · Plan · Truck · History · More. `planner.js` is a pure
+  module (`node feed-app/planner.test.js`, 300 random plans fuzzed for
+  conservation of pounds); `app.js` holds the rest. Verified end to end in
+  headless Chromium against a stubbed client (`/tmp/smoke` harness, 36
+  assertions: prefill, stepper, save, plan, start, countdown bands, Done
+  per ingredient, mix gate, two drops with the head split, an edit with a
+  reason, close with leftover, queue drained, leftover carried forward).
+  - **Every truck row carries a client uuid and syncs by `upsert(onConflict:
+    'id')`** from a localStorage queue, load row first then lines, drops,
+    lot splits. NOT by `client_id`: the partial unique indexes on it do not
+    satisfy `ON CONFLICT (client_id)` without the predicate PostgREST
+    cannot send. Rows queued while a sync is in flight go on the next round
+    (`queueGen`), not the 45 s timer.
+  - **Bunk calls save straight to the ranch and need signal** (D15); the
+    screen says so. Every pasture on the route is saved, so an untouched
+    bunk still carries yesterday's lb/hd (D4). Saved via
+    `upsert(onConflict:'read_date,pasture_id')`. A read the truck has
+    loaded is locked on screen and by the DB guard.
+  - **Scale bridge:** the shell calls `window.FeedScale.onWeight({lb,
+    stable, deviceId})` / `.onStatus({connected, deviceId, name})`; the
+    page posts `{cmd:'zero'|'scan'}` to the `FeedShell` JavaScript channel.
+    A reading older than 5 s is "no link" and every Done disables. Contract
+    in `feed-app/README.md`. **The head stays in gross**; each ingredient
+    and drop is a difference in gross since its tile was selected / Start
+    was tapped, so the cab indicator and the iPad always agree.
+  - **Simulated scale** (More › Simulated scale): slider + Auto
+    filling/emptying at 400 lb/s. It is how everything is tested in Safari.
+  - `_ui` on a local load (current tile, start gross) is device state and
+    is stripped before sync (`loadRow`).
+  - **Two orders (2026-09-05/06, John):** `pasture_feed_setup.route_order`
+    is the feed route the truck drives, `read_order` the bunk-reading walk.
+    Migration `docs/sql/2026-09-05_feed_truck_read_order.sql` adds the
+    column, lets crew UPDATE the table and a trigger refuses a crew update
+    that touches anything but the two orders. Both apps reorder by
+    **drag with a lock** (pointer-event sortable, because iPad Safari has no
+    touch drag-and-drop): office Pastures & route has an "order by" select;
+    the feed app drags the reading order beside the bunk page and the route
+    under Plan. Order changes from the cab go as UPDATEs keyed on
+    `pasture_id` (`queueOrder`), never upserts - an upsert is an INSERT
+    first and crew may not insert a setup row.
+  - **Bunk calling is SDSU slick-bunk with John's fast/slow rule (2026-09-06).**
+    Scores 0 / ½ / 1 / 2 / 3 (`bunk_reads.bunk_score` is numeric(2,1));
+    clean = 0 or ½. Migration `docs/sql/2026-09-06_bunk_scoring.sql` adds
+    `rations.dry_matter_pct` + `expected_dmi_lb` and six bump rules on
+    `ranch_settings` (defaults: below expected DMI bump +0.75 lb DM after 2
+    clean days; at/above +0.5 after 3; score 1 holds).
+    **Cuts are PERCENTAGES, bumps are pounds of DM** (John, 2026-09-06: "I
+    want to cut percentages, 3 usually means a big cut"). Migration
+    `docs/sql/2026-09-06_bunk_cut_pct.sql` adds `bunk_cut2_pct` (10) and
+    `bunk_cut3_pct` (25); the old `bunk_cut*_lb_dm` columns stay as the
+    audit of the previous rule and are no longer read. A cut is a
+    proportional pull-back, so it has to scale: half a pound off a pen
+    eating 16 lb DM is a 3% trim nobody notices, and the same half pound
+    off starter cattle eating 7 is twice the cut. A bump is closing a gap
+    to a target intake that is itself in pounds, so it stays in lb DM.
+    `suggestCall()` in the feed app turns the tapped score into
+    today's lb/hd (as-fed, quarter-pound), writes `suggested_lb_per_head`,
+    `clean_days` and `suggest_note` beside the call so a hand adjustment is
+    visible later. `cleanStreak()` walks the read history back from
+    yesterday and stops at a bump (lb/hd rose that day) or a missing day.
+    No DM % on the ration → the bump is taken as-fed and the screen says so.
+  - **Expected intake is a PERCENT OF BODY WEIGHT, not a fixed lb/hd**
+    (2026-09-06, John). Migration `docs/sql/2026-09-06_bunk_weather.sql` adds
+    `rations.expected_dmi_pct_bw`; `expectedDmi()` multiplies it by the
+    pasture's head-weighted `lot_status.projected_current_weight`, so the
+    target climbs as the cattle grow. `expected_dmi_lb` survives as the
+    fallback when no weight is known, and the screen names the basis it used.
+    The read stores `est_weight_lb` and `expected_dmi_lb` so a call can be
+    read back against what it was working from.
+  - **Weather is STORED, not just shown** (`daily_weather`, one row per ranch
+    day from Open-Meteo — free, no key). The feed app refreshes the last week
+    plus two days at the barn where there is signal; consumption gets read
+    against it. `ranch_settings.ranch_lat/ranch_lon` (default Kosse) set the
+    location. Silent on failure — the trend matrix just shows a dash.
+  - **The trend matrix shows what was DELIVERED, not what was called.**
+    `deliveredOn()` sums the done drops for that pasture that day; a day that
+    was called but never dropped prints the call in grey with an asterisk, so
+    a skipped pasture is visible instead of looking fed.
+  - **Quick adjust is a percent of YESTERDAY'S call**, never of today's
+    edited number — tapping −5% twice must not compound. The **10% shock
+    guardrail** asks once at save, naming each pasture more than a tenth off
+    its own three-day average; it catches an extra zero and does not block.
+    Flags (mud, sick pull, waterer, storm) and a note ride on the read.
+  - **Bunk page is one pasture per screen** with prev/next and the reading
+    order down the side (PB's shape, John's ask). **Plan is PB's Delivery
+    overview**: one card per load, pens with Target/Fed and a Total, then
+    feed with Target/Loaded; today's run loads show actuals in the same
+    cards. Ration lines carry no bay on the office screen (John: not
+    needed); `default_location_id` is filled from the item's usual bay and
+    the loader can change it per load.
+- **Not built yet:** phase 3 Flutter shell (Scale-Tec template + WebView +
+  bridge; iPad build needs a Mac with Xcode and John's individual Apple
+  developer account, started 2026-09-04 week), the two charts on the bunk
+  page, Anomalies rows for over-tolerance / skipped mix / overrides.
+
 ## Tally Book (built 2026-08-28, ported the same day)
 
 A second PWA in this repo at `tally-book/`, alongside `field-app/`. A daily
