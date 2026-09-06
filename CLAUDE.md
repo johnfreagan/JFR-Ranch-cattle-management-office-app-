@@ -1017,6 +1017,24 @@ bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   
     filling/emptying at 400 lb/s. It is how everything is tested in Safari.
   - `_ui` on a local load (current tile, start gross) is device state and
     is stripped before sync (`loadRow`).
+  - **Two orders (2026-09-05/06, John):** `pasture_feed_setup.route_order`
+    is the feed route the truck drives, `read_order` the bunk-reading walk.
+    Migration `docs/sql/2026-09-05_feed_truck_read_order.sql` adds the
+    column, lets crew UPDATE the table and a trigger refuses a crew update
+    that touches anything but the two orders. Both apps reorder by
+    **drag with a lock** (pointer-event sortable, because iPad Safari has no
+    touch drag-and-drop): office Pastures & route has an "order by" select;
+    the feed app drags the reading order beside the bunk page and the route
+    under Plan. Order changes from the cab go as UPDATEs keyed on
+    `pasture_id` (`queueOrder`), never upserts - an upsert is an INSERT
+    first and crew may not insert a setup row.
+  - **Bunk page is one pasture per screen** with prev/next and the reading
+    order down the side (PB's shape, John's ask). **Plan is PB's Delivery
+    overview**: one card per load, pens with Target/Fed and a Total, then
+    feed with Target/Loaded; today's run loads show actuals in the same
+    cards. Ration lines carry no bay on the office screen (John: not
+    needed); `default_location_id` is filled from the item's usual bay and
+    the loader can change it per load.
 - **Not built yet:** phase 3 Flutter shell (Scale-Tec template + WebView +
   bridge; iPad build needs a Mac with Xcode and John's individual Apple
   developer account, started 2026-09-04 week), the two charts on the bunk

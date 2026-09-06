@@ -170,10 +170,36 @@ $('simAutoBtn').addEventListener('click', () => {
 // ---------------------------------------------------------
 const PERMANENT_PG_CODES = ['42501', '23514', '23503', '23502', '22P02', 'P0001', '23505'];
 let queueGen = 0;   // bumped on every enqueue so a sync in flight knows to go again
-function enqueue(table, row) {
-    const i = S.queue.findIndex(q => q.table === table && q.row.id === row.id);
-    if (i >= 0) S.queue[i] = { table, row, _attempts: 0 }; else S.queue.push({ table, row, _attempts: 0 });
+function enqueue(table, row, op, key) {
+    const k = key || 'id';
+    const i = S.queue.findIndex(q => q.table === table && q.row[k] === row[k] && (q.key || 'id') === k);
+    const entry = { table, row, op: op || 'upsert', key: k, _attempts: 0 };
+    if (i >= 0) S.queue[i] = entry; else S.queue.push(entry);
     queueGen++;
+}
+// Order changes go as UPDATEs keyed on pasture_id: crew may change the two
+// order columns (a DB trigger refuses anything else) but may not INSERT a
+// setup row, and an upsert is an insert first.
+function queueOrder(pid, patch) { enqueue('pasture_feed_setup', Object.assign({ pasture_id: pid }, patch), 'update', 'pasture_id'); }
+
+// Drag-to-reorder on a finger (iPad Safari has no touch drag-and-drop): a
+// handle is pressed, items shuffle as the pointer crosses their midlines,
+// the list's `.locked` class parks it. Same helper as the office app.
+function makeSortable(container, itemSel, handleSel, onDrop) {
+    container.addEventListener('pointerdown', e => {
+        const handle = e.target.closest(handleSel);
+        if (!handle || container.classList.contains('locked')) return;
+        const item = handle.closest(itemSel); if (!item) return;
+        e.preventDefault();
+        item.classList.add('dragging');
+        const move = ev => {
+            const items = [...container.querySelectorAll(itemSel)].filter(x => x !== item);
+            for (const other of items) { const r = other.getBoundingClientRect(); if (ev.clientY < r.top + r.height / 2) { other.parentNode.insertBefore(item, other); return; } }
+            if (items.length) items[items.length - 1].parentNode.appendChild(item);
+        };
+        const up = () => { item.classList.remove('dragging'); document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up); onDrop([...container.querySelectorAll(itemSel)].map(x => x.dataset.pid)); };
+        document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+    });
 }
 function loadRow(l) {
     const { lines, drops, _ui, ...row } = l; return row;
@@ -195,7 +221,9 @@ async function processQueue() {
     for (const q of snapshot) {
         let ok = false;
         try {
-            const { error } = await sb.from(q.table).upsert(q.row, { onConflict: 'id' });
+            const { error } = q.op === 'update'
+                ? await sb.from(q.table).update(q.row).eq(q.key, q.row[q.key])
+                : await sb.from(q.table).upsert(q.row, { onConflict: 'id' });
             if (!error) ok = true;
             else if (PERMANENT_PG_CODES.includes(error.code) || /feed_load_guard|status_guard|frozen_guard/.test(error.message || '')) {
                 S.rejected.unshift({ table: q.table, id: q.row.id, reason: error.message, at: new Date().toISOString() });
@@ -356,9 +384,15 @@ document.querySelectorAll('.tabbar button').forEach(b => b.addEventListener('cli
 // ---------------------------------------------------------
 // BUNKS (D3, D4, D6)
 // ---------------------------------------------------------
+// Two orders on pasture_feed_setup (2026-09-05): the feed ROUTE the truck
+// drives (route_order) and the bunk READING walk (read_order). Either may be
+// dragged here; the DB lets crew change only those two columns.
+function activeSetup() { return ((S.refs && S.refs.setup) || []).filter(s => s.is_active && R.pasture(s.pasture_id)); }
 function routeSetup() {
-    return ((S.refs && S.refs.setup) || []).filter(s => s.is_active && R.pasture(s.pasture_id))
-        .sort((a, b) => (readFor(a.pasture_id).route_order - readFor(b.pasture_id).route_order) || (a.route_order - b.route_order) || pastureLabel(a.pasture_id).localeCompare(pastureLabel(b.pasture_id)));
+    return activeSetup().sort((a, b) => ((Number(a.route_order) || 0) - (Number(b.route_order) || 0)) || pastureLabel(a.pasture_id).localeCompare(pastureLabel(b.pasture_id)));
+}
+function readSetup() {
+    return activeSetup().sort((a, b) => ((Number(a.read_order) || Number(a.route_order) || 0) - (Number(b.read_order) || Number(b.route_order) || 0)) || pastureLabel(a.pasture_id).localeCompare(pastureLabel(b.pasture_id)));
 }
 // Today's read for a pasture, created (unsaved) from setup + the prefill
 // the first time it is asked for. Everything the truck needs is snapshotted
@@ -391,74 +425,83 @@ function setRead(pid, patch) {
     if (r.feeder_type === 'bunk') { r.head_count = pastureHeadTotal(pid); r.target_lb = round1((Number(r.lb_per_head) || 0) * r.head_count); }
     S.readsDirty = true; S.planEdits = null; persist(); renderBunks();
 }
+S.bunkIdx = 0;
+function bunkGo(delta) {
+    const n = readSetup().length; if (!n) return;
+    S.bunkIdx = Math.max(0, Math.min(n - 1, S.bunkIdx + delta));
+    renderBunks();
+}
+function readStatus(r) {
+    if (r.feeder_type === 'bulk') return { txt: fmt(r.target_lb) + ' lb', done: !r._new };
+    const scored = r.bunk_score != null;
+    return { txt: (scored ? 'score ' + r.bunk_score + ' · ' : '') + fmt(r.lb_per_head, 2) + ' lb/hd', done: scored };
+}
 function renderBunks() {
     $('bunkDateH').textContent = 'Bunk read · ' + fmtDate(ranchToday());
-    const list = $('bunkList');
-    if (!S.refs) { list.innerHTML = '<div class="empty">Pull ranch data first (More › Pull ranch data). It needs signal.</div>'; return; }
-    const route = routeSetup();
-    if (!route.length) { list.innerHTML = '<div class="empty">No pastures are on the feed route. The office sets them under Inventory › Truck › Pastures &amp; route.</div>'; return; }
-    list.innerHTML = route.map((s, i) => {
-        const r = readFor(s.pasture_id);
-        const frozen = readFrozen(r);
-        const head = R.head(s.pasture_id);
-        const ration = R.ration(r.ration_id);
-        const hist = ((S.refs.history || {})[s.pasture_id] || []).slice(0, 7);
-        const histTxt = hist.map(h => `${h.s != null ? h.s : '·'}/${h.lb != null ? fmt(h.lb, 1) : fmt(h.t)}`).join(' ');
-        const scores = [0, 1, 2, 3].map(n => `<button type="button" data-score="${n}" class="${r.bunk_score === n ? 'on' : ''}" ${frozen ? 'disabled' : ''}>${n}</button>`).join('');
-        const bulk = r.feeder_type === 'bulk';
-        return `<div class="card bunk ${frozen ? 'locked' : ''}" data-pid="${s.pasture_id}">
-            <div class="info">
-                <div><span class="title">${esc(pastureLabel(s.pasture_id))}</span>
-                    <div class="lots">${fmt(r.head_count)} hd${head.length ? ' · ' + head.map(h => esc(h.lot_number) + ' ' + h.head).join(', ') : ''}${ration ? ' · ' + esc(ration.name) : ' · <span class="tag red">no ration</span>'}${frozen ? ' · <span class="frozen">on the truck</span>' : ''}</div>
-                    ${histTxt ? `<div class="lots">last 7: ${esc(histTxt)}</div>` : ''}</div>
-                <div class="route-btns"><button type="button" data-mv="-1" ${i === 0 ? 'disabled' : ''}>▲</button><button type="button" data-mv="1" ${i === route.length - 1 ? 'disabled' : ''}>▼</button></div>
-            </div>
-            ${bulk ? `<div class="stepper"><span class="unit">total</span><button type="button" data-step="-100" ${frozen ? 'disabled' : ''}>−</button><span class="val" data-edit="total">${fmt(r.target_lb)}</span><button type="button" data-step="100" ${frozen ? 'disabled' : ''}>+</button><span class="unit">lb</span></div><div></div>`
-                   : `<div class="scores">${scores}</div>
-                      <div class="stepper"><button type="button" data-step="-0.25" ${frozen ? 'disabled' : ''}>−</button><span class="val" data-edit="lbhd">${fmt(r.lb_per_head, 2)}</span><button type="button" data-step="0.25" ${frozen ? 'disabled' : ''}>+</button><span class="unit">lb/hd</span></div>`}
-            <div class="total"><span class="muted">${bulk ? 'Bulk feeder' : 'Pasture total'}</span><b>${fmt(r.target_lb)} lb</b></div>
-        </div>`;
-    }).join('');
-    list.querySelectorAll('.card').forEach(card => {
-        const pid = card.dataset.pid;
-        card.querySelectorAll('[data-score]').forEach(b => b.addEventListener('click', () => { const r = readFor(pid); setRead(pid, { bunk_score: r.bunk_score === Number(b.dataset.score) ? null : Number(b.dataset.score) }); }));
-        card.querySelectorAll('[data-step]').forEach(b => {
-            let hold = null, fired = false;
-            const step = () => { const r = readFor(pid); const d = Number(b.dataset.step);
-                if (r.feeder_type === 'bulk') setRead(pid, { target_lb: Math.max(0, round1((Number(r.target_lb) || 0) + d)) });
-                else setRead(pid, { lb_per_head: Math.max(0, Math.round(((Number(r.lb_per_head) || 0) + d) * 100) / 100) }); };
-            b.addEventListener('click', () => { if (!fired) step(); fired = false; });
-            // hold to run
-            b.addEventListener('touchstart', () => { hold = setTimeout(function run() { fired = true; step(); hold = setTimeout(run, 140); }, 450); }, { passive: true });
-            ['touchend', 'touchcancel'].forEach(ev => b.addEventListener(ev, () => { clearTimeout(hold); hold = null; }));
-        });
-        card.querySelectorAll('[data-edit]').forEach(v => v.addEventListener('click', () => {
-            const r = readFor(pid); if (readFrozen(r)) return;
-            const bulk = v.dataset.edit === 'total';
-            const cur = bulk ? r.target_lb : r.lb_per_head;
-            const ans = prompt(bulk ? 'Total pounds for this feeder:' : 'Pounds per head as-fed:', cur == null ? '' : String(cur));
-            if (ans === null) return; const n = parseFloat(ans); if (isNaN(n) || n < 0) return;
-            setRead(pid, bulk ? { target_lb: round1(n) } : { lb_per_head: Math.round(n * 100) / 100 });
-        }));
-        card.querySelectorAll('[data-mv]').forEach(b => b.addEventListener('click', () => {
-            const order = routeSetup().map(s => s.pasture_id);
-            const i = order.indexOf(pid), j = i + Number(b.dataset.mv);
-            if (j < 0 || j >= order.length) return;
-            [order[i], order[j]] = [order[j], order[i]];
-            order.forEach((p, k) => { const r = readFor(p); r.route_order = k + 1; });
-            S.readsDirty = true; S.planEdits = null; persist(); renderBunks();
-        }));
+    const card = $('bunkCard'), side = $('bunkSideList');
+    if (!S.refs) { card.innerHTML = '<div class="empty">Pull ranch data first (More › Pull ranch data). It needs signal.</div>'; side.innerHTML = ''; $('bunkPos').textContent = '—'; return; }
+    const order = readSetup();
+    if (!order.length) { card.innerHTML = '<div class="empty">No pastures are on the feed route. The office sets them under Inventory › Truck › Pastures &amp; route.</div>'; side.innerHTML = ''; $('bunkPos').textContent = '—'; return; }
+    if (S.bunkIdx >= order.length) S.bunkIdx = order.length - 1;
+    const s = order[S.bunkIdx]; const pid = s.pasture_id;
+    const r = readFor(pid); const frozen = readFrozen(r);
+    const head = R.head(pid); const ration = R.ration(r.ration_id);
+    const hist = ((S.refs.history || {})[pid] || []).slice(0, 7).reverse();
+    const bulk = r.feeder_type === 'bulk';
+    $('bunkPos').innerHTML = `${S.bunkIdx + 1} of ${order.length}<span class="sub">${order.filter(x => readStatus(readFor(x.pasture_id)).done).length} read</span>`;
+    $('bunkPrevBtn').disabled = S.bunkIdx === 0; $('bunkNextBtn').disabled = S.bunkIdx === order.length - 1;
+    const scores = [0, 1, 2, 3].map(n => `<button type="button" data-score="${n}" class="${r.bunk_score === n ? 'on' : ''}" ${frozen ? 'disabled' : ''}>${n}</button>`).join('');
+    card.innerHTML = `<div class="card bunk-one ${frozen ? 'locked' : ''}" data-pid="${pid}">
+        <div class="name">${esc(pastureLabel(pid))}</div>
+        <div class="lots">${fmt(r.head_count)} hd${head.length ? ' · ' + head.map(h => esc(h.lot_number) + ' ' + h.head).join(', ') : ''}${ration ? ' · ' + esc(ration.name) : ' · <span class="tag red">no ration</span>'}${frozen ? ' · <span class="frozen">on the truck</span>' : ''}</div>
+        ${bulk ? `<div class="label">Total pounds in the feeder</div>
+                  <div class="stepper"><button type="button" data-step="-100" ${frozen ? 'disabled' : ''}>−</button><span class="val" data-edit="total">${fmt(r.target_lb)}</span><button type="button" data-step="100" ${frozen ? 'disabled' : ''}>+</button></div>`
+               : `<div class="label">Bunk score</div><div class="scores">${scores}</div>
+                  <div class="label">Pounds per head, as fed</div>
+                  <div class="stepper"><button type="button" data-step="-0.25" ${frozen ? 'disabled' : ''}>−</button><span class="val" data-edit="lbhd">${fmt(r.lb_per_head, 2)}</span><button type="button" data-step="0.25" ${frozen ? 'disabled' : ''}>+</button></div>`}
+        <div class="total"><span class="muted">${bulk ? 'Bulk feeder' : 'Pasture total'}</span><b>${fmt(r.target_lb)} lb</b></div>
+        ${hist.length ? `<div class="label">Last ${hist.length} days · score / lb</div><div class="hist">${hist.map(h => `<span>${h.s != null ? h.s : '·'}<b>${h.lb != null ? fmt(h.lb, 1) : fmt(h.t)}</b></span>`).join('')}</div>` : ''}
+    </div>`;
+    card.querySelectorAll('[data-score]').forEach(b => b.addEventListener('click', () => { const x = readFor(pid); setRead(pid, { bunk_score: x.bunk_score === Number(b.dataset.score) ? null : Number(b.dataset.score) }); }));
+    card.querySelectorAll('[data-step]').forEach(b => {
+        let hold = null, fired = false;
+        const step = () => { const x = readFor(pid); const d = Number(b.dataset.step);
+            if (x.feeder_type === 'bulk') setRead(pid, { target_lb: Math.max(0, round1((Number(x.target_lb) || 0) + d)) });
+            else setRead(pid, { lb_per_head: Math.max(0, Math.round(((Number(x.lb_per_head) || 0) + d) * 100) / 100) }); };
+        b.addEventListener('click', () => { if (!fired) step(); fired = false; });
+        b.addEventListener('touchstart', () => { hold = setTimeout(function run() { fired = true; step(); hold = setTimeout(run, 140); }, 450); }, { passive: true });
+        ['touchend', 'touchcancel'].forEach(ev => b.addEventListener(ev, () => { clearTimeout(hold); hold = null; }));
     });
-    $('bunkSaveHint').textContent = S.readsDirty ? 'Unsaved changes' : (Object.values(S.reads.rows).some(r => !r._new) ? 'Saved' : 'Not saved yet');
+    card.querySelectorAll('[data-edit]').forEach(v => v.addEventListener('click', () => {
+        const x = readFor(pid); if (readFrozen(x)) return;
+        const isTotal = v.dataset.edit === 'total';
+        const ans = prompt(isTotal ? 'Total pounds for this feeder:' : 'Pounds per head as-fed:', String(isTotal ? x.target_lb : (x.lb_per_head == null ? '' : x.lb_per_head)));
+        if (ans === null) return; const n = parseFloat(ans); if (isNaN(n) || n < 0) return;
+        setRead(pid, isTotal ? { target_lb: round1(n) } : { lb_per_head: Math.round(n * 100) / 100 });
+    }));
+    // the reading order down the side: tap to jump, unlock to drag
+    side.innerHTML = order.map((x, i) => { const rr = readFor(x.pasture_id); const st = readStatus(rr);
+        return `<div class="side-item ${i === S.bunkIdx ? 'cur' : ''}" data-pid="${x.pasture_id}"><span class="drag">&#9776;</span><span class="n">${i + 1}</span><span class="nm">${esc(pastureLabel(x.pasture_id))}</span><span class="st ${st.done ? 'done' : ''}">${readFrozen(rr) ? 'on truck' : st.done ? '✓ ' + st.txt : st.txt}</span></div>`; }).join('');
+    side.querySelectorAll('.side-item .nm, .side-item .st, .side-item .n').forEach(el => el.addEventListener('click', () => { S.bunkIdx = order.findIndex(x => x.pasture_id === el.parentNode.dataset.pid); renderBunks(); }));
+    $('bunkSaveHint').textContent = S.readsDirty ? 'Unsaved changes' : (Object.values(S.reads.rows).some(x => !x._new) ? 'Saved' : 'Not saved yet');
     $('bunkSaveBtn').disabled = false;
 }
+function applyOrder(field, pids) {
+    pids.forEach((pid, i) => { const st = R.setup(pid); if (!st) return; if (Number(st[field]) !== i + 1) { st[field] = i + 1; queueOrder(pid, { [field]: i + 1 }); if (field === 'route_order') { const r = S.reads.rows[pid]; if (r) r.route_order = i + 1; } } });
+    saveJSON('feedAppRefs', S.refs); S.planEdits = null; persist(); renderChips();
+    if (navigator.onLine) processQueue();
+}
+makeSortable($('bunkSideList'), '.side-item', '.drag', pids => { const cur = readSetup()[S.bunkIdx]; applyOrder('read_order', pids); S.bunkIdx = Math.max(0, pids.indexOf(cur ? cur.pasture_id : '')); renderBunks(); });
+$('bunkLockBtn').addEventListener('click', () => { const locked = $('bunkSideList').classList.toggle('locked'); $('bunkLockBtn').innerHTML = locked ? '&#128274;' : '&#128275; drag'; });
+$('bunkPrevBtn').addEventListener('click', () => bunkGo(-1));
+$('bunkNextBtn').addEventListener('click', () => bunkGo(1));
 // Saving needs signal, and says so (D15). Every row on the route is saved
 // so a pasture nobody touched still carries yesterday's call (D4).
 async function saveBunks() {
     if (!S.refs) return;
     if (!navigator.onLine) { alertBox('bunkAlert', 'No signal. Bunk calls save straight to the ranch; try again when you have a bar.'); return; }
     alertBox('bunkAlert', '');
-    const rows = routeSetup().map(s => readFor(s.pasture_id)).filter(r => !readFrozen(r)).map(r => { const { _new, ...row } = r; return { ...row, read_by: S.userId }; });
+    const rows = readSetup().map(s => readFor(s.pasture_id)).filter(r => !readFrozen(r)).map(r => { const { _new, ...row } = r; return { ...row, route_order: (R.setup(r.pasture_id) || {}).route_order || row.route_order, read_by: S.userId }; });
     if (!rows.length) return;
     $('bunkSaveBtn').disabled = true; $('bunkSaveHint').textContent = 'Saving…';
     try {
@@ -513,40 +556,70 @@ function buildPlan() {
     });
     return out;
 }
+// PB's Delivery overview, John's pick for this page (2026-09-06): one card
+// per load - red header, the pens with Target and Fed, a Total, then the
+// feed with Target and Loaded. Loads already run today show their actuals
+// in the same shape; planned ones show zeros until the truck moves.
+function ingredientTargets(rationId, plannedLb, carriedLb) {
+    const r = R.ration(rationId); if (!r) return [];
+    const fresh = Math.max(0, plannedLb - (carriedLb || 0));
+    return r.ration_lines.map(ln => ({ item_id: ln.item_id, target_lb: round1(fresh * Number(ln.pct_as_fed) / 100) }));
+}
+function pbCard(opts) {
+    // opts: {seq, rationName, pens:[{label, target, fed, split}], feed:[{name, target, loaded, done}], status, action, editable, over_cap, carried, ri, li}
+    const pensTotal = opts.pens.reduce((s, x) => s + x.target, 0), fedTotal = opts.pens.reduce((s, x) => s + x.fed, 0);
+    const pens = opts.pens.map((x, di) => `<tr class="drop-row" data-ri="${opts.ri || ''}" data-li="${opts.li == null ? '' : opts.li}" data-di="${di}">
+        <td>${esc(x.label)}${x.split ? '<span class="tag amber">split</span>' : ''}</td>
+        <td class="num"><span class="lb-show">${fmt(x.target)}</span><input type="number" step="10" min="0" class="lb-edit hidden" value="${x.target}"></td>
+        <td class="num">${fmt(x.fed)}</td>
+        <td class="mv hidden"><button type="button" data-move="-1" ${opts.li === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move="1">↓</button></td></tr>`).join('');
+    const feed = opts.feed.map(x => `<tr><td>${esc(x.name)}</td><td class="num">${fmt(x.target)}</td><td class="num ${x.done ? 'done' : ''}">${fmt(x.loaded)}</td></tr>`).join('');
+    return `<div class="pb-load ${opts.status || ''}" data-ri="${opts.ri || ''}" data-li="${opts.li == null ? '' : opts.li}">
+        <div class="pb-head"><span>Load ${opts.seq}</span><span class="pb-status">${esc(opts.statusText || '')}</span>${opts.action || ''}</div>
+        <table class="pb-pens"><thead><tr><th>${esc(opts.rationName)}</th><th class="num">Target</th><th class="num">Fed</th><th class="mv hidden"></th></tr></thead>
+            <tbody>${pens}</tbody>
+            <tfoot><tr><td>Total${opts.carried ? ` <span class="pb-note">${fmt(opts.carried.lb)} lb in box</span>` : ''}${opts.over_cap ? ' <span class="tag red">over cap</span>' : ''}</td><td class="num">${fmt(pensTotal)}</td><td class="num">${fmt(fedTotal)}</td><td class="mv hidden"></td></tr></tfoot></table>
+        <table class="pb-feed"><thead><tr><th></th><th class="num">Target</th><th class="num">Loaded</th></tr></thead><tbody>${feed}</tbody></table>
+    </div>`;
+}
 function renderPlan() {
     const sel = $('planTruck');
     sel.innerHTML = ((S.refs && S.refs.trucks) || []).map(t => `<option value="${t.id}" ${currentTruck() && currentTruck().id === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') || '<option value="">no trucks</option>';
     const list = $('planList'); alertBox('planAlert', '');
-    if (!S.refs) { list.innerHTML = '<div class="empty">Pull ranch data first.</div>'; return; }
+    if (!S.refs) { list.innerHTML = '<div class="empty">Pull ranch data first.</div>'; renderRouteList(); return; }
     const act = activeLoad();
-    if (act) { list.innerHTML = `<div class="alert warn">Load ${act.load_seq} (${esc((R.ration(act.ration_id) || {}).name || '')}) is in progress. Finish or close it on the Truck tab before starting another.</div>`; }
+    let html = '';
+    // Loads already run or running today, actuals in the same shape.
+    todayLoads().slice().sort((a, b) => a.load_seq - b.load_seq).forEach(l => {
+        const r = R.ration(l.ration_id) || {};
+        const statusText = { loading: 'loading', mixing: 'mixing', dropping: 'feeding', closed: 'done', posted: 'posted' }[l.status] || l.status;
+        html += pbCard({ seq: l.load_seq, rationName: r.name || '?', statusText, status: l.status,
+            pens: (l.drops || []).map(d => ({ label: pastureLabel(d.pasture_id), target: Number(d.target_lb) || 0, fed: Number(d.lb) || 0 })),
+            feed: (l.lines || []).map(x => ({ name: (R.item(x.item_id) || {}).name || '?', target: Number(x.target_lb) || 0, loaded: Number(x.lb) || 0, done: !!x.done_at })),
+            action: act && act.id === l.id ? '<button type="button" class="pb-select plan-open">Open</button>' : '' });
+    });
+    if (act) html += `<div class="alert warn">Load ${act.load_seq} is in progress. Finish or close it on the Truck tab before starting another.</div>`;
     const plan = buildPlan();
-    if (!plan.length) { list.innerHTML += '<div class="empty">Nothing left to feed today. Set calls on Bunks (and save them) first.</div>'; return; }
     const box = boxState();
     let seq = todayLoads().length;
-    list.innerHTML += plan.map(group => {
+    if (!plan.length) html += '<div class="empty">Nothing left to feed today. Set calls on Bunks (and save them) first.</div>';
+    plan.forEach(group => {
         const ration = R.ration(group.ration_id);
         const cap = capFor(group.ration_id);
-        if (!ration) return `<div class="alert error">${group.loads.reduce((n, l) => n + l.drops.length, 0)} pasture(s) have no ration set. The office sets it under Pastures &amp; route.</div>`;
-        return group.loads.map((l, li) => {
+        if (!ration) { html += `<div class="alert error">${group.loads.reduce((n, l) => n + l.drops.length, 0)} pasture(s) have no ration set. The office sets it under Pastures &amp; route.</div>`; return; }
+        group.loads.forEach((l, li) => {
             seq += 1;
             const carried = (li === 0 && box.lb > 0) ? box : null;
-            const rows = l.drops.map((d, di) => `<div class="drop-row" data-ri="${group.ration_id}" data-li="${li}" data-di="${di}">
-                <div><b>${esc(d.label)}</b>${d.split ? '<span class="tag amber">split</span>' : ''}<div class="muted small">${fmt(pastureHeadTotal(d.pasture_id))} hd</div></div>
-                <div class="lb"><span class="lb-show">${fmt(d.lb)} lb</span><input type="number" step="10" min="0" class="lb-edit hidden" value="${d.lb}"></div>
-                <div class="mv hidden"><button type="button" data-move="-1" ${li === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move="1">↓</button></div>
-            </div>`).join('');
-            return `<div class="card plan-load" data-ri="${group.ration_id}" data-li="${li}">
-                <div class="row-between"><div><span class="title">Load ${seq} · ${esc(ration.name)}</span>
-                    <div class="sub">${fmt(l.lb)} lb${cap ? ' of ' + fmt(cap) + ' cap' : ''}${l.over_cap ? ' <span class="tag red">over cap</span>' : ''}${carried ? ` · ${fmt(carried.lb)} lb ${esc((R.ration(carried.ration_id) || {}).name || '')} already in the box` : ''}</div></div>
-                    <button type="button" class="btn small ghost plan-edit">Edit</button></div>
-                ${rows}
-                ${li === 0 && !act ? `<button type="button" class="btn primary plan-start">Start load ${seq}</button>` : ''}
-            </div>`;
-        }).join('');
-    }).join('');
+            html += pbCard({ seq, rationName: ration.name, ri: group.ration_id, li, over_cap: l.over_cap, carried, statusText: cap ? `cap ${fmt(cap)}` : '',
+                pens: l.drops.map(d => ({ label: d.label, target: d.lb, fed: 0, split: d.split })),
+                feed: ingredientTargets(group.ration_id, l.lb, carried ? carried.lb : 0).map(x => ({ name: (R.item(x.item_id) || {}).name || '?', target: x.target_lb, loaded: 0 })),
+                action: `<button type="button" class="pb-edit plan-edit">Edit</button>${li === 0 && !act ? `<button type="button" class="pb-select plan-start">Start</button>` : ''}` });
+        });
+    });
+    list.innerHTML = html;
+    list.querySelectorAll('.plan-open').forEach(b => b.addEventListener('click', () => showTab('truck')));
     list.querySelectorAll('.plan-edit').forEach(b => b.addEventListener('click', () => {
-        const card = b.closest('.plan-load'); const editing = card.classList.toggle('editing');
+        const card = b.closest('.pb-load'); const editing = card.classList.toggle('editing');
         card.querySelectorAll('.lb-show').forEach(x => x.classList.toggle('hidden', editing));
         card.querySelectorAll('.lb-edit, .mv').forEach(x => x.classList.toggle('hidden', !editing));
         b.textContent = editing ? 'Apply' : 'Edit';
@@ -571,8 +644,17 @@ function renderPlan() {
         S.planEdits = S.planEdits || {}; S.planEdits[ri] = loads.filter(l => l.drops.length);
         renderPlan();
     }));
-    list.querySelectorAll('.plan-start').forEach(b => b.addEventListener('click', () => startLoad(b.closest('.plan-load').dataset.ri)));
+    list.querySelectorAll('.plan-start').forEach(b => b.addEventListener('click', () => startLoad(b.closest('.pb-load').dataset.ri)));
+    renderRouteList();
 }
+function renderRouteList() {
+    const el = $('routeList'); if (!S.refs) { el.innerHTML = ''; return; }
+    const started = new Set(todayLoads().flatMap(l => (l.drops || []).map(d => d.pasture_id)));
+    el.innerHTML = routeSetup().map((x, i) => { const r = readFor(x.pasture_id);
+        return `<div class="side-item" data-pid="${x.pasture_id}"><span class="drag">&#9776;</span><span class="n">${i + 1}</span><span class="nm">${esc(pastureLabel(x.pasture_id))}</span><span class="st ${started.has(x.pasture_id) ? 'done' : ''}">${fmt(r.target_lb)} lb${started.has(x.pasture_id) ? ' · loaded' : ''}</span></div>`; }).join('');
+}
+makeSortable($('routeList'), '.side-item', '.drag', pids => { applyOrder('route_order', pids); renderPlan(); });
+$('routeLockBtn').addEventListener('click', () => { const locked = $('routeList').classList.toggle('locked'); $('routeLockBtn').innerHTML = locked ? '&#128274;' : '&#128275; drag'; });
 $('planTruck').addEventListener('change', e => { S.truckId = e.target.value || null; localStorage.setItem('feedAppTruckId', S.truckId || ''); S.planEdits = null; renderPlan(); renderChips(); });
 
 // Start a load (D6, D7, D9): the load row, its ingredient lines cut for

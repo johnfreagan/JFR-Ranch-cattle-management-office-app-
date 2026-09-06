@@ -172,6 +172,15 @@ countdown, ingredient strip scrolling under it; iPad gets room. Live weight off
 advertisement packets is exactly the loader-cab-reads-truck-scale case. One
 Flutter build for iPhone and iPad.
 
+### D22. Two orders; drag with a lock; PB screens (2026-09-05/06)
+Bunk reading order and feed route order are separate columns on
+`pasture_feed_setup` (`read_order`, `route_order`); crew may drag either from
+the feed app (trigger-guarded), office drags either under Pastures & route.
+Every reorder is drag-and-drop behind a lock button. Ration lines: drag to
+reorder, no bay column. Bunk page: one pasture per page, arrows, reading order
+down the side. Plan page: PB's Delivery overview (load card, pens Target/Fed,
+Total, feed Target/Loaded).
+
 ### Stated assumptions (not asked)
 Settings card: tolerance %, minimum split lb, tie-out tolerance %, cut-over
 date. Bulk feeders: total lb, no score. A third feeding is a third load. Head

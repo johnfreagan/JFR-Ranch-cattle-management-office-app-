@@ -11,7 +11,7 @@
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <title>JFR Feed</title>
-    <link rel="stylesheet" href="styles.css?v=v1">
+    <link rel="stylesheet" href="styles.css?v=v2">
 </head>
 <body>
 
@@ -20,7 +20,7 @@
      showing a page of dead buttons. -->
 <script>
 (function () {
-    var BUILD = 'v1';
+    var BUILD = 'v2';
     window.__FEED_BUILD = BUILD;
     function report(msg) {
         var box = document.getElementById('bootError');
@@ -87,15 +87,30 @@
 
     <main class="stage" id="stage">
 
-        <!-- ---------- BUNKS ---------- -->
+        <!-- ---------- BUNKS: one pasture per page, reading order down the side ---------- -->
         <section class="view" id="v-bunks">
             <div class="row-between">
                 <h2 id="bunkDateH">Bunk read</h2>
                 <button type="button" class="btn small ghost" id="bunkRefreshBtn">Refresh head</button>
             </div>
-            <p class="muted small" id="bunkIntro">Score each bunk and set today's lb/head. Yesterday's number is already in; an unchanged bunk needs no taps. Bulk feeders take total pounds.</p>
             <div id="bunkAlert"></div>
-            <div id="bunkList"></div>
+            <div class="bunk-layout">
+                <div class="bunk-main">
+                    <div class="bunk-nav">
+                        <button type="button" class="btn ghost nav-arrow" id="bunkPrevBtn">&#9664;</button>
+                        <div class="bunk-pos" id="bunkPos">—</div>
+                        <button type="button" class="btn ghost nav-arrow" id="bunkNextBtn">&#9654;</button>
+                    </div>
+                    <div id="bunkCard"></div>
+                </div>
+                <aside class="bunk-side">
+                    <div class="row-between side-head">
+                        <b>Reading order</b>
+                        <button type="button" class="btn small ghost" id="bunkLockBtn">&#128274;</button>
+                    </div>
+                    <div id="bunkSideList" class="side-list locked"></div>
+                </aside>
+            </div>
             <div class="sticky-bar" id="bunkSaveBar">
                 <span class="muted small" id="bunkSaveHint"></span>
                 <button type="button" class="btn primary" id="bunkSaveBtn">Save calls</button>
@@ -111,6 +126,13 @@
             <p class="muted small">Balanced loads from today's calls, in route order. Move a pasture between loads or change a split before starting. Once a load starts, its calls are frozen.</p>
             <div id="planAlert"></div>
             <div id="planList"></div>
+            <div class="card" id="routeCard">
+                <div class="row-between side-head">
+                    <div><b>Feed route order</b><div class="muted small">The order the truck drives. Separate from the bunk reading order.</div></div>
+                    <button type="button" class="btn small ghost" id="routeLockBtn">&#128274;</button>
+                </div>
+                <div id="routeList" class="side-list locked"></div>
+            </div>
         </section>
 
         <!-- ---------- TRUCK (load / mix / drop) ---------- -->
@@ -250,7 +272,7 @@
 <div id="toast" class="toast"></div>
 
 <script src="supabase.min.js?v=2.46.1"></script>
-<script src="planner.js?v=v1"></script>
-<script src="app.js?v=v1"></script>
+<script src="planner.js?v=v2"></script>
+<script src="app.js?v=v2"></script>
 </body>
 </html>

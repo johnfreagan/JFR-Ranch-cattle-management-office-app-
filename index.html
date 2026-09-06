@@ -289,6 +289,11 @@
         tr.clickable { cursor: pointer; }
         tr.clickable:hover { background: #fafaf6; }
         tr.closed-row { color: var(--text-muted); }
+        /* feed truck: drag-to-reorder rows with a lock */
+        .ft-drag { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; color: var(--text-muted); font-size: 18px; padding: 4px 6px; display: inline-block; }
+        .ft-sortable.locked .ft-drag { opacity: .25; cursor: default; }
+        .ft-sortable tr.ft-dragging { opacity: .6; background: #fff4e5; }
+        .ft-lock { white-space: nowrap; }
         tr.test-row { color: #999; font-style: italic; }
         tr.test-row td strong { font-weight: 400; }
         td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -2442,6 +2447,11 @@
                         <label style="display:inline-block; font-size:13px;">
                             <input type="checkbox" id="ftPaShowAll" style="width:auto; vertical-align:middle;"> Show pastures not on the route
                         </label>
+                        <select id="ftPaOrderBy" style="max-width:170px;">
+                            <option value="route_order">Feed route order</option>
+                            <option value="read_order">Bunk reading order</option>
+                        </select>
+                        <button type="button" id="ftPaLockBtn" class="ft-lock">&#128274; Order locked</button>
                         <button class="primary" id="ftPaSaveBtn" data-write>Save changes</button>
                     </div>
                 </div>
@@ -2449,8 +2459,10 @@
                     Which pastures the truck feeds and how. <b>Bunk</b> pastures are called in lb/head and the
                     app multiplies by the head standing there; <b>bulk feeder</b> pastures are called in total
                     pounds. <b>One pass</b> means the planner never splits it across two loads (hard to drive
-                    through the cattle twice). Route order is the default the bunk reader starts from each
-                    morning. Changing the ration stamps the date &mdash; that is how a step-up is recorded.
+                    through the cattle twice). Two orders: the <b>feed route</b> the truck drives and the
+                    <b>bunk reading</b> walk first thing; pick one above, unlock, and drag rows. Whoever reads
+                    bunks or drives can also drag either order in the feed app. Changing the ration stamps the
+                    date &mdash; that is how a step-up is recorded.
                 </p>
                 <div id="ftPaAlert"></div>
                 <div class="ft-content" id="ftPaContent"><div class="empty">Loading&hellip;</div></div>
@@ -3099,18 +3111,21 @@
                 </div>
                 <div>
                     <label for="ftRaMax">Max load (lb)</label>
-                    <input type="number" step="100" min="1" id="ftRaMax" placeholder="e.g. 15000">
+                    <input type="number" step="1" min="0" id="ftRaMax" placeholder="e.g. 15000">
                 </div>
             </div>
-            <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+            <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
                 <b style="font-size:13px;">Ingredients, in load order</b>
-                <button type="button" id="ftRaAddLineBtn">+ Ingredient</button>
+                <div style="display:flex; gap:6px;">
+                    <button type="button" id="ftRaLockBtn" class="ft-lock" title="Unlock to drag ingredients into load order">&#128274; Order locked</button>
+                    <button type="button" id="ftRaAddLineBtn">+ Ingredient</button>
+                </div>
             </div>
             <div style="overflow-x:auto;">
-                <table id="ftRaLines">
-                    <thead><tr><th style="width:60px;">Order</th><th>Ingredient</th><th style="width:110px;" class="num">% as-fed</th><th>Bay</th><th style="width:40px;"></th></tr></thead>
+                <table id="ftRaLines" class="ft-sortable locked">
+                    <thead><tr><th style="width:36px;"></th><th style="width:40px;">#</th><th>Ingredient</th><th style="width:110px;" class="num">% as-fed</th><th style="width:40px;"></th></tr></thead>
                     <tbody></tbody>
-                    <tfoot><tr><td></td><td class="muted">Total</td><td class="num" id="ftRaPctTotal">0%</td><td colspan="2" class="muted" style="font-size:12px;" id="ftRaPctHint"></td></tr></tfoot>
+                    <tfoot><tr><td></td><td></td><td class="muted">Total</td><td class="num" id="ftRaPctTotal">0%</td><td class="muted" style="font-size:12px;" id="ftRaPctHint"></td></tr></tfoot>
                 </table>
             </div>
             <div style="margin:14px 0;">
@@ -3149,7 +3164,7 @@
                 </div>
                 <div>
                     <label for="ftTrCapacity">Capacity (lb)</label>
-                    <input type="number" step="100" min="1" id="ftTrCapacity" placeholder="optional">
+                    <input type="number" step="1" min="0" id="ftTrCapacity" placeholder="optional">
                 </div>
             </div>
             <div style="margin-bottom:10px;">
@@ -7972,7 +7987,8 @@ window.addEventListener('unhandledrejection', function(e) {
          'feedBatchesView', 'feedCostView', 'feedRedwingView', 'invPurchasesView',
          'feedCostCentersView',
          'feedItemsView', 'feedLocationsView',
-         'invNeedsView', 'invOrdersView', 'invInvoicesView', 'invMedsPlaceholderView'].forEach(id => {
+         'invNeedsView', 'invOrdersView', 'invInvoicesView', 'invMedsPlaceholderView',
+         'ftLoadsView', 'ftTieoutView', 'ftRationsView', 'ftPasturesView', 'ftTrucksView', 'ftSettingsView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
         });
@@ -28076,28 +28092,63 @@ ${ranchBlocks}
             .map(l => `<option value="${l.id}" ${l.id === sel ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
     }
 
+    // Drag-to-reorder that works on a finger (iPad Safari has no touch
+    // drag-and-drop). A handle is pressed, rows shuffle as the pointer
+    // crosses their midlines, the container's `.locked` class parks it.
+    // Shared by the ration lines and the pasture route.
+    function ftSortable(container, itemSel, handleSel, onDrop) {
+        container.addEventListener('pointerdown', e => {
+            const handle = e.target.closest(handleSel);
+            if (!handle || container.classList.contains('locked')) return;
+            const item = handle.closest(itemSel);
+            if (!item) return;
+            e.preventDefault();
+            item.classList.add('ft-dragging');
+            const move = ev => {
+                const items = [...container.querySelectorAll(itemSel)].filter(x => x !== item);
+                for (const other of items) {
+                    const r = other.getBoundingClientRect();
+                    if (ev.clientY < r.top + r.height / 2) { other.parentNode.insertBefore(item, other); return; }
+                }
+                if (items.length) items[items.length - 1].parentNode.appendChild(item);
+            };
+            const up = () => {
+                item.classList.remove('ft-dragging');
+                document.removeEventListener('pointermove', move);
+                document.removeEventListener('pointerup', up);
+                document.removeEventListener('pointercancel', up);
+                onDrop();
+            };
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', up);
+            document.addEventListener('pointercancel', up);
+        });
+    }
+    function ftLockToggle(btn, container, what) {
+        btn.addEventListener('click', () => {
+            const locked = container.classList.toggle('locked');
+            btn.innerHTML = locked ? `&#128274; Order locked` : `&#128275; Drag ${what}`;
+        });
+    }
+    function ftRaRenumber() {
+        [...$('ftRaLines').querySelectorAll('tbody tr')].forEach((tr, i) => { tr.querySelector('.ft-ra-num').textContent = i + 1; });
+    }
+
     function ftRaAddLine(line) {
         const tb = $('ftRaLines').querySelector('tbody');
         const n = ++ftRaLineSeq;
-        const order = line ? line.load_order : tb.children.length + 1;
         const tr = document.createElement('tr');
         tr.dataset.line = n;
         tr.innerHTML = `
-            <td><input type="number" step="1" min="0" class="ft-ra-order" value="${order}" style="width:56px;"></td>
+            <td><span class="ft-drag" title="Drag to reorder">&#9776;</span></td>
+            <td class="ft-ra-num muted"></td>
             <td><select class="ft-ra-item">${ftRaItemOptions(line ? line.item_id : '')}</select></td>
             <td class="num"><input type="number" step="0.01" min="0.01" max="100" class="ft-ra-pct" value="${line ? line.pct_as_fed : ''}" style="width:90px; text-align:right;"></td>
-            <td><select class="ft-ra-loc">${ftRaLocOptions(line ? line.default_location_id : '')}</select></td>
             <td><button type="button" class="ft-ra-del" title="Remove" style="padding:2px 8px;">&times;</button></td>`;
         tb.appendChild(tr);
-        tr.querySelector('.ft-ra-del').addEventListener('click', () => { tr.remove(); ftRaRecalc(); });
+        tr.querySelector('.ft-ra-del').addEventListener('click', () => { tr.remove(); ftRaRecalc(); ftRaRenumber(); });
         tr.querySelector('.ft-ra-pct').addEventListener('input', ftRaRecalc);
-        // Picking an item pre-fills its usual bay; the line's own bay wins once set.
-        tr.querySelector('.ft-ra-item').addEventListener('change', () => {
-            const it = fdItems.find(i => i.id === tr.querySelector('.ft-ra-item').value);
-            const loc = tr.querySelector('.ft-ra-loc');
-            if (it && it.default_location_id && !loc.value) loc.value = it.default_location_id;
-        });
-        ftRaRecalc();
+        ftRaRecalc(); ftRaRenumber();
     }
 
     function ftRaRecalc() {
@@ -28119,6 +28170,7 @@ ${ranchBlocks}
         $('ftRaActive').checked = r ? !!r.is_active : true;
         $('ftRaNotes').value  = r ? (r.notes || '') : '';
         $('ftRaLines').querySelector('tbody').innerHTML = '';
+        $('ftRaLines').classList.add('locked'); $('ftRaLockBtn').innerHTML = '&#128274; Order locked';
         (r ? r.ration_lines : []).forEach(ftRaAddLine);
         if (!r) ftRaAddLine(null);
         showModal('ftRationModal');
@@ -28136,15 +28188,18 @@ ${ranchBlocks}
         for (const tr of $('ftRaLines').querySelectorAll('tbody tr')) {
             const item = tr.querySelector('.ft-ra-item').value;
             const pct = parseFloat(tr.querySelector('.ft-ra-pct').value);
-            const order = parseInt(tr.querySelector('.ft-ra-order').value, 10);
-            const loc = tr.querySelector('.ft-ra-loc').value || null;
+            // Load order is the row order on screen. The bay is the item's
+            // usual one (John: not needed on this page); the feed app lets
+            // the loader change it per load.
+            const order = lines.length + 1;
+            const loc = ((fdItems.find(i => i.id === item) || {}).default_location_id) || null;
             if (!item && !pct) continue;
             if (!item) { showAlert('ftRationModalAlert', 'Every line needs an ingredient.'); return; }
             if (seen.has(item)) { showAlert('ftRationModalAlert', `${ftItemName(item)} is on the ration twice.`); return; }
             if (!(pct > 0)) { showAlert('ftRationModalAlert', `${ftItemName(item)} needs a percent.`); return; }
             seen.add(item);
             total += pct;
-            lines.push({ item_id: item, pct_as_fed: pct, load_order: isNaN(order) ? lines.length + 1 : order, default_location_id: loc });
+            lines.push({ item_id: item, pct_as_fed: pct, load_order: order, default_location_id: loc });
         }
         if (!lines.length) { showAlert('ftRationModalAlert', 'A ration needs at least one ingredient.'); return; }
         if (Math.abs(total - 100) > 0.005) { showAlert('ftRationModalAlert', `Ingredients total ${fmtNum(total, 2)}%; they must total 100%.`); return; }
@@ -28181,6 +28236,7 @@ ${ranchBlocks}
     }
 
     // ---------------- Pastures & route ----------------
+    let ftPaOrderBy = 'route_order';   // or 'read_order' (2026-09-05: two orders)
     async function loadFtPastures() {
         clearAlert('ftPaAlert');
         $('ftPaContent').innerHTML = '<div class="empty">Loading&hellip;</div>';
@@ -28193,15 +28249,17 @@ ${ranchBlocks}
             (lotsBy[i.pasture_id] = lotsBy[i.pasture_id] || []).push(i.lot_number);
         });
         const showAll = $('ftPaShowAll').checked;
+        ftPaOrderBy = $('ftPaOrderBy').value || 'route_order';
         const setupBy = {};
         ftSetup.forEach(s => { setupBy[s.pasture_id] = s; });
+        const ord = s => Number(s && s[ftPaOrderBy]) || 0;
         const list = fdPastures
             .map(p => ({ p, s: setupBy[p.id] || null, head: headBy[p.id] || 0 }))
             .filter(x => showAll || (x.s && x.s.is_active))
             .sort((a, b) => {
                 const aa = a.s && a.s.is_active ? 0 : 1, bb = b.s && b.s.is_active ? 0 : 1;
                 if (aa !== bb) return aa - bb;
-                if (aa === 0) return (a.s.route_order - b.s.route_order) || ftPastureLabel(a.p.id).localeCompare(ftPastureLabel(b.p.id));
+                if (aa === 0) return (ord(a.s) - ord(b.s)) || ftPastureLabel(a.p.id).localeCompare(ftPastureLabel(b.p.id));
                 return ftPastureLabel(a.p.id).localeCompare(ftPastureLabel(b.p.id));
             });
         if (!list.length) {
@@ -28210,7 +28268,10 @@ ${ranchBlocks}
         }
         const rationOpts = sel => '<option value="">—</option>' + ftRations.filter(r => r.is_active || r.id === sel)
             .map(r => `<option value="${r.id}" ${r.id === sel ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('');
-        const rows = list.map(({ p, s, head }) => `<tr data-ft-pasture="${p.id}" data-ft-has-setup="${s ? '1' : '0'}">
+        const rows = list.map(({ p, s, head }) => `<tr data-ft-pasture="${p.id}" data-ft-has-setup="${s ? '1' : '0'}"
+                data-route-order="${s ? s.route_order : 0}" data-read-order="${s ? (s.read_order || 0) : 0}" class="${s && s.is_active ? 'ft-on-route' : ''}">
+            <td><span class="ft-drag" title="Drag to reorder">&#9776;</span></td>
+            <td class="num ft-pa-pos muted"></td>
             <td><strong>${escapeHtml(ftPastureLabel(p.id))}</strong></td>
             <td class="num">${head ? fmtNum(head) : '<span class="muted">0</span>'}<div class="muted" style="font-size:11px;">${escapeHtml((lotsBy[p.id] || []).join(', '))}</div></td>
             <td><input type="checkbox" class="ft-pa-active" style="width:auto;" ${s && s.is_active ? 'checked' : ''}></td>
@@ -28220,17 +28281,34 @@ ${ranchBlocks}
             </select></td>
             <td><select class="ft-pa-ration" style="max-width:190px;">${rationOpts(s ? s.ration_id : '')}</select>
                 ${s && s.ration_since ? `<div class="muted" style="font-size:11px;">since ${escapeHtml(fmtDate(s.ration_since))}</div>` : ''}</td>
-            <td class="num"><input type="number" step="1" class="ft-pa-order" value="${s ? s.route_order : ''}" style="width:64px; text-align:right;"></td>
             <td><input type="checkbox" class="ft-pa-onepass" style="width:auto;" ${s && s.one_pass ? 'checked' : ''}></td>
             <td><input type="text" class="ft-pa-notes" value="${escapeHtml(s && s.notes || '')}" placeholder="" style="min-width:120px;"></td>
         </tr>`).join('');
+        const orderLabel = ftPaOrderBy === 'read_order' ? 'Bunk reading' : 'Feed route';
         $('ftPaContent').innerHTML = `
-            <div style="overflow-x:auto;"><table>
-                <thead><tr><th>Pasture</th><th class="num">Head standing</th><th>On route</th><th>Feeder</th><th>Ration</th><th class="num">Route order</th><th>One pass</th><th>Notes</th></tr></thead>
+            <div style="overflow-x:auto;"><table id="ftPaTable" class="ft-sortable locked">
+                <thead><tr><th style="width:36px;"></th><th class="num" style="width:40px;">${orderLabel}</th><th>Pasture</th><th class="num">Head standing</th><th>On route</th><th>Feeder</th><th>Ration</th><th>One pass</th><th>Notes</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table></div>`;
+        $('ftPaLockBtn').innerHTML = '&#128274; Order locked';
+        ftPaRenumber(false);
         $('ftPaContent').querySelectorAll('input, select').forEach(el => {
-            el.addEventListener('change', () => { el.closest('tr').dataset.ftDirty = '1'; });
+            el.addEventListener('change', () => { el.closest('tr').dataset.ftDirty = '1'; if (el.classList.contains('ft-pa-active')) ftPaRenumber(true); });
+        });
+        ftSortable($('ftPaTable'), 'tr[data-ft-pasture]', '.ft-drag', () => ftPaRenumber(true));
+    }
+    // Position numbers follow the rows on screen for the order being edited.
+    // Only pastures on the route are numbered; a dropped row renumbers all
+    // of them and marks them dirty so the save writes the whole sequence.
+    function ftPaRenumber(dirty) {
+        let n = 0;
+        [...$('ftPaContent').querySelectorAll('tr[data-ft-pasture]')].forEach(tr => {
+            const on = tr.querySelector('.ft-pa-active').checked;
+            tr.classList.toggle('ft-on-route', on);
+            const pos = on ? ++n : 0;
+            tr.querySelector('.ft-pa-pos').textContent = on ? String(pos) : '';
+            const key = ftPaOrderBy === 'read_order' ? 'readOrder' : 'routeOrder';
+            if (dirty && Number(tr.dataset[key]) !== pos) { tr.dataset[key] = pos; tr.dataset.ftDirty = '1'; }
         });
     }
 
@@ -28243,7 +28321,8 @@ ${ranchBlocks}
             is_active: tr.querySelector('.ft-pa-active').checked,
             feeder_type: tr.querySelector('.ft-pa-type').value,
             ration_id: tr.querySelector('.ft-pa-ration').value || null,
-            route_order: parseInt(tr.querySelector('.ft-pa-order').value, 10) || 0,
+            route_order: parseInt(tr.dataset.routeOrder, 10) || 0,
+            read_order: parseInt(tr.dataset.readOrder, 10) || 0,
             one_pass: tr.querySelector('.ft-pa-onepass').checked,
             notes: tr.querySelector('.ft-pa-notes').value.trim() || null
         }));
@@ -28395,7 +28474,11 @@ ${ranchBlocks}
     $('ftRaAddLineBtn').addEventListener('click', () => ftRaAddLine(null));
 
     $('ftPaShowAll').addEventListener('change', loadFtPastures);
+    $('ftPaOrderBy').addEventListener('change', loadFtPastures);
     $('ftPaSaveBtn').addEventListener('click', saveFtPastures);
+    ftLockToggle($('ftPaLockBtn'), { classList: { toggle: v => { const t = $('ftPaTable'); return t ? t.classList.toggle('locked') : true; } } }, 'rows to reorder');
+    ftLockToggle($('ftRaLockBtn'), $('ftRaLines'), 'ingredients into load order');
+    ftSortable($('ftRaLines'), 'tbody tr', '.ft-drag', () => ftRaRenumber());
 
     $('ftNewTruckBtn').addEventListener('click', () => openFtTruckModal(null));
     $('ftTrShowInactive').addEventListener('change', loadFtTrucks);

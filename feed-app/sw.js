@@ -2,15 +2,15 @@
 // JFR Feed — Service Worker (network-first shell, same as the field app)
 // Bump CACHE_VERSION and the ?v= strings in index.html together.
 // =========================================================
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `jfr-feed-${CACHE_VERSION}`;
 const APP_SHELL = [
     './',
     './index.html',
-    './app.js?v=v1',
-    './planner.js?v=v1',
+    './app.js?v=v2',
+    './planner.js?v=v2',
     './supabase.min.js?v=2.46.1',
-    './styles.css?v=v1',
+    './styles.css?v=v2',
     './manifest.json'
 ];
 function isAppShell(url) {
