@@ -5259,6 +5259,9 @@ window.addEventListener('unhandledrejection', function(e) {
             return;
         }
         if (target === 'feedcost') { showInventoryTab('cost'); drillBackSet(); return; }
+        // 'toggle:med' - a combined closeout line opens into its parts in
+        // place; each part then carries its own drill to the data behind it.
+        if (target === 'toggle:med') { toggleCloseoutMed(); return; }
         // 'input:calc_cog' - a closeout number that is driven by an
         // assumption lands on that assumption, ready to type.
         if (target.startsWith('input:')) {
@@ -6502,6 +6505,15 @@ window.addEventListener('unhandledrejection', function(e) {
     // close. Remembered per browser.
     let closeoutView = 'totals';
     try { closeoutView = localStorage.getItem('closeoutView') === 'per_head' ? 'per_head' : 'totals'; } catch (e) {}
+    // The Medicine row (processing + doctoring, one line since 2026-09-06)
+    // opens into its two parts on click. Remembered like the view toggle.
+    let closeoutMedOpen = false;
+    try { closeoutMedOpen = localStorage.getItem('closeoutMedOpen') === '1'; } catch (e) {}
+    function toggleCloseoutMed(){
+        closeoutMedOpen = !closeoutMedOpen;
+        try { localStorage.setItem('closeoutMedOpen', closeoutMedOpen ? '1' : '0'); } catch (e) {}
+        recalculate();   // redraw the table only; the typed assumptions stay put
+    }
     function setCloseoutView(v) {
         closeoutView = v === 'per_head' ? 'per_head' : 'totals';
         try { localStorage.setItem('closeoutView', closeoutView); } catch (e) {}
@@ -6755,6 +6767,10 @@ window.addEventListener('unhandledrejection', function(e) {
         return {
             headIn, headCurrent, headDead, daysToDate, headDays,
             cattleCost, processing, treatment, otherMed, feed, cog, labor, interest,
+            // The one Medicine line. otherMed (meds in neither category) is
+            // already inside operating, so it belongs here or the rows do
+            // not sum to Total cost.
+            medicine: processing + treatment + otherMed,
             feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, cogRate, cogMode,
             soldGainLb, soldHeadDays, unsettledHeadDays, estGainLb, gainToDateLb,
             boundaryActive, splitUnavailable, hdBefore, hdAfter, nonFeedMissing, nonFeedCog,
@@ -6889,6 +6905,7 @@ window.addEventListener('unhandledrejection', function(e) {
             remainingDays, deathsToCome, survivingAtClose, forwardHeadDays, gainFwdLb, deathLossFwd,
             processingProj, processingFwd, headNoProtocol,
             treatmentProj, treatmentBurnFwd, doctoringFloor, doctoringOnFloor,
+            medicineFwd: processingFwd + treatmentFwd,
             cogFwd, laborFwd, treatmentFwd, feedFwd, interestFwd, operatingFwd,
             revenueFwd, totalCost, totalRevenue, net, breakEvenPerLb,
             costPerHeadSold, remnantCost, lotShortfall,
@@ -7298,7 +7315,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${tile('HEAD', fmtNum(actual.headCurrent), proj.deathsToCome > 0 ? `${fmtNum(Math.round(survivors))} after ${fmtNum(Math.round(proj.deathsToCome))} more assumed death${Math.round(proj.deathsToCome)===1?'':'s'}` : '', 'current', 'Where they are now')}
                     ${tile('DAYS TO SHIP', proj.remainingDays != null ? fmtNum(proj.remainingDays) : '—', proj.remainingDays != null ? `${fmtNum(Math.round(proj.forwardHeadDays))} head-days` : 'no ship date', 'input:calc_shipdate', 'Target ship date')}
                     ${tile('GAIN TO COME', rates.adg > 0 && proj.remainingDays != null ? fmtNum(Math.round(proj.gainFwdLb)) + ' lb' : '—', rates.adg > 0 ? `at ${Number(rates.adg).toFixed(2)} lb/day` : 'no ADG', 'input:calc_adg', 'Target ADG')}
-                    ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.processingFwd > 0 ? ' · processing ' + fmtMoney(proj.processingFwd) : ''}${proj.treatmentFwd > 0 ? ' · doctoring ' + fmtMoney(proj.treatmentFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`, 'input:calc_cog', 'COG assumption')}
+                    ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.medicineFwd > 0 ? ' · medicine ' + fmtMoney(proj.medicineFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`, 'input:calc_cog', 'COG assumption')}
                     ${share != null ? tile('COST OF THESE HEAD', fmtMoney(share), `${perHd(share)} · share of cost to date + cost to come`) : ''}
                     ${proj.leftBreakEvenPerLb != null ? tile('BREAK-EVEN', '$' + proj.leftBreakEvenPerLb.toFixed(4) + '/lb', `at ${fmtNum(Math.round(rates.finishWt || 0))} lb`, 'input:calc_finishwt', 'Projected finish weight') : ''}
                     ${rates.salePerLb != null && proj.remainingDays != null && share != null ? tile('AT TARGET PRICE', fmtMoney(proj.revenueFwd),
@@ -7347,8 +7364,9 @@ window.addEventListener('unhandledrejection', function(e) {
             const fmt = opts.fmt || money;
             const mutedStyle = opts.muted ? 'color:var(--text-muted); font-style:italic;' : '';
             const drill = opts.drill ? ` class="co-drill" data-drill="${opts.drill}" title="${opts.drillTitle || 'Open'}"` : '';
+            const indent = opts.child ? 'padding-left:26px; font-size:12.5px;' : '';
             return `<tr${drill} style="${top}${bg}${mutedStyle}">
-                <td style="${strong}">${label}${opts.note?` <span class="muted" style="font-size:11px;">${opts.note}</span>`:''}</td>
+                <td style="${strong}${indent}">${label}${opts.note?` <span class="muted" style="font-size:11px;">${opts.note}</span>`:''}</td>
                 <td class="num" style="${strong}color:var(--text-muted);">${bv==null?'—':fmt(bv)}</td>
                 <td class="num" style="${strong}">${av==null?'—':fmt(av)}</td>
                 <td class="num" style="${strong}">${pv==null?'—':fmt(pv)}</td>
@@ -7402,15 +7420,23 @@ window.addEventListener('unhandledrejection', function(e) {
                         `Transferred out <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferOutHead)} hd</a>`,
                         null, -sp(actual.transferOutUsd).a, -sp(actual.transferOutUsd).p,
                         {note:'moved to another lot', fmt: signed}, split ? -actual.transferOutUsd : undefined) : ''}
-                    ${row('Processing', budget ? b('processing') : null, sp(actual.processing, proj.processingFwd).a, sp(actual.processing, proj.processingFwd).p, {
-                        note: budget && b('medCombined') ? 'budget is processing + doctoring combined'
+                    ${row(`<span style="display:inline-block; width:12px; color:var(--text-muted);">${closeoutMedOpen ? '▾' : '▸'}</span>Medicine`,
+                        budget ? b('med') : null, sp(actual.medicine, proj.medicineFwd).a, sp(actual.medicine, proj.medicineFwd).p, {
+                        note: (actual.otherMed > 0 ? 'processing + doctoring + other' : 'processing + doctoring') + (closeoutMedOpen ? '' : ' · click to open'),
+                        drill:'toggle:med', drillTitle: closeoutMedOpen ? 'Hide processing and doctoring' : 'Show processing and doctoring'}, sp(actual.medicine, proj.medicineFwd).l)}
+                    ${closeoutMedOpen ? row('Processing', budget && !b('medCombined') ? b('processing') : null, sp(actual.processing, proj.processingFwd).a, sp(actual.processing, proj.processingFwd).p, {
+                        child:true,
+                        note: budget && b('medCombined') ? 'budget not split — one medicine figure'
                             : proj.headNoProtocol > 0 && actual.processing > 0 ? `${fmtNum(proj.headNoProtocol)} hd still at the assumption`
                             : proj.headNoProtocol > 0 ? 'assumed — no protocol on the loads yet'
                             : 'actual, from the receipts',
-                        drill:'receiving', drillTitle:'Receiving report: processing cost per head'}, sp(actual.processing, proj.processingFwd).l)}
-                    ${row('Doctoring', budget ? b('doctoring') : null, sp(actual.treatment, proj.treatmentFwd).a, sp(actual.treatment, proj.treatmentFwd).p, {
+                        drill:'receiving', drillTitle:'Receiving report: processing cost per head'}, sp(actual.processing, proj.processingFwd).l) : ''}
+                    ${closeoutMedOpen ? row('Doctoring', budget && !b('medCombined') ? b('doctoring') : null, sp(actual.treatment, proj.treatmentFwd).a, sp(actual.treatment, proj.treatmentFwd).p, {
+                        child:true,
                         note: proj.doctoringOnFloor ? 'held at the assumed floor' : actual.treatment > 0 ? 'actual + observed burn' : '',
-                        drill:'health', drillTitle:'Doctoring on this lot'}, sp(actual.treatment, proj.treatmentFwd).l)}
+                        drill:'health', drillTitle:'Doctoring on this lot'}, sp(actual.treatment, proj.treatmentFwd).l) : ''}
+                    ${closeoutMedOpen && actual.otherMed > 0 ? row('Other meds', null, sp(actual.otherMed).a, sp(actual.otherMed).p, {
+                        child:true, note: 'meds in neither category', drill:'health', drillTitle:'Doctoring on this lot'}, sp(actual.otherMed).l) : ''}
                     ${actual.feedInsideCog
                         ? (actual.feedLedger > 0 ? row('Feed (memo)', null, split ? null : actual.feedLedger, null, {muted:true, note:'inside cost of gain — not added', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}, split ? actual.feedLedger : undefined) : '')
                         : (actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, sp(actual.feed, proj.feedFwd).a, sp(actual.feed, proj.feedFwd).p, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day' + (actual.boundaryActive ? ' since '+fmtDate(feedDirectFrom) : '') : 'from the feed ledger', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}, sp(actual.feed, proj.feedFwd).l) : ''}

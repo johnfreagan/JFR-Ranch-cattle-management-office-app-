@@ -177,6 +177,18 @@ The Closeout tab shows one set of economics in three columns. It is
   projection number, adjusted for actual"). **Doctoring projection =
   actual + observed burn, floored at the assumption × head_in while the lot
   is on feed**, so a young lot with two pulls does not project nothing.
+- **Processing and doctoring show as ONE `Medicine` row on the closeout
+  table** (John, 2026-09-06: "combine processing and doctoring medicine on
+  closeout"). The two assumptions, the two projections and the two budget
+  columns are unchanged underneath; only the table line is combined
+  (`actual.medicine`, `proj.medicineFwd`). The row drills `toggle:med`,
+  which opens two indented child rows in place, Processing (drills to the
+  Receiving report) and Doctoring (drills to Animal Health), remembered in
+  `closeoutMedOpen` / localStorage like the view toggle. The `other` med
+  category, which was inside `operating` but on no row, is now in Medicine
+  and shows as a third child only when non-zero, so the rows sum to Total
+  cost. A budget frozen before the split shows its one figure on the
+  Medicine row and blanks on the children.
 - **Once any head have shipped the whole table SPLITS** (John, 2026-09-04:
   "on the actual you include total cost not the proportion that goes with
   sold hd count"). `split = soldHead > 0`; every cost line goes through
