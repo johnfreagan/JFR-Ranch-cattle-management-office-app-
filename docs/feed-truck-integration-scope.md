@@ -237,6 +237,65 @@ consuption."
   split reads the open assignments that morning, so a death or a sale moves
   the pounds the next day with nobody typing anything.
 
+### D25. Bulk feeders: call, mix, deliver by allocation (2026-09-06)
+John: "Right now we go to pastures that need feed, enter amount usually two
+mixers of 17,500 go into grain cart for delivery, feeders hold around 10000
+#s of current bulk feed rations." No scales on the cart; "will call feed and
+allocated the actual mix prorated against the call." One bucket per pasture.
+
+The shape is the buyer's write-up again: **weighed once, split by declared
+shares, sums exactly.** The mixer scale is the only weight in the chain.
+
+1. **Call.** Bulk pastures are called in pounds on the days they are fed -
+   10,000 / 8,000 / 7,000 - not scored, and not called every morning.
+2. **Mix.** Each mixer batch is an ordinary load: ingredients weighed against
+   the countdown, mix timer, hard block. Two 17,500 batches is two loads.
+3. **Deliver.** Nothing is weighed at the feeder. The load's ACTUAL mixed
+   pounds (sum of its lines) allocate across the pastures actually delivered,
+   **pro-rata to the call**, largest-remainder so the parts sum exactly to
+   what left the barn. Call 25,000, mix 25,400, and every feeder carries its
+   share of the extra 400.
+4. **Then it is an ordinary drop:** pasture to lots pro-rata by head, posted
+   through `post_feed_load` unchanged. Head math and cost of gain need no
+   special case, which is the whole reason for allocating into the existing
+   drop rows rather than inventing a parallel ledger.
+
+Decisions inside it:
+
+- **The cart is not an entity.** It holds no cattle, has no scale, and every
+  pound in it is already accounted for by the mixer. Modelling it would add a
+  vessel that only ever restates the load. Feed that comes home in the cart
+  uses the leftover the box already has (`left_in_box_lb` /`carried_in_lb`),
+  labelled "left in cart" on a cart run; it is an ESTIMATE and is flagged as
+  one, because nothing weighs it.
+- **A drop records HOW it was measured** (`feed_drops.method` = `scale` |
+  `allocated`, with `called_lb` beside it). Looking back at a number, you
+  must be able to tell whether a scale said it or a rule did. This is the
+  same instinct as `scale_lb` sitting beside an edited `lb`.
+- **`feed_loads.delivery_mode`** = `direct` | `cart`. Explicit, not derived
+  from "are all its drops bulk pastures" - the truck screen runs a different
+  flow and history has to say which one happened.
+- **A pasture the driver skips is excluded from the allocation**, and its
+  share goes to the pastures that were actually filled - because the cart did
+  empty into them. If it came home part full instead, that is the leftover.
+- **Bulk pastures come off the daily bunk read** and onto a short list of
+  feeders with their last fill, pounds and days since. A feeder filled every
+  week or two does not want a call every morning.
+- **`pasture_feed_setup.feeder_capacity_lb`** (total across the feeders in
+  that pasture) so a call that overfills what is out there can be flagged,
+  and a mix that lands more than 10% off the total call asks once before it
+  allocates - the same shape as the bunk shock guardrail. Both catch the
+  case where a feeder physically could not take its share while the books say
+  it did.
+
+**Next, not now:** empty-date estimate and a refill notice. Pounds delivered
+over (head x lb/hd/day) gives days to empty, and the burn rate can be learned
+from how long the last fills actually lasted rather than assumed. It becomes
+a row on `inventory_needs_attention` - *Corner / 4 - filled Sep 2, about 3
+days left* - and rides the notification outbox the 7am email needs anyway.
+Deliberately after the first few real fills, so the rate is calibrated
+against something instead of guessed.
+
 ### Stated assumptions (not asked)
 Settings card: tolerance %, minimum split lb, tie-out tolerance %, cut-over
 date. Bulk feeders: total lb, no score. A third feeding is a third load. Head
