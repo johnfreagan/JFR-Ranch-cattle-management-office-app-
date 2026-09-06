@@ -1033,8 +1033,17 @@ bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   
     clean = 0 or ½. Migration `docs/sql/2026-09-06_bunk_scoring.sql` adds
     `rations.dry_matter_pct` + `expected_dmi_lb` and six bump rules on
     `ranch_settings` (defaults: below expected DMI bump +0.75 lb DM after 2
-    clean days; at/above +0.5 after 3; score 1 holds; 2 cuts 0.5; 3 cuts
-    1.0). `suggestCall()` in the feed app turns the tapped score into
+    clean days; at/above +0.5 after 3; score 1 holds).
+    **Cuts are PERCENTAGES, bumps are pounds of DM** (John, 2026-09-06: "I
+    want to cut percentages, 3 usually means a big cut"). Migration
+    `docs/sql/2026-09-06_bunk_cut_pct.sql` adds `bunk_cut2_pct` (10) and
+    `bunk_cut3_pct` (25); the old `bunk_cut*_lb_dm` columns stay as the
+    audit of the previous rule and are no longer read. A cut is a
+    proportional pull-back, so it has to scale: half a pound off a pen
+    eating 16 lb DM is a 3% trim nobody notices, and the same half pound
+    off starter cattle eating 7 is twice the cut. A bump is closing a gap
+    to a target intake that is itself in pounds, so it stays in lb DM.
+    `suggestCall()` in the feed app turns the tapped score into
     today's lb/hd (as-fed, quarter-pound), writes `suggested_lb_per_head`,
     `clean_days` and `suggest_note` beside the call so a hand adjustment is
     visible later. `cleanStreak()` walks the read history back from

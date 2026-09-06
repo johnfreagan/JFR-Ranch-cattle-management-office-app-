@@ -185,7 +185,12 @@ Total, feed Target/Loaded).
 Scores 0, ½, 1, 2, 3 per SDSU (Pritchard). Ration carries dry matter % and
 expected DMI (lb DM/hd/day). Below expected intake: bump after 2 clean days
 (0 or ½) by 0.75 lb DM; at or above: after 3 clean days by 0.5 lb DM (SDSU's
-0.25-0.75 band). Score 1 holds, 2 cuts 0.5, 3 cuts 1.0. All six numbers on
+0.25-0.75 band). Score 1 holds. **Cuts became PERCENTAGES the same day** (John: "I want to
+cut percentages, 3 usually means a big cut") - score 2 −10%, score 3 −25%
+of yesterday's call, because a cut is proportional to what the pen was
+offered while a bump closes a gap to a target intake in pounds. SDSU
+publishes the DIRECTION (increment 0 and ½, hold 1, decrement 2 and 3),
+not the magnitude; the magnitude is the yard's. All six numbers on
 Truck › Settings. The app applies the suggestion when the score is tapped,
 shows the reason and a DMI bar, and records suggested vs called.
 Sources: SDSU Extension "Feed Bunk Management"; Feedlot Magazine "Scoring for

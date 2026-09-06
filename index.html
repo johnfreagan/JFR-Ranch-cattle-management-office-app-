@@ -2555,12 +2555,12 @@
                             <input type="number" step="0.05" min="0" id="ftStSlowBump">
                         </div>
                         <div>
-                            <label for="ftStCut2">Score 2: cut (lb DM / hd)</label>
-                            <input type="number" step="0.05" min="0" id="ftStCut2">
+                            <label for="ftStCut2">Score 2 (25&ndash;50% left): cut (% of yesterday's call)</label>
+                            <input type="number" step="1" min="0" max="90" id="ftStCut2">
                         </div>
                         <div>
-                            <label for="ftStCut3">Score 3: cut (lb DM / hd)</label>
-                            <input type="number" step="0.05" min="0" id="ftStCut3">
+                            <label for="ftStCut3">Score 3 (over half left): cut (% of yesterday's call)</label>
+                            <input type="number" step="1" min="0" max="90" id="ftStCut3">
                         </div>
                     </div>
                     <div style="display:flex; gap:10px; align-items:center; margin-top:14px;">
@@ -27742,7 +27742,7 @@ ${ranchBlocks}
             supabase.from('pasture_feed_setup').select('*'),
             supabase.from('feed_trucks').select('*').order('name'),
             supabase.from('ranch_settings')
-                .select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_lb_dm, bunk_cut3_lb_dm, ranch_lat, ranch_lon')
+                .select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_pct, bunk_cut3_pct, ranch_lat, ranch_lon')
                 .maybeSingle()
         ]);
         const bad = [r, s, t, st].find(x => x.error);
@@ -28486,8 +28486,8 @@ ${ranchBlocks}
         $('ftStFastBump').value  = s.bunk_fast_bump_lb_dm != null ? s.bunk_fast_bump_lb_dm : 0.75;
         $('ftStSlowDays').value  = s.bunk_slow_days != null ? s.bunk_slow_days : 3;
         $('ftStSlowBump').value  = s.bunk_slow_bump_lb_dm != null ? s.bunk_slow_bump_lb_dm : 0.5;
-        $('ftStCut2').value      = s.bunk_cut2_lb_dm != null ? s.bunk_cut2_lb_dm : 0.5;
-        $('ftStCut3').value      = s.bunk_cut3_lb_dm != null ? s.bunk_cut3_lb_dm : 1.0;
+        $('ftStCut2').value      = s.bunk_cut2_pct != null ? s.bunk_cut2_pct : 10;
+        $('ftStCut3').value      = s.bunk_cut3_pct != null ? s.bunk_cut3_pct : 25;
         $('ftStLat').value       = s.ranch_lat != null ? s.ranch_lat : 31.31;
         $('ftStLon').value       = s.ranch_lon != null ? s.ranch_lon : -96.63;
         $('ftStHint').textContent = s.feed_truck_post_from
@@ -28506,16 +28506,17 @@ ${ranchBlocks}
             bunk_fast_bump_lb_dm:     parseFloat($('ftStFastBump').value),
             bunk_slow_days:           parseInt($('ftStSlowDays').value, 10),
             bunk_slow_bump_lb_dm:     parseFloat($('ftStSlowBump').value),
-            bunk_cut2_lb_dm:          parseFloat($('ftStCut2').value),
-            bunk_cut3_lb_dm:          parseFloat($('ftStCut3').value),
+            bunk_cut2_pct:            parseFloat($('ftStCut2').value),
+            bunk_cut3_pct:            parseFloat($('ftStCut3').value),
             ranch_lat:                parseFloat($('ftStLat').value),
             ranch_lon:                parseFloat($('ftStLon').value)
         };
         if (isNaN(payload.ranch_lat) || isNaN(payload.ranch_lon)) { showAlert('ftStAlert', 'Latitude and longitude are required for the weather pull.'); return; }
         if ([payload.feed_truck_tolerance_pct, payload.feed_truck_min_split_lb, payload.feed_truck_tieout_pct,
-             payload.bunk_fast_bump_lb_dm, payload.bunk_slow_bump_lb_dm, payload.bunk_cut2_lb_dm, payload.bunk_cut3_lb_dm].some(v => isNaN(v) || v < 0)
+             payload.bunk_fast_bump_lb_dm, payload.bunk_slow_bump_lb_dm].some(v => isNaN(v) || v < 0)
+            || [payload.bunk_cut2_pct, payload.bunk_cut3_pct].some(v => isNaN(v) || v < 0 || v > 90)
             || [payload.bunk_fast_days, payload.bunk_slow_days].some(v => isNaN(v) || v < 1)) {
-            showAlert('ftStAlert', 'Every number is required; days at least 1, pounds not negative.'); return;
+            showAlert('ftStAlert', 'Every number is required; days at least 1, pounds not negative, cuts between 0 and 90%.'); return;
         }
         const was = ftSettings ? ftSettings.feed_truck_post_from : null;
         if (payload.feed_truck_post_from && payload.feed_truck_post_from !== was) {

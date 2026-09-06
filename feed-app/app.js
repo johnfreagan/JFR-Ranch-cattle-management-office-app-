@@ -269,7 +269,7 @@ async function pullRefs(quiet) {
             sb.from('feed_items').select('id, name, default_location_id, is_active'),
             sb.from('feed_storage_locations').select('id, name, is_active'),
             sb.from('feed_trucks').select('*').eq('is_active', true).order('name'),
-            sb.from('ranch_settings').select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_lb_dm, bunk_cut3_lb_dm, ranch_lat, ranch_lon').maybeSingle(),
+            sb.from('ranch_settings').select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_pct, bunk_cut3_pct, ranch_lat, ranch_lon').maybeSingle(),
             fetchAll(() => sb.from('lot_pasture_assignments').select('lot_id, pasture_id, head_count, lots!inner(lot_number, closed_at, is_test)').is('moved_out', null).order('id')),
             sb.from('bunk_reads').select('*').gte('read_date', shiftDays(today, -21)).order('read_date', { ascending: false }),
             sb.from('feed_loads').select('*, feed_load_lines(*), feed_drops(*, feed_drop_lots(*))').gte('load_date', shiftDays(today, -14)).order('load_date', { ascending: false }).order('load_seq', { ascending: false }),
@@ -497,7 +497,7 @@ function bunkRules() {
     const st = settings();
     return { fastDays: Number(st.bunk_fast_days) || 2, fastBump: Number(st.bunk_fast_bump_lb_dm) || 0.75,
              slowDays: Number(st.bunk_slow_days) || 3, slowBump: Number(st.bunk_slow_bump_lb_dm) || 0.5,
-             cut2: Number(st.bunk_cut2_lb_dm) || 0.5, cut3: Number(st.bunk_cut3_lb_dm) || 1.0 };
+             cut2Pct: Number(st.bunk_cut2_pct) || 10, cut3Pct: Number(st.bunk_cut3_pct) || 25 };
 }
 // Consecutive clean days before today, newest first, stopping at a bump
 // (lb/hd went up that day) or a gap. Today's score is passed in.
@@ -527,18 +527,27 @@ function suggestCall(pid, score) {
     const dmi = dm ? lastLb * dm : null;
     const below = (dmi != null && exp != null) ? dmi < exp - 0.05 : true;   // no target set: treat as getting up
     const streak = cleanStreak(pid, score);
-    let deltaDm = 0, why = '';
+    // Bumps are POUNDS of dry matter (SDSU's 0.25-0.75 band is written that
+    // way); cuts are a PERCENT of yesterday's call (John, 2026-09-06: "I want
+    // to cut percentages, 3 usually means a big cut"). A half pound off a pen
+    // eating 16 lb DM is a 3% trim - not a decrement anyone would notice -
+    // and the same half pound off a starter pen eating 7 is twice the cut.
+    // A percent stays right as the ration steps up and the cattle grow.
+    const toAsFed = x => dm ? x / dm : x;
+    let deltaDm = 0, cutPct = 0, why = '';
     if (score <= 0.5) {
         const need = below ? rules.fastDays : rules.slowDays, bump = below ? rules.fastBump : rules.slowBump;
         if (streak >= need) { deltaDm = bump; why = `${streak} clean day${streak === 1 ? '' : 's'} · ${below ? 'below' : 'at'} expected intake · +${fmt(bump, 2)} lb DM`; }
         else why = `clean ${streak} of ${need} day${need === 1 ? '' : 's'} · hold`;
     } else if (score === 1) { why = 'score 1 · hold'; }
-    else if (score === 2) { deltaDm = -rules.cut2; why = `score 2 · −${fmt(rules.cut2, 2)} lb DM`; }
-    else { deltaDm = -rules.cut3; why = `score 3 · −${fmt(rules.cut3, 2)} lb DM`; }
-    const toAsFed = x => dm ? x / dm : x;
-    const lb = Math.max(0, Math.round((lastLb + toAsFed(deltaDm)) * 4) / 4);
-    if (!dm) why += ' · no DM % on ration, bump taken as-fed';
-    return { lb, lastLb, deltaDm, streak, why, dmi, exp, dm, estWt: ed.wt, basis: ed.basis };
+    else if (score === 2) { cutPct = rules.cut2Pct; why = `score 2 · −${fmt(cutPct, 0)}%`; }
+    else { cutPct = rules.cut3Pct; why = `score 3 · −${fmt(cutPct, 0)}%`; }
+    const target = cutPct ? lastLb * (1 - cutPct / 100) : lastLb + toAsFed(deltaDm);
+    const lb = Math.max(0, Math.round(target * 4) / 4);
+    if (deltaDm && !dm) why += ' · no DM % on ration, bump taken as-fed';
+    if (cutPct) why += ` of ${fmt(lastLb, 2)} lb/hd`;
+    const dir = cutPct ? -1 : (deltaDm > 0 ? 1 : 0);   // which way the call moved, for the arrow and the colour
+    return { lb, lastLb, deltaDm, cutPct, dir, streak, why, dmi, exp, dm, estWt: ed.wt, basis: ed.basis };
 }
 function readFrozen(r) { return !!r.frozen_load_id && allLoads().some(l => l.id === r.frozen_load_id && l.status !== 'void'); }
 function setRead(pid, patch) {
@@ -595,7 +604,7 @@ function renderBunks() {
         return `<tr class="${i === 0 ? 'today' : ''} ${sc != null && sc <= 0.5 ? 'clean' : ''}"><td>${i === 0 ? 'Today' : fmtDate(day).replace(/,.*$/, '')}</td><td class="wx">${esc(weatherTxt(day, true))}</td><td class="num">${fed != null ? fmt(fed) : (h && h.t != null && i > 0 ? '<span class="muted">' + fmt(h.t) + '*</span>' : '—')}</td><td class="num">${h && h.lb != null ? fmt(h.lb, 2) : '—'}</td><td>${sc != null ? scoreLabel(sc) : '—'}</td><td class="num">${h && h.hc != null ? fmt(h.hc) : (i === 0 ? fmt(r.head_count) : '')}</td></tr>`; }).join('')}</tbody></table>
         <div class="muted" style="font-size:11px;">* called, no drop recorded that day</div>`;
     const quick = [-10, -5, -2, 0, 2, 5, 10].map(p => `<button type="button" data-pct="${p}" ${frozen ? 'disabled' : ''}>${p === 0 ? 'Hold' : (p > 0 ? '+' : '−') + Math.abs(p) + '%'}</button>`).join('');
-    const sugTxt = sug ? `<div class="suggest ${sug.deltaDm > 0 ? 'up' : sug.deltaDm < 0 ? 'down' : ''}">${sug.deltaDm > 0 ? '▲' : sug.deltaDm < 0 ? '▼' : '='} ${fmt(sug.lastLb, 2)} → <b>${fmt(sug.lb, 2)}</b> lb/hd <span class="why">${esc(sug.why)}</span>${Number(r.lb_per_head) !== sug.lb ? ' <span class="tag amber">adjusted by hand</span>' : ''}</div>` : (!bulk ? '<div class="suggest muted">Tap a score to get today\'s call.</div>' : '');
+    const sugTxt = sug ? `<div class="suggest ${sug.dir > 0 ? 'up' : sug.dir < 0 ? 'down' : ''}">${sug.dir > 0 ? '▲' : sug.dir < 0 ? '▼' : '='} ${fmt(sug.lastLb, 2)} → <b>${fmt(sug.lb, 2)}</b> lb/hd <span class="why">${esc(sug.why)}</span>${Number(r.lb_per_head) !== sug.lb ? ' <span class="tag amber">adjusted by hand</span>' : ''}</div>` : (!bulk ? '<div class="suggest muted">Tap a score to get today\'s call.</div>' : '');
     card.innerHTML = `<div class="card bunk-one ${frozen ? 'locked' : ''}" data-pid="${pid}">
         <div class="name">${esc(pastureLabel(pid))}</div>
         <div class="lots">${fmt(r.head_count)} hd${head.length ? ' · ' + head.map(h => esc(h.lot_number) + ' ' + h.head).join(', ') : ''}${ration ? ' · ' + esc(ration.name) : ' · <span class="tag red">no ration</span>'}${frozen ? ' · <span class="frozen">on the truck</span>' : ''}</div>
