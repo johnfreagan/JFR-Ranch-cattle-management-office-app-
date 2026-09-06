@@ -2524,6 +2524,12 @@
                             <div class="muted" style="font-size:11px; margin-top:2px;">Blank = parallel run. Loads before this date never post.</div>
                         </div>
                     </div>
+                    <h3 style="margin:18px 0 6px;">Weather</h3>
+                    <p class="muted" style="font-size:12px; margin:0 0 10px;">The feed app pulls each day's high, low, rain and wind for this spot from Open-Meteo and keeps it beside the bunk reads.</p>
+                    <div class="form-grid">
+                        <div><label for="ftStLat">Latitude</label><input type="number" step="0.0001" id="ftStLat"></div>
+                        <div><label for="ftStLon">Longitude</label><input type="number" step="0.0001" id="ftStLon"></div>
+                    </div>
                     <h3 style="margin:18px 0 6px;">Bunk calling (SDSU slick-bunk)</h3>
                     <p class="muted" style="font-size:12px; margin:0 0 10px;">
                         Scores 0, &frac12;, 1, 2, 3. A clean bunk is 0 or &frac12;. While a pen is <b>below</b> its ration's
@@ -3152,9 +3158,14 @@
                     <div class="muted" style="font-size:11px; margin-top:2px;">As-fed to dry matter. Bumps are sized in lb DM and converted with this.</div>
                 </div>
                 <div>
-                    <label for="ftRaDmi">Expected intake (lb DM / hd / day)</label>
+                    <label for="ftRaDmiBw">Expected intake (% of body weight, DM)</label>
+                    <input type="number" step="0.05" min="0" max="6" id="ftRaDmiBw" placeholder="e.g. 2.5">
+                    <div class="muted" style="font-size:11px; margin-top:2px;">The app applies it to each lot's estimated weight today (weight in + target ADG &times; days), so the target climbs as the cattle grow.</div>
+                </div>
+                <div>
+                    <label for="ftRaDmi">Fallback intake (lb DM / hd / day)</label>
                     <input type="number" step="0.1" min="0" id="ftRaDmi" placeholder="e.g. 9.0">
-                    <div class="muted" style="font-size:11px; margin-top:2px;">Below this the bunk caller bumps fast; at or above it, slow.</div>
+                    <div class="muted" style="font-size:11px; margin-top:2px;">Used only for a pasture whose lots have no weight on the books yet.</div>
                 </div>
             </div>
             <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
@@ -27731,7 +27742,7 @@ ${ranchBlocks}
             supabase.from('pasture_feed_setup').select('*'),
             supabase.from('feed_trucks').select('*').order('name'),
             supabase.from('ranch_settings')
-                .select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_lb_dm, bunk_cut3_lb_dm')
+                .select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_lb_dm, bunk_cut3_lb_dm, ranch_lat, ranch_lon')
                 .maybeSingle()
         ]);
         const bad = [r, s, t, st].find(x => x.error);
@@ -28113,7 +28124,7 @@ ${ranchBlocks}
             <td class="num">${r.mix_minutes}</td>
             <td class="num">${r.max_load_lb ? fmtNum(r.max_load_lb) : '—'}</td>
             <td class="num">${r.dry_matter_pct != null ? fmtNum(r.dry_matter_pct, 1) : '<span class="tag red">set</span>'}</td>
-            <td class="num">${r.expected_dmi_lb != null ? fmtNum(r.expected_dmi_lb, 1) + ' lb' : '<span class="tag red">set</span>'}</td>
+            <td class="num">${r.expected_dmi_pct_bw != null ? fmtNum(r.expected_dmi_pct_bw, 2) + '% BW' : (r.expected_dmi_lb != null ? fmtNum(r.expected_dmi_lb, 1) + ' lb' : '<span class="tag red">set</span>')}</td>
             <td style="font-size:12px;">${ftCompositionText(r)}</td>
             <td class="num">${ftSetup.filter(s => s.ration_id === r.id && s.is_active).length}</td>
             <td>${r.is_active ? '<span style="color: var(--success);">active</span>' : '<span class="muted">inactive</span>'}</td>
@@ -28214,6 +28225,7 @@ ${ranchBlocks}
         $('ftRaMax').value    = r && r.max_load_lb != null ? r.max_load_lb : '';
         $('ftRaDm').value     = r && r.dry_matter_pct != null ? r.dry_matter_pct : '';
         $('ftRaDmi').value    = r && r.expected_dmi_lb != null ? r.expected_dmi_lb : '';
+        $('ftRaDmiBw').value  = r && r.expected_dmi_pct_bw != null ? r.expected_dmi_pct_bw : '';
         $('ftRaActive').checked = r ? !!r.is_active : true;
         $('ftRaNotes').value  = r ? (r.notes || '') : '';
         $('ftRaLines').querySelector('tbody').innerHTML = '';
@@ -28257,6 +28269,7 @@ ${ranchBlocks}
             max_load_lb: $('ftRaMax').value ? parseFloat($('ftRaMax').value) : null,
             dry_matter_pct: $('ftRaDm').value ? parseFloat($('ftRaDm').value) : null,
             expected_dmi_lb: $('ftRaDmi').value ? parseFloat($('ftRaDmi').value) : null,
+            expected_dmi_pct_bw: $('ftRaDmiBw').value ? parseFloat($('ftRaDmiBw').value) : null,
             is_active: $('ftRaActive').checked,
             notes: $('ftRaNotes').value.trim() || null
         };
@@ -28475,6 +28488,8 @@ ${ranchBlocks}
         $('ftStSlowBump').value  = s.bunk_slow_bump_lb_dm != null ? s.bunk_slow_bump_lb_dm : 0.5;
         $('ftStCut2').value      = s.bunk_cut2_lb_dm != null ? s.bunk_cut2_lb_dm : 0.5;
         $('ftStCut3').value      = s.bunk_cut3_lb_dm != null ? s.bunk_cut3_lb_dm : 1.0;
+        $('ftStLat').value       = s.ranch_lat != null ? s.ranch_lat : 31.31;
+        $('ftStLon').value       = s.ranch_lon != null ? s.ranch_lon : -96.63;
         $('ftStHint').textContent = s.feed_truck_post_from
             ? `Loads from ${fmtDate(s.feed_truck_post_from)} on post to the books. Stop the Monday PB entry for those weeks.`
             : 'Parallel run: loads never post. Set the date when the tie-out has held for a few weeks.';
@@ -28492,8 +28507,11 @@ ${ranchBlocks}
             bunk_slow_days:           parseInt($('ftStSlowDays').value, 10),
             bunk_slow_bump_lb_dm:     parseFloat($('ftStSlowBump').value),
             bunk_cut2_lb_dm:          parseFloat($('ftStCut2').value),
-            bunk_cut3_lb_dm:          parseFloat($('ftStCut3').value)
+            bunk_cut3_lb_dm:          parseFloat($('ftStCut3').value),
+            ranch_lat:                parseFloat($('ftStLat').value),
+            ranch_lon:                parseFloat($('ftStLon').value)
         };
+        if (isNaN(payload.ranch_lat) || isNaN(payload.ranch_lon)) { showAlert('ftStAlert', 'Latitude and longitude are required for the weather pull.'); return; }
         if ([payload.feed_truck_tolerance_pct, payload.feed_truck_min_split_lb, payload.feed_truck_tieout_pct,
              payload.bunk_fast_bump_lb_dm, payload.bunk_slow_bump_lb_dm, payload.bunk_cut2_lb_dm, payload.bunk_cut3_lb_dm].some(v => isNaN(v) || v < 0)
             || [payload.bunk_fast_days, payload.bunk_slow_days].some(v => isNaN(v) || v < 1)) {

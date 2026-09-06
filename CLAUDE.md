@@ -1040,6 +1040,28 @@ bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   
     visible later. `cleanStreak()` walks the read history back from
     yesterday and stops at a bump (lb/hd rose that day) or a missing day.
     No DM % on the ration → the bump is taken as-fed and the screen says so.
+  - **Expected intake is a PERCENT OF BODY WEIGHT, not a fixed lb/hd**
+    (2026-09-06, John). Migration `docs/sql/2026-09-06_bunk_weather.sql` adds
+    `rations.expected_dmi_pct_bw`; `expectedDmi()` multiplies it by the
+    pasture's head-weighted `lot_status.projected_current_weight`, so the
+    target climbs as the cattle grow. `expected_dmi_lb` survives as the
+    fallback when no weight is known, and the screen names the basis it used.
+    The read stores `est_weight_lb` and `expected_dmi_lb` so a call can be
+    read back against what it was working from.
+  - **Weather is STORED, not just shown** (`daily_weather`, one row per ranch
+    day from Open-Meteo — free, no key). The feed app refreshes the last week
+    plus two days at the barn where there is signal; consumption gets read
+    against it. `ranch_settings.ranch_lat/ranch_lon` (default Kosse) set the
+    location. Silent on failure — the trend matrix just shows a dash.
+  - **The trend matrix shows what was DELIVERED, not what was called.**
+    `deliveredOn()` sums the done drops for that pasture that day; a day that
+    was called but never dropped prints the call in grey with an asterisk, so
+    a skipped pasture is visible instead of looking fed.
+  - **Quick adjust is a percent of YESTERDAY'S call**, never of today's
+    edited number — tapping −5% twice must not compound. The **10% shock
+    guardrail** asks once at save, naming each pasture more than a tenth off
+    its own three-day average; it catches an extra zero and does not block.
+    Flags (mud, sick pull, waterer, storm) and a note ride on the read.
   - **Bunk page is one pasture per screen** with prev/next and the reading
     order down the side (PB's shape, John's ask). **Plan is PB's Delivery
     overview**: one card per load, pens with Target/Fed and a Total, then

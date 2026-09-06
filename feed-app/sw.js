@@ -2,7 +2,7 @@
 // JFR Feed — Service Worker (network-first shell, same as the field app)
 // Bump CACHE_VERSION and the ?v= strings in index.html together.
 // =========================================================
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = `jfr-feed-${CACHE_VERSION}`;
 const APP_SHELL = [
     './',

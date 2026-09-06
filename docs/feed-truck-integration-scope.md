@@ -191,6 +191,47 @@ shows the reason and a DMI bar, and records suggested vs called.
 Sources: SDSU Extension "Feed Bunk Management"; Feedlot Magazine "Scoring for
 better bunk management"; Drovers "Feed Bunk Management"; UNL BeefWatch.
 
+### D24. Intake off estimated weight, weather beside consumption (2026-09-06)
+John: "ration should have a expected dry mater intake but software sets dry
+mater intake off estimated weight as it increases vs the expected daily gain",
+and "defenintly want a weather included and tracked to compare against
+consuption."
+
+- **Expected DMI is now a PERCENT OF BODY WEIGHT on the ration**
+  (`rations.expected_dmi_pct_bw`), turned into pounds against each pasture's
+  head-weighted estimated weight from `lot_status.projected_current_weight`
+  (weight in + target ADG x days on feed). The target therefore climbs every
+  day the cattle grow, which a flat lb/hd could not do. `expected_dmi_lb`
+  stays as the fallback for a lot with no weights yet, and the screen says
+  which basis it used. The call itself is unchanged: the bump rules from D23
+  compare today's DM intake against this number.
+- **Weather is pulled per ranch day and stored** (`daily_weather`, one row per
+  date, from Open-Meteo - free, no key, no account), the last week plus two
+  days ahead, refreshed by the feed app at the barn where there is signal. It
+  is a table and not a display call because the point is to read consumption
+  against it later; a forecast that is never stored cannot be compared with
+  what the cattle actually ate. `ranch_settings.ranch_lat/ranch_lon` carry the
+  location (defaults are Kosse).
+- **The bunk page gained the trend matrix from John's research**: six days of
+  weather, pounds actually delivered (from the drops, not the call), lb/hd,
+  score and head, with today on top. A day that was called but never dropped
+  prints the call in grey with an asterisk, so a skipped pasture is visible.
+- **Quick adjust is a percentage of YESTERDAY'S call**, not of today's edited
+  number, so tapping twice cannot compound. -10/-5/-2/Hold/+2/+5/+10.
+- **The 10% shock guardrail asks once, at save**, naming every pasture whose
+  total moves more than a tenth from its own last three days. It catches an
+  extra zero, not a considered bump, and it does not block.
+- **Flags and a note** (mud, sick pull, waterer, storm) sit on the read, so the
+  reason a call looks odd is recorded beside the call rather than remembered.
+- Not built: the two charts under the trend matrix, and the consumption vs
+  weather report itself - both want a few weeks of real reads first.
+- The three-strike slick escalation in John's research is deliberately NOT
+  built: the fast/slow rule from D23 already bumps on consecutive clean days,
+  and a second escalation ladder on top of it would fight the first.
+- Automatic head-count adjustment already happens: every call and every drop
+  split reads the open assignments that morning, so a death or a sale moves
+  the pounds the next day with nobody typing anything.
+
 ### Stated assumptions (not asked)
 Settings card: tolerance %, minimum split lb, tie-out tolerance %, cut-over
 date. Bulk feeders: total lb, no score. A third feeding is a third load. Head
@@ -199,7 +240,8 @@ for call and split = open assignments that morning, cached at the barn.
 ## Tables (new)
 `rations`, `ration_lines`, `pasture_feed_setup`, `feed_trucks`, `bunk_reads`,
 `feed_loads`, `feed_load_lines` (ingredient actual + bay), `feed_drops`,
-`feed_drop_lots`, plus four settings on `ranch_settings`. RPCs:
+`feed_drop_lots`, `daily_weather`, plus the truck, bunk-rule and
+location settings on `ranch_settings`. RPCs:
 `post_feed_load`, `unpost_feed_load`, `void_feed_load`. All views
 `security_invoker`; crew INSERT/UPDATE on the truck tables only;
 `rls_verify` run after.

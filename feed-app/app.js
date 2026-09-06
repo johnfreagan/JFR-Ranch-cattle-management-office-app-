@@ -262,17 +262,21 @@ async function pullRefs(quiet) {
     if (!navigator.onLine) { if (!quiet) toast('No signal - using the last data pulled', 'error'); return false; }
     const today = ranchToday();
     try {
-        const [ra, su, pa, it, lo, tr, st, asg, br, ld] = await Promise.all([
+        const [ra, su, pa, it, lo, tr, st, asg, br, ld, ls, wx] = await Promise.all([
             sb.from('rations').select('*, ration_lines(*)').eq('is_active', true).order('name'),
             sb.from('pasture_feed_setup').select('*').eq('is_active', true),
             sb.from('pastures').select('id, name, ranch_id, ranches(name)').eq('is_active', true),
             sb.from('feed_items').select('id, name, default_location_id, is_active'),
             sb.from('feed_storage_locations').select('id, name, is_active'),
             sb.from('feed_trucks').select('*').eq('is_active', true).order('name'),
-            sb.from('ranch_settings').select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_lb_dm, bunk_cut3_lb_dm').maybeSingle(),
+            sb.from('ranch_settings').select('feed_truck_tolerance_pct, feed_truck_min_split_lb, feed_truck_tieout_pct, feed_truck_post_from, bunk_fast_days, bunk_fast_bump_lb_dm, bunk_slow_days, bunk_slow_bump_lb_dm, bunk_cut2_lb_dm, bunk_cut3_lb_dm, ranch_lat, ranch_lon').maybeSingle(),
             fetchAll(() => sb.from('lot_pasture_assignments').select('lot_id, pasture_id, head_count, lots!inner(lot_number, closed_at, is_test)').is('moved_out', null).order('id')),
             sb.from('bunk_reads').select('*').gte('read_date', shiftDays(today, -21)).order('read_date', { ascending: false }),
-            sb.from('feed_loads').select('*, feed_load_lines(*), feed_drops(*, feed_drop_lots(*))').gte('load_date', shiftDays(today, -14)).order('load_date', { ascending: false }).order('load_seq', { ascending: false })
+            sb.from('feed_loads').select('*, feed_load_lines(*), feed_drops(*, feed_drop_lots(*))').gte('load_date', shiftDays(today, -14)).order('load_date', { ascending: false }).order('load_seq', { ascending: false }),
+            // Estimated weight today per open lot: weight in + target ADG x days
+            // on feed, from the books (a DEFINER function, so crew get it too).
+            sb.from('lot_status').select('lot_id, lot_number, projected_current_weight, days_on_feed, avg_weight_in, target_adg').is('closed_at', null),
+            sb.from('daily_weather').select('*').gte('weather_date', shiftDays(today, -21)).lte('weather_date', shiftDays(today, 2))
         ]);
         const bad = [ra, su, pa, it, lo, tr, st, asg, br, ld].find(r => r.error);
         if (bad) {
@@ -281,14 +285,17 @@ async function pullRefs(quiet) {
             return false;
         }
         const pastureHead = {}; const lotNames = {};
+        const lotWt = {}; ((ls && !ls.error && ls.data) || []).forEach(l => { lotWt[l.lot_id] = { wt: l.projected_current_weight != null ? Number(l.projected_current_weight) : null, dof: l.days_on_feed != null ? Number(l.days_on_feed) : null, adg: l.target_adg != null ? Number(l.target_adg) : null }; });
         (asg.data || []).forEach(a => {
             if (!a.lots || a.lots.closed_at || a.lots.is_test || /^TEST[_-]/i.test(a.lots.lot_number || '')) return;
             const n = Number(a.head_count) || 0; if (n <= 0) return;
             lotNames[a.lot_id] = a.lots.lot_number;
             const arr = pastureHead[a.pasture_id] = pastureHead[a.pasture_id] || [];
             const hit = arr.find(x => x.lot_id === a.lot_id);
-            if (hit) hit.head += n; else arr.push({ lot_id: a.lot_id, lot_number: a.lots.lot_number, head: n });
+            const w = lotWt[a.lot_id] || {};
+            if (hit) hit.head += n; else arr.push({ lot_id: a.lot_id, lot_number: a.lots.lot_number, head: n, est_wt: w.wt == null ? null : w.wt, dof: w.dof == null ? null : w.dof, adg: w.adg == null ? null : w.adg });
         });
+        const weather = {}; ((wx && !wx.error && wx.data) || []).forEach(w => { weather[w.weather_date] = w; });
         (ld.data || []).forEach(l => (l.feed_drops || []).forEach(d => (d.feed_drop_lots || []).forEach(x => { if (!lotNames[x.lot_id]) lotNames[x.lot_id] = lotNames[x.lot_id] || '?'; })));
         // Reads: today's rows, and the most recent earlier row per pasture
         // (the prefill), plus the last 15 days for the little history.
@@ -296,7 +303,7 @@ async function pullRefs(quiet) {
         (br.data || []).forEach(r => {
             if (r.read_date === today) todayRows[r.pasture_id] = r;
             else if (!lastReads[r.pasture_id]) lastReads[r.pasture_id] = r;
-            (history[r.pasture_id] = history[r.pasture_id] || []).push({ d: r.read_date, s: r.bunk_score, lb: r.lb_per_head, t: r.target_lb });
+            (history[r.pasture_id] = history[r.pasture_id] || []).push({ d: r.read_date, s: r.bunk_score, lb: r.lb_per_head, t: r.target_lb, hc: r.head_count });
         });
         S.refs = {
             pulledAt: new Date().toISOString(),
@@ -304,10 +311,11 @@ async function pullRefs(quiet) {
             setup: su.data || [],
             pastures: (pa.data || []).map(p => ({ id: p.id, name: p.name, ranch: p.ranches ? p.ranches.name : '' })),
             items: it.data || [], locations: lo.data || [], trucks: tr.data || [], settings: st.data || {},
-            pastureHead, lotNames, lastReads, history,
+            pastureHead, lotNames, lastReads, history, weather,
             serverLoads: (ld.data || []).map(normalizeServerLoad)
         };
         saveJSON('feedAppRefs', S.refs);
+        fetchWeather();   // in the background; the screen updates when it lands
         // Today's reads from the server win over a stale local copy unless
         // the local copy is dirty (the person is typing on THIS device).
         if (S.reads.date !== today) { S.reads = { date: today, rows: {} }; S.readsDirty = false; }
@@ -322,6 +330,62 @@ async function pullRefs(quiet) {
     } catch (e) {
         console.error(e); if (!quiet) toast('Pull failed: ' + (e.message || e), 'error', 4000); return false;
     }
+}
+// Weather for the ranch from Open-Meteo (free, no key): the last week and
+// two days ahead, stored one row per day so consumption can be read
+// against it. Silent on failure - the trend matrix just shows a dash.
+let weatherBusy = false;
+async function fetchWeather() {
+    if (weatherBusy || !navigator.onLine || !S.refs) return;
+    const st = settings(); const lat = Number(st.ranch_lat) || 31.31, lon = Number(st.ranch_lon) || -96.63;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&past_days=7&forecast_days=2&temperature_unit=fahrenheit&precipitation_unit=inch&wind_speed_unit=mph&timezone=America%2FChicago`;
+    weatherBusy = true;
+    try {
+        const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+        const res = await fetch(url, { signal: ctl.signal }); clearTimeout(t);
+        if (!res.ok) return;
+        const j = await res.json(); const d = j && j.daily; if (!d || !d.time) return;
+        const today = ranchToday();
+        const rows = d.time.map((day, i) => ({ weather_date: day, high_f: d.temperature_2m_max[i], low_f: d.temperature_2m_min[i], precip_in: d.precipitation_sum[i], wind_max_mph: d.wind_speed_10m_max[i], weather_code: d.weather_code[i], is_forecast: day > today, source: 'open-meteo', fetched_at: new Date().toISOString() }));
+        rows.forEach(r => { S.refs.weather[r.weather_date] = r; });
+        saveJSON('feedAppRefs', S.refs);
+        await sb.from('daily_weather').upsert(rows, { onConflict: 'weather_date' });
+        if (S.tab === 'bunks') renderBunks();
+    } catch (e) { console.warn('weather', e); }
+    finally { weatherBusy = false; }
+}
+const WMO = { 0: 'Clear', 1: 'Mostly clear', 2: 'Partly cloudy', 3: 'Overcast', 45: 'Fog', 48: 'Fog', 51: 'Drizzle', 53: 'Drizzle', 55: 'Drizzle', 61: 'Rain', 63: 'Rain', 65: 'Heavy rain', 66: 'Freezing rain', 67: 'Freezing rain', 71: 'Snow', 73: 'Snow', 75: 'Snow', 80: 'Showers', 81: 'Showers', 82: 'Heavy showers', 95: 'Storm', 96: 'Storm', 99: 'Storm' };
+function weatherTxt(day, short) {
+    const w = S.refs && S.refs.weather && S.refs.weather[day]; if (!w) return '—';
+    const t = `${w.high_f != null ? Math.round(w.high_f) : '–'}°/${w.low_f != null ? Math.round(w.low_f) : '–'}°`;
+    const rain = Number(w.precip_in) > 0.005 ? ` ${fmt(w.precip_in, 2)}"` : '';
+    return short ? t + rain : `${WMO[w.weather_code] || ''} ${t}${rain}${Number(w.wind_max_mph) >= 20 ? ' · wind ' + Math.round(w.wind_max_mph) : ''}${w.is_forecast ? ' (fcst)' : ''}`.trim();
+}
+// Pounds actually dropped in a pasture on a day, from the loads we know.
+function deliveredOn(pid, day) {
+    let lb = 0, any = false;
+    allLoads().forEach(l => { if (l.load_date !== day || l.status === 'void') return; (l.drops || []).forEach(d => { if (d.pasture_id === pid && d.done_at) { lb += Number(d.lb) || 0; any = true; } }); });
+    return any ? lb : null;
+}
+// Expected DMI for a pasture: the ration's percent of body weight times the
+// head-weighted estimated weight of the cattle standing there, or the
+// ration's flat lb/hd when no weight is known.
+function pastureEstWeight(pid) {
+    const heads = R.head(pid).filter(h => h.est_wt != null && h.head > 0);
+    const n = heads.reduce((s, h) => s + h.head, 0);
+    return n ? heads.reduce((s, h) => s + h.head * h.est_wt, 0) / n : null;
+}
+function pastureDof(pid) {
+    const heads = R.head(pid).filter(h => h.dof != null && h.head > 0);
+    const n = heads.reduce((s, h) => s + h.head, 0);
+    return n ? Math.round(heads.reduce((s, h) => s + h.head * h.dof, 0) / n) : null;
+}
+function expectedDmi(pid, ration) {
+    if (!ration) return { lb: null, basis: null, wt: null };
+    const wt = pastureEstWeight(pid);
+    if (Number(ration.expected_dmi_pct_bw) > 0 && wt) return { lb: wt * Number(ration.expected_dmi_pct_bw) / 100, basis: 'bw', wt };
+    if (Number(ration.expected_dmi_lb) > 0) return { lb: Number(ration.expected_dmi_lb), basis: 'flat', wt };
+    return { lb: null, basis: null, wt };
 }
 function normalizeServerLoad(l) {
     const { feed_load_lines, feed_drops, ...row } = l;
@@ -413,6 +477,7 @@ function readFor(pid) {
         target_lb: bulk ? (last ? Number(last.target_lb) || 0 : 0) : round1((lbhd || 0) * head),
         ration_id: s.ration_id || null, route_order: s.route_order || 0, frozen_load_id: null,
         suggested_lb_per_head: null, clean_days: null, suggest_note: null,
+        est_weight_lb: null, expected_dmi_lb: null, flags: [],
         notes: null, client_id: null, read_by: S.userId, _new: true
     };
     S.reads.rows[pid] = r;
@@ -457,7 +522,7 @@ function suggestCall(pid, score) {
     const lastLb = last && last.lb_per_head != null ? Number(last.lb_per_head) : (Number(r.lb_per_head) || 0);
     if (r.feeder_type === 'bulk' || score == null) return null;
     const dm = ration && Number(ration.dry_matter_pct) > 0 ? Number(ration.dry_matter_pct) / 100 : null;
-    const exp = ration && Number(ration.expected_dmi_lb) > 0 ? Number(ration.expected_dmi_lb) : null;
+    const ed = expectedDmi(pid, ration); const exp = ed.lb;
     const rules = bunkRules();
     const dmi = dm ? lastLb * dm : null;
     const below = (dmi != null && exp != null) ? dmi < exp - 0.05 : true;   // no target set: treat as getting up
@@ -473,7 +538,7 @@ function suggestCall(pid, score) {
     const toAsFed = x => dm ? x / dm : x;
     const lb = Math.max(0, Math.round((lastLb + toAsFed(deltaDm)) * 4) / 4);
     if (!dm) why += ' · no DM % on ration, bump taken as-fed';
-    return { lb, lastLb, deltaDm, streak, why, dmi, exp, dm };
+    return { lb, lastLb, deltaDm, streak, why, dmi, exp, dm, estWt: ed.wt, basis: ed.basis };
 }
 function readFrozen(r) { return !!r.frozen_load_id && allLoads().some(l => l.id === r.frozen_load_id && l.status !== 'void'); }
 function setRead(pid, patch) {
@@ -511,28 +576,51 @@ function renderBunks() {
     const scores = SCORES.map(n => `<button type="button" data-score="${n}" class="${Number(r.bunk_score) === n ? 'on' : ''}" ${frozen ? 'disabled' : ''}>${scoreLabel(n)}</button>`).join('');
     const sug = r.bunk_score != null && !bulk ? suggestCall(pid, Number(r.bunk_score)) : null;
     const dmNow = ration && Number(ration.dry_matter_pct) > 0 ? (Number(r.lb_per_head) || 0) * Number(ration.dry_matter_pct) / 100 : null;
-    const exp = ration && Number(ration.expected_dmi_lb) > 0 ? Number(ration.expected_dmi_lb) : null;
+    const ed = expectedDmi(pid, ration); const exp = ed.lb;
+    const estWt = pastureEstWeight(pid), dof = pastureDof(pid);
     const dmiBar = !bulk && dmNow != null && exp ? `<div class="dmi"><div class="dmi-bar"><div class="dmi-fill ${dmNow >= exp - 0.05 ? 'at' : ''}" style="width:${Math.min(100, 100 * dmNow / exp).toFixed(0)}%"></div></div>
-        <div class="dmi-txt">${fmt(dmNow, 1)} of ${fmt(exp, 1)} lb DM/hd · ${fmt(100 * dmNow / exp, 0)}%${dmNow >= exp - 0.05 ? ' · on feed, slow bumps' : ' · getting up, fast bumps'}</div></div>`
-        : (!bulk && ration && !(exp && dmNow != null) ? '<div class="dmi-txt muted">Set dry matter % and expected intake on the ration for intake-based bumps.</div>' : '');
+        <div class="dmi-txt">${fmt(dmNow, 1)} of ${fmt(exp, 1)} lb DM/hd · ${fmt(100 * dmNow / exp, 0)}%${ed.basis === 'bw' ? ` · ${fmt(Number(ration.expected_dmi_pct_bw), 2)}% of ${fmt(estWt)} lb` : ' · flat target'}${dmNow >= exp - 0.05 ? ' · on feed, slow bumps' : ' · getting up, fast bumps'}</div></div>`
+        : (!bulk && ration && !(exp && dmNow != null) ? '<div class="dmi-txt muted">Set dry matter % and expected intake (% of body weight) on the ration for intake-based bumps.</div>' : '');
+    const FLAGS = [['mud', 'Mud'], ['sick_pull', 'Sick pull'], ['waterer', 'Waterer'], ['storm', 'Storm']];
+    const flags = FLAGS.map(([k, lbl]) => `<label class="flag ${(r.flags || []).includes(k) ? 'on' : ''}"><input type="checkbox" data-flag="${k}" ${(r.flags || []).includes(k) ? 'checked' : ''} ${frozen ? 'disabled' : ''}>${lbl}</label>`).join('');
+    // Five-day trend matrix: weather, what was actually dropped, the score
+    // it produced, head, and any note. Today's row carries the forecast.
+    const days = [0, 1, 2, 3, 4, 5].map(n => shiftDays(ranchToday(), -n));
+    const histBy = {}; ((S.refs.history || {})[pid] || []).forEach(h => { histBy[h.d] = h; });
+    const lastLbHd = (S.refs.lastReads && S.refs.lastReads[pid] && Number(S.refs.lastReads[pid].lb_per_head)) || Number(r.lb_per_head) || 0;
+    const trend = `<table class="trend"><thead><tr><th>Day</th><th>Weather</th><th class="num">Fed lb</th><th class="num">lb/hd</th><th>Score</th><th class="num">Head</th></tr></thead><tbody>${days.map((day, i) => {
+        const h = i === 0 ? { s: r.bunk_score, lb: r.lb_per_head, t: r.target_lb, hc: r.head_count } : histBy[day];
+        const fed = i === 0 ? null : deliveredOn(pid, day);
+        const sc = h && h.s != null ? Number(h.s) : null;
+        return `<tr class="${i === 0 ? 'today' : ''} ${sc != null && sc <= 0.5 ? 'clean' : ''}"><td>${i === 0 ? 'Today' : fmtDate(day).replace(/,.*$/, '')}</td><td class="wx">${esc(weatherTxt(day, true))}</td><td class="num">${fed != null ? fmt(fed) : (h && h.t != null && i > 0 ? '<span class="muted">' + fmt(h.t) + '*</span>' : '—')}</td><td class="num">${h && h.lb != null ? fmt(h.lb, 2) : '—'}</td><td>${sc != null ? scoreLabel(sc) : '—'}</td><td class="num">${h && h.hc != null ? fmt(h.hc) : (i === 0 ? fmt(r.head_count) : '')}</td></tr>`; }).join('')}</tbody></table>
+        <div class="muted" style="font-size:11px;">* called, no drop recorded that day</div>`;
+    const quick = [-10, -5, -2, 0, 2, 5, 10].map(p => `<button type="button" data-pct="${p}" ${frozen ? 'disabled' : ''}>${p === 0 ? 'Hold' : (p > 0 ? '+' : '−') + Math.abs(p) + '%'}</button>`).join('');
     const sugTxt = sug ? `<div class="suggest ${sug.deltaDm > 0 ? 'up' : sug.deltaDm < 0 ? 'down' : ''}">${sug.deltaDm > 0 ? '▲' : sug.deltaDm < 0 ? '▼' : '='} ${fmt(sug.lastLb, 2)} → <b>${fmt(sug.lb, 2)}</b> lb/hd <span class="why">${esc(sug.why)}</span>${Number(r.lb_per_head) !== sug.lb ? ' <span class="tag amber">adjusted by hand</span>' : ''}</div>` : (!bulk ? '<div class="suggest muted">Tap a score to get today\'s call.</div>' : '');
     card.innerHTML = `<div class="card bunk-one ${frozen ? 'locked' : ''}" data-pid="${pid}">
         <div class="name">${esc(pastureLabel(pid))}</div>
         <div class="lots">${fmt(r.head_count)} hd${head.length ? ' · ' + head.map(h => esc(h.lot_number) + ' ' + h.head).join(', ') : ''}${ration ? ' · ' + esc(ration.name) : ' · <span class="tag red">no ration</span>'}${frozen ? ' · <span class="frozen">on the truck</span>' : ''}</div>
+        <div class="facts"><span><b>${estWt ? fmt(estWt) : '—'}</b> lb est.</span><span><b>${dof != null ? dof : '—'}</b> days on feed</span><span><b>${esc(weatherTxt(ranchToday(), true))}</b> today</span></div>
         ${bulk ? `<div class="label">Total pounds in the feeder</div>
                   <div class="stepper"><button type="button" data-step="-100" ${frozen ? 'disabled' : ''}>−</button><span class="val" data-edit="total">${fmt(r.target_lb)}</span><button type="button" data-step="100" ${frozen ? 'disabled' : ''}>+</button></div>`
                : `<div class="label">Bunk score</div><div class="scores">${scores}</div>
+                  <div class="score-words"><span>slick</span><span>scattered, bottom showing</span><span>thin layer, a kernel deep</span><span>25–50% left</span><span>over half left</span></div>
                   ${sugTxt}
-                  <div class="label">Pounds per head, as fed</div>
+                  <div class="label">Pounds per head, as fed <span class="muted">· quick adjust from yesterday's ${fmt(lastLbHd, 2)}</span></div>
+                  <div class="quick">${quick}</div>
                   <div class="stepper"><button type="button" data-step="-0.25" ${frozen ? 'disabled' : ''}>−</button><span class="val" data-edit="lbhd">${fmt(r.lb_per_head, 2)}</span><button type="button" data-step="0.25" ${frozen ? 'disabled' : ''}>+</button></div>`}
         <div class="total"><span class="muted">${bulk ? 'Bulk feeder' : 'Pasture total'}</span><b>${fmt(r.target_lb)} lb</b></div>
         ${dmiBar}
-        ${hist.length ? `<div class="label">Last ${hist.length} days · score / lb</div><div class="hist">${hist.map(h => `<span class="${h.s != null && h.s <= 0.5 ? 'clean' : ''}">${h.s != null ? scoreLabel(Number(h.s)) : '·'}<b>${h.lb != null ? fmt(h.lb, 2) : fmt(h.t)}</b></span>`).join('')}</div>` : ''}
+        <div class="label">Flags &amp; note</div>
+        <div class="flags">${flags}</div>
+        <input type="text" class="note" data-note placeholder="note for today (optional)" value="${esc(r.notes || '')}" ${frozen ? 'disabled' : ''}>
+        <div class="label">Last 5 days</div>
+        ${trend}
     </div>`;
     card.querySelectorAll('[data-score]').forEach(b => b.addEventListener('click', () => {
         const x = readFor(pid); const sc = x.bunk_score === Number(b.dataset.score) ? null : Number(b.dataset.score);
         const sug = sc == null ? null : suggestCall(pid, sc);
-        setRead(pid, { bunk_score: sc, lb_per_head: sug ? sug.lb : x.lb_per_head, suggested_lb_per_head: sug ? sug.lb : null, clean_days: sug ? sug.streak : null, suggest_note: sug ? sug.why : null });
+        setRead(pid, { bunk_score: sc, lb_per_head: sug ? sug.lb : x.lb_per_head, suggested_lb_per_head: sug ? sug.lb : null, clean_days: sug ? sug.streak : null, suggest_note: sug ? sug.why : null,
+                       est_weight_lb: sug && sug.estWt != null ? Math.round(sug.estWt) : x.est_weight_lb, expected_dmi_lb: sug && sug.exp != null ? Math.round(sug.exp * 100) / 100 : x.expected_dmi_lb });
     }));
     card.querySelectorAll('[data-step]').forEach(b => {
         let hold = null, fired = false;
@@ -543,6 +631,16 @@ function renderBunks() {
         b.addEventListener('touchstart', () => { hold = setTimeout(function run() { fired = true; step(); hold = setTimeout(run, 140); }, 450); }, { passive: true });
         ['touchend', 'touchcancel'].forEach(ev => b.addEventListener(ev, () => { clearTimeout(hold); hold = null; }));
     });
+    card.querySelectorAll('[data-pct]').forEach(b => b.addEventListener('click', () => {
+        const p = Number(b.dataset.pct); const base = lastLbHd;
+        setRead(pid, { lb_per_head: Math.max(0, Math.round(base * (1 + p / 100) * 4) / 4) });
+    }));
+    card.querySelectorAll('[data-flag]').forEach(cb => cb.addEventListener('change', () => {
+        const x = readFor(pid); const set = new Set(x.flags || []); if (cb.checked) set.add(cb.dataset.flag); else set.delete(cb.dataset.flag);
+        setRead(pid, { flags: [...set] });
+    }));
+    const noteEl = card.querySelector('[data-note]');
+    if (noteEl) noteEl.addEventListener('change', () => { const x = readFor(pid); x.notes = noteEl.value.trim() || null; S.readsDirty = true; persist(); $('bunkSaveHint').textContent = 'Unsaved changes'; });
     card.querySelectorAll('[data-edit]').forEach(v => v.addEventListener('click', () => {
         const x = readFor(pid); if (readFrozen(x)) return;
         const isTotal = v.dataset.edit === 'total';
@@ -574,6 +672,16 @@ async function saveBunks() {
     alertBox('bunkAlert', '');
     const rows = readSetup().map(s => readFor(s.pasture_id)).filter(r => !readFrozen(r)).map(r => { const { _new, ...row } = r; return { ...row, route_order: (R.setup(r.pasture_id) || {}).route_order || row.route_order, read_by: S.userId }; });
     if (!rows.length) return;
+    // The 10% shock guardrail: a call more than a tenth off the last three
+    // days' average gets one confirmation naming the pastures. It catches an
+    // extra zero, not a considered bump.
+    const shocks = rows.map(row => {
+        const hist = ((S.refs.history || {})[row.pasture_id] || []).slice().sort((a, b) => b.d.localeCompare(a.d)).slice(0, 3).map(h => Number(h.t)).filter(t => t > 0);
+        if (!hist.length) return null;
+        const avg = hist.reduce((a, b) => a + b, 0) / hist.length; const pct = 100 * (Number(row.target_lb) - avg) / avg;
+        return Math.abs(pct) > 10 ? `${pastureLabel(row.pasture_id)}: ${fmt(row.target_lb)} lb is ${pct > 0 ? '+' : ''}${fmt(pct, 0)}% off the 3-day average of ${fmt(avg)}` : null;
+    }).filter(Boolean);
+    if (shocks.length && !confirm('These calls move more than 10% from the last three days:\n\n' + shocks.join('\n') + '\n\nSave them anyway?')) return;
     $('bunkSaveBtn').disabled = true; $('bunkSaveHint').textContent = 'Saving…';
     try {
         const { data, error } = await sb.from('bunk_reads').upsert(rows, { onConflict: 'read_date,pasture_id' }).select();
