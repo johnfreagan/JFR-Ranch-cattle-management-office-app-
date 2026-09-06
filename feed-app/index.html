@@ -141,68 +141,86 @@
                 No load in progress. Go to <b>Plan</b> and start one.
             </div>
 
-            <div id="truckLoad" class="hidden">
-                <div class="load-head">
-                    <div class="load-title" id="ldTitle">—</div>
-                    <div class="load-sub" id="ldSub">—</div>
+            <!-- PB's Load screen (John's example): red panel header, grey
+                 sub-header, big countdown; Scale panel beside it; tile strip
+                 below. Same shape for delivery with pastures as the tiles. -->
+            <div id="truckLoad" class="hidden pb-screen">
+                <div class="pb-bar">
+                    <button type="button" class="pb-btn green" id="ldDoneBtn">Done</button>
+                    <div class="pb-bar-title">Load</div>
+                    <button type="button" class="pb-btn grey" id="ldEditBtn">Edit</button>
                 </div>
-                <div class="big-panel" id="ldBig">
-                    <div class="big-label" id="ldBigLabel">—</div>
-                    <div class="big-num" id="ldBigNum">—</div>
-                    <div class="big-foot" id="ldBigFoot">—</div>
+                <div class="pb-grid">
+                    <div class="pb-panel">
+                        <div class="pb-panel-head" id="ldTitle">—</div>
+                        <div class="pb-panel-sub" id="ldBigLabel">—</div>
+                        <div class="big-panel" id="ldBig">
+                            <div class="big-num" id="ldBigNum">—</div>
+                            <div class="big-foot" id="ldBigFoot">—</div>
+                        </div>
+                    </div>
+                    <div class="pb-panel">
+                        <div class="pb-panel-head">Scale</div>
+                        <div class="pb-scale-row">
+                            <button type="button" class="pb-btn green small" id="ldZeroBtn">Zero</button>
+                            <div class="pb-link"><span class="scale-state" id="ldLink">no link</span></div>
+                            <button type="button" class="pb-btn red small" id="ldSkipBtn">Skip</button>
+                        </div>
+                        <div class="pb-scale-box"><span id="ldGross">—</span><span class="pb-scale-unit">lb</span></div>
+                        <div class="pb-panel-foot" id="ldSub">—</div>
+                    </div>
                 </div>
-                <div class="scale-row">
-                    <button type="button" class="btn ghost small" id="ldZeroBtn">Zero</button>
-                    <div class="scale-read"><span id="ldGross">—</span><span class="unit">lb gross</span><span class="scale-state" id="ldLink">no link</span></div>
-                    <button type="button" class="btn ghost small" id="ldEditBtn">Edit</button>
-                </div>
-                <div class="tiles" id="ldTiles"></div>
-                <div class="action-row">
-                    <button type="button" class="btn primary big" id="ldDoneBtn">Done</button>
-                </div>
-                <div class="action-row">
-                    <button type="button" class="btn ghost small" id="ldSkipBtn">Skip this ingredient (0 lb)</button>
-                </div>
+                <div class="pb-select-head">Feed Select</div>
+                <div class="pb-strip"><div class="pb-strip-labels"><span>Target</span><span>Loaded</span></div><div class="tiles" id="ldTiles"></div></div>
             </div>
 
-            <div id="truckMix" class="hidden">
-                <div class="load-head">
-                    <div class="load-title" id="mxTitle">Mixing</div>
-                    <div class="load-sub" id="mxSub">—</div>
+            <div id="truckMix" class="hidden pb-screen">
+                <div class="pb-bar">
+                    <div class="pb-bar-title">Mixing</div>
                 </div>
-                <div class="big-panel mix" id="mxBig">
-                    <div class="big-label">time left</div>
-                    <div class="big-num" id="mxNum">—</div>
-                    <div class="big-foot" id="mxFoot">No feed until the timer hits zero.</div>
+                <div class="pb-panel">
+                    <div class="pb-panel-head" id="mxTitle">—</div>
+                    <div class="pb-panel-sub" id="mxSub">—</div>
+                    <div class="big-panel mix" id="mxBig">
+                        <div class="big-label">time left</div>
+                        <div class="big-num" id="mxNum">—</div>
+                        <div class="big-foot" id="mxFoot">No feed until the timer hits zero.</div>
+                    </div>
                 </div>
                 <div class="action-row">
                     <button type="button" class="btn primary big" id="mxGoBtn" disabled>Go feed</button>
                 </div>
             </div>
 
-            <div id="truckDrop" class="hidden">
-                <div class="load-head">
-                    <div class="load-title" id="drTitle">—</div>
-                    <div class="load-sub" id="drSub">—</div>
+            <div id="truckDrop" class="hidden pb-screen">
+                <div class="pb-bar">
+                    <button type="button" class="pb-btn green" id="drStartBtn">Start</button>
+                    <button type="button" class="pb-btn green hidden" id="drDoneBtn">Done</button>
+                    <div class="pb-bar-title">Deliver</div>
+                    <button type="button" class="pb-btn grey" id="drEditBtn">Edit</button>
                 </div>
-                <div class="big-panel" id="drBig">
-                    <div class="big-label" id="drBigLabel">—</div>
-                    <div class="big-num" id="drBigNum">—</div>
-                    <div class="big-foot" id="drBigFoot">—</div>
+                <div class="pb-grid">
+                    <div class="pb-panel">
+                        <div class="pb-panel-head" id="drTitle">—</div>
+                        <div class="pb-panel-sub" id="drBigLabel">—</div>
+                        <div class="big-panel" id="drBig">
+                            <div class="big-num" id="drBigNum">—</div>
+                            <div class="big-foot" id="drBigFoot">—</div>
+                        </div>
+                    </div>
+                    <div class="pb-panel">
+                        <div class="pb-panel-head">Scale</div>
+                        <div class="pb-scale-row">
+                            <button type="button" class="pb-btn green small" id="drAddBtn">+ Pasture</button>
+                            <div class="pb-link"><span class="scale-state" id="drLink">no link</span></div>
+                            <button type="button" class="pb-btn red small" id="drCloseBtn">Close load</button>
+                        </div>
+                        <div class="pb-scale-box"><span id="drGross">—</span><span class="pb-scale-unit">lb</span></div>
+                        <div class="pb-panel-foot" id="drSub">—</div>
+                    </div>
                 </div>
-                <div class="scale-row">
-                    <button type="button" class="btn ghost small" id="drAddBtn">+ Pasture</button>
-                    <div class="scale-read"><span id="drGross">—</span><span class="unit">lb gross</span><span class="scale-state" id="drLink">no link</span></div>
-                    <button type="button" class="btn ghost small" id="drEditBtn">Edit</button>
-                </div>
-                <div class="tiles drops" id="drTiles"></div>
-                <div class="action-row">
-                    <button type="button" class="btn primary big" id="drStartBtn">Start</button>
-                    <button type="button" class="btn primary big hidden" id="drDoneBtn">Done</button>
-                </div>
-                <div class="action-row">
-                    <button type="button" class="btn ghost small" id="drCloseBtn">Close load</button>
-                </div>
+                <div class="pb-select-head">Pasture Select</div>
+                <div class="pb-strip"><div class="pb-strip-labels"><span>Target</span><span>Fed</span></div><div class="tiles drops" id="drTiles"></div></div>
             </div>
 
             <div id="simBar" class="sim-bar hidden">

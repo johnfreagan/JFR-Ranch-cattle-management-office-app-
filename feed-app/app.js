@@ -741,7 +741,7 @@ function truckTick() {
         $('ldBig').className = 'big-panel ' + (g == null ? 'idle' : band(remaining, ln.target_lb));
         $('ldBigFoot').textContent = `${fmt(Math.round(got))} of ${fmt(ln.target_lb)} lb in · ${remaining <= 0 ? 'target reached - tap Done' : 'to go'}`;
         $('ldDoneBtn').disabled = !live;
-        $('ldDoneBtn').textContent = live ? `Done — ${(R.item(ln.item_id) || {}).name || ''}` : 'No scale link';
+        $('ldDoneBtn').textContent = live ? 'Done' : 'No link';
     } else if (l.status === 'mixing') {
         const req = (Number(l.mix_minutes_required) || 0) * 60;
         const elapsed = (Date.now() - new Date(l.mix_started_at).getTime()) / 1000;
@@ -764,8 +764,8 @@ function truckTick() {
         $('drBigFoot').textContent = started ? `${fmt(Math.round(out))} of ${fmt(d.target_lb)} lb out · ${remaining <= 0 ? 'target reached - tap Done' : 'to go'}` : `target ${fmt(d.target_lb)} lb · tap Start when you are at the bunk`;
         $('drStartBtn').classList.toggle('hidden', started); $('drDoneBtn').classList.toggle('hidden', !started);
         $('drStartBtn').disabled = !live; $('drDoneBtn').disabled = !live;
-        if (!live) { $('drStartBtn').textContent = 'No scale link'; $('drDoneBtn').textContent = 'No scale link'; }
-        else { $('drStartBtn').textContent = `Start — ${pastureLabel(d.pasture_id)}`; $('drDoneBtn').textContent = `Done — ${pastureLabel(d.pasture_id)}`; }
+        if (!live) { $('drStartBtn').textContent = 'No link'; $('drDoneBtn').textContent = 'No link'; }
+        else { $('drStartBtn').textContent = 'Start'; $('drDoneBtn').textContent = 'Done'; }
     }
 }
 function chime() {
@@ -781,15 +781,15 @@ function chime() {
 function renderLoading(l) {
     const ration = R.ration(l.ration_id) || {};
     const loaded = loadedLb(l);
-    $('ldTitle').textContent = `${ration.name || 'Ration'} · ${fmt(l.planned_lb)} lb · load ${l.load_seq}`;
-    $('ldSub').textContent = `${fmt(loaded)} lb loaded${l.carried_in_lb > 0 ? ` · ${fmt(l.carried_in_lb)} lb already in the box` : ''} · ${l.drops.length} drop${l.drops.length === 1 ? '' : 's'}`;
+    $('ldTitle').textContent = `${ration.name || 'Ration'} - ${fmt(l.planned_lb)}`;
+    $('ldSub').textContent = `Load ${l.load_seq} · ${fmt(loaded)} lb loaded${l.carried_in_lb > 0 ? ` · ${fmt(l.carried_in_lb)} lb already in the box` : ''} · ${l.drops.length} drop${l.drops.length === 1 ? '' : 's'}`;
     const ln = l.lines[l._ui.line];
-    $('ldBigLabel').textContent = ln ? `${(R.item(ln.item_id) || {}).name || '?'} · ${(R.loc(ln.location_id) || {}).name || ''}` : 'All ingredients done';
+    $('ldBigLabel').textContent = ln ? `${(R.item(ln.item_id) || {}).name || '?'}` : 'All ingredients done';
     $('ldTiles').innerHTML = l.lines.map((x, i) => `<div class="tile ${i === l._ui.line ? 'cur' : ''} ${x.done_at ? 'done' : ''} ${x.edited_at ? 'edited' : ''}" data-i="${i}">
         <div class="name">${esc((R.item(x.item_id) || {}).name || '?')}</div>
         <div class="bay">${esc((R.loc(x.location_id) || {}).name || 'no bay')}</div>
         <div class="tgt">${fmt(x.target_lb)}</div>
-        <div class="got">${x.done_at ? fmt(x.lb) : '—'}</div></div>`).join('');
+        <div class="got">${x.done_at ? fmt(x.lb) : '0'}</div></div>`).join('');
     $('ldTiles').querySelectorAll('.tile').forEach(t => t.addEventListener('click', () => {
         const i = Number(t.dataset.i);
         if (l.lines[i].done_at) { editLine(l, i); return; }
@@ -825,7 +825,7 @@ $('ldDoneBtn').addEventListener('click', () => {
 $('ldSkipBtn').addEventListener('click', () => {
     const l = activeLoad(); if (!l || l.status !== 'loading') return;
     const ln = l.lines[l._ui.line]; if (!ln) return;
-    if (!confirm(`Skip ${(R.item(ln.item_id) || {}).name || 'this ingredient'}? It goes down as 0 lb.`)) return;
+    if (!confirm(`Skip ${(R.item(ln.item_id) || {}).name || 'this ingredient'}? It goes down as 0 lb and the next ingredient comes up.`)) return;
     lineDone(l, 0, false);
 });
 $('ldZeroBtn').addEventListener('click', () => {
@@ -840,7 +840,8 @@ $('ldEditBtn').addEventListener('click', () => { const l = activeLoad(); if (l) 
 // ---- mixing ----
 function renderMixing(l) {
     const ration = R.ration(l.ration_id) || {};
-    $('mxSub').textContent = `${ration.name || ''} · ${fmt(loadedLb(l))} lb loaded · ${l.drops.length} drop${l.drops.length === 1 ? '' : 's'} to make`;
+    $('mxTitle').textContent = `${ration.name || 'Ration'} - ${fmt(loadedLb(l))}`;
+    $('mxSub').textContent = `Load ${l.load_seq} · ${l.drops.length} drop${l.drops.length === 1 ? '' : 's'} to make`;
 }
 $('mxGoBtn').addEventListener('click', () => {
     const l = activeLoad(); if (!l || l.status !== 'mixing') return;
@@ -855,15 +856,15 @@ function nextUndoneDrop(l, from) { for (let k = 0; k < l.drops.length; k++) { co
 function renderDropping(l) {
     const ration = R.ration(l.ration_id) || {};
     const inBox = round1((Number(l.carried_in_lb) || 0) + loadedLb(l) - droppedLb(l));
-    $('drTitle').textContent = `${ration.name || 'Ration'} · load ${l.load_seq}`;
-    $('drSub').textContent = `${fmt(inBox)} lb in the box · ${fmt(droppedLb(l))} dropped`;
+    $('drTitle').textContent = `${ration.name || 'Ration'} - ${fmt(round1((Number(l.carried_in_lb) || 0) + loadedLb(l)))}`;
+    $('drSub').textContent = `Load ${l.load_seq} · ${fmt(inBox)} lb in the box · ${fmt(droppedLb(l))} fed`;
     const d = l.drops[l._ui.drop];
     $('drBigLabel').textContent = d ? pastureLabel(d.pasture_id) : 'All drops done';
     $('drTiles').innerHTML = l.drops.map((x, i) => `<div class="tile ${i === l._ui.drop ? 'cur' : ''} ${x.done_at ? 'done' : ''} ${x.edited_at ? 'edited' : ''}" data-i="${i}">
         <div class="name">${esc(pastureLabel(x.pasture_id))}</div>
         <div class="bay">${fmt(pastureHeadTotal(x.pasture_id))} hd${x.lots && x.lots.length > 1 ? ' · ' + x.lots.length + ' lots' : ''}</div>
         <div class="tgt">${fmt(x.target_lb)}</div>
-        <div class="got">${x.done_at ? fmt(x.lb) : '—'}</div></div>`).join('');
+        <div class="got">${x.done_at ? fmt(x.lb) : '0'}</div></div>`).join('');
     $('drTiles').querySelectorAll('.tile').forEach(t => t.addEventListener('click', () => {
         const i = Number(t.dataset.i);
         if (l.drops[i].done_at) { editDrop(l, i); return; }
