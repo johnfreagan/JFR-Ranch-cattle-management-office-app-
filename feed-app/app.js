@@ -36,7 +36,7 @@ if (!window.FeedPlanner) {
     throw new Error('planner not available');
 }
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
-const { planLoads, lrSplit } = window.FeedPlanner;
+const { planLoads, planCart, lrSplit } = window.FeedPlanner;
 
 // ---------------------------------------------------------
 // small helpers
@@ -455,8 +455,30 @@ function activeSetup() { return ((S.refs && S.refs.setup) || []).filter(s => s.i
 function routeSetup() {
     return activeSetup().sort((a, b) => ((Number(a.route_order) || 0) - (Number(b.route_order) || 0)) || pastureLabel(a.pasture_id).localeCompare(pastureLabel(b.pasture_id)));
 }
+// The daily read is BUNK pastures only (D25). A bulk feeder holding a
+// week's feed does not want a call every morning; it gets called from the
+// feeders list on Plan on the days it is actually filled.
 function readSetup() {
-    return activeSetup().sort((a, b) => ((Number(a.read_order) || Number(a.route_order) || 0) - (Number(b.read_order) || Number(b.route_order) || 0)) || pastureLabel(a.pasture_id).localeCompare(pastureLabel(b.pasture_id)));
+    return activeSetup().filter(s => s.feeder_type !== 'bulk')
+        .sort((a, b) => ((Number(a.read_order) || Number(a.route_order) || 0) - (Number(b.read_order) || Number(b.route_order) || 0)) || pastureLabel(a.pasture_id).localeCompare(pastureLabel(b.pasture_id)));
+}
+// The truck drives the ROUTE order, so the planner must see the calls in
+// that order - not the reading order the bunk screen walks.
+function routeBunkSetup() { return routeSetup().filter(s => s.feeder_type !== 'bulk'); }
+function bulkSetup() {
+    return activeSetup().filter(s => s.feeder_type === 'bulk')
+        .sort((a, b) => ((Number(a.route_order) || 0) - (Number(b.route_order) || 0)) || pastureLabel(a.pasture_id).localeCompare(pastureLabel(b.pasture_id)));
+}
+// The last time anything was actually dropped in a pasture, from the loads
+// this device knows about: {date, lb} or null.
+function lastFill(pid) {
+    let best = null;
+    allLoads().forEach(l => { if (l.status === 'void') return; (l.drops || []).forEach(d => {
+        if (d.pasture_id !== pid || !d.done_at || !(Number(d.lb) > 0)) return;
+        if (!best || l.load_date > best.date) best = { date: l.load_date, lb: Number(d.lb) };
+        else if (l.load_date === best.date) best.lb += Number(d.lb);
+    }); });
+    return best;
 }
 // Today's read for a pasture, created (unsaved) from setup + the prefill
 // the first time it is asked for. Everything the truck needs is snapshotted
@@ -679,7 +701,11 @@ async function saveBunks() {
     if (!S.refs) return;
     if (!navigator.onLine) { alertBox('bunkAlert', 'No signal. Bunk calls save straight to the ranch; try again when you have a bar.'); return; }
     alertBox('bunkAlert', '');
-    const rows = readSetup().map(s => readFor(s.pasture_id)).filter(r => !readFrozen(r)).map(r => { const { _new, ...row } = r; return { ...row, route_order: (R.setup(r.pasture_id) || {}).route_order || row.route_order, read_by: S.userId }; });
+    // Every bunk pasture on the route is saved so an untouched one still
+    // carries yesterday's call (D4); a bulk feeder is saved only on the days
+    // it is actually called (D25).
+    const src = readSetup().concat(bulkSetup().filter(s => Number(readFor(s.pasture_id).target_lb) > 0));
+    const rows = src.map(s => readFor(s.pasture_id)).filter(r => !readFrozen(r)).map(r => { const { _new, ...row } = r; return { ...row, route_order: (R.setup(r.pasture_id) || {}).route_order || row.route_order, read_by: S.userId }; });
     if (!rows.length) return;
     // The 10% shock guardrail: a call more than a tenth off the last three
     // days' average gets one confirmation naming the pastures. It catches an
@@ -709,38 +735,55 @@ $('bunkRefreshBtn').addEventListener('click', async () => { if (await pullRefs()
 // ---------------------------------------------------------
 // What is still owed today per pasture: the call less what loads already
 // started have planned or dropped for it.
-function remainingCalls() {
+function remainingCalls(list) {
     const served = {};
     todayLoads().forEach(l => (l.drops || []).forEach(d => { served[d.pasture_id] = (served[d.pasture_id] || 0) + Math.max(Number(d.lb) || 0, d.done_at ? 0 : Number(d.target_lb) || 0); }));
-    return routeSetup().map(s => readFor(s.pasture_id)).map(r => ({
+    return (list || routeSetup()).map(s => readFor(s.pasture_id)).map(r => ({
         pasture_id: r.pasture_id, label: pastureLabel(r.pasture_id), ration_id: r.ration_id,
         lb: round1(Math.max(0, (Number(r.target_lb) || 0) - (served[r.pasture_id] || 0))),
         one_pass: !!(R.setup(r.pasture_id) || {}).one_pass, route_order: r.route_order, read: r
     })).filter(c => c.lb > 0);
 }
-// Leftover in the box from the most recent load, for Distribute (D9).
-function boxState() {
-    const last = allLoads().find(l => ['closed', 'posted'].includes(l.status));
+// Leftover from the most recent load, for Distribute (D9). The mixer box
+// and the grain cart are DIFFERENT VESSELS (D25): feed left in the cart
+// must not cut the next mixer load's ingredients, and feed left in the box
+// is not sitting in the cart. So each mode carries its own leftover.
+function vesselState(mode) {
+    const of = l => (l.delivery_mode || 'direct') === mode;
+    const last = allLoads().find(l => ['closed', 'posted'].includes(l.status) && of(l));
     if (!last || !(Number(last.left_in_box_lb) > 0)) return { lb: 0, ration_id: null };
-    // Only if no later load has already carried it.
-    const later = allLoads().find(l => l.status !== 'void' && (l.load_date > last.load_date || (l.load_date === last.load_date && l.load_seq > last.load_seq)));
+    // Only if no later load of the same mode has already carried it.
+    const later = allLoads().find(l => l.status !== 'void' && of(l) && (l.load_date > last.load_date || (l.load_date === last.load_date && l.load_seq > last.load_seq)));
     if (later) return { lb: 0, ration_id: null };
     return { lb: Number(last.left_in_box_lb), ration_id: last.ration_id };
 }
+function boxState() { return vesselState('direct'); }
+function cartState() { return vesselState('cart'); }
 function capFor(rationId) {
     const r = R.ration(rationId); const t = currentTruck();
     const a = r && Number(r.max_load_lb) > 0 ? Number(r.max_load_lb) : null;
     const b = t && Number(t.capacity_lb) > 0 ? Number(t.capacity_lb) : null;
     return a && b ? Math.min(a, b) : (a || b || null);
 }
-function buildPlan() {
-    const calls = remainingCalls();
+// Groups are keyed `mode:ration` - the same ration can feed bunks and bulk
+// feeders on the same day, and those are two different runs.
+function groupCalls(calls) {
     const byRation = new Map();
     calls.forEach(c => { const k = c.ration_id || 'none'; (byRation.get(k) || byRation.set(k, []).get(k)).push(c); });
+    return byRation;
+}
+function buildPlan() {
     const out = [];
-    byRation.forEach((cs, rid) => {
-        if (S.planEdits && S.planEdits[rid]) { out.push({ ration_id: rid, loads: S.planEdits[rid] }); return; }
-        out.push({ ration_id: rid, loads: planLoads({ calls: cs, cap: capFor(rid === 'none' ? null : rid), minSplit: minSplit() }) });
+    const add = (mode, rid, loads) => { if (loads.length) out.push({ key: mode + ':' + rid, mode, ration_id: rid, loads }); };
+    groupCalls(remainingCalls(routeBunkSetup())).forEach((cs, rid) => {
+        const key = 'direct:' + rid;
+        if (S.planEdits && S.planEdits[key]) return add('direct', rid, S.planEdits[key]);
+        add('direct', rid, planLoads({ calls: cs, cap: capFor(rid === 'none' ? null : rid), minSplit: minSplit() }));
+    });
+    groupCalls(remainingCalls(bulkSetup())).forEach((cs, rid) => {
+        const key = 'cart:' + rid;
+        if (S.planEdits && S.planEdits[key]) return add('cart', rid, S.planEdits[key]);
+        add('cart', rid, planCart({ calls: cs, cap: capFor(rid === 'none' ? null : rid) }));
     });
     return out;
 }
@@ -770,6 +813,61 @@ function pbCard(opts) {
         <table class="pb-feed"><thead><tr><th></th><th class="num">Target</th><th class="num">Loaded</th></tr></thead><tbody>${feed}</tbody></table>
     </div>`;
 }
+// ---- bulk feeders (D25): call the ones you are filling today ----
+// One bucket per pasture. Tap a feeder to call it (its capacity, or what
+// it took last time), tap again to clear, tap the number to type one. The
+// call is an ordinary bunk_reads row with feeder_type 'bulk', so it
+// freezes onto a load and shows in history like any other call.
+function feederDefault(pid) {
+    const st = R.setup(pid) || {};
+    const cap = Number(st.feeder_capacity_lb) > 0 ? Number(st.feeder_capacity_lb) : null;
+    const last = (S.refs && S.refs.lastReads && S.refs.lastReads[pid]) || null;
+    return cap || (last && Number(last.target_lb) > 0 ? Number(last.target_lb) : 0);
+}
+function feedersCard() {
+    const rows = bulkSetup();
+    if (!rows.length) return '';
+    const today = ranchToday();
+    return `<div class="card" id="feedersCard">
+        <div class="row-between side-head"><div><b>Bulk feeders</b><div class="muted small">Tap one to call it. The mix is allocated across the feeders you fill, pro-rata to the call.</div></div></div>
+        ${S.readsDirty ? '<div class="fd-save"><span class="muted small">Calls not saved</span><button type="button" class="btn small primary" id="feederSaveBtn">Save calls</button></div>' : ''}
+        ${rows.map(st => {
+            const pid = st.pasture_id; const r = readFor(pid); const called = Number(r.target_lb) || 0;
+            const fill = lastFill(pid); const days = fill ? Math.round((new Date(today) - new Date(fill.date)) / 86400000) : null;
+            const cap = Number(st.feeder_capacity_lb) || 0;
+            const over = cap && called > cap;
+            return `<div class="feeder ${called > 0 ? 'on' : ''}" data-pid="${pid}">
+                <div class="fd-main"><b>${esc(pastureLabel(pid))}</b>
+                    <span class="muted small">${fmt(pastureHeadTotal(pid))} hd${cap ? ' · holds ' + fmt(cap) : ''}${fill ? ` · last ${fmt(fill.lb)} lb, ${days} day${days === 1 ? '' : 's'} ago` : ' · never filled'}</span></div>
+                <div class="fd-lb" data-edit="${pid}">${called > 0 ? fmt(called) + ' lb' : 'call'}</div>
+                ${over ? '<div class="fd-warn">more than the feeders hold</div>' : ''}
+            </div>`; }).join('')}
+    </div>`;
+}
+function wireFeeders() {
+    const card = $('feedersCard'); if (!card) return;
+    const save = $('feederSaveBtn');
+    if (save) save.addEventListener('click', async () => { await saveBunks(); renderPlan(); });
+    card.querySelectorAll('.feeder').forEach(el => {
+        const pid = el.dataset.pid;
+        el.addEventListener('click', e => {
+            const r = readFor(pid);
+            if (readFrozen(r)) { toast('That feeder is already on a load', 'error'); return; }
+            if (e.target.closest('.fd-lb') && Number(r.target_lb) > 0) {         // tap the number to type one
+                const ans = prompt('Pounds to deliver to ' + pastureLabel(pid) + ':', String(r.target_lb));
+                if (ans === null) return;
+                const n = parseFloat(ans); if (isNaN(n) || n < 0) return;
+                setBulkCall(pid, round1(n)); return;
+            }
+            setBulkCall(pid, Number(r.target_lb) > 0 ? 0 : feederDefault(pid));
+        });
+    });
+}
+function setBulkCall(pid, lb) {
+    const r = readFor(pid);
+    r.target_lb = lb; r.head_count = pastureHeadTotal(pid); r.lb_per_head = null; r.bunk_score = null;
+    S.readsDirty = true; S.planEdits = null; persist(); renderPlan();
+}
 function renderPlan() {
     const sel = $('planTruck');
     sel.innerHTML = ((S.refs && S.refs.trucks) || []).map(t => `<option value="${t.id}" ${currentTruck() && currentTruck().id === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') || '<option value="">no trucks</option>';
@@ -788,23 +886,29 @@ function renderPlan() {
     });
     if (act) html += `<div class="alert warn">Load ${act.load_seq} is in progress. Finish or close it on the Truck tab before starting another.</div>`;
     const plan = buildPlan();
-    const box = boxState();
     let seq = todayLoads().length;
-    if (!plan.length) html += '<div class="empty">Nothing left to feed today. Set calls on Bunks (and save them) first.</div>';
+    if (!plan.length) html += '<div class="empty">Nothing left to feed today. Set calls on Bunks (and save them), or call a feeder below.</div>';
     plan.forEach(group => {
         const ration = R.ration(group.ration_id);
         const cap = capFor(group.ration_id);
+        const cart = group.mode === 'cart';
+        const box = cart ? cartState() : boxState();
         if (!ration) { html += `<div class="alert error">${group.loads.reduce((n, l) => n + l.drops.length, 0)} pasture(s) have no ration set. The office sets it under Pastures &amp; route.</div>`; return; }
         group.loads.forEach((l, li) => {
             seq += 1;
             const carried = (li === 0 && box.lb > 0) ? box : null;
-            html += pbCard({ seq, rationName: ration.name, ri: group.ration_id, li, over_cap: l.over_cap, carried, statusText: cap ? `cap ${fmt(cap)}` : '',
+            // A cart run's leftover sits in the CART, so it does not cut the
+            // mix; it only adds to what there is to deliver.
+            const cut = cart ? 0 : (carried ? carried.lb : 0);
+            html += pbCard({ seq, rationName: ration.name + (cart ? ' · cart' : ''), ri: group.key, li, over_cap: l.over_cap, carried, statusText: cap ? `cap ${fmt(cap)}` : '',
                 pens: l.drops.map(d => ({ label: d.label, target: d.lb, fed: 0, split: d.split })),
-                feed: ingredientTargets(group.ration_id, l.lb, carried ? carried.lb : 0).map(x => ({ name: (R.item(x.item_id) || {}).name || '?', target: x.target_lb, loaded: 0 })),
+                feed: ingredientTargets(group.ration_id, l.lb, cut).map(x => ({ name: (R.item(x.item_id) || {}).name || '?', target: x.target_lb, loaded: 0 })),
                 action: `<button type="button" class="pb-edit plan-edit">Edit</button>${li === 0 && !act ? `<button type="button" class="pb-select plan-start">Start</button>` : ''}` });
         });
     });
+    html += feedersCard();
     list.innerHTML = html;
+    wireFeeders();
     list.querySelectorAll('.plan-open').forEach(b => b.addEventListener('click', () => showTab('truck')));
     list.querySelectorAll('.plan-edit').forEach(b => b.addEventListener('click', () => {
         const card = b.closest('.pb-load'); const editing = card.classList.toggle('editing');
@@ -812,7 +916,7 @@ function renderPlan() {
         card.querySelectorAll('.lb-edit, .mv').forEach(x => x.classList.toggle('hidden', !editing));
         b.textContent = editing ? 'Apply' : 'Edit';
         if (!editing) {
-            const plan = buildPlan(); const g = plan.find(x => x.ration_id === card.dataset.ri); if (!g) return;
+            const plan = buildPlan(); const g = plan.find(x => x.key === card.dataset.ri); if (!g) return;
             const loads = JSON.parse(JSON.stringify(g.loads));
             card.querySelectorAll('.drop-row').forEach(row => { const v = parseFloat(row.querySelector('.lb-edit').value); if (!isNaN(v) && v >= 0) loads[Number(row.dataset.li)].drops[Number(row.dataset.di)].lb = round1(v); });
             loads.forEach(l => { l.drops = l.drops.filter(d => d.lb > 0); l.lb = round1(l.drops.reduce((s, d) => s + d.lb, 0)); });
@@ -822,13 +926,14 @@ function renderPlan() {
     }));
     list.querySelectorAll('[data-move]').forEach(b => b.addEventListener('click', () => {
         const row = b.closest('.drop-row'); const ri = row.dataset.ri, li = Number(row.dataset.li), di = Number(row.dataset.di);
-        const plan = buildPlan(); const g = plan.find(x => x.ration_id === ri); if (!g) return;
+        const plan = buildPlan(); const g = plan.find(x => x.key === ri); if (!g) return;
         const loads = JSON.parse(JSON.stringify(g.loads));
         const [d] = loads[li].drops.splice(di, 1);
         const to = li + Number(b.dataset.move);
         if (!loads[to]) loads.push({ drops: [], lb: 0, over_cap: false });
         loads[to].drops.push(d);
-        loads.forEach(l => { l.lb = round1(l.drops.reduce((s, x) => s + x.lb, 0)); l.over_cap = capFor(ri) ? l.lb > capFor(ri) + 0.5 : false; });
+        const rid = ri.split(':').slice(1).join(':');
+        loads.forEach(l => { l.lb = round1(l.drops.reduce((s, x) => s + x.lb, 0)); l.over_cap = capFor(rid) ? l.lb > capFor(rid) + 0.5 : false; });
         S.planEdits = S.planEdits || {}; S.planEdits[ri] = loads.filter(l => l.drops.length);
         renderPlan();
     }));
@@ -848,22 +953,27 @@ $('planTruck').addEventListener('change', e => { S.truckId = e.target.value || n
 // Start a load (D6, D7, D9): the load row, its ingredient lines cut for
 // any leftover already in the box, its planned drops, and the calls it
 // carries frozen.
-function startLoad(rationId) {
+function startLoad(key) {
     if (activeLoad()) { toast('Finish the load in progress first', 'error'); return; }
-    if (S.readsDirty) { toast('Save the bunk calls first', 'error'); showTab('bunks'); return; }
-    const plan = buildPlan().find(g => g.ration_id === rationId); if (!plan || !plan.loads.length) return;
+    const plan = buildPlan().find(g => g.key === key); if (!plan || !plan.loads.length) return;
+    const cart = plan.mode === 'cart';
+    if (S.readsDirty) { toast(cart ? 'Save the feeder calls first' : 'Save the bunk calls first', 'error'); if (!cart) showTab('bunks'); return; }
+    const rationId = plan.ration_id;
     const ration = R.ration(rationId); if (!ration) { toast('No ration on these pastures', 'error'); return; }
     if (!ration.ration_lines.length) { toast('That ration has no ingredients', 'error'); return; }
     const truck = currentTruck();
     const first = plan.loads[0];
-    const box = boxState();
+    const box = cart ? cartState() : boxState();
     const planned = first.lb;
-    const fresh = Math.max(0, planned - box.lb);      // Distribute: the box ends at planned
+    // Distribute (D9): the mixer box ends the load at `planned`, so a
+    // leftover cuts the fresh ingredients. A cart leftover cannot - it is
+    // in the cart, not the box - it only adds to what there is to deliver.
+    const fresh = cart ? planned : Math.max(0, planned - box.lb);
     const id = uuid(); const now = new Date().toISOString();
     const load = {
         id, load_date: ranchToday(), load_seq: todayLoads().length + 1, ration_id: rationId,
         truck_id: truck ? truck.id : null, scale_device_id: Scale.deviceId || (S.sim ? 'SIM' : null),
-        status: 'loading', planned_lb: planned, carried_in_lb: box.lb, carried_in_ration_id: box.ration_id,
+        status: 'loading', delivery_mode: cart ? 'cart' : 'direct', planned_lb: planned, carried_in_lb: box.lb, carried_in_ration_id: box.ration_id,
         left_in_box_lb: 0, mix_minutes_required: Number(ration.mix_minutes) || 0,
         loading_started_at: now, mix_started_at: null, first_drop_at: null, closed_at: null,
         posted_at: null, posted_by: null, voided_at: null, voided_by: null, void_reason: null,
@@ -876,6 +986,7 @@ function startLoad(rationId) {
         })),
         drops: first.drops.map((d, i) => ({
             id: uuid(), load_id: id, pasture_id: d.pasture_id, drop_seq: i + 1, target_lb: d.lb,
+            method: cart ? 'allocated' : 'scale', called_lb: cart ? (d.called_lb != null ? d.called_lb : d.lb) : null,
             start_gross_lb: null, end_gross_lb: null, scale_lb: null, lb: 0, started_at: null, done_at: null, link_ok: null,
             edited_by: null, edited_at: null, edit_reason: null, client_id: null, lots: []
         })),
@@ -943,6 +1054,10 @@ function truckTick() {
         const d = l.drops[l._ui.drop];
         $('drGross').textContent = g == null ? '—' : fmt(g);
         $('drLink').textContent = S.sim ? 'sim' : live ? 'link' : 'no link'; $('drLink').className = 'scale-state ' + (S.sim ? 'sim' : live ? 'ok' : '');
+        // A cart run is not weighed at the feeder (D25), so the scale tick
+        // must not relabel or disable its one-tap Delivered button, and the
+        // panel keeps the allocated share renderDropping put there.
+        if (cartRun(l)) return;
         if (!d) return;
         const started = l._ui.dropStart != null;
         const out = (started && g != null) ? Math.max(0, l._ui.dropStart - g) : 0;
@@ -1040,6 +1155,15 @@ $('mxGoBtn').addEventListener('click', () => {
 });
 
 // ---- dropping ----
+function cartRun(l) { return (l.delivery_mode || 'direct') === 'cart'; }
+// What this pasture would get if it were delivered along with the ones
+// already marked - shown before the tap so the number is not a surprise.
+function shareOf(l, d) {
+    const del = l.drops.filter(x => x.done_at || x === d);
+    const weights = del.map(x => Number(x.called_lb) || Number(x.target_lb) || 0);
+    const parts = lrSplit(cartAvailable(l), weights, 1);
+    return parts[del.indexOf(d)] || 0;
+}
 function nextUndoneDrop(l, from) { for (let k = 0; k < l.drops.length; k++) { const i = (from + k) % l.drops.length; if (!l.drops[i].done_at) return i; } return -1; }
 function renderDropping(l) {
     const ration = R.ration(l.ration_id) || {};
@@ -1055,16 +1179,44 @@ function renderDropping(l) {
         <div class="got">${x.done_at ? fmt(x.lb) : '0'}</div></div>`).join('');
     $('drTiles').querySelectorAll('.tile').forEach(t => t.addEventListener('click', () => {
         const i = Number(t.dataset.i);
+        if (cartRun(l) && l.drops[i].done_at) {
+            if (!confirm(`${pastureLabel(l.drops[i].pasture_id)} was marked filled. Undo that and put its share back?`)) return;
+            l.drops[i].done_at = null; allocateCart(l); l._ui.drop = i; saveLoad(l); renderDropping(l); return;
+        }
         if (l.drops[i].done_at) { editDrop(l, i); return; }
         if (l._ui.dropStart != null && i !== l._ui.drop && !confirm('A drop is in progress. Switch pasture and lose its start reading?')) return;
         l._ui.drop = i; l._ui.dropStart = null; persist(); renderDropping(l);
     }));
+    if (cartRun(l)) {
+        // One tap per feeder, no weighing: the mixer already said how much
+        // there is and the call says how it splits.
+        $('drStartBtn').classList.toggle('hidden', !d);
+        $('drStartBtn').textContent = 'Delivered';
+        $('drDoneBtn').classList.add('hidden');
+        $('drSub').textContent = `Load ${l.load_seq} · cart run · ${fmt(cartAvailable(l))} lb to deliver · ${l.drops.filter(x => x.done_at).length} of ${l.drops.length} filled`;
+        if (d) {
+            const share = Number(d.called_lb) || Number(d.target_lb) || 0;
+            $('drBigNum').textContent = fmt(d.lb > 0 ? d.lb : Math.round(shareOf(l, d)));
+            $('drBig').className = 'big-panel idle';
+            $('drBigFoot').textContent = `share of the mix · called ${fmt(share)} lb`;
+        } else { $('drBigNum').textContent = '✓'; $('drBig').className = 'big-panel'; $('drBigFoot').textContent = 'every feeder filled · tap Close load'; }
+        return;
+    }
     $('drStartBtn').classList.toggle('hidden', !d || l._ui.dropStart != null);
+    $('drStartBtn').textContent = 'Start';
     $('drDoneBtn').classList.toggle('hidden', !d || l._ui.dropStart == null);
     if (!d) { $('drBigNum').textContent = '✓'; $('drBig').className = 'big-panel'; $('drBigFoot').textContent = `${fmt(inBox)} lb left in the box · tap Close load`; }
 }
 $('drStartBtn').addEventListener('click', () => {
     const l = activeLoad(); if (!l || l.status !== 'dropping') return;
+    if (cartRun(l)) {
+        const d = l.drops[l._ui.drop]; if (!d) return;
+        d.done_at = new Date().toISOString(); d.link_ok = null;
+        if (!l.first_drop_at) l.first_drop_at = d.done_at;
+        allocateCart(l);
+        l._ui.drop = nextUndoneDrop(l, l._ui.drop + 1);
+        saveLoad(l); renderDropping(l); return;
+    }
     const g = scaleGross(); if (g == null) { toast('No scale reading', 'error'); return; }
     const d = l.drops[l._ui.drop]; if (!d) return;
     d.start_gross_lb = g; d.started_at = new Date().toISOString(); l._ui.dropStart = g;
@@ -1082,6 +1234,22 @@ $('drDoneBtn').addEventListener('click', () => {
     l._ui.dropStart = null; l._ui.drop = nextUndoneDrop(l, l._ui.drop + 1);
     saveLoad(l); renderDropping(l);
 });
+// ---- cart runs (D25): allocate the mix over the feeders actually filled ----
+// Nothing weighs a feeder, so the pounds come from the mixer and are split
+// pro-rata to the call. Re-run after every tap: a pasture marked delivered
+// (or un-marked) changes everyone's share, because the cart empties into
+// whoever it reached.
+function cartAvailable(l) {
+    return round1(Math.max(0, (Number(l.carried_in_lb) || 0) + loadedLb(l) - (Number(l.left_in_box_lb) || 0)));
+}
+function allocateCart(l) {
+    const del = l.drops.filter(d => d.done_at);
+    l.drops.forEach(d => { if (!d.done_at) { d.lb = 0; d.lots = []; } });
+    if (!del.length) return;
+    const weights = del.map(d => Number(d.called_lb) || Number(d.target_lb) || 0);
+    const parts = lrSplit(cartAvailable(l), weights, 1);
+    del.forEach((d, i) => { d.lb = parts[i]; d.method = 'allocated'; d.scale_lb = null; d.lots = splitLots(d); });
+}
 // D10: pro-rata by head on the books, stored per drop. Empty when the
 // barn pull knew of no head here; posting fills it from the books then.
 function splitLots(d) {
@@ -1102,8 +1270,35 @@ $('drAddBtn').addEventListener('click', () => {
         saveLoad(l); renderDropping(l);
     });
 });
+function closeCartLoad(l) {
+    sheet('Close the cart run', `<p class="muted small">The mixer weighed ${fmt(round1((Number(l.carried_in_lb) || 0) + loadedLb(l)))} lb. Anything still in the cart is an estimate - nothing weighs it - and carries into the next run.</p>
+        <label>Left in the cart (lb)</label><input type="number" id="shLeft" step="10" min="0" value="${Number(l.left_in_box_lb) || 0}">`, () => {
+        const left = round1(Math.max(0, parseFloat($('shLeft').value) || 0));
+        const gross = round1((Number(l.carried_in_lb) || 0) + loadedLb(l));
+        if (left > gross) { toast('That is more than the load carried', 'error'); return; }
+        l.left_in_box_lb = left;
+        allocateCart(l);
+        const filled = l.drops.filter(d => d.done_at);
+        if (!filled.length) { toast('No feeder was marked filled', 'error'); return; }
+        // The guardrail (D25): the mix landing well off the call means a
+        // feeder could not physically take its share while the books say it
+        // did. Ask once, do not block.
+        const called = filled.reduce((s, d) => s + (Number(d.called_lb) || Number(d.target_lb) || 0), 0);
+        const avail = cartAvailable(l);
+        const off = called > 0 ? 100 * (avail - called) / called : 0;
+        const skipped = l.drops.length - filled.length;
+        let msg = `${fmt(avail)} lb allocated across ${filled.length} feeder${filled.length === 1 ? '' : 's'}`;
+        if (skipped) msg += `, ${skipped} skipped`;
+        if (Math.abs(off) > 10) msg += `.\n\nThat is ${off > 0 ? '+' : ''}${fmt(off, 0)}% against a call of ${fmt(called)} lb - check a feeder could hold its share`;
+        if (!confirm(msg + '.\n\nClose this run?')) return;
+        l.status = 'closed'; l.closed_at = new Date().toISOString();
+        S.activeLoadId = null; saveLoad(l);
+        toast('Cart run closed', 'ok'); showTab('plan');
+    });
+}
 $('drCloseBtn').addEventListener('click', () => {
     const l = activeLoad(); if (!l || l.status !== 'dropping') return;
+    if (cartRun(l)) return closeCartLoad(l);
     const undone = l.drops.filter(d => !d.done_at);
     const inBox = round1(Math.max(0, (Number(l.carried_in_lb) || 0) + loadedLb(l) - droppedLb(l)));
     const msg = (undone.length ? `${undone.length} planned drop(s) were not made. ` : '') + `${fmt(inBox)} lb stays in the box and carries into the next load. Close this load?`;
@@ -1177,7 +1372,7 @@ function renderHistory() {
         const mixOk = l.mix_started_at && l.first_drop_at ? ((new Date(l.first_drop_at) - new Date(l.mix_started_at)) / 60000 + 0.05 >= (Number(l.mix_minutes_required) || 0)) : null;
         return `<div class="card hist-card" data-id="${l.id}">
             <div class="hist"><div class="title">${esc(fmtDate(l.load_date))} · load ${l.load_seq} · ${esc((R.ration(l.ration_id) || {}).name || '?')}</div><div class="st ${st}">${esc(l.status)}</div>
-            <div class="sub">${fmt(loadedLb(l))} lb loaded · ${fmt(droppedLb(l))} dropped over ${(l.drops || []).filter(d => Number(d.lb) > 0).length} pasture(s)${Number(l.left_in_box_lb) > 0 ? ' · ' + fmt(l.left_in_box_lb) + ' left in box' : ''}${mixOk === false ? ' · <span class="tag red">mix short</span>' : ''}${(l.lines || []).some(x => x.edited_at) || (l.drops || []).some(d => d.edited_at) ? ' · <span class="tag amber">edited</span>' : ''}</div></div>
+            <div class="sub">${fmt(loadedLb(l))} lb loaded · ${fmt(droppedLb(l))} ${cartRun(l) ? 'allocated' : 'dropped'} over ${(l.drops || []).filter(d => Number(d.lb) > 0).length} pasture(s)${Number(l.left_in_box_lb) > 0 ? ' · ' + fmt(l.left_in_box_lb) + ' left in ' + (cartRun(l) ? 'cart' : 'box') : ''}${cartRun(l) ? ' · <span class="tag">cart</span>' : ''}${mixOk === false ? ' · <span class="tag red">mix short</span>' : ''}${(l.lines || []).some(x => x.edited_at) || (l.drops || []).some(d => d.edited_at) ? ' · <span class="tag amber">edited</span>' : ''}</div></div>
         </div>`;
     }).join('');
     list.querySelectorAll('.hist-card').forEach(c => c.addEventListener('click', () => {

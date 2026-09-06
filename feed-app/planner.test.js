@@ -1,5 +1,5 @@
 // node feed-app/planner.test.js
-const { planLoads, lrSplit } = require('./planner.js');
+const { planLoads, planCart, lrSplit } = require('./planner.js');
 const assert = require('assert');
 let n = 0;
 function t(name, fn) { fn(); n++; console.log('ok', name); }
@@ -69,4 +69,41 @@ t('lrSplit sums exactly and matches the DB rule', () => {
     const parts = lrSplit(7010, [7600, 2400]);
     assert.strictEqual(Math.round(sum(parts) * 100) / 100, 7010);
 });
+
+// ---- cart runs (D25) ----
+t('a cart run is balanced mixes, each carrying every feeder pro-rata', () => {
+    const calls = [{ pasture_id: 'p1', lb: 10000 }, { pasture_id: 'p2', lb: 8000 }, { pasture_id: 'p3', lb: 7000 }];
+    const loads = planCart({ calls, cap: 17500 });
+    assert.strictEqual(loads.length, 2, 'two mixes under a 17,500 cap');
+    assert.strictEqual(loads[0].lb, 12500, 'balanced, not 17,500 + 7,500');
+    assert.strictEqual(sum(loads.map(l => l.lb)), 25000, 'the mixes sum to the call');
+    ['p1', 'p2', 'p3'].forEach((pid, i) => {
+        const got = sum(loads.map(l => l.drops.find(d => d.pasture_id === pid).lb));
+        assert.strictEqual(got, calls[i].lb, pid + ' gets exactly its call across the mixes');
+    });
+});
+t('a cart run under the cap is one mix', () => {
+    const loads = planCart({ calls: [{ pasture_id: 'p1', lb: 6000 }, { pasture_id: 'p2', lb: 4000 }], cap: 17500 });
+    assert.strictEqual(loads.length, 1);
+    assert.strictEqual(loads[0].drops.map(d => d.lb).join(','), '6000,4000', 'shares are the calls themselves');
+});
+t('cart shares sum exactly on an awkward split', () => {
+    const calls = [{ pasture_id: 'a', lb: 3333 }, { pasture_id: 'b', lb: 3333 }, { pasture_id: 'c', lb: 3334 }];
+    const loads = planCart({ calls, cap: 4000 });
+    assert.strictEqual(loads.length, 3);
+    assert.strictEqual(Math.round(sum(loads.map(loadSum)) * 10) / 10, 10000, 'every pound lands somewhere');
+    loads.forEach((l, i) => assert.strictEqual(Math.round(loadSum(l) * 10) / 10, l.lb, 'mix ' + (i + 1) + ' allocates all of itself'));
+});
+t('delivery allocates the ACTUAL mix over the call, and it sums', () => {
+    const parts = lrSplit(25400, [10000, 8000, 7000], 1);   // 25,000 called, 25,400 mixed
+    assert.strictEqual(sum(parts), 25400, 'sums to what left the barn');
+    assert(parts[0] > 10000 && parts[1] > 8000 && parts[2] > 7000, 'each feeder carries a share of the extra');
+});
+t('a skipped feeder gives its share to the ones that were filled', () => {
+    const parts = lrSplit(25000, [10000, 0, 7000], 1);      // p2 skipped: weight 0
+    assert.strictEqual(sum(parts), 25000);
+    assert.strictEqual(parts[1], 0, 'the skipped feeder gets nothing');
+    assert(parts[0] > 10000 && parts[2] > 7000, 'the rest carry it');
+});
+
 console.log(n + ' planner tests passed');

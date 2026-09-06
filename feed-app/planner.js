@@ -119,7 +119,30 @@
         return floors.map(u => u * unit);
     }
 
-    const api = { planLoads, lrSplit };
+    // ---- bulk feeders: the cart run (D25) ----
+    // Every load on a cart run serves EVERY called pasture, because the
+    // mixes are commingled in the cart before anything is delivered. So a
+    // run is n balanced mixes under the cap, and each mix carries each
+    // pasture's pro-rata share of the call. Splitting the pastures between
+    // the mixes instead would be a fiction: nobody can tell which mix a
+    // given feeder's pounds came out of.
+    //
+    // planCart({ calls, cap }) -> [{ lb, drops:[{pasture_id, lb, called_lb}] }]
+    function planCart(opts) {
+        const calls = (opts.calls || []).filter(c => (Number(c.lb) || 0) > 0)
+            .map(c => Object.assign({}, c, { lb: round1(Number(c.lb)) }));
+        if (!calls.length) return [];
+        const cap = Number(opts.cap) > 0 ? Number(opts.cap) : null;
+        const total = round1(calls.reduce((s, c) => s + c.lb, 0));
+        const n = cap ? Math.max(1, Math.ceil(total / cap)) : 1;
+        const sizes = lrSplit(total, new Array(n).fill(1), 0);           // balanced whole pounds
+        return sizes.map(size => {
+            const parts = lrSplit(size, calls.map(c => c.lb), 1);
+            return { lb: size, drops: calls.map((c, i) => ({ pasture_id: c.pasture_id, label: c.label, lb: parts[i], called_lb: c.lb })) };
+        });
+    }
+
+    const api = { planLoads, planCart, lrSplit };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     root.FeedPlanner = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -27879,7 +27879,7 @@ ${ranchBlocks}
             return `<tr class="clickable ${l.status === 'void' ? 'closed-row' : ''}" data-ft-load-id="${l.id}">
                 <td>${escapeHtml(fmtDate(l.load_date))}</td>
                 <td class="num">${l.load_seq}</td>
-                <td>${escapeHtml(ftRationName(l.ration_id))}</td>
+                <td>${escapeHtml(ftRationName(l.ration_id))}${l.delivery_mode === 'cart' ? ' <span class="tag" title="Mixed into the grain cart and delivered to bulk feeders by allocation">cart</span>' : ''}</td>
                 <td>${escapeHtml(ftTruckName(l.truck_id))}</td>
                 <td>${ftStatusBadge(l.status)}</td>
                 <td class="num">${fmtNum(t.loaded)}</td>
@@ -27892,7 +27892,7 @@ ${ranchBlocks}
         $('ftLdContent').innerHTML = `
             <div style="overflow-x:auto;"><table>
                 <thead><tr><th>Date</th><th class="num">#</th><th>Ration</th><th>Truck</th><th>Status</th>
-                    <th class="num">Loaded lb</th><th class="num">Dropped lb / drops</th><th class="num">Left in box</th><th>Mix</th><th></th></tr></thead>
+                    <th class="num">Loaded lb</th><th class="num">Dropped lb / drops</th><th class="num">Left in box/cart</th><th>Mix</th><th></th></tr></thead>
                 <tbody>${rows}</tbody>
             </table></div>`;
         $('ftLdContent').querySelectorAll('tr.clickable').forEach(r => {
@@ -27945,8 +27945,8 @@ ${ranchBlocks}
             const lots = (d.feed_drop_lots || []).map(dl => `${escapeHtml(ftLotName(dl.lot_id))} ${fmtNum(dl.lb)} lb (${dl.head_count} hd)`).join(', ');
             return `<tr>
             <td class="num">${d.drop_seq}</td>
-            <td>${escapeHtml(ftPastureLabel(d.pasture_id))}</td>
-            <td class="num">${fmtNum(d.target_lb)}</td>
+            <td>${escapeHtml(ftPastureLabel(d.pasture_id))}${d.method === 'allocated' ? ' <span class="tag" title="No scale on the cart: this is its pro-rata share of the mix against a call of ' + fmtNum(d.called_lb) + ' lb">allocated</span>' : ''}</td>
+            <td class="num">${fmtNum(d.method === 'allocated' && d.called_lb != null ? d.called_lb : d.target_lb)}</td>
             <td class="num">${fmtNum(d.lb)}</td>
             <td class="num">${overUnder(d)}</td>
             <td>${ftFmtTime(d.started_at)} &ndash; ${ftFmtTime(d.done_at)}</td>
@@ -28343,13 +28343,14 @@ ${ranchBlocks}
             </select></td>
             <td><select class="ft-pa-ration" style="max-width:190px;">${rationOpts(s ? s.ration_id : '')}</select>
                 ${s && s.ration_since ? `<div class="muted" style="font-size:11px;">since ${escapeHtml(fmtDate(s.ration_since))}</div>` : ''}</td>
+            <td><input type="number" class="ft-pa-cap" step="100" min="0" value="${s && s.feeder_capacity_lb != null ? s.feeder_capacity_lb : ''}" placeholder="—" style="max-width:110px;" title="Total pounds the bulk feeders in this pasture hold"></td>
             <td><input type="checkbox" class="ft-pa-onepass" style="width:auto;" ${s && s.one_pass ? 'checked' : ''}></td>
             <td><input type="text" class="ft-pa-notes" value="${escapeHtml(s && s.notes || '')}" placeholder="" style="min-width:120px;"></td>
         </tr>`).join('');
         const orderLabel = ftPaOrderBy === 'read_order' ? 'Bunk reading' : 'Feed route';
         $('ftPaContent').innerHTML = `
             <div style="overflow-x:auto;"><table id="ftPaTable" class="ft-sortable locked">
-                <thead><tr><th style="width:36px;"></th><th class="num" style="width:40px;">${orderLabel}</th><th>Pasture</th><th class="num">Head standing</th><th>On route</th><th>Feeder</th><th>Ration</th><th>One pass</th><th>Notes</th></tr></thead>
+                <thead><tr><th style="width:36px;"></th><th class="num" style="width:40px;">${orderLabel}</th><th>Pasture</th><th class="num">Head standing</th><th>On route</th><th>Feeder</th><th>Ration</th><th class="num">Feeder holds</th><th>One pass</th><th>Notes</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table></div>`;
         $('ftPaLockBtn').innerHTML = '&#128274; Order locked';
@@ -28385,11 +28386,14 @@ ${ranchBlocks}
             ration_id: tr.querySelector('.ft-pa-ration').value || null,
             route_order: parseInt(tr.dataset.routeOrder, 10) || 0,
             read_order: parseInt(tr.dataset.readOrder, 10) || 0,
+            feeder_capacity_lb: tr.querySelector('.ft-pa-cap').value === '' ? null : parseFloat(tr.querySelector('.ft-pa-cap').value),
             one_pass: tr.querySelector('.ft-pa-onepass').checked,
             notes: tr.querySelector('.ft-pa-notes').value.trim() || null
         }));
         const bad = payload.find(p => p.is_active && !p.ration_id);
         if (bad) { showAlert('ftPaAlert', `${ftPastureLabel(bad.pasture_id)} is on the route with no ration.`); return; }
+        const badCap = payload.find(p => p.feeder_capacity_lb != null && !(p.feeder_capacity_lb > 0));
+        if (badCap) { showAlert('ftPaAlert', `${ftPastureLabel(badCap.pasture_id)}: feeder capacity must be a positive number, or blank.`); return; }
         $('ftPaSaveBtn').disabled = true;
         try {
             const res = await supabase.from('pasture_feed_setup').upsert(payload, { onConflict: 'pasture_id' }).select();

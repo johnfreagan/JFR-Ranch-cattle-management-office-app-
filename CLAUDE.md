@@ -1078,6 +1078,28 @@ bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   
     cards. Ration lines carry no bay on the office screen (John: not
     needed); `default_location_id` is filled from the item's usual bay and
     the loader can change it per load.
+- **Bulk feeders: call, mix, allocate (D25, 2026-09-06).** Migration
+  `docs/sql/2026-09-06_bulk_feeders.sql`. There is no scale on the grain cart,
+  so the mixer is the only weight in the chain: bulk pastures are CALLED in
+  pounds from the feeders card on Plan (one tap = the feeder's capacity), and
+  each load's actual mixed pounds are allocated across the feeders actually
+  filled, pro-rata to the call, largest-remainder so the parts sum exactly. It
+  lands in ordinary `feed_drops`, so posting, head math and cost of gain need
+  no special case. `feed_drops.method` (`scale` | `allocated`) + `called_lb`
+  record HOW a number was measured; `feed_loads.delivery_mode`
+  (`direct` | `cart`) says which flow ran. `planCart()` makes n balanced mixes
+  under the cap, each carrying every called pasture — splitting the pastures
+  between mixes would be a fiction, since the cart commingles them.
+  - **The mixer box and the cart are different vessels.** `vesselState(mode)`
+    keeps each leftover with its own flow: a cart leftover must not cut the
+    next mixer load's ingredients (it is not in the box), and a box leftover
+    is not sitting in the cart. The cart leftover is an ESTIMATE typed at
+    close — nothing weighs it — and comes out of the allocation.
+  - **Bulk pastures are off the daily bunk read**, and the scale tick leaves a
+    cart run's screen alone (one tap per feeder marks it filled and
+    re-allocates live; tapping a filled feeder undoes it and puts its share
+    back). **The planner sees the ROUTE order, never the reading order** — a
+    live bug the smoke test caught when the daily read was split off.
 - **Not built yet:** phase 3 Flutter shell (Scale-Tec template + WebView +
   bridge; iPad build needs a Mac with Xcode and John's individual Apple
   developer account, started 2026-09-04 week), the two charts on the bunk
