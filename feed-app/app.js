@@ -76,13 +76,14 @@ const S = {
     rejected: loadJSON('feedAppRejected', []),
     truckId: localStorage.getItem('feedAppTruckId') || null,
     sim: localStorage.getItem('feedAppSim') === '1',
+    advance: localStorage.getItem('feedAppAdvance') !== '0',   // step to the next pasture after a score
     activeLoadId: localStorage.getItem('feedAppActiveLoad') || null,
     planEdits: null,        // { rationId: loads[] } overrides until a load starts or reads change
     readsDirty: false,
     tab: 'bunks',
     syncing: false
 };
-const LOCAL_KEYS = ['feedAppRefs', 'feedAppLoads', 'feedAppReads', 'feedAppQueue', 'feedAppRejected', 'feedAppTruckId', 'feedAppSim', 'feedAppActiveLoad', 'feedAppUserId'];
+const LOCAL_KEYS = ['feedAppRefs', 'feedAppLoads', 'feedAppReads', 'feedAppQueue', 'feedAppRejected', 'feedAppTruckId', 'feedAppSim', 'feedAppAdvance', 'feedAppActiveLoad', 'feedAppUserId'];
 function persist() {
     saveJSON('feedAppLoads', S.loads); saveJSON('feedAppReads', S.reads); saveJSON('feedAppQueue', S.queue);
     if (S.activeLoadId) localStorage.setItem('feedAppActiveLoad', S.activeLoadId); else localStorage.removeItem('feedAppActiveLoad');
@@ -232,7 +233,18 @@ async function processQueue() {
                 ok = true;   // stop retrying; it will never succeed
             } else { console.warn('transient', error); }
         } catch (e) { console.warn('network', e); }
-        if (!ok) { q._attempts = (q._attempts || 0) + 1; failed.push(q); }
+        if (!ok) {
+            q._attempts = (q._attempts || 0) + 1;
+            // Never an infinite silent retry: after a couple of dozen rounds
+            // this is not a passing signal problem, so say so on the More tab
+            // while the row stays in the queue.
+            if (q._attempts === 24) {
+                S.rejected.unshift({ table: q.table, id: q.row.id, reason: 'still not syncing after ' + q._attempts + ' tries - show this to the office', at: new Date().toISOString() });
+                S.rejected = S.rejected.slice(0, 30); saveJSON('feedAppRejected', S.rejected);
+                toast('A row will not sync - see More', 'error', 5000);
+            }
+            failed.push(q);
+        }
     }
     // Anything enqueued during this round is not in the snapshot - including
     // a row replaced in place with a newer version - and goes next.
@@ -496,7 +508,11 @@ function readFor(pid) {
     r = {
         id: uuid(), read_date: today, pasture_id: pid, feeder_type: bulk ? 'bulk' : 'bunk',
         bunk_score: null, lb_per_head: lbhd, head_count: head,
-        target_lb: bulk ? (last ? Number(last.target_lb) || 0 : 0) : round1((lbhd || 0) * head),
+        // A bunk call prefills from yesterday (D4). A bulk feeder does NOT:
+        // it is called only on the days it is filled (D25), so a fresh day
+        // starts at zero and one tap sets the pounds. Prefilling here would
+        // put every feeder on the plan every morning.
+        target_lb: bulk ? 0 : round1((lbhd || 0) * head),
         ration_id: s.ration_id || null, route_order: s.route_order || 0, frozen_load_id: null,
         suggested_lb_per_head: null, clean_days: null, suggest_note: null,
         est_weight_lb: null, expected_dmi_lb: null, flags: [],
@@ -652,6 +668,15 @@ function renderBunks() {
         const sug = sc == null ? null : suggestCall(pid, sc);
         setRead(pid, { bunk_score: sc, lb_per_head: sug ? sug.lb : x.lb_per_head, suggested_lb_per_head: sug ? sug.lb : null, clean_days: sug ? sug.streak : null, suggest_note: sug ? sug.why : null,
                        est_weight_lb: sug && sug.estWt != null ? Math.round(sug.estWt) : x.est_weight_lb, expected_dmi_lb: sug && sug.exp != null ? Math.round(sug.exp * 100) / 100 : x.expected_dmi_lb });
+        // A score IS the call in the normal case, so scoring steps to the
+        // next unread pasture: one tap per bunk instead of two. Adjusting
+        // afterwards is the exception - step back, or turn this off under
+        // More. (The load screen still never advances on its own: pounds.)
+        if (sc != null && S.advance) {
+            const order = readSetup();
+            const next = order.findIndex((o, i) => i > S.bunkIdx && readFor(o.pasture_id).bunk_score == null);
+            if (next >= 0) { S.bunkIdx = next; renderBunks(); }
+        }
     }));
     card.querySelectorAll('[data-step]').forEach(b => {
         let hold = null, fired = false;
@@ -683,7 +708,8 @@ function renderBunks() {
     side.innerHTML = order.map((x, i) => { const rr = readFor(x.pasture_id); const st = readStatus(rr);
         return `<div class="side-item ${i === S.bunkIdx ? 'cur' : ''}" data-pid="${x.pasture_id}"><span class="drag">&#9776;</span><span class="n">${i + 1}</span><span class="nm">${esc(pastureLabel(x.pasture_id))}</span><span class="st ${st.done ? 'done' : ''}">${readFrozen(rr) ? 'on truck' : st.done ? '✓ ' + st.txt : st.txt}</span></div>`; }).join('');
     side.querySelectorAll('.side-item .nm, .side-item .st, .side-item .n').forEach(el => el.addEventListener('click', () => { S.bunkIdx = order.findIndex(x => x.pasture_id === el.parentNode.dataset.pid); renderBunks(); }));
-    $('bunkSaveHint').textContent = S.readsDirty ? 'Unsaved changes' : (Object.values(S.reads.rows).some(x => !x._new) ? 'Saved' : 'Not saved yet');
+    const scored = readSetup().filter(x => readFor(x.pasture_id).bunk_score != null).length;
+    $('bunkSaveHint').textContent = S.readsDirty ? `${scored} of ${readSetup().length} called · not saved` : (Object.values(S.reads.rows).some(x => !x._new) ? 'Saved' : 'Not saved yet');
     $('bunkSaveBtn').disabled = false;
 }
 function applyOrder(field, pids) {
@@ -1085,7 +1111,7 @@ function renderLoading(l) {
     const ration = R.ration(l.ration_id) || {};
     const loaded = loadedLb(l);
     $('ldTitle').textContent = `${ration.name || 'Ration'} - ${fmt(l.planned_lb)}`;
-    $('ldSub').textContent = `Load ${l.load_seq} · ${fmt(loaded)} lb loaded${l.carried_in_lb > 0 ? ` · ${fmt(l.carried_in_lb)} lb already in the box` : ''} · ${l.drops.length} drop${l.drops.length === 1 ? '' : 's'}`;
+    $('ldSub').textContent = `Load ${l.load_seq} · ${fmt(loaded)} lb loaded${l.carried_in_lb > 0 ? ` · ${fmt(l.carried_in_lb)} lb already in the ${cartRun(l) ? 'cart' : 'box'}` : ''} · ${l.drops.length} drop${l.drops.length === 1 ? '' : 's'}`;
     const ln = l.lines[l._ui.line];
     $('ldBigLabel').textContent = ln ? `${(R.item(ln.item_id) || {}).name || '?'}` : 'All ingredients done';
     $('ldTiles').innerHTML = l.lines.map((x, i) => `<div class="tile ${i === l._ui.line ? 'cur' : ''} ${x.done_at ? 'done' : ''} ${x.edited_at ? 'edited' : ''}" data-i="${i}">
@@ -1275,11 +1301,11 @@ function closeCartLoad(l) {
         <label>Left in the cart (lb)</label><input type="number" id="shLeft" step="10" min="0" value="${Number(l.left_in_box_lb) || 0}">`, () => {
         const left = round1(Math.max(0, parseFloat($('shLeft').value) || 0));
         const gross = round1((Number(l.carried_in_lb) || 0) + loadedLb(l));
-        if (left > gross) { toast('That is more than the load carried', 'error'); return; }
+        if (left > gross) { toast('That is more than the load carried', 'error'); return false; }
         l.left_in_box_lb = left;
         allocateCart(l);
         const filled = l.drops.filter(d => d.done_at);
-        if (!filled.length) { toast('No feeder was marked filled', 'error'); return; }
+        if (!filled.length) { toast('Mark at least one feeder filled, or void the run', 'error'); return false; }
         // The guardrail (D25): the mix landing well off the call means a
         // feeder could not physically take its share while the books say it
         // did. Ask once, do not block.
@@ -1290,7 +1316,7 @@ function closeCartLoad(l) {
         let msg = `${fmt(avail)} lb allocated across ${filled.length} feeder${filled.length === 1 ? '' : 's'}`;
         if (skipped) msg += `, ${skipped} skipped`;
         if (Math.abs(off) > 10) msg += `.\n\nThat is ${off > 0 ? '+' : ''}${fmt(off, 0)}% against a call of ${fmt(called)} lb - check a feeder could hold its share`;
-        if (!confirm(msg + '.\n\nClose this run?')) return;
+        if (!confirm(msg + '.\n\nClose this run?')) return false;
         l.status = 'closed'; l.closed_at = new Date().toISOString();
         S.activeLoadId = null; saveLoad(l);
         toast('Cart run closed', 'ok'); showTab('plan');
@@ -1392,12 +1418,14 @@ function renderMore() {
     const sel = $('moreTruck');
     sel.innerHTML = ((S.refs && S.refs.trucks) || []).map(t => `<option value="${t.id}" ${currentTruck() && currentTruck().id === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') || '<option value="">no trucks</option>';
     $('moreSim').checked = S.sim;
+    $('moreAdvance').checked = S.advance;
     $('morePulled').textContent = S.refs && S.refs.pulledAt ? new Date(S.refs.pulledAt).toLocaleString('en-US', { timeZone: 'America/Chicago' }) : 'never';
-    $('moreRejected').innerHTML = S.rejected.length ? `<div class="card"><div class="title">Refused by the ranch database</div>${S.rejected.slice(0, 5).map(r => `<div class="small muted">${esc(r.table)} · ${esc(r.reason)}</div>`).join('')}</div>` : '';
+    $('moreRejected').innerHTML = S.rejected.length ? `<div class="card"><div class="title">Not saved to the ranch</div>${S.rejected.slice(0, 5).map(r => `<div class="small muted">${esc(r.table)} · ${esc(r.reason)}</div>`).join('')}</div>` : '';
     renderChips();
 }
 $('moreTruck').addEventListener('change', e => { S.truckId = e.target.value || null; localStorage.setItem('feedAppTruckId', S.truckId || ''); S.planEdits = null; renderChips(); });
 $('moreSim').addEventListener('change', e => setSim(e.target.checked));
+$('moreAdvance').addEventListener('change', e => { S.advance = e.target.checked; localStorage.setItem('feedAppAdvance', S.advance ? '1' : '0'); });
 $('morePullBtn').addEventListener('click', async () => { await pullRefs(); renderMore(); });
 $('moreSyncBtn').addEventListener('click', async () => { await processQueue(); toast(S.queue.length ? `${S.queue.length} still waiting` : 'All synced', S.queue.length ? 'error' : 'ok'); renderMore(); });
 $('moreScanBtn').addEventListener('click', () => { if (!shellSend('scan')) toast('No scale shell - Bluetooth needs the JFR Feed app, not a browser', 'error', 4000); });

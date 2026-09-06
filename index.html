@@ -27804,7 +27804,9 @@ ${ranchBlocks}
         if (Date.now() - ftAutoPostAt < 10 * 60 * 1000) return;
         ftAutoPostAt = Date.now();
         const { data, error } = await supabase.rpc('post_due_feed_loads');
-        if (error) return;
+        // Never swallow this: a posting run that cannot even start means feed
+        // is quietly not reaching the books.
+        if (error) { ftLastPost = { rpcError: error.message }; if (!$('ftLoadsView').classList.contains('hidden')) ftRenderPostResult(); return; }
         ftLastPost = data;
         if (data && (data.posted > 0 || (data.errors || []).length) && !$('ftLoadsView').classList.contains('hidden')) {
             loadFtLoads();
@@ -27832,6 +27834,10 @@ ${ranchBlocks}
     function ftRenderPostResult() {
         const el = $('ftLdPostResult');
         if (!ftLastPost) { el.innerHTML = ''; return; }
+        if (ftLastPost.rpcError) {
+            el.innerHTML = `<div class="alert error" style="margin-bottom:12px;">Feed loads could not be posted: ${escapeHtml(ftLastPost.rpcError)}</div>`;
+            return;
+        }
         if (ftLastPost.parallel) {
             el.innerHTML = `<div class="alert info" style="margin-bottom:12px;">No cut-over date is set &mdash; the truck is running parallel to Performance Beef and nothing posts. Set the date under Truck &rsaquo; Settings when the tie-out holds.</div>`;
             return;

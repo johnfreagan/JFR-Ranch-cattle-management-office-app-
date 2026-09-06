@@ -1100,6 +1100,22 @@ bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   
     re-allocates live; tapping a filled feeder undoes it and puts its share
     back). **The planner sees the ROUTE order, never the reading order** — a
     live bug the smoke test caught when the daily read was split off.
+- **Audit pass, 2026-09-06** (John: run the whole integration, check the math,
+  hunt bugs, cut keystrokes). Four live bugs fixed, all found by writing the
+  test first: the daily read being split off the route left `buildPlan()`
+  reading calls in BUNK READING order instead of route order; the 200 ms
+  scale tick relabelled and disabled a cart run's one-tap Delivered button;
+  `readFor()` prefilled a bulk feeder with its last call, so every feeder
+  looked called every morning and planned a cart run nobody asked for; and
+  the office swallowed a failed `post_due_feed_loads()` RPC entirely, so feed
+  could stop reaching the books in silence. Also: the close sheet now stays
+  open when its number is refused (`sheet()` honours a `false` return), and a
+  queue row that has failed 24 rounds says so on More instead of retrying
+  forever in silence.
+- **One tap per bunk.** Scoring steps to the next unread pasture
+  (`S.advance`, More › "Next pasture after a score", default on) - a score IS
+  the call in the normal case, so the second tap was pure tax. The LOAD
+  screen still never advances on its own: that rule is about pounds.
 - **Not built yet:** phase 3 Flutter shell (Scale-Tec template + WebView +
   bridge; iPad build needs a Mac with Xcode and John's individual Apple
   developer account, started 2026-09-04 week), the two charts on the bunk
