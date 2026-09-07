@@ -1605,7 +1605,9 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Yard Sheet</h2>
-                    <div style="display: flex; gap: 10px; align-items: center;">
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <button id="reportYardSheetPrintBtn">🖨 Print</button>
+                        <button id="reportYardSheetPdfBtn" class="primary">Text / share PDF</button>
                         <button id="reportYardSheetExportBtn">Export CSV</button>
                         <button id="reportYardSheetRefreshBtn">Refresh</button>
                     </div>
@@ -13590,6 +13592,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             });
             $('reportYardSheetExportBtn').addEventListener('click', exportYardSheetCsv);
             $('reportYardSheetRefreshBtn').addEventListener('click', loadYardSheetReport);
+            $('reportYardSheetPrintBtn').addEventListener('click', printYardSheet);
+            $('reportYardSheetPdfBtn').addEventListener('click', shareYardSheetPdf);
             yardSheetInitialized = true;
         }
         $('reportYardSheetContent').innerHTML = '<div class="empty">Loading…</div>';
@@ -13647,16 +13651,16 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             pastureSumByLot[k] += Number(a.head_count) || 0;
         });
 
-        const today = new Date();
-        const todayMs = today.getTime();
 
         // Build row list with computed flags
         return (assignmentsRes.data || []).map(a => {
             const meta = lotMeta[a.lot_id] || {};
             const ranch = a.pastures?.ranches?.name || '?';
             const pasture = a.pastures?.name || '?';
-            const movedIn = new Date(a.moved_in);
-            const daysHere = Math.round((todayMs - movedIn.getTime()) / (1000 * 60 * 60 * 24));
+            // Counted on the RANCH day. new Date('2026-08-31') is UTC midnight,
+            // so the browser clock put this a day out for part of every
+            // evening - and this is the number that prints on the sheet.
+            const daysHere = daysBetween(a.moved_in, ranchToday());
             const lotPastureSum = pastureSumByLot[a.lot_id] || 0;
             const lotHeadCurrent = Number(meta.head_current) || 0;
             const headMismatch = (lotPastureSum !== lotHeadCurrent);
@@ -13863,7 +13867,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     function exportYardSheetCsv() {
         const rows = ysFilteredRows();
         if (rows.length === 0) {
-            alert('No data to export.');
+            alert('No rows match the current filters.');
             return;
         }
         const pastureHead = {};
@@ -13894,9 +13898,205 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `yard_sheet_${new Date().toISOString().slice(0,10)}.csv`;
+        a.download = `yard_sheet_${ranchToday()}.csv`;
         a.click();
         URL.revokeObjectURL(url);
+    }
+
+    // ---- Yard sheet: print and PDF ---------------------------------------
+    // The screen shows head by PASTURE and opens the lot split on a click.
+    // Paper has no click, so the sheet prints the split inline - but the
+    // Counted box stays on the pasture row, because a pasture is what gets
+    // counted. The lot split inside it is the books' allocation, and settling
+    // a difference against it is exactly what Settle counts is for.
+    function ysSheetModel() {
+        const rows = ysFilteredRows();
+        const ranches = new Map();
+        rows.forEach(r => {
+            if (!ranches.has(r.ranch_name)) ranches.set(r.ranch_name, new Map());
+            const past = ranches.get(r.ranch_name);
+            if (!past.has(r.pasture_id))
+                past.set(r.pasture_id, { id: r.pasture_id, name: r.pasture_name, lots: [], head: 0 });
+            const pg = past.get(r.pasture_id);
+            pg.lots.push(r);
+            pg.head += r.head_count;
+        });
+        const groups = [...ranches.keys()].sort((a, b) => a.localeCompare(b)).map(name => {
+            const pastures = [...ranches.get(name).values()]
+                .sort((a, b) => a.name.localeCompare(b.name));
+            // Biggest draft first inside a pasture, matching the screen.
+            pastures.forEach(pg => pg.lots.sort((a, b) => b.head_count - a.head_count));
+            return { name, pastures, head: pastures.reduce((t, pg) => t + pg.head, 0) };
+        });
+        return {
+            groups, rows,
+            head: rows.reduce((t, r) => t + r.head_count, 0),
+            lots: new Set(rows.map(r => r.lot_number)).size,
+            pastures: new Set(rows.map(r => r.pasture_id)).size,
+            anomalies: rows.filter(r => r.flags.length > 0).length
+        };
+    }
+
+    // Words, not the screen's Greek delta. jsPDF's standard fonts are
+    // WinAnsi-encoded and have no U+0394, so it came out as a stray quote
+    // mark on the PDF - and "head mismatch" is what someone walking pens
+    // needs to read anyway.
+    const YS_FLAG_TEXT = { head_mismatch: 'head mismatch', idle_60: '60+ days', idle_30: '30+ days' };
+    const ysFlagText = r => r.flags.map(f => YS_FLAG_TEXT[f] || f).join(', ');
+
+    // Printed on the sheet so a page found on a desk says what it is showing.
+    // A filtered yard sheet that does not admit it is a miscount waiting.
+    function ysFilterSummary() {
+        const bits = [];
+        const named = (id, label) => {
+            const picked = [...$(id).selectedOptions].map(o => o.textContent.trim());
+            if (picked.length) bits.push(label + ': ' + picked.join(', '));
+        };
+        named('ysFilterRanch', 'ranch');
+        named('ysFilterPasture', 'pasture');
+        named('ysFilterLot', 'lot');
+        const a = $('ysFilterAnomaly').value;
+        if (a) bits.push({ any: 'anomalies only', head_mismatch: 'head mismatches only',
+                           idle_30: 'idle 30+ days', idle_60: 'idle 60+ days' }[a] || a);
+        if ($('ysShowTest').checked) bits.push('test lots included');
+        return bits.length ? bits.join(' · ') : 'every pasture, no filters';
+    }
+
+    function printYardSheet() {
+        const m = ysSheetModel();
+        if (!m.rows.length) { alert('No pastures match the current filters.'); return; }
+
+        const lotLine = r => `<tr class="lot">
+            <td class="ind">${escapeHtml(r.lot_number)}${r.lot_is_test ? ' <span class="warn">TEST</span>' : ''}${r.lot_closed ? ' <span class="sub">(closed)</span>' : ''}</td>
+            <td class="r">${fmtNum(r.head_count)}</td>
+            <td class="r">${r.days_here == null ? '—' : r.days_here}</td>
+            <td>${fmtDate(r.moved_in)}</td>
+            <td class="warn">${escapeHtml(ysFlagText(r))}</td>
+            <td class="count"></td></tr>`;
+
+        const body = m.groups.map(g => `
+            <tr><td class="grp" colspan="6">${escapeHtml(g.name)}
+                <span class="sub">&middot; ${fmtNum(g.head)} head &middot; ${g.pastures.length} pasture${g.pastures.length === 1 ? '' : 's'}</span></td></tr>
+            ${g.pastures.map(pg => `
+                <tr class="past"><td><b>${escapeHtml(pg.name)}</b></td>
+                    <td class="r"><b>${fmtNum(pg.head)}</b></td>
+                    <td colspan="3">${pg.lots.length > 1
+                        ? `<span class="sub">${pg.lots.length} lots</span>` : ''}</td>
+                    <td class="count"></td></tr>
+                ${pg.lots.map(lotLine).join('')}`).join('')}
+            <tr class="sub-total"><td>${escapeHtml(g.name)} subtotal</td>
+                <td class="r">${fmtNum(g.head)}</td><td colspan="4"></td></tr>
+        `).join('');
+
+        const w = window.open('', '_blank');
+        if (!w) { alert('The browser blocked the print window. Allow pop-ups for this site.'); return; }
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Yard sheet — ${ranchToday()}</title>
+        <style>
+            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#111;}
+            h1{font-size:18px;margin:0 0 2px 0;}
+            .meta{color:#555;font-size:11.5px;margin-bottom:12px;}
+            table{border-collapse:collapse;width:100%;font-size:12.5px;}
+            th,td{border:1px solid #999;padding:4px 7px;text-align:left;vertical-align:top;}
+            th{background:#eee;font-size:10px;text-transform:uppercase;letter-spacing:.06em;}
+            td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;}
+            td.grp{background:#f2f2f2;font-size:10px;font-weight:700;padding:3px 7px;
+                   text-transform:uppercase;letter-spacing:.07em;color:#444;}
+            tr.past td{background:#fbfbf8;}
+            tr.lot td{font-size:11.5px;color:#333;}
+            td.ind{padding-left:22px;}
+            tr.sub-total td{background:#fafafa;font-weight:700;}
+            tr.grand td{border-top:2px solid #333;font-weight:700;font-size:13px;background:#f2f2f2;}
+            /* The whole point of carrying it out: somewhere to write the count. */
+            td.count,th.count{width:74px;background:#fcfcfc;}
+            tr.lot td.count{background:#fff;}
+            .sub{color:#777;font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;}
+            .warn{color:#8a6d2a;}
+            .foot{margin-top:12px;color:#555;font-size:10.5px;line-height:1.45;}
+            @media print{ body{margin:11mm;} tr{break-inside:avoid;} thead{display:table-header-group;} }
+        ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
+        <h1>Yard sheet</h1>
+        <div class="meta">JFR Ranch Co. Ltd. &nbsp;·&nbsp; ${ranchToday()}
+            &nbsp;·&nbsp; ${fmtNum(m.head)} head &nbsp;·&nbsp; ${m.pastures} pasture${m.pastures === 1 ? '' : 's'}
+            &nbsp;·&nbsp; ${m.lots} lot${m.lots === 1 ? '' : 's'}
+            <br>Showing: ${escapeHtml(ysFilterSummary())}</div>
+        <table>
+            <thead><tr>
+                <th>Pasture / lot</th><th class="r">Head</th><th class="r">Days</th>
+                <th>Moved in</th><th>Flags</th><th class="count">Counted</th>
+            </tr></thead>
+            <tbody>${body}
+            <tr class="grand"><td>Total</td>
+                <td class="r">${fmtNum(m.head)}</td><td colspan="4"></td></tr>
+            </tbody>
+        </table>
+        <div class="foot">
+            Head is what the books say is standing there. <b>Count the pasture</b> &mdash; the shaded box on the
+            pasture row is the one that matters; the lots under it are how the books split that number, and
+            nobody can tell by eye which animal belongs to which lot. Settle a difference on the pasture with
+            <b>Settle counts</b>.
+            ${m.anomalies > 0 ? `<br><b>${m.anomalies}</b> lot row${m.anomalies === 1 ? '' : 's'} flagged.
+              <b>Head mismatch</b> means that lot's pastures do not add up to its head count &mdash; a move,
+              death or sale that never got recorded.` : ''}
+            <br>Days are counted on the ranch day, not the phone's clock.
+        </div>
+        </body></html>`);
+        w.document.close();
+        w.focus();
+        setTimeout(() => w.print(), 250);
+    }
+
+    async function shareYardSheetPdf() {
+        if (!pdfReady()) return;
+        const m = ysSheetModel();
+        if (!m.rows.length) { alert('No pastures match the current filters.'); return; }
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        doc.setFontSize(15);
+        doc.text('Yard sheet', 14, 16);
+        doc.setFontSize(9);
+        doc.setTextColor(110);
+        doc.text(`JFR Ranch Co. Ltd.  ·  ${ranchToday()}  ·  ${fmtNum(m.head)} head  ·  ` +
+                 `${m.pastures} pasture${m.pastures === 1 ? '' : 's'}  ·  ${m.lots} lot${m.lots === 1 ? '' : 's'}`, 14, 22);
+        doc.text('Showing: ' + ysFilterSummary(), 14, 27);
+        doc.setTextColor(40);
+
+        const head = [['Pasture / lot', 'Head', 'Days', 'Moved in', 'Flags', 'Counted']];
+        const body = [];
+        m.groups.forEach(g => {
+            body.push([{ content: `${g.name} — ${fmtNum(g.head)} head — ` +
+                                  `${g.pastures.length} pasture${g.pastures.length === 1 ? '' : 's'}`,
+                         colSpan: 6, styles: { fillColor: [242, 242, 242], fontStyle: 'bold', fontSize: 8 } }]);
+            g.pastures.forEach(pg => {
+                body.push([
+                    { content: pg.name, styles: { fontStyle: 'bold' } },
+                    { content: fmtNum(pg.head), styles: { fontStyle: 'bold' } },
+                    pg.lots.length > 1 ? `${pg.lots.length} lots` : '', '', '', ''
+                ]);
+                pg.lots.forEach(r => body.push([
+                    '    ' + r.lot_number + (r.lot_is_test ? ' (TEST)' : '') + (r.lot_closed ? ' (closed)' : ''),
+                    fmtNum(r.head_count),
+                    r.days_here == null ? '—' : String(r.days_here),
+                    fmtDate(r.moved_in),
+                    ysFlagText(r),
+                    ''
+                ]));
+            });
+            body.push([
+                { content: g.name + ' subtotal', styles: { fontStyle: 'bold' } },
+                { content: fmtNum(g.head), styles: { fontStyle: 'bold' } }, '', '', '', ''
+            ]);
+        });
+        body.push([{ content: 'Total', styles: { fontStyle: 'bold' } },
+                   { content: fmtNum(m.head), styles: { fontStyle: 'bold' } }, '', '', '', '']);
+
+        doc.autoTable({
+            startY: 32, head, body,
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [240, 240, 234], textColor: 30, fontStyle: 'bold' },
+            columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' },
+                            5: { cellWidth: 22, fillColor: [252, 252, 252] } }
+        });
+        await sharePdfFile(doc, `JFR-yard-sheet-${ranchToday()}.pdf`, 'Yard sheet');
     }
 
     // ---- Active Lots Summary ----
