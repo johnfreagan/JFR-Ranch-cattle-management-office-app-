@@ -368,6 +368,88 @@ Production Center — the first is blank, the last carries the lot.
 Migrations, in order: `docs/sql/2026-08-26_shipments.sql`,
 `..._phase2.sql`, `..._phase3.sql`.
 
+## Doctoring & Deaths report: the comparison (rebuilt 2026-09-07)
+
+Reports → Health → Doctoring & Deaths. Migration:
+`docs/sql/2026-09-07_doctoring_report_dimensions.sql`, which adds
+`receiving_protocol_id` / `receiving_protocol_name` / `med_ids` / `med_names`
+to `get_doctoring_analytics` and the two protocol columns to
+`get_lot_deaths_with_arrival`. Neither function's ARGUMENT list changed, so
+PostgREST still resolves one function per name; the return type widened, so
+both are DROP + CREATE rather than CREATE OR REPLACE.
+
+- **Filters decide what is counted; `Compare by` decides how it is split.**
+  One table answers "which processing protocol", "which drug" and "1st vs 2nd
+  pull" — they are the same question asked three ways, not three screens.
+  Changing the dimension repaints from cached rows; it does not re-query.
+- **There are two table shapes, and confusing them is the trap.** A COHORT
+  dimension (receiving protocol, lot) partitions the herd — every head is in
+  exactly one group, so head in, pull rate and mortality mean something. An
+  EVENT dimension (regimen, medication, action, pull number) groups
+  TREATMENTS, an animal can land in several groups, and there is no herd
+  denominator. Only cohort tables carry Head in / Pull % / Mortality %.
+- **Head in for a protocol comes off the delivery receipts**, which is the
+  only place a protocol is recorded — the same denominator the Receiving
+  report prints "per head processed" against. Head in for a lot is the lot's
+  own `head_in`. The two totals differ when receipts do not cover a lot: 37X
+  has ONE 8-head receipt against 369 head in, and those 361 head appear under
+  `— no load record for the tag —` with no head in at all.
+- **`Avg DOF` is the honesty column, and it is suppressed rather than
+  guessed.** Head-weighted days from arrival to today (or to the lot's
+  close), computed off the receipts. A young cohort with a flattering pull
+  rate is the whole reason it is there — Macrosyn read 7.2% pulled against
+  Draxxin's 18.9%, but at 15 days on feed against 24. Below **80% receipt
+  coverage of head in** it prints nothing: 37X's single receipt would
+  otherwise have read "4 days on feed" for cattle that landed in January.
+- **A pull with no protocol splits three ways, not one.** `— no receiving
+  protocol —` (the load was entered, it carried no protocol: the coverage
+  gap), `— no load record for the tag —` (paperwork missing), and
+  `— untagged death —` (a bulk death, never traceable to a load). Lumping
+  them made the paperwork gap look four times its real size — 118 rows where
+  the honest number was 6.
+- **Repull and failure are measured PER TREATMENT, not per animal.** "Did
+  this treatment hold?" is a question about the treatment: a later pull means
+  it did not (`!is_last_pull`), and `is_last_pull && animal_died` is the
+  treatment that was the last thing tried. An animal treated twice is two
+  data points, which is what it is.
+- **Med regimen beats medication.** Enroflox and Excede are given together on
+  850 of 1,148 pulls, so comparing them as separate drugs compares the same
+  cattle to themselves. The regimen dimension is the de-facto pull protocol:
+  `Enroflox(Baytril) + Excede` is 1st pull, `Resflor` is 2nd. `med_names` is
+  aggregated **ordered by name** in SQL so the same two drugs entered in
+  either order key to one regimen.
+- **The `med` dimension deliberately has NO total row.** A pull counts under
+  every drug it included, so its treatments sum exceeds the event count. A
+  total there would read as a bug.
+- **Confounding is real and the screen says so.** Resflor shows 15% fail
+  against Enroflox+Excede's 2%, because Resflor is the salvage drug given to
+  cattle that already failed once. Set **Pull position = 1st pull only**
+  before reading regimens against each other; the note above the table says
+  exactly that.
+- **Total rows recompute every rate from the totals**, never by averaging the
+  group rates — that would weight a 25-head load like a 500-head one.
+- **Five stat cards became a KPI strip plus two.** The pull funnel and "death
+  rate by treatment count" were the same axis split across two tables;
+  "death summary" and "death timing" were both about deaths. Nothing was
+  dropped, and the funnel gained *Stopped here* — animals whose LAST pull was
+  that one, which is the denominator a death rate per pull actually needs.
+- **Test lots are excluded from the default set, not just from the picker.**
+  The picker already hid them; "nothing picked = all lots" did not, so
+  TEST_DOC1 and TEST_DOC2 sat in the comparison.
+- **`renderDoctoringTable` was declared TWICE at top level** — this report's
+  and the lot-detail screen's, in the same scope. Hoisting meant the lot
+  version won, so the report drew into the LOT's container while its own
+  Event detail sat on "Loading…". The report's is now
+  `renderDocEventTable`. A duplicate function declaration is legal JS and
+  throws nothing; only a unique name catches it. `ceilTo` was the same shape
+  — two identical top-level bodies, harmless only by luck — and the shadowed
+  copy was deleted the same day. There are now **no duplicate top-level
+  function names in index.html**; keep it that way.
+- **The app degrades rather than breaking before the migration lands.** The
+  new columns' absence is detected on the first row; the three dimensions
+  that need them explain what to run, the two filters that need them warn
+  that they were not applied, and everything else works.
+
 ## Access control (RLS — read before touching auth, policies, or views)
 
 The gate is `public.current_user_role()`. It reads `user_profiles.role` for
