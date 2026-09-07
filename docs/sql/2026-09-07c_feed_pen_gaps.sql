@@ -832,14 +832,19 @@ $fn$;
 -- anywhere: written off long ago, or never counted. They cannot arrive by
 -- transfer, because no lot is holding them to transfer them out of.
 --
--- WHY A SOURCE LOT IS STILL REQUIRED. Every dollar the pen spends is split
--- by the ledger, and the ledger splits by source lot — head with no source
--- lot would sit in the pen eating feed that could be attributed to nobody,
--- and feed_pen_reconciliation would never tie. Naming the most likely lot
--- is the honest answer, and it is CHEAP TO BE WRONG: decision 5 makes pen
--- cost TRACKED, not charged, so this touches that lot's books in no way at
--- all. It says "the salvage we are spending is on cattle that came off
--- 37X", which is a management fact, not an accounting entry.
+-- WHY THE SOURCE LOT IS OPTIONAL. John, 2026-09-07: "They literally don't
+-- come from a lot, I didn't enter them because there wasn't a feed pen lot
+-- at that time." Forcing a lot onto head with no origin would invent a
+-- fact — the report would read "these came off 37X" when nobody believes
+-- it. NULL is honest and gets its own group, "— no source lot —", and its
+-- share of the feed is reported there rather than spread over the lots
+-- that DO have a claim.
+--
+-- When the lot IS known, name it: it is cheap to be right and cheap to be
+-- wrong, because decision 5 makes pen cost TRACKED, not charged, so it
+-- touches that lot's books in no way at all. It says "the salvage we are
+-- spending is on cattle that came off 37X", a management fact and not an
+-- accounting entry.
 --
 -- WHY A POSITIVE 'adjustment' AND NOT A RECEIPT OR AN INVOICE. Both of
 -- those feed lot_daily_head's GREATEST(invoiced, received) and would give
@@ -954,9 +959,8 @@ COMMENT ON FUNCTION public.record_feed_pen_opening IS
     'Head found standing in the feed pen that the books never carried. Positive adjustment + assignment + ledger row, atomically. INVOKER. The source lot is attribution only and is never charged.';
 
 
-
 -- ---------------------------------------------------------------------
--- 11. The two views that join on the source lot
+-- 10. The two views that join on the source lot
 -- ---------------------------------------------------------------------
 -- Both matched with `=`, which drops the unattributed group silently: NULL
 -- = NULL is not true. IS NOT DISTINCT FROM makes it match itself, so head
@@ -1021,12 +1025,14 @@ SELECT c.pen_lot_id,
   ) t ON TRUE
  WHERE t.total_head > 0;
 
--- 9d. The answer to John's question: what have the feed pen cattle off
--- each lot cost. `frozen_removed_usd` is the figure taken AT THE DATE
--- REMOVED; `accrued_usd` is everything spent on that lot's head to date,
--- standing or gone. The gap between them is what the head still in the
--- pen have run up since.
-DROP VIEW IF EXISTS public.feed_pen_cost_by_source CASCADE;
+-- What have the feed pen cattle off each lot cost. `frozen_removed_usd` is
+-- the figure taken AT THE DATE REMOVED; `accrued_usd` is everything spent
+-- on that lot's head to date, standing or gone. The gap between them is
+-- what the head still in the pen have run up since.
+--
+-- No DROP ... CASCADE here either: the column list and types are unchanged
+-- (source_lot_number is still text, just COALESCEd), so a replace is
+-- enough and nothing downstream is taken out and rebuilt from memory.
 CREATE OR REPLACE VIEW public.feed_pen_cost_by_source
 WITH (security_invoker = true) AS
 WITH src AS (
@@ -1098,7 +1104,7 @@ COMMENT ON VIEW public.feed_pen_cost_by_source IS
     'What the feed pen cattle off each lot cost. frozen_removed_usd is the figure frozen at the date removed. Tracked, never posted to the source lot. Head that came off no lot at all group under "— no source lot —".';
 
 -- ---------------------------------------------------------------------
--- 12. Verify
+-- 11. Verify
 -- ---------------------------------------------------------------------
 DO $verify$
 DECLARE
