@@ -14075,7 +14075,9 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             return `<tr>
                 <td>${escapeHtml(r.source_lot_number)}
                     ${r.source_closed_at ? '<span class="muted" style="font-size:11px;"> · closed</span>' : ''}
-                    <div class="muted" style="font-size:11px;">FY ${r.source_fiscal_year}</div></td>
+                    <div class="muted" style="font-size:11px;">${r.source_lot_id
+                        ? 'FY ' + r.source_fiscal_year
+                        : 'never carried on any lot'}</div></td>
                 <td class="num">${fmtNum(r.head_in)}</td>
                 <td class="num">${fmtNum(r.head_on_hand)}</td>
                 <td style="font-size:12px;">${gone}</td>
@@ -14117,6 +14119,9 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             Neither is charged to the lot — it is already carrying everything those cattle cost before
             they came here. A pen death also does not count against that lot's mortality: the animal had
             already left it, so a lot that uses the pen reads a better death rate than it earned.
+            <strong>&mdash; no source lot &mdash;</strong> is head that came off no lot at all: never
+            carried in inventory anywhere, so their share of the feed is reported on its own rather
+            than spread over the lots that do have a claim.
         </p>`;
     }
 

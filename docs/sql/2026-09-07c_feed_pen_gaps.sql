@@ -35,8 +35,10 @@ begin;
 
 -- Largest-remainder split of p_head across the lots standing in the pen.
 -- Decision 10: pro-rata on what is standing, because nobody can tell by eye
--- which animal belongs to which lot. NULL when nothing is standing — the
--- caller decides what that means rather than getting a silent empty split.
+-- which animal belongs to which lot. Returns NULL when nothing is standing
+-- — the caller decides what that means rather than getting a silent empty
+-- split. A NULL source_lot_id is an ordinary group here: head that came
+-- from no lot at all still eat, still die, and still take their share.
 CREATE OR REPLACE FUNCTION public.feed_pen_split_head(
     p_pen_lot_id UUID,
     p_head       INTEGER
@@ -113,20 +115,24 @@ BEGIN
         SELECT GREATEST(0, COALESCE(c.accrued_usd, 0) - COALESCE(f.frozen, 0))
           INTO v_pool
           FROM (SELECT 1) z
+          -- IS NOT DISTINCT FROM, not =, so the unattributed group matches
+          -- itself instead of vanishing on a NULL comparison.
           LEFT JOIN public.feed_pen_cost_by_source c
-                 ON c.pen_lot_id = v_pen AND c.source_lot_id = rec.source_lot_id
+                 ON c.pen_lot_id = v_pen
+                AND c.source_lot_id IS NOT DISTINCT FROM rec.source_lot_id
           LEFT JOIN LATERAL (
               SELECT sum(l2.pen_cost_usd) AS frozen
                 FROM public.feed_pen_removal_lines l2
                 JOIN public.feed_pen_removals r2 ON r2.id = l2.removal_id
                WHERE r2.pen_lot_id = v_pen
-                 AND l2.source_lot_id = rec.source_lot_id
+                 AND l2.source_lot_id IS NOT DISTINCT FROM rec.source_lot_id
                  AND l2.removal_id <> p_removal_id
           ) f ON TRUE;
 
         SELECT COALESCE(sum(head_delta), 0) INTO v_stand
           FROM public.feed_pen_ledger
-         WHERE pen_lot_id = v_pen AND source_lot_id = rec.source_lot_id;
+         WHERE pen_lot_id = v_pen
+           AND source_lot_id IS NOT DISTINCT FROM rec.source_lot_id;
 
         v_cost := CASE WHEN v_stand > 0
                        THEN round(COALESCE(v_pool, 0) * rec.head_count::numeric / v_stand::numeric, 2)
@@ -212,6 +218,36 @@ ALTER TABLE public.feed_pen_ledger DROP CONSTRAINT IF EXISTS feed_pen_ledger_ent
 ALTER TABLE public.feed_pen_ledger
     ADD CONSTRAINT feed_pen_ledger_entry_kind_check
     CHECK (entry_kind IN ('transfer_in','rollover_in','rollover_out','removal','opening'));
+
+-- ---------------------------------------------------------------------
+-- 3b. ...and the source lot becomes OPTIONAL
+-- ---------------------------------------------------------------------
+-- John, 2026-09-07: "They literally don't come from a lot, I didn't enter
+-- them because there wasn't a feed pen lot at that time."
+--
+-- The original schema made source_lot_id NOT NULL because the whole point
+-- of the ledger is attribution. But head with genuinely no origin are a
+-- real category, and forcing a lot onto them would be inventing a fact —
+-- the report would then read "these came off 37X" when nobody believes
+-- that. NULL is the honest value and it gets its own group, exactly the
+-- way the Doctoring report separates "— no receiving protocol —" from
+-- "— no load record for the tag —" instead of lumping them.
+--
+-- The cost still lands somewhere: an unattributed head eats its share of
+-- pen feed like any other, and that share shows against "— no source
+-- lot —" rather than being quietly spread over the lots that DO have a
+-- claim, which would overstate them.
+ALTER TABLE public.feed_pen_ledger        ALTER COLUMN source_lot_id DROP NOT NULL;
+ALTER TABLE public.feed_pen_removal_lines ALTER COLUMN source_lot_id DROP NOT NULL;
+
+-- A plain UNIQUE treats every NULL as distinct, so a removal could collect
+-- several "no source lot" lines. NULLS NOT DISTINCT (PG15+; this database
+-- runs 17.6) makes one line per removal per source, unattributed included.
+ALTER TABLE public.feed_pen_removal_lines
+    DROP CONSTRAINT IF EXISTS feed_pen_removal_lines_removal_id_source_lot_id_key;
+DROP INDEX IF EXISTS public.feed_pen_removal_lines_one_per_source;
+CREATE UNIQUE INDEX feed_pen_removal_lines_one_per_source
+    ON public.feed_pen_removal_lines (removal_id, source_lot_id) NULLS NOT DISTINCT;
 
 -- ---------------------------------------------------------------------
 -- 4. lot_daily_head: a pen's window opens on its own arrival date
@@ -393,11 +429,11 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT 1 FROM jsonb_array_elements(p_lines) e
-         WHERE (e->>'source_lot_id') IS NULL
-            OR (e->>'head_count') IS NULL
+         WHERE (e->>'head_count') IS NULL
             OR (e->>'head_count')::integer <= 0
     ) THEN
-        RAISE EXCEPTION 'Every line needs a source lot and a positive head count.';
+        -- source_lot_id may be null: head that came off no lot at all.
+        RAISE EXCEPTION 'Every line needs a positive head count.';
     END IF;
 
     SELECT sum((e->>'head_count')::integer) INTO v_head
@@ -411,10 +447,12 @@ BEGIN
     LOOP
         SELECT COALESCE(sum(head_delta), 0) INTO v_standing
           FROM public.feed_pen_ledger
-         WHERE pen_lot_id = p_pen_lot_id AND source_lot_id = rec.src;
+         WHERE pen_lot_id = p_pen_lot_id
+           AND source_lot_id IS NOT DISTINCT FROM rec.src;
         IF rec.hd > v_standing THEN
-            RAISE EXCEPTION 'Lot % has % head standing in the pen; the removal draws %.',
-                (SELECT lot_number FROM public.lots WHERE id = rec.src), v_standing, rec.hd;
+            RAISE EXCEPTION '% has % head standing in the pen; the removal draws %.',
+                COALESCE((SELECT lot_number FROM public.lots WHERE id = rec.src),
+                         'Head with no source lot'), v_standing, rec.hd;
         END IF;
     END LOOP;
 
@@ -845,9 +883,17 @@ BEGIN
         RAISE EXCEPTION 'Head must be positive (got %).', p_head;
     END IF;
 
-    SELECT lot_number INTO v_src_no FROM public.lots WHERE id = p_source_lot_id;
-    IF v_src_no IS NULL THEN
-        RAISE EXCEPTION 'A source lot is required — it is what every dollar of pen cost is split by. Name the lot these cattle most likely came off; it does not touch that lot''s books.';
+    -- A source lot is OPTIONAL. Some head genuinely came off no lot: they
+    -- were never entered anywhere because there was no feed pen to put them
+    -- in. Naming a lot they did not come from would be inventing a fact, so
+    -- NULL is allowed and gets its own group on the cost report. A lot that
+    -- IS named must exist, though — a typo'd uuid must not become a silent
+    -- unattributed row.
+    IF p_source_lot_id IS NOT NULL THEN
+        SELECT lot_number INTO v_src_no FROM public.lots WHERE id = p_source_lot_id;
+        IF v_src_no IS NULL THEN
+            RAISE EXCEPTION 'Source lot % not found. Leave it null if these cattle came off no lot at all.', p_source_lot_id;
+        END IF;
     END IF;
 
     v_date := COALESCE(p_event_date, public.ranch_today());
@@ -868,8 +914,10 @@ BEGIN
     ) VALUES (
         p_pen_lot_id, v_date, 'adjustment', p_head, 'opening', p_pasture_id,
         COALESCE(p_notes,
-                 'Found standing in the feed pen and carried nowhere in the books. Attributed to '
-                 || v_src_no || ' for cost tracking only.'),
+                 'Found standing in the feed pen and carried nowhere in the books. '
+                 || CASE WHEN v_src_no IS NULL
+                         THEN 'Came off no lot; pen cost is reported unattributed.'
+                         ELSE 'Attributed to ' || v_src_no || ' for cost tracking only.' END),
         p_recorded_by
     ) RETURNING id INTO v_event;
 
@@ -892,7 +940,9 @@ BEGIN
         notes, created_by
     ) VALUES (
         p_pen_lot_id, p_source_lot_id, v_date, p_head, 'opening',
-        'Found in the pen, never carried in inventory. Source lot is an attribution, not a charge.',
+        CASE WHEN p_source_lot_id IS NULL
+             THEN 'Found in the pen, never carried in inventory and off no lot.'
+             ELSE 'Found in the pen, never carried in inventory. Source lot is an attribution, not a charge.' END,
         p_recorded_by
     );
 
@@ -903,8 +953,152 @@ $fn$;
 COMMENT ON FUNCTION public.record_feed_pen_opening IS
     'Head found standing in the feed pen that the books never carried. Positive adjustment + assignment + ledger row, atomically. INVOKER. The source lot is attribution only and is never charged.';
 
+
+
 -- ---------------------------------------------------------------------
--- 10. Verify
+-- 11. The two views that join on the source lot
+-- ---------------------------------------------------------------------
+-- Both matched with `=`, which drops the unattributed group silently: NULL
+-- = NULL is not true. IS NOT DISTINCT FROM makes it match itself, so head
+-- that came off no lot get their own row and their own share of the feed
+-- instead of disappearing out of a report that is supposed to add up.
+--
+-- CREATE OR REPLACE, not DROP CASCADE — feed_pen_cost_by_source_daily and
+-- feed_pen_cost_by_source hang off the first of these. Column lists and
+-- types are unchanged, so replace works, and THE `WITH` CLAUSE IS REPEATED
+-- because omitting it clears security_invoker.
+CREATE OR REPLACE VIEW public.feed_pen_source_daily
+WITH (security_invoker = true) AS
+WITH pen_days AS (
+    SELECT d.lot_id AS pen_lot_id, d.as_of_date
+      FROM public.lot_daily_head d
+      JOIN public.lots l ON l.id = d.lot_id AND l.is_feed_pen
+), pen_bounds AS (
+    SELECT pen_lot_id, min(as_of_date) AS first_day, max(as_of_date) AS last_day
+      FROM pen_days GROUP BY 1
+), entries AS (
+    -- Clamp into the pen's own window the way lot_daily_head clamps, so an
+    -- entry dated outside it is carried rather than silently dropped.
+    SELECT g.pen_lot_id, g.source_lot_id,
+           LEAST(GREATEST(g.entry_date, b.first_day), b.last_day) AS d,
+           sum(g.head_delta) AS delta
+      FROM public.feed_pen_ledger g
+      JOIN pen_bounds b ON b.pen_lot_id = g.pen_lot_id
+     GROUP BY 1, 2, 3
+), grid AS (
+    SELECT pd.pen_lot_id, s.source_lot_id, pd.as_of_date
+      FROM pen_days pd
+      JOIN (SELECT DISTINCT pen_lot_id, source_lot_id FROM public.feed_pen_ledger) s
+        ON s.pen_lot_id = pd.pen_lot_id
+)
+SELECT g.pen_lot_id,
+       g.source_lot_id,
+       g.as_of_date,
+       GREATEST(0, sum(COALESCE(e.delta, 0)) OVER (
+           PARTITION BY g.pen_lot_id, g.source_lot_id
+           ORDER BY g.as_of_date ROWS UNBOUNDED PRECEDING))::integer AS head_on_hand
+  FROM grid g
+  LEFT JOIN entries e
+    ON e.pen_lot_id = g.pen_lot_id
+   AND e.source_lot_id IS NOT DISTINCT FROM g.source_lot_id
+   AND e.d = g.as_of_date;
+
+CREATE OR REPLACE VIEW public.feed_pen_cost_by_source_daily
+WITH (security_invoker = true) AS
+SELECT c.pen_lot_id,
+       s.source_lot_id,
+       c.day,
+       s.head_on_hand,
+       c.feed_usd * s.head_on_hand::numeric / t.total_head::numeric AS feed_usd,
+       c.med_usd  * s.head_on_hand::numeric / t.total_head::numeric AS med_usd
+  FROM public.feed_pen_daily_cost c
+  JOIN public.feed_pen_source_daily s
+    ON s.pen_lot_id = c.pen_lot_id AND s.as_of_date = c.day
+  JOIN LATERAL (
+      SELECT sum(s2.head_on_hand) AS total_head
+        FROM public.feed_pen_source_daily s2
+       WHERE s2.pen_lot_id = c.pen_lot_id AND s2.as_of_date = c.day
+  ) t ON TRUE
+ WHERE t.total_head > 0;
+
+-- 9d. The answer to John's question: what have the feed pen cattle off
+-- each lot cost. `frozen_removed_usd` is the figure taken AT THE DATE
+-- REMOVED; `accrued_usd` is everything spent on that lot's head to date,
+-- standing or gone. The gap between them is what the head still in the
+-- pen have run up since.
+DROP VIEW IF EXISTS public.feed_pen_cost_by_source CASCADE;
+CREATE OR REPLACE VIEW public.feed_pen_cost_by_source
+WITH (security_invoker = true) AS
+WITH src AS (
+    SELECT DISTINCT g.pen_lot_id, g.source_lot_id FROM public.feed_pen_ledger g
+)
+SELECT s.pen_lot_id,
+       pen.lot_number   AS pen_lot_number,
+       pen.fiscal_year  AS pen_fiscal_year,
+       s.source_lot_id,
+       COALESCE(sl.lot_number, '— no source lot —') AS source_lot_number,
+       sl.fiscal_year   AS source_fiscal_year,
+       sl.closed_at     AS source_closed_at,
+       COALESCE(arrived.head_in, 0)                AS head_in,
+       -- Off the ledger, not head_in less removals: a fiscal-year rollover
+       -- takes head out of the pen without ever being a removal line.
+       COALESCE(bal.head_now, 0)                   AS head_on_hand,
+       COALESCE(rem.head_out, 0)                   AS head_removed,
+       COALESCE(rem.head_sold, 0)                  AS head_sold,
+       COALESCE(rem.head_butchered, 0)             AS head_butchered,
+       COALESCE(rem.head_died, 0)                  AS head_died,
+       COALESCE(rem.head_missing, 0)               AS head_missing,
+       COALESCE(acc.feed_usd, 0)                   AS feed_usd,
+       COALESCE(acc.med_usd, 0)                    AS med_usd,
+       COALESCE(acc.feed_usd, 0) + COALESCE(acc.med_usd, 0) AS accrued_usd,
+       COALESCE(rem.frozen_usd, 0)                 AS frozen_removed_usd,
+       GREATEST(0, COALESCE(acc.feed_usd, 0) + COALESCE(acc.med_usd, 0)
+                 - COALESCE(rem.frozen_usd, 0))    AS accrued_open_usd,
+       COALESCE(rem.proceeds_usd, 0)               AS salvage_usd
+  FROM src s
+  JOIN public.lots pen ON pen.id = s.pen_lot_id
+  LEFT JOIN public.lots sl ON sl.id = s.source_lot_id
+  LEFT JOIN LATERAL (
+      SELECT sum(g.head_delta) AS head_in
+        FROM public.feed_pen_ledger g
+       WHERE g.pen_lot_id = s.pen_lot_id
+         AND g.source_lot_id IS NOT DISTINCT FROM s.source_lot_id
+         AND g.head_delta > 0
+  ) arrived ON TRUE
+  LEFT JOIN LATERAL (
+      SELECT sum(g.head_delta) AS head_now
+        FROM public.feed_pen_ledger g
+       WHERE g.pen_lot_id = s.pen_lot_id
+         AND g.source_lot_id IS NOT DISTINCT FROM s.source_lot_id
+  ) bal ON TRUE
+  LEFT JOIN LATERAL (
+      SELECT sum(l.head_count)                                                    AS head_out,
+             sum(l.head_count) FILTER (WHERE r.method = 'sold')                   AS head_sold,
+             sum(l.head_count) FILTER (WHERE r.method = 'butchered')              AS head_butchered,
+             sum(l.head_count) FILTER (WHERE r.method = 'died')                   AS head_died,
+             sum(l.head_count) FILTER (WHERE r.method = 'missing')                AS head_missing,
+             sum(l.pen_cost_usd)                                                  AS frozen_usd,
+             sum(l.proceeds_usd)                                                  AS proceeds_usd
+        FROM public.feed_pen_removal_lines l
+        JOIN public.feed_pen_removals r ON r.id = l.removal_id
+       WHERE r.pen_lot_id = s.pen_lot_id
+         AND l.source_lot_id IS NOT DISTINCT FROM s.source_lot_id
+  ) rem ON TRUE
+  LEFT JOIN LATERAL (
+      SELECT sum(d.feed_usd) AS feed_usd, sum(d.med_usd) AS med_usd
+        FROM public.feed_pen_cost_by_source_daily d
+       WHERE d.pen_lot_id = s.pen_lot_id
+         AND d.source_lot_id IS NOT DISTINCT FROM s.source_lot_id
+  ) acc ON TRUE;
+
+ALTER VIEW public.feed_pen_source_daily  SET (security_invoker = true);
+ALTER VIEW public.feed_pen_cost_by_source SET (security_invoker = true);
+
+COMMENT ON VIEW public.feed_pen_cost_by_source IS
+    'What the feed pen cattle off each lot cost. frozen_removed_usd is the figure frozen at the date removed. Tracked, never posted to the source lot. Head that came off no lot at all group under "— no source lot —".';
+
+-- ---------------------------------------------------------------------
+-- 12. Verify
 -- ---------------------------------------------------------------------
 DO $verify$
 DECLARE
