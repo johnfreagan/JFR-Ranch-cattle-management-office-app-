@@ -2053,12 +2053,33 @@ function updateAlertBox(staleLot) {
 // =========================================================
 // TAG HISTORY MODAL — one-tap drill-in for chute decisions
 // =========================================================
+// One place that opens and closes a modal, so the body lock can never get
+// out of step with what is on screen. A modal left open with the lock off
+// scrolls the page behind it; a modal closed with the lock on freezes the
+// app. Counting open modals rather than toggling a boolean means closing one
+// of two does not unlock the page underneath the other.
+let openModalCount = 0;
+function openAppModal(id) {
+    const el = document.getElementById(id);
+    if (!el || el.style.display === 'block') return;
+    el.style.display = 'block';
+    el.scrollTop = 0;              // always open at the top, not where it was left
+    openModalCount++;
+    document.body.classList.add('modal-open');
+}
+function closeAppModal(id) {
+    const el = document.getElementById(id);
+    if (!el || el.style.display === 'none' || !el.style.display) return;
+    el.style.display = 'none';
+    openModalCount = Math.max(0, openModalCount - 1);
+    if (openModalCount === 0) document.body.classList.remove('modal-open');
+}
+
 window.showTagHistory = function(tag) {
     const history = historyPool()
         .filter(r => String(r.tagNumber) === String(tag))
         .sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
 
-    const modal = document.getElementById('tagHistoryModal');
     const body = document.getElementById('tagHistoryBody');
     const title = document.getElementById('tagHistoryTitle');
 
@@ -2094,11 +2115,11 @@ window.showTagHistory = function(tag) {
         }).join('');
     }
 
-    modal.style.display = 'block';
+    openAppModal('tagHistoryModal');
 };
 
 window.closeTagHistory = function() {
-    document.getElementById('tagHistoryModal').style.display = 'none';
+    closeAppModal('tagHistoryModal');
 };
 
 // =========================================================
@@ -2867,12 +2888,12 @@ function shiftDayReport(days) {
 document.getElementById('openReportBtn').onclick = function() {
     dayReportDay = localDay(new Date());
     renderDayReport();
-    document.getElementById('reportModal').style.display = 'block';
+    openAppModal('reportModal');
 };
 document.getElementById('drPrevDay').onclick = () => shiftDayReport(-1);
 document.getElementById('drNextDay').onclick = () => shiftDayReport(1);
 
-document.getElementById('closeModalBtn').onclick = () => document.getElementById('reportModal').style.display = "none";
+document.getElementById('closeModalBtn').onclick = () => closeAppModal('reportModal');
 
 function setCurrentDateTime() { dateTimeInput.valueAsDate = new Date(); }
 function updateFormVisibility(type) {

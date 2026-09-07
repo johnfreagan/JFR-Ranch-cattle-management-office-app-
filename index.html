@@ -22302,6 +22302,19 @@ ${ranchBlocks}
             showAlert('doctoringEntryAlert', 'Add at least one tag.');
             return;
         }
+        // A pasture is set per row and falls back to the batch picker. With
+        // neither, the event posts with pasture_id NULL: where the work
+        // happened is gone for good, there is nothing to reconcile a pasture
+        // against later, and a death entered this way has no assignment for
+        // record_death_with_pasture to draw down.
+        const noPasture = docEntryRows.filter(r => !r.pasture_id && !batchPastureId);
+        if (noPasture.length) {
+            showAlert('doctoringEntryAlert',
+                `No pasture for tag${noPasture.length === 1 ? '' : 's'} ` +
+                `${noPasture.map(r => r.tag).join(', ')}. Set it on the row, or pick a ` +
+                `pasture above to cover the whole batch.`);
+            return;
+        }
 
         // Parse date
         let isoDate;

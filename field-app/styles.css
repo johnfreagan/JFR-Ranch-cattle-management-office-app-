@@ -238,6 +238,14 @@ tr:last-child td {
 }
 
 /* --- MODALS --- */
+/* The overlay is the scroller. It used to be a fixed, full-height box with
+   no overflow, so anything taller than the screen — a day with more than a
+   few records — was simply CUT OFF at the bottom with no way to reach it,
+   and a drag on it fell through to the page underneath, which is why the
+   background moved instead of the report.
+
+   overscroll-behavior:contain is what stops that chaining: the scroll stays
+   in the overlay instead of handing off to the body when it hits an end. */
 .modal { 
     display: none; 
     position: fixed; 
@@ -245,19 +253,29 @@ tr:last-child td {
     left: 0; 
     top: 0; 
     width: 100%; 
-    height: 100%; 
+    height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     background-color: rgba(0,0,0,0.6); 
 }
 
 .modal-content { 
     background-color: #ffffff; 
-    margin: 10% auto; 
+    /* Was `10% auto`, which wasted a tenth of a phone screen at the top and
+       left nothing at the bottom. A fixed margin gives the last card room to
+       clear the home indicator. */
+    margin: 24px auto calc(24px + env(safe-area-inset-bottom, 0px));
     padding: 20px; 
     border-radius: 16px; 
     width: 85%; 
     max-width: 400px; 
     box-shadow: 0 10px 20px rgba(0,0,0,0.2); 
 }
+
+/* Belt and braces for the page behind: overscroll-behavior needs iOS 16+,
+   and this stops the body scrolling on anything older. */
+body.modal-open { overflow: hidden; }
 
 .close-modal { 
     color: #8e8e93; 
