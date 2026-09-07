@@ -529,12 +529,31 @@ lot (is_feed_pen) ← lot_transfers kind='feed_pen', basis $0 ← the source lot
   uses the pen therefore reads a better death rate than it earned. Nothing
   can fix that in the lot's own numbers without double-counting the head, so
   the pen report carries deaths by source lot and the closeout says so.
-- **KNOWN GAP: a pen death recorded outside Record removal** — the lot's own
-  death log, or a field entry through Approvals — writes correct head math
-  and NO ledger row, so pen cost keeps splitting onto a lot whose head is
-  gone. It is detected, not silent: `feed_pen_reconciliation` compares the
-  two books and Anomalies raises it high-severity. Closing it is small; see
-  the design doc for the two options.
+- **A pen exit recorded outside Record removal captures itself** (closed
+  2026-09-07, `docs/sql/2026-09-07c_feed_pen_gaps.sql`). A **BEFORE INSERT**
+  trigger on `lot_events` (deaths) and `sales` writes the removal, the
+  pro-rata split and the ledger rows. BEFORE, not AFTER: the frozen cost has
+  to be computed while the exit is still invisible to `lot_daily_head`, or it
+  is short by the head's last day. The pool drawdown and salvage split live in
+  `feed_pen_freeze_costs` / `feed_pen_allocate_proceeds` / `feed_pen_split_head`
+  so the trigger and the RPC run ONE implementation. `record_feed_pen_removal`
+  sets `jfr.feed_pen_capture = 'off'` (transaction-local) so its own head math
+  is not captured twice. It never blocks an entry — no source lot standing
+  raises a WARNING and lets the animal be recorded, and
+  `feed_pen_reconciliation` still catches it. An auto-captured removal is
+  flagged `captured_automatically` and `delete_feed_pen_removal` REFUSES it:
+  it never touched the pasture assignment, so reversing the death or sale is
+  what puts the head back, and an AFTER DELETE trigger drops the attribution.
+- **Head found in the pen and carried nowhere go in through
+  `record_feed_pen_opening`** — a positive `adjustment` (never a receipt or
+  invoice, which would give the pen a `head_in` and a purchase cost it never
+  had), a pasture assignment and an `opening` ledger row. `lot_daily_head`
+  gained a FOURTH start-date term for it, the pen's own `arrival_date`, gated
+  on `is_feed_pen`: an adjustment is not a start-date source, so a pen holding
+  only found head would otherwise have no window and no head-days at all. A
+  source lot is required because every pen dollar is split by it, and it is
+  cheap to be wrong — pen cost is tracked, not charged, so naming a lot
+  touches that lot's books in no way.
 - The pen is excluded from the Active Lots report (no invoice, so cost in,
   weight in and break-even are all empty by design) and its lot page hides
   Purchases and Closeout, showing the Feed pen section instead.

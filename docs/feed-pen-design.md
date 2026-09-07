@@ -257,25 +257,59 @@ to measure against.
    a saved shipment, for the same reason: an edit would unwind head math that
    already happened.
 
-## The known gap — a pen death recorded the ordinary way
+## The exit that recorded itself elsewhere — closed 2026-09-07
 
-A pen death entered anywhere but **Record removal** — the lot's own death log,
-or a crew entry through the field app and the Approvals tab — writes correct
-head math and **no ledger row**. Head math then says the pen holds one fewer
-animal than the attribution ledger does, and the pen's feed and medicine keep
-being split across a lot whose head is gone.
+A pen exit entered anywhere but **Record removal** — the lot's own death log,
+a crew entry through Approvals, a sale through the Sales screen — used to write
+correct head math and **no ledger row**, so pen feed kept splitting across a lot
+whose head was gone. It was detected but not prevented.
 
-It is **detected, not silent**: `feed_pen_reconciliation` compares the two
-books and the Anomalies report raises it as a high-severity finding naming the
-pen and the variance. That was the reason for building the reconciliation view
-at all — a second book beside `lot_status` can drift, and the only unacceptable
-version of that is one nobody sees.
+`docs/sql/2026-09-07c_feed_pen_gaps.sql` makes the exit capture itself. A
+**BEFORE INSERT** trigger on `lot_events` (deaths) and `sales` writes the
+removal, the pro-rata source-lot split and the ledger rows.
 
-Closing it properly means either teaching the death path to write the ledger
-row when the lot is a pen, or refusing a death on a pen lot outside the removal
-form. Both are small; neither is built, because which one is right depends on
-whether crew should be able to record a pen death from the field at all — see
-below.
+- **BEFORE, not AFTER, and that is the whole subtlety.** The frozen cost must be
+  computed while the death or sale is still invisible to `lot_daily_head` — the
+  ordering `record_feed_pen_removal` already follows. An AFTER trigger would
+  freeze a figure short by the head's last day. `NEW.id` is already populated in
+  a BEFORE INSERT trigger, and nothing references `lot_events` or `sales` by
+  foreign key, so `ref_id` can point at a row that does not exist yet.
+- **The pool drawdown and the salvage split moved into two shared functions**
+  (`feed_pen_freeze_costs`, `feed_pen_allocate_proceeds`, plus
+  `feed_pen_split_head`) that the trigger and the RPC both call. Copying the
+  arithmetic into a trigger is how this app got two head-day implementations
+  that disagree by 29%.
+- **It never blocks the entry.** If no source lot is standing, or the pen holds
+  no pasture, the animal is still recorded and a `WARNING` is raised — this is
+  animal health data. `feed_pen_reconciliation` and Anomalies still catch it.
+- **An auto-captured removal cannot be reversed from the pen side.** It never
+  touched the pasture assignment; the death or sale owns that.
+  `delete_feed_pen_removal` refuses it by name and points at where it was
+  entered, and an AFTER DELETE trigger removes the attribution when that
+  reversal runs.
+
+## Head found in the pen, carried nowhere — `record_feed_pen_opening`
+
+The design assumed every animal reaches the pen by transfer from a lot that is
+holding it. On the day it went live John had **three calves standing in the pen
+that the books had never carried anywhere** — written off long ago, or never
+counted. There was no way in.
+
+- **A positive `adjustment`, not a receipt or an invoice.** Both of those feed
+  `lot_daily_head`'s `GREATEST(invoiced, received)` and would give the pen a
+  `head_in` and a purchase cost it never had. `adjustment` is already signed and
+  already summed by `lot_status` and `lot_daily_head`.
+- **`lot_daily_head` needed a fourth start-date term.** An adjustment is not a
+  start-date source, so a pen whose only arrival was a found animal would have
+  had no window at all — no head-days, and every pound of its feed in
+  `feed_cost_unallocated`. The bound now includes the pen's own `arrival_date`,
+  gated on `is_feed_pen` so it cannot reach an ordinary lot.
+- **A source lot is still required, and it is cheap to be wrong.** Every dollar
+  the pen spends is split by the ledger, and the ledger splits by source lot.
+  Naming the most likely lot is the honest answer, and because decision 5 makes
+  pen cost **tracked, not charged**, it touches that lot's books in no way at
+  all. It says "the salvage we are spending is on cattle that came off 37X",
+  which is a management fact and not an accounting entry.
 
 ## Still to settle
 
