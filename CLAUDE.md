@@ -811,6 +811,13 @@ A fourth tab: pick a ranch, then a pasture, and it shows the lots standing
 there with head and a pasture total. Reads `pastureLotsMap`, the same cache
 the move form's split uses, so it works with no signal.
 
+- **The pickers offer only pastures that HOLD cattle** (v21). Built from
+  `pastureLotsMap`, not from the pasture list: on ~60 pastures most are empty
+  most of the time, and offering them all buries the handful that matter. A
+  device that has never synced says "No cattle on the books — sync first"
+  rather than showing an empty dropdown. Consequence to know: a pasture the
+  books show as empty cannot be selected, so cattle found somewhere the books
+  do not know about cannot be counted there — that is a move to record first.
 - **It is deliberately not a yard sheet.** Both selectors must be answered
   before anything appears; there is no all-pastures list, no ranch subtotal
   and no route to an operation-wide number. John's reason (2026-09-02): a

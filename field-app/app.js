@@ -1004,16 +1004,45 @@ function checkDailySync() {
 //
 // If layers of authorization arrive later, this screen is already the shape
 // they would want: it shows one pasture and nothing aggregate.
+// The pickers are built from what is STANDING somewhere, not from the
+// pasture list. An empty pasture is not a place you go to count or weigh
+// cattle, and on a ranch with sixty pastures most of them are empty most of
+// the time — offering them all buries the handful that matter.
+//
+// pastureLotsMap is keyed "Ranch - Pasture". Splitting on " - " is safe: no
+// ranch or pasture name contains a dash, which the office's own location
+// parsing already depends on.
+function pvStocked() {
+    const byRanch = {};
+    Object.keys(pastureLotsMap || {}).forEach(key => {
+        const head = (pastureLotsMap[key] || []).reduce((t, x) => t + (Number(x.head) || 0), 0);
+        if (head <= 0) return;
+        const i = key.indexOf(' - ');
+        if (i < 0) return;
+        const ranch = key.slice(0, i).trim();
+        const past = key.slice(i + 3).trim();
+        if (!ranch || !past) return;
+        (byRanch[ranch] = byRanch[ranch] || []).push(past);
+    });
+    Object.keys(byRanch).forEach(r => {
+        byRanch[r] = [...new Set(byRanch[r])].sort();
+    });
+    return byRanch;
+}
+
 function openPastureView() {
     const ranchSel = document.getElementById('pvRanch');
     const pastSel = document.getElementById('pvPasture');
     if (!ranchSel || !pastSel) return;
 
-    const props = [...new Set(locsDatabase.filter(l => l && l.property)
-        .map(l => String(l.property).trim()))].sort();
-    ranchSel.innerHTML = '<option value="">Select Ranch...</option>'
-        + props.map(p => `<option value="${p}">${p}</option>`).join('');
+    const stocked = pvStocked();
+    const props = Object.keys(stocked).sort();
+    ranchSel.innerHTML = props.length
+        ? '<option value="">Select Ranch...</option>'
+            + props.map(p => `<option value="${p}">${p}</option>`).join('')
+        : '<option value="">No cattle on the books — sync first</option>';
     ranchSel.value = '';
+    ranchSel.disabled = props.length === 0;
     pastSel.innerHTML = '<option value="">Select Ranch first...</option>';
     pastSel.disabled = true;
     pvShowForm(null);
@@ -1021,9 +1050,7 @@ function openPastureView() {
 }
 
 function pvPastureOptions(ranch) {
-    const pastures = [...new Set(locsDatabase
-        .filter(l => l.property && String(l.property).trim() === String(ranch).trim())
-        .map(l => String(l.pasture).trim()))].sort();
+    const pastures = pvStocked()[String(ranch).trim()] || [];
     return '<option value="">Select Pasture...</option>'
         + pastures.map(p => `<option value="${p}">${p}</option>`).join('');
 }
