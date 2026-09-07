@@ -2109,7 +2109,7 @@
                     <h2>Feed out</h2>
                     <div style="display:flex; gap:8px; align-items:center;">
                         <select id="fdUsMode" style="max-width:190px;">
-                            <option value="matrix">Weekly sheet (PB)</option>
+                            <option value="matrix">One at a time (PB week)</option>
                             <option value="rows">Single rows</option>
                         </select>
                         <button id="fdUsRefreshBtn">Refresh on hand</button>
@@ -2135,14 +2135,21 @@
                 <div id="fdUsPeriodHint" class="muted" style="font-size:12px; margin-top:4px;"></div>
 
                 <div id="fdUsMatrixWrap" style="margin-top:14px;">
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
-                        <select id="fdMxAddLot" style="max-width:200px;"><option value="">— Add a lot column —</option></select>
-                        <select id="fdMxAddCc" style="max-width:220px;"><option value="">— Add a cost centre column —</option></select>
-                        <select id="fdMxAddItem" style="max-width:240px;"><option value="">— Add a commodity row —</option></select>
-                        <button type="button" id="fdMxResetBtn">Reset sheet</button>
+                    <div id="fdShDone"></div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin-bottom:10px;">
+                        <div>
+                            <label for="fdShDest" style="font-size:12px;">Lot or cost centre *</label>
+                            <select id="fdShDest" style="min-width:260px;"></select>
+                        </div>
+                        <select id="fdShAddItem" style="max-width:240px;"><option value="">— Add a commodity row —</option></select>
+                        <button type="button" id="fdShResetBtn">Reset commodity list</button>
                     </div>
-                    <div id="fdMxTable" style="overflow-x:auto;"></div>
-                    <div id="fdMxTie" style="margin-top:10px;"></div>
+                    <div id="fdShTable" style="overflow-x:auto;"></div>
+                    <div id="fdShTie" style="margin-top:10px;"></div>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:12px;">
+                        <button type="button" class="primary" id="fdShNextBtn">Save this one &amp; next &rarr;</button>
+                        <button type="button" id="fdShClearBtn">Clear this sheet</button>
+                    </div>
                 </div>
                 <div id="fdUsRowList" style="margin-top:14px;"></div>
                 <div id="fdUsDrawSummary" style="margin-top:14px;"></div>
@@ -26778,12 +26785,24 @@ ${ranchBlocks}
     // in closeout months later. PB's own lines round - on the 8/24-30 invoice
     // for 36-27 the nine lines sum to 99,209 against a stated 99,210 - so the
     // check carries a tolerance, and warns rather than blocking.
-    // cols is an ordered list of {kind:'lot'|'cc', id}. It was lotIds until
-    // 2026-09-07; cost-centre feeding (cowherd, bulls, horses) had to be
-    // typed one row at a time in Single rows while everything else went on
-    // the weekly sheet, which is how a week gets entered half in one screen
-    // and half in another and one half gets forgotten.
-    let fdMatrix = null;   // { cols:[], rows:[{uid,item_id,location_id}], cells:{}, pbTotals:{} }
+    // ---- FEED OUT: ONE DESTINATION AT A TIME ----------------------------
+    // John, 2026-09-07: "show one lot or profit center at a time when you
+    // click next it opens a clean sheet. repeat till finished at which time
+    // you select done and it records the entries."
+    //
+    // This replaced a grid of every lot across the top. The grid fitted the
+    // shape of the PB invoice but not the shape of the work: you read one
+    // group off the invoice, key it, check it against that group's Amount
+    // Fed, and move on. Sixty cells visible at once made it easy to type a
+    // number into the lot one column over.
+    //
+    // Nothing is written until Done. Each finished destination is stashed in
+    // fdSheet.done and the whole lot posts as ONE batch through the existing
+    // save, so the all-or-nothing rollback still covers the entire week
+    // rather than each destination separately.
+    let fdSheet = null;
+    // { destKey, rows:[{uid,item_id,location_id}], cells:{uid:'123'}, pb:'',
+    //   done:[{destKey, label, kind, id, entries:[{item_id,location_id,qty}], pb}] }
     const FD_TIE_TOLERANCE_LB = 5;
 
     function fdMxMode() {
@@ -26791,26 +26810,27 @@ ${ranchBlocks}
         return el ? el.value : 'matrix';
     }
 
-    // A column's stable key. Prefixed by kind so a lot and a cost centre can
-    // never collide on a shared uuid, and so a cell key says what it is.
-    function fdMxColKey(c) { return c.kind + ':' + c.id; }
-    function fdMxCellKey(uid, colKey) { return uid + '|' + colKey; }
-    function fdMxColLabel(c) {
-        if (c.kind === 'lot') {
-            const l = fdOpenLots.find(x => x.id === c.id);
+    // A destination's stable key. Prefixed by kind so a lot and a cost centre
+    // can never collide on a shared uuid.
+    function fdShKeyOf(kind, id) { return kind + ':' + id; }
+    function fdShParse(key) {
+        const i = key.indexOf(':');
+        return { kind: key.slice(0, i), id: key.slice(i + 1) };
+    }
+    function fdShLabel(key) {
+        const { kind, id } = fdShParse(key);
+        if (kind === 'lot') {
+            const l = fdOpenLots.find(x => x.id === id);
             return l ? l.lot_number : '?';
         }
-        const cc = fdCostCenters.find(x => x.id === c.id);
-        return cc ? cc.name : '?';
+        const c = fdCostCenters.find(x => x.id === id);
+        return c ? c.name : '?';
     }
-    function fdMxColExists(c) {
-        return c.kind === 'lot' ? fdOpenLots.some(l => l.id === c.id)
-                                : fdCostCenters.some(x => x.id === c.id);
-    }
+    function fdShIsLot(key) { return key.slice(0, 3) === 'lot'; }
 
     // The bay a commodity comes out of, in order of confidence: where it is
     // usually kept, else the only bay that actually holds any, else nothing.
-    function fdMxDefaultLocation(itemId) {
+    function fdShDefaultLocation(itemId) {
         const item = fdItem(itemId);
         if (item && item.default_location_id) return item.default_location_id;
         const holding = fdOnHand.filter(o => o.item_id === itemId && Number(o.qty_lb) > 0);
@@ -26818,20 +26838,21 @@ ${ranchBlocks}
         return '';
     }
 
-    function fdMxNewRow(itemId, locId) {
+    function fdShNewRow(itemId, locId) {
         return {
-            uid: 'm' + Math.random().toString(36).slice(2, 9),
+            uid: 's' + Math.random().toString(36).slice(2, 9),
             item_id: itemId,
-            location_id: locId || fdMxDefaultLocation(itemId)
+            location_id: locId || fdShDefaultLocation(itemId)
         };
     }
 
-    function fdMxInit(force) {
-        if (fdMatrix && !force) return;
-        // Every commodity with stock, in its usual bay. Anything else is
-        // added by hand - a blank sheet with a picker is slower every single
-        // Monday than a sheet that starts where the feed actually is.
-        const withStock = [];
+    // Every commodity with stock, in its usual bay. John: "all commodities
+    // listed not pick each one" - a blank sheet with a picker is slower every
+    // single Monday than a sheet that starts where the feed actually is.
+    // The SAME list serves lots and cost centres; the cowherd eats out of the
+    // same bays.
+    function fdShCommodityRows() {
+        const rows = [];
         const seen = new Set();
         fdOnHand.forEach(o => {
             if (!(Number(o.qty_lb) > 0)) return;
@@ -26839,123 +26860,95 @@ ${ranchBlocks}
             if (!item || !item.is_active) return;
             if (seen.has(o.item_id)) return;
             seen.add(o.item_id);
-            withStock.push(fdMxNewRow(o.item_id, fdMxDefaultLocation(o.item_id) || o.location_id));
+            rows.push(fdShNewRow(o.item_id, fdShDefaultLocation(o.item_id) || o.location_id));
         });
-        withStock.sort((a, b) => {
+        rows.sort((a, b) => {
             const A = fdItem(a.item_id), B = fdItem(b.item_id);
             return (A ? A.name : '').localeCompare(B ? B.name : '');
         });
-        // Lots only to start with. Most weeks nothing goes to a cost centre,
-        // and a column of empty cowherd boxes every Monday is noise.
-        fdMatrix = {
-            cols: fdOpenLots.map(l => ({ kind: 'lot', id: l.id })),
-            rows: withStock,
-            cells: {},
-            pbTotals: {}
-        };
+        return rows;
     }
 
-    // The matrix is a data-entry surface; the sheet underneath is still the
-    // ordinary row list, so validation, save, rollback and the all-or-nothing
-    // reversal are written once and work for both.
-    function fdMxSyncSheet() {
-        if (!fdMatrix) return;
-        const rows = [];
-        fdMatrix.rows.forEach(r => {
-            fdMatrix.cols.forEach(c => {
-                const key = fdMxColKey(c);
-                const n = parseFloat(fdMatrix.cells[fdMxCellKey(r.uid, key)]);
-                if (!(n > 0)) return;
-                rows.push({
-                    uid: r.uid + '_' + key,
-                    item_id: r.item_id,
-                    from_location_id: r.location_id,
-                    destination_type: c.kind === 'lot' ? 'lot' : 'cost_center',
-                    lot_id: c.kind === 'lot' ? c.id : '',
-                    cost_center_id: c.kind === 'cc' ? c.id : '',
-                    pasture_id: '',
-                    to_location_id: '',
-                    qty_lb: String(n)
-                });
-            });
-        });
-        fdUsageSheet = { rows };
+    function fdShInit(force) {
+        if (fdSheet && !force) return;
+        fdSheet = { destKey: '', rows: fdShCommodityRows(), cells: {}, pb: '', done: [] };
     }
 
-    function fdMxColumnTotal(colKey) {
-        if (!fdMatrix) return 0;
-        return fdMatrix.rows.reduce((t, r) => {
-            const n = parseFloat(fdMatrix.cells[fdMxCellKey(r.uid, colKey)]);
+    // Start a clean sheet for the next destination, keeping the commodity
+    // list - it is the same barn every time, and rebuilding it would drop a
+    // row the user added by hand for a second bay.
+    function fdShResetCurrent() {
+        fdSheet.destKey = '';
+        fdSheet.cells = {};
+        fdSheet.pb = '';
+    }
+
+    function fdShCurrentTotal() {
+        if (!fdSheet) return 0;
+        return fdSheet.rows.reduce((t, r) => {
+            const n = parseFloat(fdSheet.cells[r.uid]);
             return t + (n > 0 ? n : 0);
         }, 0);
     }
 
-    // Every column, cost centres included - this feeds the bay draw-down,
-    // and pounds going to the cowherd come out of the same pile.
-    function fdMxRowTotal(uid) {
-        if (!fdMatrix) return 0;
-        return fdMatrix.cols.reduce((t, c) => {
-            const n = parseFloat(fdMatrix.cells[fdMxCellKey(uid, fdMxColKey(c))]);
-            return t + (n > 0 ? n : 0);
-        }, 0);
+    // What is already committed to this (item, bay) across every destination
+    // stashed so far. Two sheets can each look fine against a bay and
+    // together overdraw it - the same netting the Moves tab does across a
+    // batch of tickets.
+    function fdShStashedDraw(itemId, locId) {
+        if (!fdSheet) return 0;
+        return fdSheet.done.reduce((t, d) => t + d.entries.reduce((u, e) =>
+            u + ((e.item_id === itemId && e.location_id === locId) ? e.qty : 0), 0), 0);
     }
 
-    // What this sheet draws out of each (item, bay), against what is there.
-    function fdMxBayDraw(row) {
+    function fdShBayDraw(row) {
         const onHand = fdOnHandFor(row.item_id, row.location_id);
-        const drawn = fdMatrix.rows
+        // The current sheet may list the same item out of the same bay twice.
+        const here = fdSheet.rows
             .filter(r => r.item_id === row.item_id && r.location_id === row.location_id)
-            .reduce((t, r) => t + fdMxRowTotal(r.uid), 0);
+            .reduce((t, r) => { const n = parseFloat(fdSheet.cells[r.uid]); return t + (n > 0 ? n : 0); }, 0);
+        const drawn = here + fdShStashedDraw(row.item_id, row.location_id);
         return { onHand, drawn, left: onHand - drawn };
     }
 
-    function fdMxRender() {
-        if (!fdMatrix) { $('fdMxTable').innerHTML = ''; return; }
-        // A lot that closed or a cost centre deactivated since the sheet was
-        // opened would render as "?" and still take pounds.
-        fdMatrix.cols = fdMatrix.cols.filter(fdMxColExists);
-        const cols = fdMatrix.cols;
+    // ---- the sheet being typed -------------------------------------------
+    function fdShRender() {
+        if (!fdSheet) { $('fdShTable').innerHTML = ''; return; }
 
-        const picked = k => new Set(fdMatrix.cols.filter(c => c.kind === k).map(c => c.id));
-        const inLots = picked('lot'), inCcs = picked('cc');
-        $('fdMxAddLot').innerHTML = '<option value="">— Add a lot column —</option>' +
-            fdOpenLots.filter(l => !inLots.has(l.id))
-                .map(l => `<option value="${l.id}">${escapeHtml(l.lot_number)}</option>`).join('');
-        $('fdMxAddCc').innerHTML = '<option value="">— Add a cost centre column —</option>' +
-            fdCostCenters.filter(c => !inCcs.has(c.id))
-                .map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-        $('fdMxAddItem').innerHTML = '<option value="">— Add a commodity row —</option>' +
+        // A lot that closed or a centre deactivated since the screen opened
+        // would otherwise sit in the picker and take pounds.
+        const usedLots = new Set(fdSheet.done.filter(d => d.kind === 'lot').map(d => d.id));
+        const usedCcs  = new Set(fdSheet.done.filter(d => d.kind === 'cc').map(d => d.id));
+        const lotOpts = fdOpenLots.filter(l => !usedLots.has(l.id))
+            .map(l => `<option value="${fdShKeyOf('lot', l.id)}"${fdSheet.destKey === fdShKeyOf('lot', l.id) ? ' selected' : ''}>${escapeHtml(l.lot_number)}</option>`).join('');
+        const ccOpts = fdCostCenters.filter(c => !usedCcs.has(c.id))
+            .map(c => `<option value="${fdShKeyOf('cc', c.id)}"${fdSheet.destKey === fdShKeyOf('cc', c.id) ? ' selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+        $('fdShDest').innerHTML = '<option value="">— Pick a lot or cost centre —</option>' +
+            (lotOpts ? `<optgroup label="Lots">${lotOpts}</optgroup>` : '') +
+            (ccOpts ? `<optgroup label="Cost centres">${ccOpts}</optgroup>` : '');
+
+        $('fdShAddItem').innerHTML = '<option value="">— Add a commodity row —</option>' +
             fdItems.filter(i => i.is_active)
                 .map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('');
 
-        if (!cols.length || !fdMatrix.rows.length) {
-            $('fdMxTable').innerHTML =
-                '<div class="empty">Add at least one lot or cost centre column, and one commodity row.</div>';
-            $('fdMxTie').innerHTML = '';
+        fdShRenderDone();
+
+        if (!fdSheet.rows.length) {
+            $('fdShTable').innerHTML = '<div class="empty">No commodities with stock. Add a row, or take a load in first.</div>';
+            $('fdShTie').innerHTML = '';
             return;
         }
 
-        const head = `<tr>
-            <th style="min-width:200px;">Commodity</th>
-            <th style="min-width:150px;">Out of</th>
-            ${cols.map(c => `<th class="num" style="min-width:110px;">${escapeHtml(fdMxColLabel(c))}
-                ${c.kind === 'cc' ? '<div class="muted" style="font-weight:400; font-size:10px;">cost centre</div>' : ''}
-                <div style="font-weight:400;"><button type="button" class="fd-mx-dropcol" data-col="${fdMxColKey(c)}"
-                     style="font-size:10px; padding:0 4px; background:none; border:none; color:var(--text-muted); cursor:pointer;">remove</button></div></th>`).join('')}
-            <th class="num" style="min-width:100px;">Row total</th>
-            <th style="width:28px;"></th>
-        </tr>`;
-
-        const body = fdMatrix.rows.map(r => {
+        const body = fdSheet.rows.map(r => {
             const item = fdItem(r.item_id);
-            const draw = fdMxBayDraw(r);
+            const draw = fdShBayDraw(r);
             const over = draw.left < -0.0001;
             return `<tr>
                 <td><strong>${escapeHtml(item ? item.name : '—')}</strong>
                     ${item && item.pb_name && item.pb_name !== item.name
                         ? `<div class="muted" style="font-size:11px;">PB: ${escapeHtml(item.pb_name)}</div>` : ''}</td>
                 <td>
-                    <select data-fd-mx-loc="${r.uid}" style="max-width:150px;">
+                    <select data-fd-sh-loc="${r.uid}" style="max-width:170px;">
                         ${fdLocationOptions(r.location_id, true)}
                     </select>
                     <div style="font-size:11px; ${over ? 'color:#b58900;' : 'color:var(--text-muted);'}">
@@ -26963,160 +26956,225 @@ ${ranchBlocks}
                                : fmtNum(Math.max(0, draw.left)) + ' of ' + fmtNum(draw.onHand) + ' lb left'}
                     </div>
                 </td>
-                ${cols.map(c => `<td class="num"><input type="number" step="0.01" min="0"
-                    data-fd-mx-cell="${fdMxCellKey(r.uid, fdMxColKey(c))}"
-                    value="${fdMatrix.cells[fdMxCellKey(r.uid, fdMxColKey(c))] || ''}"
-                    style="max-width:96px; text-align:right;"></td>`).join('')}
-                <td class="num" data-fd-mx-rowtot="${r.uid}">${fmtNum(fdMxRowTotal(r.uid))}</td>
-                <td><button type="button" class="fd-mx-droprow" data-uid="${r.uid}"
+                <td class="num"><input type="number" step="0.01" min="0"
+                    data-fd-sh-cell="${r.uid}" value="${fdSheet.cells[r.uid] || ''}"
+                    style="max-width:120px; text-align:right;"></td>
+                <td><button type="button" class="fd-sh-droprow" data-uid="${r.uid}"
                     style="background:none; border:none; color:var(--text-muted); cursor:pointer;">×</button></td>
             </tr>`;
         }).join('');
 
-        // The column footer is where the sheet becomes verifiable: PB's own
-        // Amount Fed against what was typed.
-        // The PB row is the tie-out, and PB invoices LOTS. The cowherd is not
-        // on that invoice - John: "commodities for our cowherd that is not in
-        // the program" - so a cost-centre column gets no PB box and is left
-        // out of the tie count. An input there would invite a number that
-        // cannot be checked against anything, and would make "3 of 4 tie"
-        // read as a problem when nothing is wrong.
-        const foot = `<tr style="border-top:2px solid var(--border);">
-            <td colspan="2" style="font-weight:600;">Typed total</td>
-            ${cols.map(c => `<td class="num" data-fd-mx-coltot="${fdMxColKey(c)}" style="font-weight:600;">${fmtNum(fdMxColumnTotal(fdMxColKey(c)))}</td>`).join('')}
-            <td class="num" style="font-weight:600;" data-fd-mx-grand>${fmtNum(cols.reduce((t, c) => t + fdMxColumnTotal(fdMxColKey(c)), 0))}</td>
-            <td></td>
-        </tr>
-        <tr>
-            <td colspan="2">PB &ldquo;Amount Fed&rdquo;
-                <div class="muted" style="font-size:11px;">type it off the invoice</div></td>
-            ${cols.map(c => c.kind === 'lot'
-                ? `<td class="num"><input type="number" step="0.01" min="0"
-                    data-fd-mx-pb="${fdMxColKey(c)}" value="${fdMatrix.pbTotals[fdMxColKey(c)] || ''}"
-                    style="max-width:96px; text-align:right;"></td>`
-                : `<td class="num muted" style="font-size:11px;">not on PB</td>`).join('')}
-            <td colspan="2"></td>
-        </tr>
-        <tr>
-            <td colspan="2"></td>
-            ${cols.map(c => `<td class="num" data-fd-mx-tie="${fdMxColKey(c)}" style="font-size:11px;"></td>`).join('')}
-            <td colspan="2"></td>
-        </tr>`;
+        $('fdShTable').innerHTML = `<table style="font-size:13px;">
+            <thead><tr>
+                <th style="min-width:220px;">Commodity</th>
+                <th style="min-width:180px;">Out of</th>
+                <th class="num" style="min-width:130px;">Pounds fed</th>
+                <th style="width:28px;"></th>
+            </tr></thead>
+            <tbody>${body}</tbody></table>`;
 
-        $('fdMxTable').innerHTML =
-            `<table style="font-size:13px;"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table>`;
-
-        fdMxWire();
-        fdMxRefreshTotals();
+        fdShWire();
+        fdShRefresh();
     }
 
-    function fdMxWire() {
-        $('fdMxTable').querySelectorAll('[data-fd-mx-cell]').forEach(inp => {
-            inp.oninput = () => {
-                fdMatrix.cells[inp.dataset.fdMxCell] = inp.value;
-                // Deliberately do NOT re-render: it would eat the caret.
-                // The derived numbers are refreshed in place instead.
-                fdMxRefreshTotals();
-            };
-        });
-        $('fdMxTable').querySelectorAll('[data-fd-mx-pb]').forEach(inp => {
-            inp.oninput = () => {
-                fdMatrix.pbTotals[inp.dataset.fdMxPb] = inp.value;
-                fdMxRefreshTotals();
-            };
-        });
-        $('fdMxTable').querySelectorAll('[data-fd-mx-loc]').forEach(sel => {
-            sel.onchange = () => {
-                const r = fdMatrix.rows.find(x => x.uid === sel.dataset.fdMxLoc);
-                if (r) { r.location_id = sel.value; fdMxRender(); }
-            };
-        });
-        $('fdMxTable').querySelectorAll('.fd-mx-droprow').forEach(btn => {
-            btn.onclick = () => {
-                fdMatrix.rows = fdMatrix.rows.filter(r => r.uid !== btn.dataset.uid);
-                fdMxRender();
-            };
-        });
-        $('fdMxTable').querySelectorAll('.fd-mx-dropcol').forEach(btn => {
-            btn.onclick = () => {
-                fdMatrix.cols = fdMatrix.cols.filter(c => fdMxColKey(c) !== btn.dataset.col);
-                fdMxRender();
-            };
-        });
-    }
-
-    // Totals, bay draw-downs and the tie indicator, refreshed WITHOUT
-    // re-rendering the inputs - the same reason the shipment screen refreshes
-    // its option labels in place.
-    function fdMxRefreshTotals() {
-        if (!fdMatrix) return;
-        fdMxSyncSheet();
-
-        fdMatrix.rows.forEach(r => {
-            const cell = $('fdMxTable').querySelector(`[data-fd-mx-rowtot="${r.uid}"]`);
-            if (cell) cell.textContent = fmtNum(fdMxRowTotal(r.uid));
-            const sel = $('fdMxTable').querySelector(`[data-fd-mx-loc="${r.uid}"]`);
-            if (sel && sel.parentElement) {
-                const note = sel.parentElement.querySelector('div');
-                const draw = fdMxBayDraw(r);
-                if (note) {
-                    const over = draw.left < -0.0001;
-                    note.style.color = over ? '#b58900' : 'var(--text-muted)';
-                    note.textContent = over
-                        ? '⚠ over by ' + fmtNum(-draw.left) + ' lb'
-                        : fmtNum(Math.max(0, draw.left)) + ' of ' + fmtNum(draw.onHand) + ' lb left';
-                }
-            }
-        });
-
-        let grand = 0;
-        fdMatrix.cols.forEach(c => {
-            const key = fdMxColKey(c);
-            const tot = fdMxColumnTotal(key);
-            grand += tot;                       // the sheet's whole draw, cost centres included
-            const tc = $('fdMxTable').querySelector(`[data-fd-mx-coltot="${key}"]`);
-            if (tc) tc.textContent = fmtNum(tot);
-
-            const tie = $('fdMxTable').querySelector(`[data-fd-mx-tie="${key}"]`);
-            if (!tie || c.kind !== 'lot') return;
-            const pb = parseFloat(fdMatrix.pbTotals[key]);
-            if (!(pb > 0)) { tie.innerHTML = ''; tie.style.color = ''; return; }
+    // The totals John asked for on the entry page: what was typed for THIS
+    // destination against PB's own Amount Fed for it. Checking at posting
+    // time is too late - by then the week is in the books.
+    function fdShRenderTie() {
+        const box = $('fdShTie');
+        if (!fdSheet) { box.innerHTML = ''; return; }
+        const tot = fdShCurrentTotal();
+        const isLot = fdSheet.destKey && fdShIsLot(fdSheet.destKey);
+        const pb = parseFloat(fdSheet.pb);
+        let verdict = '';
+        if (!fdSheet.destKey) {
+            verdict = '<span class="muted">Pick a lot or cost centre above.</span>';
+        } else if (!isLot) {
+            // PB invoices lots. The cowherd is not on that invoice, so there
+            // is nothing here to tie to and an input would invite a number
+            // that cannot be checked against anything.
+            verdict = '<span class="muted">Cost centre &mdash; not on the PB invoice, nothing to tie to.</span>';
+        } else if (!(pb > 0)) {
+            verdict = '<span class="muted">Type PB&rsquo;s Amount Fed to check this one.</span>';
+        } else {
             const diff = tot - pb;
-            if (Math.abs(diff) <= FD_TIE_TOLERANCE_LB) {
-                tie.style.color = 'var(--success)';
-                tie.innerHTML = Math.abs(diff) < 0.005 ? '✓ ties' : `✓ ties (${diff > 0 ? '+' : '−'}${fmtNum(Math.abs(diff))} lb rounding)`;
-            } else {
-                tie.style.color = '#b58900';
-                tie.innerHTML = `⚠ ${diff > 0 ? 'over' : 'under'} by ${fmtNum(Math.abs(diff))} lb`;
-            }
-        });
-        const g = $('fdMxTable').querySelector('[data-fd-mx-grand]');
-        if (g) g.textContent = fmtNum(grand);
-
-        fdMxRenderTieSummary();
+            verdict = Math.abs(diff) <= FD_TIE_TOLERANCE_LB
+                ? `<span style="color:var(--success);">✓ ${Math.abs(diff) < 0.005 ? 'ties' :
+                    `ties (${diff > 0 ? '+' : '−'}${fmtNum(Math.abs(diff))} lb rounding)`}</span>`
+                : `<span style="color:#b58900;">⚠ ${diff > 0 ? 'over' : 'under'} PB by ${fmtNum(Math.abs(diff))} lb</span>`;
+        }
+        box.innerHTML = `<div style="display:flex; gap:22px; flex-wrap:wrap; align-items:flex-end;
+                border-top:2px solid var(--border,#ddd); padding-top:10px;">
+            <div><div class="muted" style="font-size:11px;">TYPED TOTAL</div>
+                 <div style="font-size:19px;" id="fdShTypedTot">${fmtNum(tot)} lb</div></div>
+            ${isLot ? `<div><div class="muted" style="font-size:11px;">PB &ldquo;AMOUNT FED&rdquo;</div>
+                 <input type="number" step="0.01" min="0" id="fdShPb" value="${fdSheet.pb || ''}"
+                        style="max-width:150px; text-align:right;" placeholder="off the invoice"></div>` : ''}
+            <div style="padding-bottom:6px; font-size:13px;" id="fdShVerdict">${verdict}</div>
+        </div>`;
+        const pbInp = $('fdShPb');
+        if (pbInp) pbInp.oninput = () => { fdSheet.pb = pbInp.value; fdShRenderTie(); };
     }
 
-    function fdMxRenderTieSummary() {
-        const box = $('fdMxTie');
-        if (!box || !fdMatrix) return;
-        const off = [];
-        let tied = 0, untyped = 0;
-        // Lot columns only. A cost centre has no PB figure to tie to, so
-        // counting it here would report a gap that does not exist.
-        fdMatrix.cols.filter(c => c.kind === 'lot').forEach(c => {
-            const key = fdMxColKey(c);
-            const pb = parseFloat(fdMatrix.pbTotals[key]);
-            const tot = fdMxColumnTotal(key);
-            if (!(pb > 0)) { if (tot > 0) untyped++; return; }
-            if (Math.abs(tot - pb) <= FD_TIE_TOLERANCE_LB) tied++;
-            else off.push(`${fdMxColLabel(c)} off by ${fmtNum(Math.abs(tot - pb))} lb`);
-        });
-        if (!off.length && !tied && !untyped) { box.innerHTML = ''; return; }
-        box.innerHTML = `<div class="muted" style="font-size:12px;">
-            ${tied ? `<span style="color:var(--success);">✓ ${tied} column${tied === 1 ? ' ties' : 's tie'} to PB.</span> ` : ''}
-            ${off.length ? `<span style="color:#b58900;">⚠ ${off.join(' · ')}.</span> ` : ''}
-            ${untyped ? `${untyped} column${untyped === 1 ? ' has' : 's have'} feed typed but no PB total to check against.` : ''}
+    // Everything stashed so far, so it is obvious what Done will write and
+    // what is still to key. Each one can be reopened or dropped before Done.
+    function fdShRenderDone() {
+        const box = $('fdShDone');
+        if (!fdSheet || !fdSheet.done.length) {
+            box.innerHTML = '';
+            $('fdUsSaveBtn').textContent = 'Save feed-out';
+            return;
+        }
+        const totLb = fdSheet.done.reduce((t, d) =>
+            t + d.entries.reduce((u, e) => u + e.qty, 0), 0);
+        const chips = fdSheet.done.map((d, i) => {
+            const lb = d.entries.reduce((u, e) => u + e.qty, 0);
+            const pb = parseFloat(d.pb);
+            const tie = d.kind === 'lot' && pb > 0
+                ? (Math.abs(lb - pb) <= FD_TIE_TOLERANCE_LB
+                    ? ' <span style="color:var(--success);">✓</span>'
+                    : ` <span style="color:#b58900;">⚠ ${fmtNum(Math.abs(lb - pb))} lb off PB</span>`)
+                : '';
+            return `<span style="display:inline-flex; align-items:center; gap:6px; padding:4px 9px;
+                    border:1px solid var(--border,#ddd); border-radius:14px; background:#fff; font-size:12px;">
+                <b>${escapeHtml(d.label)}</b>${d.kind === 'cc' ? ' <span class="muted">(cost centre)</span>' : ''}
+                ${fmtNum(lb)} lb${tie}
+                <button type="button" class="fd-sh-reopen" data-i="${i}" title="Reopen this one"
+                    style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0 2px;">edit</button>
+                <button type="button" class="fd-sh-dropdone" data-i="${i}" title="Drop this one"
+                    style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0 2px;">×</button>
+            </span>`;
+        }).join(' ');
+        box.innerHTML = `<div style="margin-bottom:12px;">
+            <div class="muted" style="font-size:11px; margin-bottom:5px;">
+                ENTERED, NOT YET RECORDED &mdash; ${fdSheet.done.length} destination${fdSheet.done.length === 1 ? '' : 's'},
+                ${fmtNum(totLb)} lb</div>
+            <div style="display:flex; gap:7px; flex-wrap:wrap;">${chips}</div>
         </div>`;
+        $('fdUsSaveBtn').textContent = `Done — record all ${fdSheet.done.length}`;
+    }
+
+    function fdShWire() {
+        $('fdShTable').querySelectorAll('[data-fd-sh-cell]').forEach(inp => {
+            inp.oninput = () => {
+                fdSheet.cells[inp.dataset.fdShCell] = inp.value;
+                // Deliberately do NOT re-render: it would eat the caret.
+                fdShRefresh();
+            };
+        });
+        $('fdShTable').querySelectorAll('[data-fd-sh-loc]').forEach(sel => {
+            sel.onchange = () => {
+                const r = fdSheet.rows.find(x => x.uid === sel.dataset.fdShLoc);
+                if (r) { r.location_id = sel.value; fdShRender(); }
+            };
+        });
+        $('fdShTable').querySelectorAll('.fd-sh-droprow').forEach(btn => {
+            btn.onclick = () => {
+                fdSheet.rows = fdSheet.rows.filter(r => r.uid !== btn.dataset.uid);
+                fdShRender();
+            };
+        });
+    }
+
+    // Derived numbers refreshed in place, for the same reason the shipment
+    // screen refreshes its option labels rather than re-rendering.
+    function fdShRefresh() {
+        if (!fdSheet) return;
+        fdSheet.rows.forEach(r => {
+            const sel = $('fdShTable').querySelector(`[data-fd-sh-loc="${r.uid}"]`);
+            const note = sel && sel.parentElement ? sel.parentElement.querySelector('div') : null;
+            if (!note) return;
+            const draw = fdShBayDraw(r);
+            const over = draw.left < -0.0001;
+            note.style.color = over ? '#b58900' : 'var(--text-muted)';
+            note.textContent = over
+                ? '⚠ over by ' + fmtNum(-draw.left) + ' lb'
+                : fmtNum(Math.max(0, draw.left)) + ' of ' + fmtNum(draw.onHand) + ' lb left';
+        });
+        fdShRenderTie();
+        fdShSyncSheet();
+    }
+
+    // Stash the sheet on screen and open a clean one.
+    function fdShNext(quiet) {
+        clearAlert('fdUsSaveAlert');
+        if (!fdSheet.destKey) {
+            if (!quiet) showAlert('fdUsSaveAlert', 'Pick a lot or cost centre first.');
+            return false;
+        }
+        const entries = fdSheet.rows.map(r => ({
+            item_id: r.item_id, location_id: r.location_id,
+            qty: parseFloat(fdSheet.cells[r.uid])
+        })).filter(e => e.qty > 0);
+        if (!entries.length) {
+            if (!quiet) showAlert('fdUsSaveAlert',
+                `Nothing typed for ${fdShLabel(fdSheet.destKey)}. Enter pounds, or pick a different one.`);
+            return false;
+        }
+        const missing = entries.filter(e => !e.location_id);
+        if (missing.length) {
+            if (!quiet) showAlert('fdUsSaveAlert',
+                `${missing.length} row(s) have pounds but no bay to come out of.`);
+            return false;
+        }
+        const { kind, id } = fdShParse(fdSheet.destKey);
+        fdSheet.done.push({ destKey: fdSheet.destKey, label: fdShLabel(fdSheet.destKey),
+                            kind, id, entries, pb: fdSheet.pb });
+        fdShResetCurrent();
+        fdShRender();
+        return true;
+    }
+
+    // Reopening puts a stashed destination back on screen. It comes OUT of
+    // done first, so its pounds stop counting against the bays while it is
+    // being retyped - otherwise the draw-down would show it twice.
+    function fdShReopen(i) {
+        if (!fdSheet.done[i]) return;
+        if (fdSheet.destKey && !fdShNext(true)) {
+            showAlert('fdUsSaveAlert', 'Finish or clear the sheet on screen first.');
+            return;
+        }
+        const d = fdSheet.done.splice(i, 1)[0];
+        fdSheet.destKey = d.destKey;
+        fdSheet.pb = d.pb || '';
+        fdSheet.cells = {};
+        d.entries.forEach(e => {
+            let row = fdSheet.rows.find(r => r.item_id === e.item_id && r.location_id === e.location_id
+                                             && !fdSheet.cells[r.uid]);
+            if (!row) { row = fdShNewRow(e.item_id, e.location_id); fdSheet.rows.push(row); }
+            fdSheet.cells[row.uid] = String(e.qty);
+        });
+        fdShRender();
+    }
+
+    // Flatten everything - stashed plus whatever is on screen - into the
+    // ordinary row sheet. Validation, the overlap check, the save and the
+    // all-or-nothing rollback are all written once and work for both modes.
+    function fdShSyncSheet() {
+        if (!fdSheet) return;
+        const rows = [];
+        const push = (destKey, e, n) => {
+            const { kind, id } = fdShParse(destKey);
+            rows.push({
+                uid: 'sh' + rows.length,
+                item_id: e.item_id,
+                from_location_id: e.location_id,
+                destination_type: kind === 'lot' ? 'lot' : 'cost_center',
+                lot_id: kind === 'lot' ? id : '',
+                cost_center_id: kind === 'cc' ? id : '',
+                pasture_id: '',
+                to_location_id: '',
+                qty_lb: String(n)
+            });
+        };
+        fdSheet.done.forEach(d => d.entries.forEach(e => push(d.destKey, e, e.qty)));
+        if (fdSheet.destKey) {
+            fdSheet.rows.forEach(r => {
+                const n = parseFloat(fdSheet.cells[r.uid]);
+                if (n > 0) push(fdSheet.destKey, { item_id: r.item_id, location_id: r.location_id }, n);
+            });
+        }
+        fdUsageSheet = { rows };
     }
 
     async function initFeedUsage() {
@@ -27134,33 +27192,38 @@ ${ranchBlocks}
         }
         const err = await fdLoadOnHand();
         if (err) showAlert('fdUsSaveAlert', 'Could not load what is on hand: ' + err.message);
-        fdMxInit();
+        fdShInit();
         fdApplyUsageMode();
         loadFdLedger();
     }
 
-    // Two surfaces over one sheet. The weekly matrix is the Monday routine;
-    // single rows still exist because a transfer between bays, a pasture
-    // destination and a correction cannot be expressed as a lot column.
+    // Two surfaces over one sheet. The one-at-a-time sheet is the Monday
+    // routine; single rows still exist because a transfer between bays, a
+    // pasture destination and a correction cannot be expressed as a feed-out
+    // to a lot or a cost centre.
     function fdApplyUsageMode() {
-        const matrix = fdMxMode() === 'matrix';
-        $('fdUsMatrixWrap').classList.toggle('hidden', !matrix);
-        $('fdUsRowList').classList.toggle('hidden', matrix);
-        $('fdUsDrawSummary').classList.toggle('hidden', matrix);
-        $('fdUsAddRowBtn').classList.toggle('hidden', matrix);
-        $('fdUsIntro').innerHTML = matrix
-            ? 'One column per PB invoice, commodities down the side. The bay defaults from the item &mdash; ' +
-              'PB puts the bay in the commodity name, which is why <em>Corn</em> and <em>Corn hopper bin</em> are two items. ' +
-              'Type PB&rsquo;s <b>Amount Fed</b> into the footer and the column tells you whether it ties. ' +
-              'The dates are the period the feed was <em>eaten</em>, so a lot that shipped Wednesday is not charged Thursday.'
+        const sheet = fdMxMode() === 'matrix';
+        $('fdUsMatrixWrap').classList.toggle('hidden', !sheet);
+        $('fdUsRowList').classList.toggle('hidden', sheet);
+        $('fdUsDrawSummary').classList.toggle('hidden', sheet);
+        $('fdUsAddRowBtn').classList.toggle('hidden', sheet);
+        $('fdUsIntro').innerHTML = sheet
+            ? 'One lot or cost centre at a time, every commodity down the side. Type its pounds, check the ' +
+              'total against PB&rsquo;s <b>Amount Fed</b> for that group, then <b>Save this one &amp; next</b> ' +
+              'for a clean sheet. Nothing is written until <b>Done</b>, which records the whole week at once. ' +
+              'The bay defaults from the item &mdash; PB puts the bay in the commodity name, which is why ' +
+              '<em>Corn</em> and <em>Corn hopper bin</em> are two items. The dates are the period the feed was ' +
+              '<em>eaten</em>, so a lot that shipped Wednesday is not charged Thursday.'
             : 'One row per commodity per lot for the period, plus transfers between bays and corrections. ' +
               'The dates are the period the feed was <em>eaten</em>, not the day you key it. ' +
               'Nothing is written until you save, and if any row fails the whole batch is put back.';
-        if (matrix) {
-            fdMxRender();
+        if (sheet) {
+            fdShInit();
+            fdShRender();
         } else {
             if (!fdUsageSheet || !fdUsageSheet.rows.length) fdUsageSheet = { rows: [fdNewUsageRow()] };
             renderFdUsageRows();
+            $('fdUsSaveBtn').textContent = 'Save feed-out';
         }
     }
 
@@ -27434,7 +27497,7 @@ ${ranchBlocks}
 
     async function saveFdUsage() {
         clearAlert('fdUsSaveAlert');
-        if (fdMxMode() === 'matrix') fdMxSyncSheet();
+        if (fdMxMode() === 'matrix') { fdShNext(true); fdShSyncSheet(); }
         const { errs, live } = fdValidateUsage();
         if (errs.length) {
             showAlert('fdUsSaveAlert', errs.join('\n'));
@@ -27523,7 +27586,7 @@ ${ranchBlocks}
             fdOverlapAcknowledged = null;
             $('fdUsNotes').value = '';
             await fdLoadOnHand();
-            fdMxInit(true);
+            fdShInit(true);
             fdApplyUsageMode();
             loadFdLedger();
             showAlert('fdUsSaveAlert', `Saved ${n} feed-out row${n === 1 ? '' : 's'}.`, 'success');
@@ -28147,7 +28210,7 @@ ${ranchBlocks}
         if (!confirm('Clear the sheet? Nothing has been saved yet.')) return;
         fdUsageSheet = { rows: [fdNewUsageRow()] };
         fdOverlapAcknowledged = null;
-        fdMxInit(true);
+        fdShInit(true);
         fdApplyUsageMode();
     });
     $('fdUsSaveBtn').addEventListener('click', saveFdUsage);
@@ -28170,39 +28233,48 @@ ${ranchBlocks}
         // same sheet the row list renders, so a half-typed week is not lost
         // by looking at it the other way round.
         if (fdMxMode() === 'rows') {
-            fdMxSyncSheet();
+            fdShSyncSheet();
             if (!fdUsageSheet.rows.length) fdUsageSheet = { rows: [fdNewUsageRow()] };
         }
         fdApplyUsageMode();
     });
-    $('fdMxAddLot').addEventListener('change', e => {
-        if (!e.target.value || !fdMatrix) return;
-        if (!fdMatrix.cols.some(c => c.kind === 'lot' && c.id === e.target.value))
-            fdMatrix.cols.push({ kind: 'lot', id: e.target.value });
-        e.target.value = '';
-        fdMxRender();
+    $('fdShDest').addEventListener('change', e => {
+        if (!fdSheet) return;
+        fdSheet.destKey = e.target.value;
+        fdShRender();
     });
-    $('fdMxAddCc').addEventListener('change', e => {
-        if (!e.target.value || !fdMatrix) return;
-        if (!fdMatrix.cols.some(c => c.kind === 'cc' && c.id === e.target.value))
-            fdMatrix.cols.push({ kind: 'cc', id: e.target.value });
-        e.target.value = '';
-        fdMxRender();
-    });
-    $('fdMxAddItem').addEventListener('change', e => {
-        if (!e.target.value || !fdMatrix) return;
+    $('fdShAddItem').addEventListener('change', e => {
+        if (!e.target.value || !fdSheet) return;
         // A second row for an item already on the sheet is how a commodity
         // drawn from two bays is expressed - so this deliberately does not
         // refuse a duplicate item.
-        fdMatrix.rows.push(fdMxNewRow(e.target.value));
+        fdSheet.rows.push(fdShNewRow(e.target.value));
         e.target.value = '';
-        fdMxRender();
+        fdShRender();
     });
-    $('fdMxResetBtn').addEventListener('click', () => {
-        if (!confirm('Reset the sheet? Anything typed is discarded — nothing has been saved.')) return;
-        fdOverlapAcknowledged = null;
-        fdMxInit(true);
-        fdMxRender();
+    $('fdShNextBtn').addEventListener('click', () => fdShNext());
+    $('fdShClearBtn').addEventListener('click', () => {
+        if (!fdSheet) return;
+        if (!confirm('Clear the sheet on screen? Anything already saved with Next is kept.')) return;
+        fdShResetCurrent();
+        fdShRender();
+    });
+    $('fdShResetBtn').addEventListener('click', () => {
+        if (!confirm('Reset the commodity list back to everything with stock?')) return;
+        fdSheet.rows = fdShCommodityRows();
+        fdShRender();
+    });
+    // Reopen and drop are delegated: the chips are re-rendered constantly.
+    $('fdShDone').addEventListener('click', e => {
+        const re = e.target.closest('.fd-sh-reopen');
+        if (re) { fdShReopen(Number(re.dataset.i)); return; }
+        const dr = e.target.closest('.fd-sh-dropdone');
+        if (dr) {
+            const d = fdSheet.done[Number(dr.dataset.i)];
+            if (!d || !confirm(`Drop ${d.label}? It has not been recorded yet.`)) return;
+            fdSheet.done.splice(Number(dr.dataset.i), 1);
+            fdShRender();
+        }
     });
     $('fdUsShowFlagged').addEventListener('change', loadFdLedger);
     ['fdUsPeriodStart', 'fdUsPeriodEnd'].forEach(id => $(id).addEventListener('change', () => {
