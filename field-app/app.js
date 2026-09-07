@@ -2204,6 +2204,49 @@ function pushToCloud(record) {
 }
 
 // Submitting Doctoring Record
+// A toast is gone in three seconds and does not say WHERE the gap is. On a
+// phone at a chute that is the difference between fixing it and tapping Save
+// again. So the missing fields are marked, the first one is scrolled to and
+// focused, and the mark clears itself as soon as something is entered.
+function clearMissingFields() {
+    document.querySelectorAll('.field-missing').forEach(el => el.classList.remove('field-missing'));
+    const banner = document.getElementById('missingBanner');
+    if (banner) banner.style.display = 'none';
+}
+
+function flagMissingFields(missing) {
+    clearMissingFields();
+    const names = missing.map(m => m[0]);
+    missing.forEach(([, id]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.add('field-missing');
+        // One-shot: the mark comes off the moment the cowboy answers it.
+        const off = () => { el.classList.remove('field-missing'); el.removeEventListener('input', off); el.removeEventListener('change', off); };
+        el.addEventListener('input', off);
+        el.addEventListener('change', off);
+    });
+
+    let banner = document.getElementById('missingBanner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'missingBanner';
+        banner.className = 'missing-banner';
+        doctoringForm.insertBefore(banner, doctoringForm.firstChild);
+    }
+    banner.innerHTML = `<b>Fill these in before saving:</b><br>${names.join(' · ')}`;
+    banner.style.display = 'block';
+
+    const first = document.getElementById(missing[0][1]);
+    if (first) {
+        first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // focus() on a select opens the picker on some phones, which is
+        // helpful here — it is the next thing they have to do anyway.
+        try { first.focus({ preventScroll: true }); } catch (e) { first.focus(); }
+    }
+    showToast(`Missing: ${names.join(', ')}`, 'error', 4000);
+}
+
 doctoringForm.onsubmit = function(e) {
     e.preventDefault();
 
@@ -2214,17 +2257,26 @@ doctoringForm.onsubmit = function(e) {
     const past = pastureInput.value.trim();
     const tag = tagNumberInput.value.trim();
     const action = treatmentTypeInput.value;
+    const lot = lotInput.value.trim();
 
-    // Minimum info check — avoid saving empty records by accident
+    // Everything the office needs to post this into the books without
+    // guessing. Lot and Pasture were missing from this check: an entry
+    // without them still saved and synced, and then sat in the approvals
+    // queue blocked, needing somebody to work out after the fact where the
+    // animal was — which is exactly what the cowboy knew at the chute and
+    // nobody knows later.
     const missing = [];
-    if (!recordedByInput.value.trim()) missing.push('Crew Member');
-    if (!tag) missing.push('Tag # (or NT)');
-    if (!action) missing.push('Action');
-    if (!prop) missing.push('Ranch');
+    if (!recordedByInput.value.trim()) missing.push(['Crew Member', 'recordedBy']);
+    if (!tag)    missing.push(['Tag # (or NT)', 'tagNumber']);
+    if (!lot)    missing.push(['Lot #', 'lotNumber']);
+    if (!prop)   missing.push(['Ranch', 'propertyInput']);
+    if (!past)   missing.push(['Pasture', 'pastureInput']);
+    if (!action) missing.push(['Action', 'treatmentType']);
     if (missing.length) {
-        showToast(`Missing: ${missing.join(', ')}`, 'error', 3000);
+        flagMissingFields(missing);
         return;
     }
+    clearMissingFields();
 
     // Final safety net check just in case
     const safetyCheck = validateActionSafety(tag, action);
@@ -2290,6 +2342,7 @@ doctoringForm.onsubmit = function(e) {
     const lockedSnapshot = snapshotLockedValues();
 
     doctoringForm.reset();
+    clearMissingFields();
     setCurrentDateTime();
     recordedByInput.value = localStorage.getItem('crewMemberName'); 
     

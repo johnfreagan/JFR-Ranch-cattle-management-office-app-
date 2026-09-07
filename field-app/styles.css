@@ -164,6 +164,18 @@ tr:last-child td {
 .row-status.approved { background: #e5fceb; color: #1b7a34; }
 .row-status.rejected { background: #ffeaea; color: #d70015; }
 
+/* A field the save is waiting on. Marked rather than only named in a toast:
+   a toast is gone in three seconds and does not say where to look. */
+.field-missing {
+    border: 2px solid #d70015 !important;
+    background: #fff5f5 !important;
+}
+.missing-banner {
+    display: none; background: #ffeaea; border: 1px solid #d70015; color: #8a1a1a;
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px;
+    line-height: 1.4;
+}
+
 /* Head-per-lot split on the move form. One row per lot standing in the
    From pasture; a mixed pasture cannot be split by eye, so the boxes are
    pre-filled pro-rata and typed over when the cowboy actually knows. */
