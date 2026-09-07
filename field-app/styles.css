@@ -430,6 +430,39 @@ body.modal-open { overflow: hidden; }
     border: none; 
 }
 
+/* Four tabs on a 390px phone leaves about 87px each, and "🩺 Doctoring"
+   wrapped onto two lines at the default 15px. The label is what matters, so
+   on a narrow screen the icon goes and the word stays on one line. */
+.tab-ico { margin-right: 5px; }
+.tab-btn { white-space: nowrap; }
+@media (max-width: 460px) {
+    .tab-btn { padding: 12px 2px; font-size: 13px; }
+    .tab-ico { display: none; }
+}
+
+/* Pasture inventory — one pasture, never a list. */
+.pv-hint { color: #8e8e93; font-size: 14px; padding: 16px 4px; text-align: center; }
+.pv-card {
+    border: 1px solid #d1d1d6; border-radius: 12px; overflow: hidden;
+    background: #ffffff;
+}
+.pv-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    background: #f2f2f7; padding: 12px 14px; font-weight: 700; font-size: 16px;
+    border-bottom: 1px solid #d1d1d6;
+}
+.pv-total { color: #007aff; font-size: 18px; }
+.pv-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 14px; border-bottom: 1px solid #f0f0f2; font-size: 16px;
+}
+.pv-row:last-of-type { border-bottom: 0; }
+.pv-lot { font-weight: 600; }
+.pv-hd { font-variant-numeric: tabular-nums; font-weight: 700; }
+.pv-note, .pv-asof {
+    padding: 8px 14px; font-size: 11px; color: #8e8e93; border-top: 1px solid #f0f0f2;
+}
+
 .tab-btn:not(.active) { 
     background-color: #f2f2f7; 
     color: #8e8e93; 

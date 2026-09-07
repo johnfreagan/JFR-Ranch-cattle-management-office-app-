@@ -39,6 +39,8 @@ const movesTabBtn = document.getElementById('movesTabBtn');
 const historyTabBtn = document.getElementById('historyTabBtn');
 
 const doctoringForm = document.getElementById('doctoringForm');
+const pastureSection = document.getElementById('pastureSection');
+const pastureTabBtn = document.getElementById('pastureTabBtn');
 const movesForm = document.getElementById('movesForm');
 const historySection = document.getElementById('historySection');
 
@@ -894,10 +896,12 @@ function switchTab(tabName) {
     doctoringTabBtn.classList.remove('active');
     movesTabBtn.classList.remove('active');
     historyTabBtn.classList.remove('active');
+    pastureTabBtn.classList.remove('active');
     
     doctoringForm.style.display = 'none';
     movesForm.style.display = 'none';
     historySection.style.display = 'none';
+    pastureSection.style.display = 'none';
 
     if (tabName === 'doctoring') {
         doctoringTabBtn.classList.add('active');
@@ -909,6 +913,11 @@ function switchTab(tabName) {
         populateMoveDropdowns();
         if(!editingMoveId) document.getElementById('moveDate').valueAsDate = new Date();
     } 
+    else if (tabName === 'pasture') {
+        pastureTabBtn.classList.add('active');
+        pastureSection.style.display = 'block';
+        openPastureView();
+    }
     else if (tabName === 'history') {
         historyTabBtn.classList.add('active');
         historySection.style.display = 'block';
@@ -921,6 +930,7 @@ function switchTab(tabName) {
 doctoringTabBtn.onclick = () => switchTab('doctoring');
 movesTabBtn.onclick = () => switchTab('moves');
 historyTabBtn.onclick = () => switchTab('history');
+pastureTabBtn.onclick = () => switchTab('pasture');
 
 // =========================================================
 // DAILY AUTO-SYNC LOGIC
@@ -954,6 +964,97 @@ function checkDailySync() {
 // =========================================================
 // MOVES FORM LOGIC (ADD / EDIT)
 // =========================================================
+// =========================================================
+// PASTURE INVENTORY — ONE PASTURE AT A TIME
+//
+// What the books say is standing in a pasture, so a cowboy at a gate knows
+// whether he has them all. Reads pastureLotsMap, the same cache the move
+// form's split is built from, so it works with no signal.
+//
+// Deliberately NOT a yard sheet. You have to name the ranch and then the
+// pasture before anything appears; there is no all-pastures list, no ranch
+// subtotal and no way to reach an operation-wide number. John's reason
+// (2026-09-02): a phone gets left on a truck seat, and a whole-ranch total
+// one tap from the home screen is not something to hand out. The selection
+// also RESETS every time the tab is opened rather than being remembered —
+// leaving the last pasture on screen would defeat the same point.
+//
+// If layers of authorization arrive later, this screen is already the shape
+// they would want: it shows one pasture and nothing aggregate.
+function openPastureView() {
+    const ranchSel = document.getElementById('pvRanch');
+    const pastSel = document.getElementById('pvPasture');
+    if (!ranchSel || !pastSel) return;
+
+    const props = [...new Set(locsDatabase.filter(l => l && l.property)
+        .map(l => String(l.property).trim()))].sort();
+    ranchSel.innerHTML = '<option value="">Select Ranch...</option>'
+        + props.map(p => `<option value="${p}">${p}</option>`).join('');
+    ranchSel.value = '';
+    pastSel.innerHTML = '<option value="">Select Ranch first...</option>';
+    pastSel.disabled = true;
+    renderPastureView();
+}
+
+function pvPastureOptions(ranch) {
+    const pastures = [...new Set(locsDatabase
+        .filter(l => l.property && String(l.property).trim() === String(ranch).trim())
+        .map(l => String(l.pasture).trim()))].sort();
+    return '<option value="">Select Pasture...</option>'
+        + pastures.map(p => `<option value="${p}">${p}</option>`).join('');
+}
+
+function renderPastureView() {
+    const box = document.getElementById('pvResult');
+    if (!box) return;
+    const ranch = String(document.getElementById('pvRanch').value || '').trim();
+    const past = String(document.getElementById('pvPasture').value || '').trim();
+
+    if (!ranch || !past) {
+        box.innerHTML = '<div class="pv-hint">Pick a ranch and a pasture to see what is in it.</div>';
+        return;
+    }
+
+    const here = pastureLotsMap[`${ranch} - ${past}`] || [];
+    const total = here.reduce((t, x) => t + (Number(x.head) || 0), 0);
+    const synced = localStorage.getItem('betaLastSyncDate');
+
+    if (!here.length) {
+        box.innerHTML = `<div class="pv-card">
+            <div class="pv-head"><span>${ranch} &ndash; ${past}</span><span class="pv-total">empty</span></div>
+            <div class="pv-hint">The books show no cattle in this pasture.</div>
+            ${synced ? `<div class="pv-asof">As of the last sync, ${synced}.</div>` : ''}
+        </div>`;
+        return;
+    }
+
+    box.innerHTML = `<div class="pv-card">
+        <div class="pv-head">
+            <span>${ranch} &ndash; ${past}</span>
+            <span class="pv-total">${total} hd</span>
+        </div>
+        ${here.slice().sort((a, b) => b.head - a.head).map(x => `
+            <div class="pv-row">
+                <span class="pv-lot">${x.lot}</span>
+                <span class="pv-hd">${x.head}</span>
+            </div>`).join('')}
+        ${here.length > 1
+            ? `<div class="pv-note">${here.length} lots run together here. The split between them is the books&rsquo; estimate.</div>`
+            : ''}
+        ${synced ? `<div class="pv-asof">As of the last sync, ${synced}. Pull Cloud on the History tab to refresh.</div>` : ''}
+    </div>`;
+}
+
+document.getElementById('pvRanch').onchange = function() {
+    const pastSel = document.getElementById('pvPasture');
+    pastSel.disabled = !this.value;
+    pastSel.innerHTML = this.value
+        ? pvPastureOptions(this.value)
+        : '<option value="">Select Ranch first...</option>';
+    renderPastureView();
+};
+document.getElementById('pvPasture').onchange = renderPastureView;
+
 function populateMoveDropdowns() {
     const fromRanch = document.getElementById('moveFromRanch');
     const toRanch = document.getElementById('moveToRanch');
