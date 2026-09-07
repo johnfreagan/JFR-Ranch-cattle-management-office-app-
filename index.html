@@ -291,6 +291,9 @@
         tr.closed-row { color: var(--text-muted); }
         /* feed truck: drag-to-reorder rows with a lock */
         .ft-drag { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; color: var(--text-muted); font-size: 18px; padding: 4px 6px; display: inline-block; }
+        .ft-bunksheet { font-size: 12px; }
+        .ft-bunksheet th, .ft-bunksheet td { padding: 3px 6px; white-space: nowrap; }
+        .ft-bunksheet td:first-child, .ft-bunksheet th:first-child { position: sticky; left: 0; background: var(--card, #fff); z-index: 1; }
         .ft-sortable.locked .ft-drag { opacity: .25; cursor: default; }
         .ft-sortable tr.ft-dragging { opacity: .6; background: #fff4e5; }
         .ft-lock { white-space: nowrap; }
@@ -869,6 +872,8 @@
                         <button class="sub-tab" data-subtab="truck-tieout"   data-material="feed">Tie-out vs PB</button>
                         <button class="sub-tab" data-subtab="truck-rations"  data-material="feed">Rations</button>
                         <button class="sub-tab" data-subtab="truck-pastures" data-material="feed">Pastures &amp; route</button>
+                        <button class="sub-tab" data-subtab="truck-bunksheet" data-material="feed">Bunk sheet</button>
+                        <button class="sub-tab" data-subtab="truck-weather"  data-material="feed">Feed vs weather</button>
                         <button class="sub-tab" data-subtab="truck-trucks"   data-material="feed">Trucks</button>
                         <button class="sub-tab" data-subtab="truck-settings" data-material="feed">Settings</button>
                     </div>
@@ -2469,6 +2474,56 @@
             </div>
         </div>
 
+        <div id="ftBunkSheetView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Bunk sheet</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="font-size:13px;">Days
+                            <select id="ftBsDays" style="width:auto; margin-left:4px;">
+                                <option value="7">7</option><option value="14" selected>14</option><option value="21">21</option>
+                            </select>
+                        </label>
+                        <button type="button" id="ftBsPrintBtn">Print</button>
+                        <button type="button" id="ftBsRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:13px; margin:0 0 10px;">
+                    Every pasture down the side, the last two weeks across. Each cell is the score and the pounds per
+                    head called that day, with what was actually delivered under it. A pen that drifts shows up as a
+                    row that will not settle.
+                </p>
+                <div id="ftBsAlert"></div>
+                <div id="ftBsContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
+        <div id="ftWeatherView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Feed vs weather</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="font-size:13px;">Pasture
+                            <select id="ftWxPasture" style="width:auto; margin-left:4px; max-width:200px;"></select>
+                        </label>
+                        <label style="font-size:13px;">Days
+                            <select id="ftWxDays" style="width:auto; margin-left:4px;">
+                                <option value="14">14</option><option value="30" selected>30</option><option value="60">60</option>
+                            </select>
+                        </label>
+                        <button type="button" id="ftWxPrintBtn">Print</button>
+                        <button type="button" id="ftWxRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size:13px; margin:0 0 10px;">
+                    What actually went in the bunk each day against the weather that day. Pounds per head are the
+                    delivered pounds over the head the drop was split across &mdash; the truck's own record, not the call.
+                </p>
+                <div id="ftWxAlert"></div>
+                <div id="ftWxContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+        </div>
+
         <div id="ftTrucksView" class="hidden" data-perm="office">
             <div class="card">
                 <div class="card-header">
@@ -3253,6 +3308,7 @@
         <div class="modal-actions" style="margin-top:14px;">
             <button type="button" id="ftLoadVoidBtn" style="color: var(--danger);" data-write>Void load&hellip;</button>
             <button type="button" id="ftLoadUnpostBtn" data-write>Unpost&hellip;</button>
+            <button type="button" id="ftLoadTicketBtn">Print ticket</button>
             <div style="flex:1;"></div>
             <button type="button" id="ftLoadCloseBtn">Close</button>
         </div>
@@ -8042,7 +8098,8 @@ window.addEventListener('unhandledrejection', function(e) {
          'feedCostCentersView',
          'feedItemsView', 'feedLocationsView',
          'invNeedsView', 'invOrdersView', 'invInvoicesView', 'invMedsPlaceholderView',
-         'ftLoadsView', 'ftTieoutView', 'ftRationsView', 'ftPasturesView', 'ftTrucksView', 'ftSettingsView'].forEach(id => {
+         'ftLoadsView', 'ftTieoutView', 'ftRationsView', 'ftPasturesView', 'ftBunkSheetView', 'ftWeatherView',
+         'ftTrucksView', 'ftSettingsView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
         });
@@ -27723,6 +27780,8 @@ ${ranchBlocks}
         'truck-tieout':   'ftTieoutView',
         'truck-rations':  'ftRationsView',
         'truck-pastures': 'ftPasturesView',
+        'truck-bunksheet':'ftBunkSheetView',
+        'truck-weather':  'ftWeatherView',
         'truck-trucks':   'ftTrucksView',
         'truck-settings': 'ftSettingsView'
     };
@@ -27791,6 +27850,8 @@ ${ranchBlocks}
         if (subtab === 'truck-tieout')   loadFtTieout();
         if (subtab === 'truck-rations')  loadFtRations();
         if (subtab === 'truck-pastures') loadFtPastures();
+        if (subtab === 'truck-bunksheet') loadFtBunkSheet();
+        if (subtab === 'truck-weather')  loadFtWeather();
         if (subtab === 'truck-trucks')   loadFtTrucks();
         if (subtab === 'truck-settings') loadFtSettings();
     }
@@ -27906,13 +27967,296 @@ ${ranchBlocks}
         });
     }
 
+    // ==========================================================
+    // TRUCK REPORTS (2026-09-06): load ticket, bunk sheet, feed vs weather
+    // ==========================================================
+    // All three read what the truck already wrote. Nothing here recomputes a
+    // number the books hold - a report that re-derived the split could drift
+    // from what it is meant to document (the accounting report's rule).
+    let ftBsData = null, ftWxData = null;
+
+    function ftDayList(days) {
+        const out = []; let d = ranchToday();
+        for (let i = 0; i < days; i++) { out.push(d); d = shiftDaysIso(d, -1); }
+        return out;                                   // newest first
+    }
+    function shiftDaysIso(iso, n) {
+        const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+    }
+    function ftShortDay(iso) {
+        const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+        return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+    }
+    function ftWxCell(w, short) {
+        if (!w) return '—';
+        const t = `${w.high_f != null ? Math.round(w.high_f) : '–'}/${w.low_f != null ? Math.round(w.low_f) : '–'}`;
+        const rain = Number(w.precip_in) > 0.005 ? ` ${fmtNum(w.precip_in, 2)}"` : '';
+        return short ? t + rain : `${t}°${rain}${Number(w.wind_max_mph) >= 20 ? ' · wind ' + Math.round(w.wind_max_mph) : ''}`;
+    }
+    // Pounds actually delivered per (pasture, day), and the head the split
+    // carried, from the truck's own rows. Void loads excluded.
+    function ftDeliveredIndex(loads) {
+        const byPasture = {};
+        (loads || []).forEach(l => {
+            if (l.status === 'void') return;
+            (l.feed_drops || []).forEach(d => {
+                if (!d.done_at || !(Number(d.lb) > 0)) return;
+                const k = d.pasture_id, day = l.load_date;
+                const p = byPasture[k] = byPasture[k] || {};
+                const cell = p[day] = p[day] || { lb: 0, head: 0, allocated: false };
+                cell.lb += Number(d.lb) || 0;
+                cell.head = Math.max(cell.head, (d.feed_drop_lots || []).reduce((s, x) => s + (Number(x.head_count) || 0), 0));
+                if (d.method === 'allocated') cell.allocated = true;
+            });
+        });
+        return byPasture;
+    }
+
+    // ---------- the bunk sheet ----------
+    async function loadFtBunkSheet() {
+        clearAlert('ftBsAlert');
+        const days = parseInt($('ftBsDays').value, 10) || 14;
+        const from = shiftDaysIso(ranchToday(), -(days - 1));
+        const err = await ftLoadRefs(); if (err) { $('ftBsContent').innerHTML = `<div class="alert error">${escapeHtml(ftMissingMsg(err))}</div>`; return; }
+        const [reads, loads, wx] = await Promise.all([
+            supabase.from('bunk_reads').select('*').gte('read_date', from).order('read_date'),
+            supabase.from('feed_loads').select('id, load_date, status, feed_drops(pasture_id, lb, done_at, method, feed_drop_lots(head_count))').gte('load_date', from),
+            supabase.from('daily_weather').select('*').gte('weather_date', from)
+        ]);
+        const bad = [reads, loads, wx].find(r => r.error);
+        if (bad) { $('ftBsContent').innerHTML = `<div class="alert error">${escapeHtml(ftMissingMsg(bad.error))}</div>`; return; }
+        // Chronological across the page - a sheet reads like a calendar, with
+        // today at the right-hand edge.
+        ftBsData = { days: ftDayList(days).reverse(), reads: reads.data || [], delivered: ftDeliveredIndex(loads.data), weather: {}, from };
+        (wx.data || []).forEach(w => { ftBsData.weather[w.weather_date] = w; });
+        renderFtBunkSheet();
+    }
+    function renderFtBunkSheet() {
+        if (!ftBsData) return;
+        const { days, reads, delivered, weather } = ftBsData;
+        const byPasture = {};
+        reads.forEach(r => { (byPasture[r.pasture_id] = byPasture[r.pasture_id] || {})[r.read_date] = r; });
+        // every pasture with a read or a delivery in the window, in route order
+        const ids = [...new Set(Object.keys(byPasture).concat(Object.keys(delivered)))];
+        const ord = pid => { const s = ftSetup.find(x => x.pasture_id === pid); return s && s.is_active ? (Number(s.route_order) || 999) : 999; };
+        ids.sort((a, b) => (ord(a) - ord(b)) || ftPastureLabel(a).localeCompare(ftPastureLabel(b)));
+        if (!ids.length) { $('ftBsContent').innerHTML = '<div class="empty">No bunk calls or deliveries in this window yet.</div>'; return; }
+        const head = `<tr><th style="text-align:left;">Pasture</th>${days.map(d =>
+            `<th class="num" title="${escapeHtml(ftWxCell(weather[d]) || '')}">${escapeHtml(ftShortDay(d))}<div class="muted" style="font-weight:400;font-size:10px;">${escapeHtml(ftWxCell(weather[d], true))}</div></th>`).join('')}</tr>`;
+        const rows = ids.map(pid => {
+            const cells = days.map(d => {
+                const r = (byPasture[pid] || {})[d], dl = (delivered[pid] || {})[d];
+                if (!r && !dl) return '<td class="num muted">·</td>';
+                const score = r && r.bunk_score != null ? (Number(r.bunk_score) === 0.5 ? '½' : String(Number(r.bunk_score))) : '';
+                const call = r && r.lb_per_head != null ? fmtNum(r.lb_per_head, 2) : (r ? fmtNum(r.target_lb) : '');
+                const fed = dl ? fmtNum(dl.lb) : '';
+                const clean = r && r.bunk_score != null && Number(r.bunk_score) <= 0.5;
+                return `<td class="num" style="${clean ? 'background:#eef7e6;' : ''}">
+                    <div>${score ? '<b>' + score + '</b> ' : ''}${call}</div>
+                    <div class="muted" style="font-size:11px;">${fed}${dl && dl.allocated ? '*' : ''}</div></td>`;
+            }).join('');
+            return `<tr><td><strong>${escapeHtml(ftPastureLabel(pid))}</strong></td>${cells}</tr>`;
+        }).join('');
+        $('ftBsContent').innerHTML = `<div style="overflow-x:auto;"><table class="ft-bunksheet"><thead>${head}</thead><tbody>${rows}</tbody></table></div>
+            <div class="muted" style="font-size:12px; margin-top:8px;">
+                Top of each cell: bunk score and the call (lb/head, or total pounds for a bulk feeder). Underneath: what
+                the truck actually delivered. Green is a clean bunk (0 or ½). * = allocated from a cart run, not weighed
+                at the feeder. A blank cell is a day nobody called and nothing was fed.
+            </div>`;
+    }
+    function printFtBunkSheet() {
+        if (!ftBsData) return;
+        const w = window.open('', '_blank');
+        if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
+        const table = $('ftBsContent').querySelector('table');
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Bunk sheet</title>
+<style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; color: #1a1a1a; }
+    h1 { font-size: 18px; margin: 0 0 2px; }
+    .sub { color: #555; font-size: 12px; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #999; padding: 3px 5px; }
+    th { background: #f0f0ea; font-size: 10px; }
+    td.num, th.num { text-align: right; }
+    .muted { color: #666; }
+    @page { size: landscape; }
+    @media print { body { margin: 8mm; } }
+${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
+<h1>Bunk sheet</h1>
+<div class="sub">${escapeHtml(fmtDate(ftBsData.from))} – ${escapeHtml(fmtDate(ranchToday()))} · score and call over what was delivered · printed ${new Date().toLocaleDateString()}</div>
+${table ? table.outerHTML : ''}
+<script>window.onload = () => window.print();<\/script>
+</body></html>`);
+        w.document.close();
+    }
+
+    // ---------- feed vs weather ----------
+    async function loadFtWeather() {
+        clearAlert('ftWxAlert');
+        const days = parseInt($('ftWxDays').value, 10) || 30;
+        const from = shiftDaysIso(ranchToday(), -(days - 1));
+        const err = await ftLoadRefs(); if (err) { $('ftWxContent').innerHTML = `<div class="alert error">${escapeHtml(ftMissingMsg(err))}</div>`; return; }
+        const [loads, wx] = await Promise.all([
+            supabase.from('feed_loads').select('id, load_date, status, feed_drops(pasture_id, lb, done_at, method, feed_drop_lots(head_count))').gte('load_date', from),
+            supabase.from('daily_weather').select('*').gte('weather_date', from)
+        ]);
+        const bad = [loads, wx].find(r => r.error);
+        if (bad) { $('ftWxContent').innerHTML = `<div class="alert error">${escapeHtml(ftMissingMsg(bad.error))}</div>`; return; }
+        const weather = {}; (wx.data || []).forEach(w => { weather[w.weather_date] = w; });
+        ftWxData = { days: ftDayList(days), delivered: ftDeliveredIndex(loads.data), weather, from };
+        const sel = $('ftWxPasture'); const cur = sel.value;
+        const ids = Object.keys(ftWxData.delivered).sort((a, b) => ftPastureLabel(a).localeCompare(ftPastureLabel(b)));
+        sel.innerHTML = '<option value="">All pastures</option>' + ids.map(id => `<option value="${id}">${escapeHtml(ftPastureLabel(id))}</option>`).join('');
+        sel.value = ids.includes(cur) ? cur : '';
+        renderFtWeather();
+    }
+    function renderFtWeather() {
+        if (!ftWxData) return;
+        const pid = $('ftWxPasture').value || null;
+        const { days, delivered, weather } = ftWxData;
+        // One row per day: what was fed, over the head the split carried.
+        const rows = days.map(day => {
+            let lb = 0, head = 0, any = false;
+            Object.keys(delivered).forEach(k => {
+                if (pid && k !== pid) return;
+                const c = delivered[k][day]; if (!c) return;
+                lb += c.lb; head += c.head; any = true;
+            });
+            return { day, lb, head, any, lbhd: head > 0 ? lb / head : null, w: weather[day] || null };
+        });
+        const fed = rows.filter(r => r.any && r.lbhd != null);
+        if (!fed.length) { $('ftWxContent').innerHTML = '<div class="empty">Nothing delivered in this window yet. The truck writes these rows as it runs.</div>'; return; }
+        const avg = a => a.reduce((s, x) => s + x, 0) / a.length;
+        const mean = avg(fed.map(r => r.lbhd));
+        // Temperature bands: the comparison John is after, without pretending
+        // a fortnight of days is a trend line.
+        const BANDS = [['85°+', h => h >= 85], ['70–84°', h => h >= 70 && h < 85], ['50–69°', h => h >= 50 && h < 70], ['under 50°', h => h < 50]];
+        const bandRows = BANDS.map(([label, test]) => {
+            const set = fed.filter(r => r.w && r.w.high_f != null && test(Number(r.w.high_f)));
+            if (!set.length) return '';
+            const m = avg(set.map(r => r.lbhd));
+            return `<tr><td>${label}</td><td class="num">${set.length}</td><td class="num">${fmtNum(m, 2)}</td>
+                <td class="num" style="color:${m - mean >= 0 ? 'var(--success)' : 'var(--danger)'};">${m - mean >= 0 ? '+' : ''}${fmtNum(100 * (m - mean) / mean, 0)}%</td></tr>`;
+        }).join('');
+        const wet = fed.filter(r => r.w && Number(r.w.precip_in) >= 0.1), dry = fed.filter(r => r.w && Number(r.w.precip_in) < 0.1);
+        const wetLine = wet.length && dry.length
+            ? `<tr><td>Rain, 0.10"+</td><td class="num">${wet.length}</td><td class="num">${fmtNum(avg(wet.map(r => r.lbhd)), 2)}</td>
+               <td class="num">${fmtNum(100 * (avg(wet.map(r => r.lbhd)) - avg(dry.map(r => r.lbhd))) / avg(dry.map(r => r.lbhd)), 0)}% vs dry days</td></tr>` : '';
+        const dayRows = rows.map(r => {
+            const off = r.lbhd != null ? 100 * (r.lbhd - mean) / mean : null;
+            return `<tr class="${r.any ? '' : 'closed-row'}">
+                <td>${escapeHtml(fmtDate(r.day))}</td>
+                <td>${escapeHtml(ftWxCell(r.w))}</td>
+                <td class="num">${r.any ? fmtNum(r.head) : '<span class="muted">—</span>'}</td>
+                <td class="num">${r.any ? fmtNum(r.lb) : '<span class="muted">not fed</span>'}</td>
+                <td class="num">${r.lbhd != null ? fmtNum(r.lbhd, 2) : '—'}</td>
+                <td class="num">${off == null ? '—' : `<span style="color:${Math.abs(off) > 10 ? 'var(--warning)' : 'inherit'};">${off >= 0 ? '+' : ''}${fmtNum(off, 0)}%</span>`}</td></tr>`;
+        }).join('');
+        $('ftWxContent').innerHTML = `
+            <div class="form-grid" style="margin-bottom:12px; font-size:13px;">
+                <div><span class="muted">Days fed</span><br><strong>${fed.length}</strong> of ${days.length}</div>
+                <div><span class="muted">Average delivered</span><br><strong>${fmtNum(mean, 2)}</strong> lb/head/day</div>
+                <div><span class="muted">Range</span><br>${fmtNum(Math.min(...fed.map(r => r.lbhd)), 2)} – ${fmtNum(Math.max(...fed.map(r => r.lbhd)), 2)} lb/hd</div>
+            </div>
+            ${bandRows || wetLine ? `<h3 style="margin:6px 0;">By the day's weather</h3>
+            <div style="overflow-x:auto;"><table><thead><tr><th>Condition</th><th class="num">Days</th><th class="num">Avg lb/hd</th><th class="num">vs the period</th></tr></thead>
+                <tbody>${bandRows}${wetLine}</tbody></table></div>` : ''}
+            <h3 style="margin:14px 0 6px;">Day by day</h3>
+            <div style="overflow-x:auto;"><table><thead><tr><th>Day</th><th>Weather</th><th class="num">Head</th><th class="num">Delivered lb</th><th class="num">lb/hd</th><th class="num">vs average</th></tr></thead>
+                <tbody>${dayRows}</tbody></table></div>
+            <div class="muted" style="font-size:12px; margin-top:8px;">
+                Head is what the drop was split across that day, so lb/hd is the truck's own arithmetic. A day the truck
+                did not go out is not an average of zero &mdash; it is left out.
+            </div>`;
+    }
+
+    // ---------- the load ticket ----------
+    // One page per load: what was asked for, what the scale said, how long it
+    // mixed, where it went and which lots carry it. This is the audit record
+    // of a load - printed from the rows, never recomputed.
+    function printFtLoadTicket(l) {
+        if (!l) return;
+        const w = window.open('', '_blank');
+        if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
+        const t = ftLoadTotals(l);
+        const cart = l.delivery_mode === 'cart';
+        const lines = (l.feed_load_lines || []).slice().sort((a, b) => a.load_order - b.load_order);
+        const drops = (l.feed_drops || []).slice().sort((a, b) => a.drop_seq - b.drop_seq);
+        const ou = x => {
+            const d = (Number(x.lb) || 0) - (Number(x.target_lb) || 0);
+            if (!x.target_lb) return '—';
+            return `${d >= 0 ? '+' : ''}${fmtNum(d)} (${d >= 0 ? '+' : ''}${fmtNum(100 * d / Number(x.target_lb), 1)}%)`;
+        };
+        const mixMin = l.mix_started_at && l.first_drop_at
+            ? (new Date(l.first_drop_at) - new Date(l.mix_started_at)) / 60000 : null;
+        const lineRows = lines.map(x => `<tr>
+            <td class="c">${x.load_order}</td><td>${escapeHtml(ftItemName(x.item_id))}</td>
+            <td>${escapeHtml(ftLocName(x.location_id))}</td>
+            <td class="r">${fmtNum(x.target_lb)}</td><td class="r">${fmtNum(x.lb)}</td>
+            <td class="r">${ou(x)}</td><td class="c">${ftFmtTime(x.done_at)}</td>
+            <td>${x.edited_at ? 'scale ' + fmtNum(x.scale_lb) + ' → ' + fmtNum(x.lb) + (x.edit_reason ? ': ' + escapeHtml(x.edit_reason) : '') : ''}</td></tr>`).join('');
+        const dropRows = drops.map(d => `<tr>
+            <td class="c">${d.drop_seq}</td><td>${escapeHtml(ftPastureLabel(d.pasture_id))}</td>
+            <td class="r">${fmtNum(d.method === 'allocated' && d.called_lb != null ? d.called_lb : d.target_lb)}</td>
+            <td class="r">${fmtNum(d.lb)}</td>
+            <td class="c">${d.method === 'allocated' ? 'allocated' : 'weighed'}</td>
+            <td class="c">${ftFmtTime(d.done_at)}</td>
+            <td>${(d.feed_drop_lots || []).map(dl => escapeHtml(ftLotName(dl.lot_id)) + ' ' + fmtNum(dl.lb) + ' lb (' + dl.head_count + ' hd)').join('; ') || 'split at posting'}</td></tr>`).join('');
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Load ticket ${escapeHtml(fmtDate(l.load_date))} #${l.load_seq}</title>
+<style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 28px; color: #1a1a1a; }
+    h1 { font-size: 19px; margin: 0 0 2px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: #444; margin: 18px 0 6px; }
+    .sub { color: #555; font-size: 12px; margin-bottom: 14px; }
+    .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 16px; font-size: 12px; margin-bottom: 6px; }
+    .facts .k { color: #666; display: block; font-size: 11px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border: 1px solid #999; padding: 4px 6px; text-align: left; }
+    th { background: #f0f0ea; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; }
+    td.r, th.r { text-align: right; } td.c, th.c { text-align: center; }
+    tfoot td { font-weight: 700; background: #fafaf5; }
+    .warn { color: #a33; font-weight: 700; }
+    .footer { margin-top: 18px; font-size: 11px; color: #666; }
+    @media print { body { margin: 10mm; } }
+${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
+<h1>Feed load ticket &mdash; ${escapeHtml(fmtDate(l.load_date))}, load ${l.load_seq}</h1>
+<div class="sub">${escapeHtml(ftRationName(l.ration_id))}${cart ? ' · cart run to bulk feeders' : ''} · ${escapeHtml(ftTruckName(l.truck_id))}${l.scale_device_id ? ' (' + escapeHtml(l.scale_device_id) + ')' : ''} · ${escapeHtml(String(l.status))}${l.posted_at ? ', posted ' + escapeHtml(fmtDate(l.posted_at)) : ''}</div>
+<div class="facts">
+    <div><span class="k">Planned</span>${fmtNum(l.planned_lb)} lb</div>
+    <div><span class="k">Loaded</span>${fmtNum(t.loaded)} lb</div>
+    <div><span class="k">Carried in</span>${fmtNum(l.carried_in_lb)} lb</div>
+    <div><span class="k">${cart ? 'Delivered' : 'Dropped'}</span>${fmtNum(t.dropped)} lb</div>
+    <div><span class="k">Left in ${cart ? 'cart' : 'box'}</span>${fmtNum(l.left_in_box_lb)} lb</div>
+    <div><span class="k">Mix required</span>${fmtNum(l.mix_minutes_required)} min</div>
+    <div><span class="k">Mix actual</span>${mixMin == null ? '—' : fmtNum(mixMin, 1) + ' min'}${t.mix === false ? ' <span class="warn">SHORT</span>' : ''}</div>
+    <div><span class="k">Loading started</span>${ftFmtTime(l.loading_started_at)}</div>
+</div>
+${l.void_reason ? `<div class="warn">Voided: ${escapeHtml(l.void_reason)}</div>` : ''}
+<h2>Ingredients</h2>
+<table><thead><tr><th class="c">#</th><th>Ingredient</th><th>Bay</th><th class="r">Target</th><th class="r">Loaded</th><th class="r">Over / under</th><th class="c">Done</th><th>Override</th></tr></thead>
+<tbody>${lineRows || '<tr><td colspan="8">Nothing loaded.</td></tr>'}</tbody>
+<tfoot><tr><td colspan="3">Total</td><td class="r">${fmtNum(lines.reduce((s, x) => s + (Number(x.target_lb) || 0), 0))}</td><td class="r">${fmtNum(t.loaded)}</td><td colspan="3"></td></tr></tfoot></table>
+<h2>${cart ? 'Feeders filled' : 'Drops'}</h2>
+<table><thead><tr><th class="c">#</th><th>Pasture</th><th class="r">${cart ? 'Called' : 'Target'}</th><th class="r">${cart ? 'Allocated' : 'Dropped'}</th><th class="c">How</th><th class="c">Done</th><th>Lots charged</th></tr></thead>
+<tbody>${dropRows || '<tr><td colspan="7">Nothing delivered.</td></tr>'}</tbody>
+<tfoot><tr><td colspan="3">Total</td><td class="r">${fmtNum(t.dropped)}</td><td colspan="3"></td></tr></tfoot></table>
+${l.notes ? `<div class="footer">${escapeHtml(l.notes)}</div>` : ''}
+<div class="footer">${cart ? 'A cart run is weighed once, on the mixer: each feeder carries its pro-rata share of the mix against the call. ' : 'Every pound here is the fall in gross on the truck scale between Start and Done. '}Printed ${new Date().toLocaleString()}.</div>
+<script>window.onload = () => window.print();<\/script>
+</body></html>`);
+        w.document.close();
+    }
+
     function ftFmtTime(ts) {
         if (!ts) return '—';
         return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' });
     }
 
+    let ftLoadModalLoad = null;
     function openFtLoadModal(l) {
         if (!l) return;
+        ftLoadModalLoad = l;
         clearAlert('ftLoadModalAlert');
         const t = ftLoadTotals(l);
         $('ftLoadModalTitle').textContent = `${fmtDate(l.load_date)} · load ${l.load_seq} · ${ftRationName(l.ration_id)}`;
@@ -28551,6 +28895,30 @@ ${ranchBlocks}
     $('ftLdTo').addEventListener('change', loadFtLoads);
     $('ftLdPostBtn').addEventListener('click', ftPostDueNow);
     $('ftLoadCloseBtn').addEventListener('click', () => hideModal('ftLoadModal'));
+    $('ftLoadTicketBtn').addEventListener('click', () => printFtLoadTicket(ftLoadModalLoad));
+    $('ftBsDays').addEventListener('change', loadFtBunkSheet);
+    $('ftBsRefreshBtn').addEventListener('click', loadFtBunkSheet);
+    $('ftBsPrintBtn').addEventListener('click', printFtBunkSheet);
+    $('ftWxDays').addEventListener('change', loadFtWeather);
+    $('ftWxPasture').addEventListener('change', renderFtWeather);
+    $('ftWxRefreshBtn').addEventListener('click', loadFtWeather);
+    $('ftWxPrintBtn').addEventListener('click', () => {
+        const el = $('ftWxContent'); const w = window.open('', '_blank');
+        if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Feed vs weather</title>
+<style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:24px;color:#1a1a1a;}
+ h1{font-size:18px;margin:0 0 2px;} h3{font-size:13px;margin:14px 0 6px;}
+ table{width:100%;border-collapse:collapse;font-size:12px;} th,td{border:1px solid #999;padding:4px 6px;text-align:left;}
+ th{background:#f0f0ea;font-size:10px;text-transform:uppercase;} td.num,th.num{text-align:right;}
+ .muted{color:#666;} .form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-size:12px;margin-bottom:10px;}
+ @media print{body{margin:10mm;}}
+${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
+<h1>Feed vs weather</h1>
+<div class="muted" style="font-size:12px;margin-bottom:12px;">${escapeHtml($('ftWxPasture').selectedOptions[0] ? $('ftWxPasture').selectedOptions[0].textContent : 'All pastures')} · printed ${new Date().toLocaleDateString()}</div>
+${el.innerHTML}
+<script>window.onload = () => window.print();<\/script></body></html>`);
+        w.document.close();
+    });
     $('ftLoadUnpostBtn').addEventListener('click', ftUnpostLoad);
     $('ftLoadVoidBtn').addEventListener('click', ftVoidLoad);
 

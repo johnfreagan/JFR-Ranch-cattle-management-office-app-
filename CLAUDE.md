@@ -1116,6 +1116,22 @@ bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   
   (`S.advance`, More › "Next pasture after a score", default on) - a score IS
   the call in the normal case, so the second tap was pure tax. The LOAD
   screen still never advances on its own: that rule is about pounds.
+- **Three reports (2026-09-06), all under Inventory › Truck ▾.** They READ
+  what the truck wrote and never recompute it — a report that re-derived a
+  split could drift from the books it documents (the accounting report's
+  rule).
+  - **Load ticket** (Print ticket on the load detail): one page per load —
+    ingredient target vs scale, over/under, the mix required against the mix
+    actually taken, every drop with whether a scale or a rule measured it,
+    and the lots charged. The audit record of a load.
+  - **Bunk sheet**: pastures down, days across chronologically with the day's
+    weather in the header; each cell is the score and the call over what was
+    actually delivered, clean bunks shaded, `*` for an allocated cart drop.
+    Prints landscape.
+  - **Feed vs weather**: delivered pounds over the head the drop was split
+    across — the truck's own arithmetic, not the call — by day against that
+    day's weather, plus averages by temperature band and rain days vs dry.
+    **A day the truck did not go out is left out, never averaged as zero.**
 - **Not built yet:** phase 3 Flutter shell (Scale-Tec template + WebView +
   bridge; iPad build needs a Mac with Xcode and John's individual Apple
   developer account, started 2026-09-04 week), the two charts on the bunk
