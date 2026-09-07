@@ -1775,18 +1775,33 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Doctoring &amp; Deaths</h2>
-                    <div>
-                        <button id="reportDocExportBtn">Export CSV</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="reportDocExportCompareBtn" title="Export the comparison table as it stands">Export comparison</button>
+                        <button id="reportDocExportBtn">Export events</button>
                     </div>
                 </div>
-                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Filter doctoring events across lots. Computed columns show pull position, intervals between pulls, and links to deaths.</p>
+                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
+                    Treatments and deaths across lots. The <strong>filters</strong> decide what is counted;
+                    <strong>Compare by</strong> decides how it is split — receiving (processing) protocol,
+                    medication or regimen given, pull protocol, pull number, or lot.
+                </p>
 
                 <!-- Filter panel -->
                 <div class="report-filters" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; padding: 12px; background: #fafaf6; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px;">
                     <div>
                         <label style="font-size: 12px;">Lots</label>
                         <select id="reportDocLotFilter" multiple size="4" style="width: 100%; font-size: 13px;"></select>
-                        <div class="muted" style="font-size: 11px; margin-top: 2px;">Hold Ctrl/Cmd to multi-select. Empty = all open lots.</div>
+                        <div class="muted" style="font-size: 11px; margin-top: 2px;">Hold Ctrl/Cmd to multi-select. Empty = all lots.</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">Receiving protocol</label>
+                        <select id="reportDocProtocolFilter" multiple size="4" style="width: 100%; font-size: 13px;"></select>
+                        <div class="muted" style="font-size: 11px; margin-top: 2px;">What the cattle were processed under on arrival.</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">Medication given</label>
+                        <select id="reportDocMedFilter" multiple size="4" style="width: 100%; font-size: 13px;"></select>
+                        <div class="muted" style="font-size: 11px; margin-top: 2px;">Keeps pulls where any picked med was given.</div>
                     </div>
                     <div>
                         <label style="font-size: 12px;">Date from</label>
@@ -1803,7 +1818,7 @@
                             <option value="3">3rd pull only</option>
                             <option value="4">4th+ pull</option>
                         </select>
-                        <label style="font-size: 12px; margin-top: 4px;">Action</label>
+                        <label style="font-size: 12px; margin-top: 4px;">Pull protocol (action)</label>
                         <select id="reportDocActionFilter" style="width: 100%; font-size: 13px;">
                             <option value="">All</option>
                         </select>
@@ -1833,11 +1848,31 @@
                     <button class="date-preset-btn" data-preset="all" style="font-size: 12px; padding: 4px 10px;">All time</button>
                 </div>
 
-                <!-- Summary stats -->
+                <!-- Headline numbers + the two detail cards -->
                 <div id="reportDocSummary"></div>
 
+                <!-- Comparison: the same measures, split by whichever dimension is picked -->
+                <div class="card-header" style="margin-top: 26px; align-items: flex-end;">
+                    <h3 style="margin: 0;">Comparison</h3>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <label style="font-size: 12px; margin: 0;">Compare by</label>
+                        <select id="reportDocCompareBy" style="min-width: 220px; font-size: 13px;">
+                            <option value="protocol">Receiving protocol</option>
+                            <option value="regimen">Med regimen (exact combination)</option>
+                            <option value="med">Medication (any given)</option>
+                            <option value="action">Pull protocol (action)</option>
+                            <option value="pull">Pull number</option>
+                            <option value="lot">Lot</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="reportDocCompareContent"><div class="empty">Loading…</div></div>
+
+                <!-- Charts -->
+                <div id="reportDocChartsContent"></div>
+
                 <!-- Detail table -->
-                <h3 style="margin: 24px 0 10px 0;">Event detail</h3>
+                <h3 style="margin: 26px 0 10px 0;">Event detail</h3>
                 <div id="reportDocTableContent"><div class="empty">Apply filters to see results.</div></div>
             </div>
         </div>
@@ -15480,48 +15515,138 @@ ${body}
         loadDailyReport();
     }
 
+    // ---- Comparison dimensions -------------------------------------------
+    // Two shapes, not one. A COHORT dimension partitions the herd: every head
+    // belongs to exactly one group, so head in, pull rate and mortality are
+    // meaningful. An EVENT dimension groups treatments, and an animal can land
+    // in several groups (two meds on one pull, two pulls on one animal), so
+    // there is no herd denominator and the measures are per treatment.
+    const DOC_DIMENSIONS = {
+        protocol: {
+            label: 'Receiving protocol', cohort: true, needsDims: true,
+            note: 'Every head is counted under the protocol on the load it arrived on. Cattle whose load carried no protocol are their own row — that is the coverage gap, not a data error. Watch <strong>Avg DOF</strong>: a young cohort has had less time to get sick or die, so a low pull rate there is not yet a result.'
+        },
+        regimen: {
+            label: 'Med regimen (exact combination)', cohort: false, needsDims: true,
+            note: 'One row per exact set of drugs given at a pull. This is the de-facto pull protocol. Sicker cattle get the salvage regimen, so compare like with like — set <strong>Pull position</strong> to 1st pull only before reading these against each other.'
+        },
+        med: {
+            label: 'Medication (any given)', cohort: false, needsDims: true,
+            note: 'A pull counts once under every drug it included, so the rows overlap and will not sum to the total. Use Med regimen for a clean split.'
+        },
+        action: {
+            label: 'Pull protocol (action)', cohort: false, needsDims: false,
+            note: 'The action the crew recorded — First Pull EX, Second Pull RES, and so on.'
+        },
+        pull: {
+            label: 'Pull number', cohort: false, needsDims: false,
+            note: 'How the same animals fare on each successive pull.'
+        },
+        lot: {
+            label: 'Lot', cohort: true, needsDims: false,
+            note: 'Head in and mortality are the lot’s own, over the whole lot; pulls and treatments are only those inside the filters above.'
+        }
+    };
+
+    const DOC_NO_PROTOCOL = '— no receiving protocol —';
+    const DOC_NO_LOAD     = '— no load record for the tag —';
+    const DOC_NO_TAG      = '— untagged death —';
+    const DOC_NO_MEDS     = '— no meds recorded —';
+
+    // Filled once at init. The protocol names are needed for groups that have
+    // receipts but no doctoring and no deaths — without them a protocol with a
+    // clean record renders as "(unnamed)", which is the opposite of the truth.
+    let docProtocolNames = {};
+    let docTestLotIds = new Set();
+
+    // Everything the report renders from. Cached so changing "Compare by" or
+    // re-sorting a table repaints without going back to the database.
+    let docReport = {
+        rows: [],            // doctoring events, after every filter
+        deaths: [],          // death events in the same lots and date window
+        headByLot: {},       // lot_id -> { lot_number, head_in, head_current, head_dead, closed_at }
+        receipts: [],        // delivery receipts for those lots (protocol denominators)
+        totals: { headIn: 0, onFeed: 0, shipped: 0 },
+        dimsAvailable: true  // false until the 2026-09-07 migration is applied
+    };
+
     async function initDoctoringReport() {
         if (!doctoringReportInitialized) {
-            // Load lot dropdown (active lots first, then closed)
-            // Phase 13: also fetch is_test from lots to exclude test lots from default analytics
-            const [statusRes, lotsRes] = await Promise.all([
+            // Lot dropdown. Test lots are excluded the way every other
+            // analytics surface excludes them.
+            const [statusRes, lotsRes, actionsRes, protoRes, medsRes] = await Promise.all([
                 supabase.from('lot_status').select('lot_id, lot_number, closed_at').order('arrival_date', { ascending: false }),
-                supabase.from('lots').select('id, is_test')
+                supabase.from('lots').select('id, is_test'),
+                supabase.from('field_actions').select('id, name').order('sort_order', { ascending: true }),
+                supabase.from('protocols').select('id, name, version_label, protocol_type, effective_from').eq('protocol_type', 'receiving').order('effective_from', { ascending: false }),
+                supabase.from('medications').select('id, name, is_active').order('name', { ascending: true })
             ]);
-            const isTestById = {};
-            (lotsRes.data || []).forEach(l => { isTestById[l.id] = !!l.is_test; });
-            const lots = (statusRes.data || []).filter(l => !isTestById[l.lot_id]);
-            if (lots) {
-                const sel = $('reportDocLotFilter');
-                sel.innerHTML = '';
-                lots.forEach(l => {
-                    const opt = document.createElement('option');
-                    opt.value = l.lot_id;
-                    opt.textContent = l.lot_number + (l.closed_at ? ' (closed)' : '');
-                    sel.appendChild(opt);
-                });
-            }
 
-            // Load action dropdown
-            const { data: actions } = await supabase
-                .from('field_actions')
-                .select('id, name')
-                .order('sort_order', { ascending: true });
-            if (actions) {
-                const sel = $('reportDocActionFilter');
-                actions.forEach(a => {
-                    const opt = document.createElement('option');
-                    opt.value = a.id;
-                    opt.textContent = a.name;
-                    sel.appendChild(opt);
-                });
-            }
+            const isTestById = {};
+            docTestLotIds = new Set();
+            (lotsRes.data || []).forEach(l => {
+                isTestById[l.id] = !!l.is_test;
+                if (l.is_test) docTestLotIds.add(l.id);
+            });
+            const lots = (statusRes.data || []).filter(l => !isTestById[l.lot_id]);
+            const lotSel = $('reportDocLotFilter');
+            lotSel.innerHTML = '';
+            lots.forEach(l => {
+                const opt = document.createElement('option');
+                opt.value = l.lot_id;
+                opt.textContent = l.lot_number + (l.closed_at ? ' (closed)' : '');
+                lotSel.appendChild(opt);
+            });
+
+            const actionSel = $('reportDocActionFilter');
+            (actionsRes.data || []).forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a.id;
+                opt.textContent = a.name;
+                actionSel.appendChild(opt);
+            });
+
+            // Receiving protocols, plus the two buckets a tag can fall into
+            // when there is no protocol to name. Keeping them as pickable
+            // options means "show me only the loads nobody processed under a
+            // protocol" is one click.
+            const protoSel = $('reportDocProtocolFilter');
+            protoSel.innerHTML = '';
+            docProtocolNames = {};
+            (protoRes.data || []).forEach(p => {
+                const label = p.name + (p.version_label ? ' ' + p.version_label : '');
+                docProtocolNames[p.id] = label;
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = label;
+                protoSel.appendChild(opt);
+            });
+            [['none', DOC_NO_PROTOCOL], ['unknown', DOC_NO_LOAD], ['notag', DOC_NO_TAG]].forEach(([v, label]) => {
+                const opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = label;
+                protoSel.appendChild(opt);
+            });
+
+            const medSel = $('reportDocMedFilter');
+            medSel.innerHTML = '';
+            (medsRes.data || []).forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.name + (m.is_active === false ? ' (inactive)' : '');
+                medSel.appendChild(opt);
+            });
 
             $('reportDocApplyBtn').addEventListener('click', runDoctoringReport);
             $('reportDocResetBtn').addEventListener('click', resetDoctoringFilters);
             $('reportDocExportBtn').addEventListener('click', exportDoctoringReportCsv);
+            $('reportDocExportCompareBtn').addEventListener('click', exportDoctoringComparisonCsv);
+            // Changing the dimension is a repaint, not a re-query.
+            $('reportDocCompareBy').addEventListener('change', () => {
+                docCompareSort = null;
+                renderDoctoringComparison();
+            });
 
-            // Date preset buttons
             document.querySelectorAll('.date-preset-btn').forEach(btn => {
                 btn.addEventListener('click', () => applyDatePreset(btn.dataset.preset));
             });
@@ -15532,23 +15657,19 @@ ${body}
     }
 
     async function applyDatePreset(preset) {
-        const today = new Date();
-        const fmt = (d) => d.toISOString().slice(0, 10);
+        // ranchToday(), not the viewer's clock: the ranch day is what every
+        // other day count in this app is measured against.
+        const today = new Date(ranchToday() + 'T00:00:00');
+        const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         if (preset === 'all') {
             $('reportDocDateFrom').value = '';
             $('reportDocDateTo').value = '';
-        } else if (preset === '30d') {
+        } else if (preset === '30d' || preset === '90d') {
             const start = new Date(today);
-            start.setDate(start.getDate() - 30);
-            $('reportDocDateFrom').value = fmt(start);
-            $('reportDocDateTo').value = fmt(today);
-        } else if (preset === '90d') {
-            const start = new Date(today);
-            start.setDate(start.getDate() - 90);
+            start.setDate(start.getDate() - (preset === '30d' ? 30 : 90));
             $('reportDocDateFrom').value = fmt(start);
             $('reportDocDateTo').value = fmt(today);
         } else if (preset === 'lot-lifetime') {
-            // Use earliest arrival date among selected lots (or all if none selected)
             const lotSel = $('reportDocLotFilter');
             const lotIds = Array.from(lotSel.selectedOptions).map(o => o.value);
             let q = supabase.from('lot_status').select('arrival_date');
@@ -15566,8 +15687,9 @@ ${body}
     }
 
     function resetDoctoringFilters() {
-        const lotSel = $('reportDocLotFilter');
-        Array.from(lotSel.options).forEach(o => { o.selected = false; });
+        ['reportDocLotFilter', 'reportDocProtocolFilter', 'reportDocMedFilter'].forEach(id => {
+            Array.from($(id).options).forEach(o => { o.selected = false; });
+        });
         $('reportDocDateFrom').value = '';
         $('reportDocDateTo').value = '';
         $('reportDocPullFilter').value = '';
@@ -15579,353 +15701,678 @@ ${body}
 
     async function runDoctoringReport() {
         $('reportDocSummary').innerHTML = '<div class="muted">Running query…</div>';
+        $('reportDocCompareContent').innerHTML = '<div class="empty">Loading…</div>';
+        $('reportDocChartsContent').innerHTML = '';
         $('reportDocTableContent').innerHTML = '<div class="empty">Loading…</div>';
 
-        // Collect filters
-        const lotSel = $('reportDocLotFilter');
-        const lotIds = Array.from(lotSel.selectedOptions).map(o => o.value);
+        const lotIds  = Array.from($('reportDocLotFilter').selectedOptions).map(o => o.value);
+        const protoIds = Array.from($('reportDocProtocolFilter').selectedOptions).map(o => o.value);
+        const medIds  = Array.from($('reportDocMedFilter').selectedOptions).map(o => o.value);
         const dateFrom = $('reportDocDateFrom').value || null;
-        const dateTo = $('reportDocDateTo').value || null;
-        const pullPos = $('reportDocPullFilter').value;
+        const dateTo   = $('reportDocDateTo').value || null;
+        const pullPos  = $('reportDocPullFilter').value;
         const actionId = $('reportDocActionFilter').value || null;
-        const dx = $('reportDocDxFilter').value.trim() || null;
-        const outcome = $('reportDocOutcomeFilter').value;
+        const dx       = $('reportDocDxFilter').value.trim() || null;
+        const outcome  = $('reportDocOutcomeFilter').value;
 
-        // Call doctoring RPC
-        const params = {
+        const { data, error } = await supabase.rpc('get_doctoring_analytics', {
             p_lot_ids: lotIds.length > 0 ? lotIds : null,
             p_date_from: dateFrom,
             p_date_to: dateTo,
+            // '4' means 4th AND up, which the RPC's equality test cannot express
             p_pull_position: (pullPos === '' || pullPos === '4') ? null : parseInt(pullPos),
             p_diagnosis: dx,
             p_action_id: actionId
-        };
-
-        const { data, error } = await supabase.rpc('get_doctoring_analytics', params);
+        });
         if (error) {
             $('reportDocSummary').innerHTML = `<div class="alert error">Query failed: ${escapeHtml(error.message)}</div>`;
+            $('reportDocCompareContent').innerHTML = '';
             $('reportDocTableContent').innerHTML = '';
             return;
         }
-        let rows = data || [];
+        // Test lots are not offered in the picker, so they must not sneak into
+        // the "nothing picked = all lots" default either — TEST_DOC1 and
+        // TEST_DOC2 carry doctoring events and would sit in the comparison.
+        let rows = (data || []).filter(r => !docTestLotIds.has(r.lot_id));
 
-        // Client-side filters
+        // The protocol and medication columns arrive with the 2026-09-07
+        // migration. Until it is applied the report still works; the two
+        // dimensions that need them say so instead of reading undefined.
+        docReport.dimsAvailable = rows.length === 0 || ('receiving_protocol_name' in rows[0] && 'med_names' in rows[0]);
+
+        // Normalise the arrays once so every consumer below can assume a list.
+        rows.forEach(r => {
+            r._meds = Array.isArray(r.med_names) ? r.med_names : [];
+            r._medIds = Array.isArray(r.med_ids) ? r.med_ids : [];
+            r._protoKey = docProtocolKey(r);
+        });
+
+        // Client-side filters: the ones the RPC cannot express.
         if (pullPos === '4') rows = rows.filter(r => r.pull_position >= 4);
         if (outcome === 'died') rows = rows.filter(r => r.animal_died);
         else if (outcome === 'alive') rows = rows.filter(r => !r.animal_died);
+        if (docReport.dimsAvailable && protoIds.length > 0) {
+            const want = new Set(protoIds);
+            rows = rows.filter(r => want.has(r._protoKey));
+        }
+        if (docReport.dimsAvailable && medIds.length > 0) {
+            const want = new Set(medIds);
+            rows = rows.filter(r => r._medIds.some(id => want.has(id)));
+        }
+        // Silently ignoring a filter the user set is worse than not offering
+        // it: the numbers would be right for a question nobody asked.
+        docReport.filtersIgnored = !docReport.dimsAvailable && (protoIds.length > 0 || medIds.length > 0);
 
         lastDoctoringRows = rows;
 
-        // Determine which lots to use for denominators + death lookup.
-        // If user filtered lots, use those. Otherwise use lots present in results.
-        let denomLotIds = lotIds.length > 0 ? lotIds : [...new Set(rows.map(r => r.lot_id))];
+        // Denominators come from the lots the user picked; if they picked none,
+        // from the lots the results actually landed in.
+        const denomLotIds = lotIds.length > 0
+            ? lotIds.filter(id => !docTestLotIds.has(id))
+            : [...new Set(rows.map(r => r.lot_id))];
 
-        // Fetch head counts (in / on-feed / dead / sold) for the selected lots.
-        // Direct query to lot_status gives us head_in (denominator) AND head_current (now on feed).
-        let totalHeadInLots = 0;
-        let totalHeadOnFeed = 0;
-        let totalShipped = 0;
-        if (denomLotIds.length > 0) {
-            const { data: hd } = await supabase
-                .from('lot_status')
-                .select('lot_id, head_in, head_dead, head_current')
-                .in('lot_id', denomLotIds);
-            if (hd) {
-                hd.forEach(r => {
-                    const hin = Number(r.head_in) || 0;
-                    const hcur = Number(r.head_current) || 0;
-                    const hdead = Number(r.head_dead) || 0;
-                    totalHeadInLots += hin;
-                    totalHeadOnFeed += hcur;
-                    totalShipped += Math.max(0, hin - hdead - hcur);
-                });
-            }
-        }
-
-        // Fetch ALL death events for those lots WITH each dead animal's arrival date.
-        // Used for total death count, doctored vs not breakdown, and days-from-arrival buckets.
+        const headByLot = {};
+        let totals = { headIn: 0, onFeed: 0, shipped: 0 };
+        let receipts = [];
         let allDeaths = [];
+
         if (denomLotIds.length > 0) {
-            const { data: deathRows, error: dErr } = await supabase
-                .rpc('get_lot_deaths_with_arrival', { p_lot_ids: denomLotIds });
-            if (!dErr && deathRows) {
-                allDeaths = deathRows.filter(d => {
+            const [hdRes, rcRes, deathRes] = await Promise.all([
+                // lot_status is keyed on lot_id, never id — and its errors are
+                // silent, so check them (CLAUDE.md, two live instances of this).
+                supabase.from('lot_status')
+                    .select('lot_id, lot_number, head_in, head_dead, head_current, closed_at')
+                    .in('lot_id', denomLotIds),
+                supabase.from('delivery_receipts')
+                    .select('id, lot_id, head_count, receipt_date, receiving_protocol_id')
+                    .in('lot_id', denomLotIds),
+                supabase.rpc('get_lot_deaths_with_arrival', { p_lot_ids: denomLotIds })
+            ]);
+
+            if (hdRes.error) {
+                $('reportDocSummary').innerHTML = `<div class="alert error">Head counts failed to load: ${escapeHtml(hdRes.error.message)}</div>`;
+                return;
+            }
+            (hdRes.data || []).forEach(r => {
+                const hin = Number(r.head_in) || 0;
+                const hcur = Number(r.head_current) || 0;
+                const hdead = Number(r.head_dead) || 0;
+                headByLot[r.lot_id] = {
+                    lot_number: r.lot_number, head_in: hin, head_dead: hdead,
+                    head_current: hcur, closed_at: r.closed_at
+                };
+                totals.headIn += hin;
+                totals.onFeed += hcur;
+                totals.shipped += Math.max(0, hin - hdead - hcur);
+            });
+
+            receipts = rcRes.error ? [] : (rcRes.data || []);
+
+            if (!deathRes.error && deathRes.data) {
+                allDeaths = deathRes.data.filter(d => {
                     if (dateFrom && d.event_date < dateFrom) return false;
                     if (dateTo && d.event_date > dateTo) return false;
                     return true;
                 });
+                allDeaths.forEach(d => { d._protoKey = docProtocolKey(d); });
+                // A death is filtered by protocol on the same key the pulls are.
+                if (docReport.dimsAvailable && protoIds.length > 0) {
+                    const want = new Set(protoIds);
+                    allDeaths = allDeaths.filter(d => want.has(d._protoKey));
+                }
             }
         }
 
-        renderDoctoringSummary(rows, totalHeadInLots, allDeaths, totalHeadOnFeed, totalShipped);
-        renderDoctoringTable(rows);
+        docReport = { ...docReport, rows, deaths: allDeaths, headByLot, receipts, totals };
+
+        renderDoctoringSummary();
+        renderDoctoringComparison();
+        renderDoctoringChartShell();
+        renderDoctoringCharts(rows, allDeaths);
+        docTableSort = { key: 'event_date', dir: 'desc' };
+        renderDocEventTable();
     }
 
-    function renderDoctoringSummary(rows, totalHeadInLots, allDeaths, totalHeadOnFeed, totalShipped) {
-        if (rows.length === 0 && (!allDeaths || allDeaths.length === 0)) {
+    // A tag with no arrival date never matched a load, which is a different
+    // fact from a load that carried no protocol. Keeping them apart is the
+    // whole point: one is missing paperwork, the other is missing cattle.
+    function docProtocolKey(r) {
+        if (r.receiving_protocol_id) return r.receiving_protocol_id;
+        // An untagged death can never be traced to a load, which is a
+        // different fact from a tag whose load was never entered. Bulk deaths
+        // are the bulk of this bucket and lumping them in with the paperwork
+        // gap would make the gap look far bigger than it is.
+        if (!r.tag_number) return 'notag';
+        const arrival = r.animal_arrival_date || r.arrival_date;
+        return arrival ? 'none' : 'unknown';
+    }
+    function docProtocolLabel(r) {
+        return r.receiving_protocol_name || docProtocolKeyLabel(docProtocolKey(r));
+    }
+
+    // Naming a group from its key alone. A protocol with receipts but no
+    // doctoring and no deaths reaches the table this way and must still read
+    // as itself — a clean protocol is a result, not a blank.
+    function docProtocolKeyLabel(key) {
+        if (key === 'none') return DOC_NO_PROTOCOL;
+        if (key === 'notag') return DOC_NO_TAG;
+        if (key === 'unknown') return DOC_NO_LOAD;
+        return docProtocolNames[key] || '(unnamed protocol)';
+    }
+
+    const docPct = (n, d) => (d > 0 ? (n / d * 100) : null);
+    const docFmtPct = (v, dp) => (v == null ? '—' : v.toFixed(dp == null ? 1 : dp) + '%');
+    const docAvg = (arr) => (arr.length > 0 ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
+
+    // ======================================================================
+    // Headline numbers, then two cards. This used to be five cards that each
+    // answered half a question; the pull funnel and the death cards were
+    // split across them, so reading "did the second pull work" meant
+    // stitching two tables together by eye.
+    // ======================================================================
+    function renderDoctoringSummary() {
+        const { rows, deaths, totals } = docReport;
+        if (rows.length === 0 && deaths.length === 0) {
             $('reportDocSummary').innerHTML = '<div class="empty">No events match these filters.</div>';
             return;
         }
 
         const animalKey = r => `${r.lot_id}|${r.tag_number}`;
-        const deathKey = (lot_id, tag) => `${lot_id}|${tag}`;
         const animals = new Set(rows.map(animalKey));
-        const totalEvents = rows.length;
 
-        // Pull-position counts (events per pull number)
-        const byPull = {};
+        // Highest pull each animal reached, within the filtered set.
+        const maxPull = {};
+        const diedByAnimal = {};
+        rows.forEach(r => {
+            const k = animalKey(r);
+            if (!maxPull[k] || r.total_pulls_for_animal > maxPull[k]) maxPull[k] = Number(r.total_pulls_for_animal);
+            if (r.animal_died) diedByAnimal[k] = true;
+        });
+        // How many animals ever reached pull N (the funnel, not the histogram).
+        const reached = {};
+        Object.values(maxPull).forEach(n => {
+            for (let i = 1; i <= n && i <= 6; i++) reached[i] = (reached[i] || 0) + 1;
+        });
+
+        const eventsByPull = {};
         rows.forEach(r => {
             const k = r.pull_position >= 4 ? '4+' : String(r.pull_position);
-            byPull[k] = (byPull[k] || 0) + 1;
+            eventsByPull[k] = (eventsByPull[k] || 0) + 1;
+        });
+        // Deaths bucketed by the LAST pull the animal got, which is the pull
+        // that failed. An animal pulled three times is one death on pull 3.
+        const diedByMaxPull = {};
+        const animalsByMaxPull = {};
+        Object.entries(maxPull).forEach(([k, n]) => {
+            const b = n >= 4 ? '4+' : String(n);
+            animalsByMaxPull[b] = (animalsByMaxPull[b] || 0) + 1;
+            if (diedByAnimal[k]) diedByMaxPull[b] = (diedByMaxPull[b] || 0) + 1;
         });
 
-        const maxPullPerAnimal = {};
-        rows.forEach(r => {
-            const k = animalKey(r);
-            if (!maxPullPerAnimal[k] || r.total_pulls_for_animal > maxPullPerAnimal[k]) {
-                maxPullPerAnimal[k] = r.total_pulls_for_animal;
-            }
-        });
-        const animalsAtPullLevel = {};
-        Object.values(maxPullPerAnimal).forEach(n => {
-            for (let i = 1; i <= n && i <= 5; i++) {
-                animalsAtPullLevel[i] = (animalsAtPullLevel[i] || 0) + 1;
-            }
-        });
-
-        const pullDistRows = ['1', '2', '3', '4+'].map(k => {
-            const eventCount = byPull[k];
-            if (!eventCount) return null;
-            const reachedThisPull = (k === '4+')
-                ? Object.values(maxPullPerAnimal).filter(n => n >= 4).length
-                : (animalsAtPullLevel[parseInt(k)] || 0);
-            const pctOfHerd = totalHeadInLots > 0
-                ? (reachedThisPull / totalHeadInLots * 100)
-                : null;
-            const prior = parseInt(k) - 1;
-            const priorReached = prior >= 1 ? (animalsAtPullLevel[prior] || 0) : 0;
-            const pctOfPrior = (k !== '1' && priorReached > 0)
-                ? (reachedThisPull / priorReached * 100)
-                : null;
-            const pctParts = [];
-            if (pctOfHerd != null) pctParts.push(`${pctOfHerd.toFixed(1)}% of herd`);
-            if (pctOfPrior != null) {
-                const priorLabel = (k === '2') ? 'of 1st pulls' : (k === '3' ? 'of 2nd pulls' : 'of prior');
-                pctParts.push(`${pctOfPrior.toFixed(1)}% ${priorLabel}`);
-            }
-            const pctText = pctParts.length > 0 ? ` <span class="muted" style="font-size: 11px;">(${pctParts.join(', ')})</span>` : '';
-            return `<tr><td>Pull ${escapeHtml(k)}</td><td class="num">${eventCount}${pctText}</td></tr>`;
+        const funnelRows = ['1', '2', '3', '4+'].map(k => {
+            const events = eventsByPull[k] || 0;
+            const reachedN = (k === '4+')
+                ? Object.values(maxPull).filter(n => n >= 4).length
+                : (reached[parseInt(k)] || 0);
+            if (!events && !reachedN) return null;
+            const prior = k === '1' ? null : (k === '4+' ? (reached[3] || 0) : (reached[parseInt(k) - 1] || 0));
+            const stoppedHere = animalsByMaxPull[k] || 0;
+            const died = diedByMaxPull[k] || 0;
+            return `<tr>
+                <td>Pull ${escapeHtml(k)}</td>
+                <td class="num">${events.toLocaleString()}</td>
+                <td class="num">${reachedN.toLocaleString()}</td>
+                <td class="num">${docFmtPct(docPct(reachedN, totals.headIn))}</td>
+                <td class="num">${prior ? docFmtPct(docPct(reachedN, prior)) : '—'}</td>
+                <td class="num">${stoppedHere.toLocaleString()}</td>
+                <td class="num">${died.toLocaleString()}</td>
+                <td class="num">${docFmtPct(docPct(died, stoppedHere))}</td>
+            </tr>`;
         }).filter(Boolean).join('');
 
-        // ===== Death analysis (uses ALL deaths in the lots, not just doctored ones) =====
-        // Build set of tags that were pulled (animals with any doctoring event)
-        const pulledAnimalTags = new Set();
-        rows.forEach(r => {
-            if (r.tag_number) pulledAnimalTags.add(deathKey(r.lot_id, r.tag_number));
-        });
+        // ---- Deaths -------------------------------------------------------
+        const pulledTags = new Set();
+        rows.forEach(r => { if (r.tag_number) pulledTags.add(`${r.lot_id}|${r.tag_number}`); });
 
-        // Process all death events
-        let totalDeadHead = 0;
-        let doctoredDead = 0;        // tagged AND in pulled set
-        let taggedNotPulled = 0;     // tagged but no pulls
-        let anonymousDead = 0;        // no tag
-
-        // Days-from-arrival buckets — only for tagged deaths with known arrival
-        let deadFirst10 = 0;          // days_from_arrival 0-9
-        let deadDays11to20 = 0;       // days_from_arrival 10-19
-        let deadFirst20 = 0;          // 0-19 (sum)
-        let deadWithArrival = 0;      // total tagged deaths that have an arrival date
-
-        (allDeaths || []).forEach(d => {
-            const headCount = Math.abs(Number(d.head_count) || 1);
-            totalDeadHead += headCount;
-            const hasTag = d.tag_number && d.tag_number !== '';
-            if (!hasTag) {
-                anonymousDead += headCount;
-            } else {
-                const k = deathKey(d.lot_id, d.tag_number);
-                if (pulledAnimalTags.has(k)) doctoredDead += headCount;
-                else taggedNotPulled += headCount;
-
-                // Days-from-arrival classification
-                const days = (d.days_from_arrival != null) ? Number(d.days_from_arrival) : null;
-                if (days != null && days >= 0) {
-                    deadWithArrival += headCount;
-                    if (days < 10) {
-                        deadFirst10 += headCount;
-                        deadFirst20 += headCount;
-                    } else if (days < 20) {
-                        deadDays11to20 += headCount;
-                        deadFirst20 += headCount;
-                    }
-                }
+        let totalDead = 0, doctoredDead = 0, taggedNotPulled = 0, anonymousDead = 0;
+        let dead0to9 = 0, dead10to19 = 0, deadWithArrival = 0;
+        deaths.forEach(d => {
+            const head = Math.abs(Number(d.head_count) || 1);
+            totalDead += head;
+            if (!d.tag_number) { anonymousDead += head; return; }
+            if (pulledTags.has(`${d.lot_id}|${d.tag_number}`)) doctoredDead += head;
+            else taggedNotPulled += head;
+            const days = d.days_from_arrival != null ? Number(d.days_from_arrival) : null;
+            if (days != null && days >= 0) {
+                deadWithArrival += head;
+                if (days < 10) dead0to9 += head;
+                else if (days < 20) dead10to19 += head;
             }
         });
-
+        const deadFirst20 = dead0to9 + dead10to19;
         const noPriorTreatment = taggedNotPulled + anonymousDead;
-        const pct = (n, d) => d > 0 ? (n / d * 100) : null;
-        const fmtP = (v) => v == null ? '—' : v.toFixed(1) + '%';
+        const firstPulls = reached[1] || 0;
 
-        const mortalityRate = pct(totalDeadHead, totalHeadInLots);
-        const doctoredDeathRate = pct(doctoredDead, animals.size);
-        const noPriorTreatmentRate = pct(noPriorTreatment, totalDeadHead);
-
-        // First-pull count (used for treatment failure rate denominator)
-        const firstPullCount = animalsAtPullLevel[1] || 0;
-        // Treatment failure rate: animals that were pulled at least once and died (doctoredDead)
-        // divided by animals that received a first pull
-        const treatmentFailureRate = pct(doctoredDead, firstPullCount);
-
-        // Days-from-arrival rates (% of deaths that had arrival data)
-        const pctFirst10 = pct(deadFirst10, deadWithArrival);
-        const pctDays11to20 = pct(deadDays11to20, deadWithArrival);
-        const pctFirst20 = pct(deadFirst20, deadWithArrival);
-
-        // Avg days last pull to death — for animals that were doctored AND died
-        const animalDied = {};
-        const animalLastPullToDeath = {};
-        rows.forEach(r => {
-            const k = animalKey(r);
-            if (r.animal_died) {
-                animalDied[k] = true;
-                if (r.is_last_pull && r.days_pull_to_death != null) {
-                    animalLastPullToDeath[k] = r.days_pull_to_death;
-                }
+        // Averages
+        const avgPtd = docAvg(Object.values(rows.reduce((acc, r) => {
+            if (r.animal_died && r.is_last_pull && r.days_pull_to_death != null) {
+                acc[`${r.lot_id}|${r.tag_number}`] = Number(r.days_pull_to_death);
             }
-        });
-        const ptdValues = Object.values(animalLastPullToDeath);
-        const avgPtd = ptdValues.length > 0
-            ? (ptdValues.reduce((s, v) => s + v, 0) / ptdValues.length)
-            : null;
+            return acc;
+        }, {})));
+        const avgInterval = docAvg(rows.filter(r => r.days_since_prev_event != null).map(r => Number(r.days_since_prev_event)));
+        const avgArrivalToFirst = docAvg(rows
+            .filter(r => r.pull_position === 1 && r.animal_arrival_date && r.event_date)
+            .map(r => docDaysBetween(r.animal_arrival_date, r.event_date))
+            .filter(v => v != null && v >= 0));
 
-        // Avg interval between consecutive pulls
-        const intervals = rows
-            .filter(r => r.days_since_prev_event != null)
-            .map(r => Number(r.days_since_prev_event));
-        const avgInterval = intervals.length > 0
-            ? (intervals.reduce((s, v) => s + v, 0) / intervals.length)
-            : null;
+        const kpi = (label, value, sub, tone) => `
+            <div style="padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: ${tone || '#fff'};">
+                <div class="muted" style="font-size: 11px; line-height: 1.3;">${label}</div>
+                <div style="font-size: 20px; font-weight: 600; margin-top: 2px;">${value}</div>
+                ${sub ? `<div class="muted" style="font-size: 11px;">${sub}</div>` : ''}
+            </div>`;
 
-        // Avg arrival → 1st pull
-        const arrivalToFirstPull = [];
-        rows.forEach(r => {
-            if (r.pull_position === 1 && r.animal_arrival_date && r.event_date) {
-                const parseLocal = (s) => {
-                    const [y, m, d] = s.split('-').map(Number);
-                    return new Date(y, m - 1, d);
-                };
-                const ev = parseLocal(r.event_date);
-                const ar = parseLocal(r.animal_arrival_date);
-                const days = Math.round((ev - ar) / (1000 * 60 * 60 * 24));
-                if (days >= 0) arrivalToFirstPull.push(days);
-            }
-        });
-        const avgArrivalToFirst = arrivalToFirstPull.length > 0
-            ? (arrivalToFirstPull.reduce((s, v) => s + v, 0) / arrivalToFirstPull.length)
-            : null;
+        const pctOfDeaths = n => totalDead > 0 ? ` <span class="muted" style="font-size: 11px;">(${(n / totalDead * 100).toFixed(1)}%)</span>` : '';
 
-        // Death rate by treatment count (animals who got N pulls, % died)
-        const animalsAtPullByDeath = {};
-        Object.entries(maxPullPerAnimal).forEach(([k, n]) => {
-            const bucket = n >= 4 ? '4+' : String(n);
-            if (!animalsAtPullByDeath[bucket]) animalsAtPullByDeath[bucket] = { total: 0, dead: 0 };
-            animalsAtPullByDeath[bucket].total++;
-            if (animalDied[k]) animalsAtPullByDeath[bucket].dead++;
-        });
-        const deathByPullRows = Object.entries(animalsAtPullByDeath)
-            .sort((a, b) => a[0].localeCompare(b[0]))
-            .map(([bucket, stats]) => {
-                const rate = stats.total > 0 ? (stats.dead / stats.total * 100) : 0;
-                return `<tr><td>Pulled ${escapeHtml(bucket)} time${bucket === '1' ? '' : 's'}</td><td class="num">${stats.total}</td><td class="num">${stats.dead}</td><td class="num">${rate.toFixed(1)}%</td></tr>`;
-            }).join('');
-
-        const headInDisplay = totalHeadInLots > 0
-            ? `<tr><td>Total head in selected lots</td><td class="num"><strong>${totalHeadInLots.toLocaleString()}</strong></td></tr>`
-            : '';
-        const headOnFeedDisplay = (totalHeadOnFeed != null && totalHeadOnFeed !== totalHeadInLots)
-            ? `<tr><td>Currently on feed</td><td class="num">${totalHeadOnFeed.toLocaleString()}</td></tr>`
-            : '';
-        const shippedDisplay = (totalShipped > 0)
-            ? `<tr><td>Shipped</td><td class="num">${totalShipped.toLocaleString()}</td></tr>`
+        const ignoredBanner = docReport.filtersIgnored
+            ? `<div class="alert warning" style="font-size: 13px; margin-bottom: 12px;">
+                   The receiving-protocol and medication filters were <strong>not applied</strong> — they need
+                   migration <code>docs/sql/2026-09-07_doctoring_report_dimensions.sql</code>. Everything below
+                   covers the full unfiltered set.</div>`
             : '';
 
-        // Build death breakdown rows
-        const fmtPctOfDeaths = (n) => totalDeadHead > 0 ? ` <span class="muted" style="font-size: 11px;">(${(n / totalDeadHead * 100).toFixed(1)}% of deaths)</span>` : '';
-        const deathBreakdownRows = `
-            <tr><td>Doctored, then died</td><td class="num">${doctoredDead}${fmtPctOfDeaths(doctoredDead)}</td></tr>
-            <tr><td>Tagged, never pulled</td><td class="num">${taggedNotPulled}${fmtPctOfDeaths(taggedNotPulled)}</td></tr>
-            <tr><td>Anonymous (no tag)</td><td class="num">${anonymousDead}${fmtPctOfDeaths(anonymousDead)}</td></tr>
-        `;
-
-        $('reportDocSummary').innerHTML = `
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
-                <div class="card" style="margin: 0; padding: 12px;">
-                    <h4 style="margin: 0 0 8px 0;">Volume</h4>
-                    <table style="font-size: 13px;">
-                        <tr><td>Total events</td><td class="num"><strong>${totalEvents.toLocaleString()}</strong></td></tr>
-                        <tr><td>Unique animals pulled</td><td class="num"><strong>${animals.size.toLocaleString()}</strong></td></tr>
-                        ${headInDisplay}
-                        ${shippedDisplay}
-                        ${headOnFeedDisplay}
-                        <tr><td>Avg arrival → 1st pull</td><td class="num">${avgArrivalToFirst != null ? avgArrivalToFirst.toFixed(1) + ' days' : '—'}</td></tr>
-                        <tr><td>Avg interval between pulls</td><td class="num">${avgInterval != null ? avgInterval.toFixed(1) + ' days' : '—'}</td></tr>
-                    </table>
-                </div>
-                <div class="card" style="margin: 0; padding: 12px;">
-                    <h4 style="margin: 0 0 8px 0;">Events by pull number</h4>
-                    <table style="font-size: 13px;">${pullDistRows}</table>
-                </div>
-                <div class="card" style="margin: 0; padding: 12px;">
-                    <h4 style="margin: 0 0 8px 0;">Death summary</h4>
-                    <table style="font-size: 13px;">
-                        <tr><td>Total deaths in lot(s)</td><td class="num"><strong>${totalDeadHead.toLocaleString()}</strong></td></tr>
-                        ${deathBreakdownRows}
-                        <tr style="border-top: 1px solid var(--border);"><td colspan="2" style="padding-top: 6px;"></td></tr>
-                        <tr><td>Mortality rate</td><td class="num"><strong>${fmtP(mortalityRate)}</strong> <span class="muted" style="font-size: 11px;">of herd</span></td></tr>
-                        <tr><td>Doctored death rate</td><td class="num">${fmtP(doctoredDeathRate)} <span class="muted" style="font-size: 11px;">of pulled animals</span></td></tr>
-                        <tr><td><strong>Treatment failure rate</strong></td><td class="num"><strong>${fmtP(treatmentFailureRate)}</strong> <span class="muted" style="font-size: 11px;">doctored-died / 1st pulls</span></td></tr>
-                        <tr style="background: #fff8e6;"><td><strong>No-prior-treatment rate</strong></td><td class="num"><strong>${fmtP(noPriorTreatmentRate)}</strong> <span class="muted" style="font-size: 11px;">of deaths</span></td></tr>
-                    </table>
-                </div>
-                <div class="card" style="margin: 0; padding: 12px;">
-                    <h4 style="margin: 0 0 8px 0;">Death timing</h4>
-                    <table style="font-size: 13px;">
-                        <tr><td>Avg days last pull → death</td><td class="num">${avgPtd != null ? avgPtd.toFixed(1) + ' days' : '—'}</td></tr>
-                        <tr style="border-top: 1px solid var(--border);"><td colspan="2" style="padding-top: 6px;"></td></tr>
-                        <tr><td>Deaths in first 10 days from arrival</td><td class="num"><strong>${deadFirst10}</strong> <span class="muted" style="font-size: 11px;">${pctFirst10 != null ? '(' + pctFirst10.toFixed(1) + '%)' : ''}</span></td></tr>
-                        <tr><td>Deaths in days 11-20 from arrival</td><td class="num"><strong>${deadDays11to20}</strong> <span class="muted" style="font-size: 11px;">${pctDays11to20 != null ? '(' + pctDays11to20.toFixed(1) + '%)' : ''}</span></td></tr>
-                        <tr><td><strong>Total in first 20 days</strong></td><td class="num"><strong>${deadFirst20}</strong> <span class="muted" style="font-size: 11px;">${pctFirst20 != null ? '(' + pctFirst20.toFixed(1) + '% of dated deaths)' : ''}</span></td></tr>
-                        ${anonymousDead > 0 ? `<tr><td colspan="2" class="muted" style="font-size: 11px; padding-top: 2px;">Excludes ${anonymousDead} anonymous death${anonymousDead === 1 ? '' : 's'} (no tag, no arrival traceable).</td></tr>` : ''}
-                    </table>
-                </div>
-                <div class="card" style="margin: 0; padding: 12px;">
-                    <h4 style="margin: 0 0 8px 0;">Death rate by treatment count</h4>
-                    <p class="muted" style="font-size: 11px; margin: 0 0 6px 0;">Of animals with N pulls in the filtered set, % that died.</p>
-                    <table style="font-size: 13px;">
-                        <thead><tr><th></th><th class="num">Animals</th><th class="num">Died</th><th class="num">Rate</th></tr></thead>
-                        <tbody>${deathByPullRows || '<tr><td colspan="4" class="muted">—</td></tr>'}</tbody>
-                    </table>
-                </div>
+        $('reportDocSummary').innerHTML = ignoredBanner + `
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
+                ${kpi('Head in', totals.headIn.toLocaleString(), `${totals.onFeed.toLocaleString()} on feed · ${totals.shipped.toLocaleString()} shipped`)}
+                ${kpi('Animals pulled', animals.size.toLocaleString(), docFmtPct(docPct(animals.size, totals.headIn)) + ' of herd')}
+                ${kpi('Treatments', rows.length.toLocaleString(), animals.size > 0 ? (rows.length / animals.size).toFixed(2) + ' per animal' : '')}
+                ${kpi('Deaths', totalDead.toLocaleString(), docFmtPct(docPct(totalDead, totals.headIn)) + ' mortality')}
+                ${kpi('Treatment failure', docFmtPct(docPct(doctoredDead, firstPulls)), 'doctored, then died', '#fff8e6')}
+                ${kpi('Died untreated', docFmtPct(docPct(noPriorTreatment, totalDead)), 'of all deaths', '#fff8e6')}
+                ${kpi('Arrival → 1st pull', avgArrivalToFirst != null ? avgArrivalToFirst.toFixed(1) + ' d' : '—', 'average')}
+                ${kpi('Between pulls', avgInterval != null ? avgInterval.toFixed(1) + ' d' : '—', 'average')}
             </div>
 
-            <!-- Charts row -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-top: 16px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 16px; margin-top: 16px;">
+                <div class="card" style="margin: 0; padding: 12px;">
+                    <h4 style="margin: 0 0 4px 0;">Pull funnel</h4>
+                    <p class="muted" style="font-size: 11px; margin: 0 0 8px 0;">How far up the pull ladder animals go, and how it ends. <em>Stopped here</em> is animals whose last pull was this one; <em>Died</em> and <em>Death rate</em> are of those.</p>
+                    <table style="font-size: 12px;">
+                        <thead><tr>
+                            <th></th><th class="num">Events</th><th class="num">Reached</th>
+                            <th class="num">% herd</th><th class="num">% of prior</th>
+                            <th class="num">Stopped here</th><th class="num">Died</th><th class="num">Death rate</th>
+                        </tr></thead>
+                        <tbody>${funnelRows || '<tr><td colspan="8" class="muted">—</td></tr>'}</tbody>
+                    </table>
+                </div>
+                <div class="card" style="margin: 0; padding: 12px;">
+                    <h4 style="margin: 0 0 4px 0;">Deaths</h4>
+                    <p class="muted" style="font-size: 11px; margin: 0 0 8px 0;">Every death in the selected lots inside the date window — not only the ones that were doctored.</p>
+                    <table style="font-size: 13px;">
+                        <tr><td>Total deaths</td><td class="num"><strong>${totalDead.toLocaleString()}</strong></td></tr>
+                        <tr><td>Doctored, then died</td><td class="num">${doctoredDead}${pctOfDeaths(doctoredDead)}</td></tr>
+                        <tr><td>Tagged, never pulled</td><td class="num">${taggedNotPulled}${pctOfDeaths(taggedNotPulled)}</td></tr>
+                        <tr><td>Anonymous (no tag)</td><td class="num">${anonymousDead}${pctOfDeaths(anonymousDead)}</td></tr>
+                        <tr><td colspan="2" style="border-top: 1px solid var(--border); padding-top: 6px;"></td></tr>
+                        <tr><td>Avg last pull → death</td><td class="num">${avgPtd != null ? avgPtd.toFixed(1) + ' days' : '—'}</td></tr>
+                        <tr><td>Dead in first 10 days</td><td class="num">${dead0to9} <span class="muted" style="font-size: 11px;">${docFmtPct(docPct(dead0to9, deadWithArrival))}</span></td></tr>
+                        <tr><td>Dead in days 11–20</td><td class="num">${dead10to19} <span class="muted" style="font-size: 11px;">${docFmtPct(docPct(dead10to19, deadWithArrival))}</span></td></tr>
+                        <tr><td><strong>Dead in first 20 days</strong></td><td class="num"><strong>${deadFirst20}</strong> <span class="muted" style="font-size: 11px;">${docFmtPct(docPct(deadFirst20, deadWithArrival))} of dated deaths</span></td></tr>
+                        ${anonymousDead > 0 ? `<tr><td colspan="2" class="muted" style="font-size: 11px;">Day counts exclude ${anonymousDead} untagged death${anonymousDead === 1 ? '' : 's'} — no tag, so no arrival to measure from.</td></tr>` : ''}
+                    </table>
+                </div>
+            </div>`;
+    }
+
+    function docDaysBetween(fromDate, toDate) {
+        if (!fromDate || !toDate) return null;
+        const parse = (s) => { const [y, m, d] = String(s).slice(0, 10).split('-').map(Number); return new Date(y, m - 1, d); };
+        return Math.round((parse(toDate) - parse(fromDate)) / 86400000);
+    }
+
+    // ======================================================================
+    // The comparison table. One table, one set of measures, split by whatever
+    // "Compare by" names — that is what makes protocol vs protocol, drug vs
+    // drug and 1st vs 2nd pull the same question asked three ways instead of
+    // three screens.
+    // ======================================================================
+    let docCompareSort = null;
+    let lastDoctoringComparison = null;
+
+    function renderDoctoringComparison() {
+        const dimKey = $('reportDocCompareBy').value;
+        const dim = DOC_DIMENSIONS[dimKey] || DOC_DIMENSIONS.protocol;
+        const el = $('reportDocCompareContent');
+
+        if (dim.needsDims && !docReport.dimsAvailable) {
+            el.innerHTML = `<div class="alert warning" style="font-size: 13px;">
+                <strong>${escapeHtml(dim.label)}</strong> needs the receiving-protocol and medication columns,
+                which arrive with migration <code>docs/sql/2026-09-07_doctoring_report_dimensions.sql</code>.
+                Apply it in the Supabase SQL editor and reload. The other dimensions work now.</div>`;
+            lastDoctoringComparison = null;
+            return;
+        }
+        if (docReport.rows.length === 0 && docReport.deaths.length === 0) {
+            el.innerHTML = '<div class="empty">No events match these filters.</div>';
+            lastDoctoringComparison = null;
+            return;
+        }
+
+        const built = dim.cohort ? buildCohortComparison(dimKey) : buildEventComparison(dimKey);
+        lastDoctoringComparison = { dim, ...built };
+
+        if (built.rows.length === 0) {
+            el.innerHTML = `<div class="empty">Nothing to compare on ${escapeHtml(dim.label.toLowerCase())}.</div>`;
+            return;
+        }
+
+        // Sort: whatever the user clicked, else the volume column descending.
+        const sort = docCompareSort || { key: built.defaultSort, dir: 'desc' };
+        const sorted = [...built.rows].sort((a, b) => {
+            let av = a[sort.key], bv = b[sort.key];
+            if (av == null && bv == null) return 0;
+            if (av == null) return 1;
+            if (bv == null) return -1;
+            if (typeof av === 'string' && typeof bv === 'string') {
+                return sort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+            }
+            return sort.dir === 'asc' ? av - bv : bv - av;
+        });
+
+        const arrow = k => sort.key !== k ? '' : (sort.dir === 'asc' ? ' ▲' : ' ▼');
+        const head = built.columns.map(c =>
+            `<th class="${c.num ? 'num ' : ''}sortable-cmp" data-sort-key="${c.key}" title="${escapeHtml(c.title || '')}" style="cursor: pointer; user-select: none;">${escapeHtml(c.label)}${arrow(c.key)}</th>`
+        ).join('');
+
+        const body = sorted.map(r => {
+            const cells = built.columns.map(c => {
+                const v = r[c.key];
+                let text;
+                if (c.key === 'group') text = `<strong>${escapeHtml(String(v))}</strong>`;
+                else if (v == null) text = '<span class="muted">—</span>';
+                else if (c.pct) text = docFmtPct(v);
+                else if (c.days) text = Number(v).toFixed(1) + ' d';
+                else text = Number(v).toLocaleString();
+                return `<td class="${c.num ? 'num' : ''}">${text}</td>`;
+            }).join('');
+            return `<tr${r.thin ? ' style="opacity: 0.65;"' : ''}>${cells}</tr>`;
+        }).join('');
+
+        // A total row, so the parts can be checked against the whole. Rates on
+        // it are recomputed from the totals, never averaged from the rows.
+        const tot = built.totalRow;
+        const totalHtml = tot ? `<tfoot><tr style="border-top: 2px solid var(--border); font-weight: 600;">${
+            built.columns.map(c => {
+                const v = tot[c.key];
+                let text;
+                if (c.key === 'group') text = escapeHtml(String(v));
+                else if (v == null) text = '';
+                else if (c.pct) text = docFmtPct(v);
+                else if (c.days) text = Number(v).toFixed(1) + ' d';
+                else text = Number(v).toLocaleString();
+                return `<td class="${c.num ? 'num' : ''}">${text}</td>`;
+            }).join('')}</tr></tfoot>` : '';
+
+        const thinNote = sorted.some(r => r.thin)
+            ? '<div class="muted" style="font-size: 11px; margin-top: 6px;">Faded rows have fewer than 20 head or treatments behind them — too thin to read as a result.</div>'
+            : '';
+
+        el.innerHTML = `
+            <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">${dim.note}</p>
+            <div style="overflow-x: auto;">
+                <table style="font-size: 12px;">
+                    <thead><tr>${head}</tr></thead>
+                    <tbody>${body}</tbody>
+                    ${totalHtml}
+                </table>
+            </div>
+            ${thinNote}`;
+
+        el.querySelectorAll('th.sortable-cmp').forEach(th => {
+            th.addEventListener('click', () => {
+                const k = th.dataset.sortKey;
+                if (docCompareSort && docCompareSort.key === k) {
+                    docCompareSort = { key: k, dir: docCompareSort.dir === 'asc' ? 'desc' : 'asc' };
+                } else {
+                    docCompareSort = { key: k, dir: k === 'group' ? 'asc' : 'desc' };
+                }
+                renderDoctoringComparison();
+            });
+        });
+    }
+
+    // ---- Cohort dimensions: every head belongs to exactly one group --------
+    function buildCohortComparison(dimKey) {
+        const { rows, deaths, receipts, headByLot } = docReport;
+        const today = ranchToday();
+        const groups = new Map();
+        const get = (key, label) => {
+            if (!groups.has(key)) groups.set(key, {
+                key, group: label, headIn: 0, dofNum: 0, dofDen: 0,
+                animals: new Set(), repulled: new Set(), died: new Set(),
+                treatments: 0, deaths: 0
+            });
+            return groups.get(key);
+        };
+
+        // Days on feed is head-weighted off the receipts — that is the only
+        // place an arrival date per head exists — and it stops at the lot's
+        // close, so a shipped lot does not keep accruing days it did not have.
+        // A young cohort with a flattering pull rate is the trap this column
+        // exists to expose, so it is computed for both cohort dimensions.
+        receipts.forEach(rc => {
+            const key = dimKey === 'protocol' ? (rc.receiving_protocol_id || 'none') : rc.lot_id;
+            const lot = headByLot[rc.lot_id];
+            const g = get(key, dimKey === 'protocol' ? null : (lot || {}).lot_number);
+            const head = Number(rc.head_count) || 0;
+            if (dimKey === 'protocol') g.headIn += head;
+            const end = (lot && lot.closed_at) ? String(lot.closed_at).slice(0, 10) : today;
+            const dof = docDaysBetween(rc.receipt_date, end);
+            if (dof != null && dof >= 0) { g.dofNum += dof * head; g.dofDen += head; }
+        });
+        if (dimKey !== 'protocol') {
+            // Head in for a lot is the lot's own figure, not the sum of its
+            // receipts: the two agree today but head_in is the book number.
+            Object.entries(headByLot).forEach(([lotId, lot]) => {
+                get(lotId, lot.lot_number).headIn += lot.head_in;
+            });
+        }
+
+        rows.forEach(r => {
+            const key = dimKey === 'protocol' ? r._protoKey : r.lot_id;
+            const label = dimKey === 'protocol' ? docProtocolLabel(r) : (headByLot[r.lot_id] || {}).lot_number;
+            const g = get(key, label);
+            if (!g.group && label) g.group = label;
+            g.treatments++;
+            const animal = `${r.lot_id}|${r.tag_number}`;
+            g.animals.add(animal);
+            if (Number(r.total_pulls_for_animal) > 1) g.repulled.add(animal);
+            if (r.animal_died) g.died.add(animal);
+        });
+
+        deaths.forEach(d => {
+            const key = dimKey === 'protocol' ? d._protoKey : d.lot_id;
+            const label = dimKey === 'protocol' ? docProtocolLabel(d) : (headByLot[d.lot_id] || {}).lot_number;
+            const g = get(key, label);
+            if (!g.group && label) g.group = label;
+            g.deaths += Math.abs(Number(d.head_count) || 1);
+        });
+
+        const out = [];
+        groups.forEach(g => {
+            if (!g.group) g.group = docProtocolKeyLabel(g.key);
+            const pulled = g.animals.size;
+            const doctoredDead = g.died.size;
+            out.push({
+                key: g.key,
+                group: g.group,
+                headIn: g.headIn || null,
+                // Only an average the receipts actually support. 37X has one
+                // 8-head receipt against 369 head in: averaging that would
+                // print "4 days on feed" for a lot that has been here since
+                // January. Below 80% covered the honest answer is nothing.
+                avgDof: (g.dofDen > 0 && g.dofDen >= 0.8 * (g.headIn || g.dofDen))
+                    ? g.dofNum / g.dofDen
+                    : null,
+                pulled,
+                pullPct: docPct(pulled, g.headIn),
+                treatments: g.treatments,
+                repullPct: docPct(g.repulled.size, pulled),
+                deaths: g.deaths,
+                mortalityPct: docPct(g.deaths, g.headIn),
+                failPct: docPct(doctoredDead, pulled),
+                thin: (g.headIn || 0) < 20,
+                _repulled: g.repulled.size,
+                _died: doctoredDead
+            });
+        });
+
+        // The total row recomputes every rate from the totals. Averaging the
+        // group rates would weight a 25-head load the same as a 500-head one.
+        const sum = k => out.reduce((s, r) => s + (r[k] || 0), 0);
+        const totHead = sum('headIn'), totPulled = sum('pulled'), totDeaths = sum('deaths');
+        const dofNum = out.reduce((s, r) => s + (r.avgDof != null && r.headIn ? r.avgDof * r.headIn : 0), 0);
+        const dofDen = out.reduce((s, r) => s + (r.avgDof != null && r.headIn ? r.headIn : 0), 0);
+        const totalRow = {
+            group: 'All', headIn: totHead || null,
+            avgDof: dofDen > 0 ? dofNum / dofDen : null,
+            pulled: totPulled, pullPct: docPct(totPulled, totHead),
+            treatments: sum('treatments'),
+            repullPct: docPct(sum('_repulled'), totPulled),
+            deaths: totDeaths, mortalityPct: docPct(totDeaths, totHead),
+            failPct: docPct(sum('_died'), totPulled)
+        };
+
+        return {
+            rows: out,
+            totalRow,
+            defaultSort: 'headIn',
+            columns: [
+                { key: 'group', label: dimKey === 'protocol' ? 'Receiving protocol' : 'Lot' },
+                { key: 'headIn', label: 'Head in', num: true, title: dimKey === 'protocol' ? 'Head on the delivery receipts carrying this protocol' : 'Head in, from the lot' },
+                { key: 'avgDof', label: 'Avg DOF', num: true, days: true, title: 'Head-weighted days from arrival to today, or to the lot close. Blank when the delivery receipts cover less than 80% of the head — there is no arrival date for the rest.' },
+                { key: 'pulled', label: 'Pulled', num: true, title: 'Distinct animals with at least one treatment inside the filters' },
+                { key: 'pullPct', label: 'Pull %', num: true, pct: true, title: 'Pulled ÷ head in' },
+                { key: 'treatments', label: 'Treatments', num: true },
+                { key: 'repullPct', label: 'Repull %', num: true, pct: true, title: 'Of animals pulled, the share pulled more than once' },
+                { key: 'deaths', label: 'Deaths', num: true },
+                { key: 'mortalityPct', label: 'Mortality %', num: true, pct: true, title: 'Deaths ÷ head in' },
+                { key: 'failPct', label: 'Treat fail %', num: true, pct: true, title: 'Animals that were pulled and then died ÷ animals pulled' }
+            ]
+        };
+    }
+
+    // ---- Event dimensions: measured per treatment, not per head -----------
+    function buildEventComparison(dimKey) {
+        const { rows } = docReport;
+        const groups = new Map();
+        const get = (key, label) => {
+            if (!groups.has(key)) groups.set(key, {
+                key, group: label, treatments: 0, animals: new Set(),
+                repulled: 0, toNext: [], diedAfter: 0, toDeath: []
+            });
+            return groups.get(key);
+        };
+
+        rows.forEach(r => {
+            let keys;
+            if (dimKey === 'regimen') {
+                keys = [[r._meds.length ? r._meds.join(' + ') : DOC_NO_MEDS, r._meds.length ? r._meds.join(' + ') : DOC_NO_MEDS]];
+            } else if (dimKey === 'med') {
+                // A pull with two drugs counts under both — the rows overlap
+                // on purpose, and the note above the table says so.
+                keys = r._meds.length
+                    ? r._meds.map(n => [n, n])
+                    : [[DOC_NO_MEDS, DOC_NO_MEDS]];
+            } else if (dimKey === 'action') {
+                keys = [[r.field_action_id || 'none', r.field_action_name || '(no action recorded)']];
+            } else {
+                const p = Number(r.pull_position) >= 4 ? '4+' : String(r.pull_position);
+                keys = [[p, 'Pull ' + p]];
+            }
+            keys.forEach(([key, label]) => {
+                const g = get(key, label);
+                g.treatments++;
+                g.animals.add(`${r.lot_id}|${r.tag_number}`);
+                // "Did this treatment hold?" is asked of the treatment, not
+                // the animal: a later pull means it did not.
+                if (!r.is_last_pull) {
+                    g.repulled++;
+                    if (r.days_to_next_event != null) g.toNext.push(Number(r.days_to_next_event));
+                } else if (r.animal_died) {
+                    // Last thing we did, and the animal died: the failure.
+                    g.diedAfter++;
+                    if (r.days_pull_to_death != null) g.toDeath.push(Number(r.days_pull_to_death));
+                }
+            });
+        });
+
+        const out = [];
+        groups.forEach(g => out.push({
+            key: g.key,
+            group: g.group,
+            treatments: g.treatments,
+            animals: g.animals.size,
+            repulled: g.repulled,
+            repullPct: docPct(g.repulled, g.treatments),
+            avgToNext: docAvg(g.toNext),
+            diedAfter: g.diedAfter,
+            failPct: docPct(g.diedAfter, g.treatments),
+            avgToDeath: docAvg(g.toDeath),
+            thin: g.treatments < 20
+        }));
+
+        const sum = k => out.reduce((s, r) => s + (r[k] || 0), 0);
+        // On the overlapping "med" dimension the treatment total is bigger
+        // than the event count, which is correct and would read as a bug in a
+        // total row — so there isn't one.
+        const totalRow = dimKey === 'med' ? null : {
+            group: 'All', treatments: sum('treatments'),
+            animals: new Set(rows.map(r => `${r.lot_id}|${r.tag_number}`)).size,
+            repulled: sum('repulled'), repullPct: docPct(sum('repulled'), sum('treatments')),
+            avgToNext: null, diedAfter: sum('diedAfter'),
+            failPct: docPct(sum('diedAfter'), sum('treatments')), avgToDeath: null
+        };
+
+        const groupLabel = dimKey === 'regimen' ? 'Med regimen'
+            : dimKey === 'med' ? 'Medication'
+            : dimKey === 'action' ? 'Pull protocol' : 'Pull number';
+
+        return {
+            rows: out,
+            totalRow,
+            defaultSort: 'treatments',
+            columns: [
+                { key: 'group', label: groupLabel },
+                { key: 'treatments', label: 'Treatments', num: true, title: 'Pulls in the filtered set that fall in this group' },
+                { key: 'animals', label: 'Animals', num: true, title: 'Distinct animals behind those treatments' },
+                { key: 'repulled', label: 'Repulled', num: true, title: 'Treatments followed by another pull on the same animal' },
+                { key: 'repullPct', label: 'Repull %', num: true, pct: true, title: 'Repulled ÷ treatments — lower is better' },
+                { key: 'avgToNext', label: 'Days → repull', num: true, days: true, title: 'Average days from this treatment to the next pull. Longer is better.' },
+                { key: 'diedAfter', label: 'Died after', num: true, title: 'Treatments that were the last one, and the animal died' },
+                { key: 'failPct', label: 'Fail %', num: true, pct: true, title: 'Died after ÷ treatments' },
+                { key: 'avgToDeath', label: 'Days → death', num: true, days: true, title: 'Average days from the last treatment to death' }
+            ]
+        };
+    }
+
+    // ======================================================================
+    // Charts
+    // ======================================================================
+    function renderDoctoringChartShell() {
+        $('reportDocChartsContent').innerHTML = `
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-top: 20px;">
                 <div class="card" style="margin: 0; padding: 12px;">
                     <h4 style="margin: 0 0 8px 0;">Pulls and deaths over time</h4>
-                    <div style="position: relative; height: 280px;">
-                        <canvas id="reportDocChartTimeline"></canvas>
-                    </div>
+                    <div style="position: relative; height: 280px;"><canvas id="reportDocChartTimeline"></canvas></div>
                 </div>
                 <div class="card" style="margin: 0; padding: 12px;">
                     <h4 style="margin: 0 0 8px 0;">Days from arrival → death</h4>
-                    <div style="position: relative; height: 280px;">
-                        <canvas id="reportDocChartArrivalHist"></canvas>
-                    </div>
+                    <div style="position: relative; height: 280px;"><canvas id="reportDocChartArrivalHist"></canvas></div>
                 </div>
             </div>`;
-
-        // Render charts after DOM is in place
-        renderDoctoringCharts(rows, allDeaths);
     }
 
     // Track Chart.js instances so we can destroy on re-render
@@ -15941,7 +16388,6 @@ ${body}
         if (docArrivalHistChart) { docArrivalHistChart.destroy(); docArrivalHistChart = null; }
 
         // ===== Chart 1: Pulls and deaths timeline =====
-        // Bucket events by date
         const pullsByDate = {};
         rows.forEach(r => {
             if (r.event_date) pullsByDate[r.event_date] = (pullsByDate[r.event_date] || 0) + 1;
@@ -15953,7 +16399,6 @@ ${body}
                 deathsByDate[d.event_date] = (deathsByDate[d.event_date] || 0) + head;
             }
         });
-        // Union of all dates
         const allDates = [...new Set([...Object.keys(pullsByDate), ...Object.keys(deathsByDate)])].sort();
         const pullsSeries = allDates.map(d => pullsByDate[d] || 0);
         const deathsSeries = allDates.map(d => deathsByDate[d] || 0);
@@ -15990,10 +16435,7 @@ ${body}
                     maintainAspectRatio: false,
                     plugins: {
                         legend: { position: 'top', labels: { font: { size: 11 } } },
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false
-                        }
+                        tooltip: { mode: 'index', intersect: false }
                     },
                     scales: {
                         x: { ticks: { font: { size: 10 }, maxRotation: 45, autoSkipPadding: 12 } },
@@ -16004,7 +16446,6 @@ ${body}
         }
 
         // ===== Chart 2: Days-from-arrival histogram =====
-        // Bucket: 0-4, 5-9, 10-14, 15-19, 20-29, 30-44, 45-59, 60-89, 90+
         const buckets = [
             { label: '0-4', min: 0, max: 4, count: 0 },
             { label: '5-9', min: 5, max: 9, count: 0 },
@@ -16020,10 +16461,7 @@ ${body}
         (allDeaths || []).forEach(d => {
             const days = (d.days_from_arrival != null) ? Number(d.days_from_arrival) : null;
             const head = Math.abs(Number(d.head_count) || 1);
-            if (days == null || days < 0) {
-                unknownArrival += head;
-                return;
-            }
+            if (days == null || days < 0) { unknownArrival += head; return; }
             const b = buckets.find(x => days >= x.min && days <= x.max);
             if (b) b.count += head;
         });
@@ -16074,29 +16512,35 @@ ${body}
         }
     }
 
-    // Sortable table state
+    // ======================================================================
+    // Event detail table
+    //
+    // Named renderDocEventTable, not renderDoctoringTable: the lot-detail
+    // screen already declares a top-level renderDoctoringTable(), and the two
+    // sat in the same scope. Hoisting meant the lot version won and this
+    // report drew its rows into the LOT's container while the report's own
+    // stayed on "Loading…". A duplicate declaration is legal JavaScript and
+    // throws nothing — nothing here catches it but a unique name.
+    // ======================================================================
     let docTableSort = { key: 'event_date', dir: 'desc' };
 
-    function renderDoctoringTable(rows) {
+    function renderDocEventTable() {
+        const rows = docReport.rows;
         if (rows.length === 0) {
             $('reportDocTableContent').innerHTML = '<div class="empty">No events match these filters.</div>';
             return;
         }
 
-        // Apply sort
-        const sortKey = docTableSort.key;
-        const sortDir = docTableSort.dir;
+        const { key: sortKey, dir: sortDir } = docTableSort;
         const sorted = [...rows].sort((a, b) => {
             let av = a[sortKey], bv = b[sortKey];
-            // Handle null/undefined
+            if (sortKey === 'receiving_protocol_name') { av = docProtocolLabel(a); bv = docProtocolLabel(b); }
             if (av == null && bv == null) return 0;
             if (av == null) return 1;
             if (bv == null) return -1;
-            // Strings
             if (typeof av === 'string' && typeof bv === 'string') {
                 return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
             }
-            // Numeric / boolean / date
             return sortDir === 'asc' ? (av < bv ? -1 : av > bv ? 1 : 0) : (av < bv ? 1 : av > bv ? -1 : 0);
         });
 
@@ -16104,21 +16548,24 @@ ${body}
         const truncated = sorted.length > displayRows.length;
 
         const tableRows = displayRows.map(r => {
-            const diedClass = r.animal_died ? 'style="background: #fbeaea;"' : '';
-            const dxText = r.diagnosis || '—';
+            const diedStyle = r.animal_died ? ' style="background: #fbeaea;"' : '';
             const intervalText = r.days_since_prev_event != null ? Number(r.days_since_prev_event).toFixed(1) + 'd' : '—';
             const ptdText = (r.animal_died && r.is_last_pull && r.days_pull_to_death != null)
                 ? `${r.days_pull_to_death}d`
                 : (r.animal_died ? '' : '—');
             const lastPullBadge = r.is_last_pull ? ' <span style="font-size: 10px; color: #888;">(last)</span>' : '';
-            return `<tr ${diedClass}>
+            const proto = docReport.dimsAvailable
+                ? `<td style="font-size: 11px;">${escapeHtml(docProtocolLabel(r))}</td>`
+                : '';
+            return `<tr${diedStyle}>
                 <td>${fmtDate(r.event_date)}</td>
                 <td><strong>${escapeHtml(r.lot_number)}</strong></td>
                 <td>${escapeHtml(r.tag_number || '—')}</td>
+                ${proto}
                 <td>${escapeHtml(r.field_action_name || '—')}</td>
                 <td class="num">${r.pull_position}/${r.total_pulls_for_animal}${lastPullBadge}</td>
                 <td class="num">${intervalText}</td>
-                <td>${escapeHtml(dxText)}</td>
+                <td>${escapeHtml(r.diagnosis || '—')}</td>
                 <td>${escapeHtml(r.medications || '—')}</td>
                 <td>${r.animal_died ? '<strong style="color: var(--danger);">DIED ' + fmtDate(r.death_date) + '</strong>' : 'alive'}</td>
                 <td class="num">${ptdText}</td>
@@ -16126,15 +16573,15 @@ ${body}
         }).join('');
 
         const truncMsg = truncated
-            ? `<div class="muted" style="font-size: 12px; margin-bottom: 8px;">Showing first 500 of ${sorted.length.toLocaleString()} rows (sorted by ${sortKey} ${sortDir}). Use CSV export for the full list.</div>`
-            : `<div class="muted" style="font-size: 12px; margin-bottom: 8px;">${sorted.length.toLocaleString()} rows (sorted by ${sortKey} ${sortDir}).</div>`;
+            ? `<div class="muted" style="font-size: 12px; margin-bottom: 8px;">Showing first 500 of ${sorted.length.toLocaleString()} rows (sorted by ${escapeHtml(sortKey)} ${sortDir}). Use Export events for the full list.</div>`
+            : `<div class="muted" style="font-size: 12px; margin-bottom: 8px;">${sorted.length.toLocaleString()} rows (sorted by ${escapeHtml(sortKey)} ${sortDir}).</div>`;
 
-        // Sortable header. data-sort-key links to a row property name.
         const arrow = (key) => sortKey !== key ? '' : (sortDir === 'asc' ? ' ▲' : ' ▼');
         const sortHeaders = [
             { key: 'event_date', label: 'Date' },
             { key: 'lot_number', label: 'Lot' },
             { key: 'tag_number', label: 'Tag' },
+            ...(docReport.dimsAvailable ? [{ key: 'receiving_protocol_name', label: 'Receiving protocol' }] : []),
             { key: 'field_action_name', label: 'Action' },
             { key: 'pull_position', label: 'Pull #', num: true },
             { key: 'days_since_prev_event', label: 'Interval', num: true },
@@ -16148,12 +16595,13 @@ ${body}
         ).join('');
 
         $('reportDocTableContent').innerHTML = truncMsg + `
-            <table style="font-size: 12px;">
-                <thead><tr>${headerHtml}</tr></thead>
-                <tbody>${tableRows}</tbody>
-            </table>`;
+            <div style="overflow-x: auto;">
+                <table style="font-size: 12px;">
+                    <thead><tr>${headerHtml}</tr></thead>
+                    <tbody>${tableRows}</tbody>
+                </table>
+            </div>`;
 
-        // Wire sort clicks
         $('reportDocTableContent').querySelectorAll('th.sortable-doc').forEach(th => {
             th.addEventListener('click', () => {
                 const k = th.dataset.sortKey;
@@ -16163,9 +16611,29 @@ ${body}
                     docTableSort.key = k;
                     docTableSort.dir = (k === 'event_date' || k === 'days_since_prev_event' || k === 'days_pull_to_death' || k === 'pull_position') ? 'desc' : 'asc';
                 }
-                renderDoctoringTable(rows);
+                renderDocEventTable();
             });
         });
+    }
+
+    // ======================================================================
+    // CSV
+    // ======================================================================
+    function docCsvEscape(v) {
+        const s = v == null ? '' : String(v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    function docDownloadCsv(lines, name) {
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${name}_${ranchToday()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     function exportDoctoringReportCsv() {
@@ -16174,39 +16642,46 @@ ${body}
             return;
         }
         const headers = [
-            'event_date', 'lot_number', 'tag_number', 'field_action',
-            'pull_position', 'total_pulls', 'is_last_pull',
+            'event_date', 'lot_number', 'tag_number', 'receiving_protocol',
+            'field_action', 'pull_position', 'total_pulls', 'is_last_pull',
             'days_since_prev_event', 'days_to_next_event',
-            'diagnosis', 'medications',
+            'diagnosis', 'medications', 'med_regimen',
             'animal_died', 'death_date', 'days_pull_to_death',
             'notes'
         ];
-        const escape = v => {
-            const s = v == null ? '' : String(v);
-            if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-            return s;
-        };
         const lines = [headers.join(',')];
         lastDoctoringRows.forEach(r => {
             lines.push([
-                r.event_date, r.lot_number, r.tag_number, r.field_action_name,
+                r.event_date, r.lot_number, r.tag_number,
+                docReport.dimsAvailable ? docProtocolLabel(r) : '',
+                r.field_action_name,
                 r.pull_position, r.total_pulls_for_animal, r.is_last_pull,
                 r.days_since_prev_event, r.days_to_next_event,
-                r.diagnosis, r.medications,
+                r.diagnosis, r.medications, (r._meds || []).join(' + '),
                 r.animal_died, r.death_date, r.days_pull_to_death,
                 r.notes
-            ].map(escape).join(','));
+            ].map(docCsvEscape).join(','));
         });
-        const csv = lines.join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `jfr_doctoring_report_${new Date().toISOString().slice(0,10)}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        docDownloadCsv(lines, 'jfr_doctoring_events');
+    }
+
+    function exportDoctoringComparisonCsv() {
+        if (!lastDoctoringComparison) {
+            alert('Nothing to export — run a query and pick a comparison first.');
+            return;
+        }
+        const { dim, columns, rows, totalRow } = lastDoctoringComparison;
+        const lines = [`Compare by,${docCsvEscape(dim.label)}`, ''];
+        lines.push(columns.map(c => docCsvEscape(c.label)).join(','));
+        const emit = (r) => lines.push(columns.map(c => {
+            const v = r[c.key];
+            if (v == null) return '';
+            if (typeof v === 'number') return c.pct || c.days ? v.toFixed(1) : String(v);
+            return docCsvEscape(v);
+        }).join(','));
+        rows.forEach(emit);
+        if (totalRow) emit(totalRow);
+        docDownloadCsv(lines, 'jfr_doctoring_comparison');
     }
 
     // ==========================================================
@@ -16378,11 +16853,6 @@ ${body}
         $('medDoseModeHint').textContent = hints[mode] || '';
 
         if (mode === 'per_weight') updateMedPreview();
-    }
-
-    function ceilTo(value, increment) {
-        if (!increment || increment <= 0) return value;
-        return Math.ceil(value / increment) * increment;
     }
 
     function updateMedPreview() {
@@ -17041,6 +17511,13 @@ ${body}
     }
 
     // ---- Dose computation helpers ----
+    // The ONLY ceilTo. There were two identical top-level copies until
+    // 2026-09-07 — this one and another above updateMedPreview() — and
+    // hoisting silently kept this one. Identical bodies made it harmless,
+    // which is exactly why it sat there: a duplicate function declaration is
+    // legal JavaScript and throws nothing. Same trap as renderDoctoringTable,
+    // where the two bodies were NOT the same and a whole report drew into the
+    // wrong container. Do not add a second one.
     function ceilTo(v, inc) {
         if (!inc || inc <= 0) return v;
         return Math.ceil(v / inc) * inc;
