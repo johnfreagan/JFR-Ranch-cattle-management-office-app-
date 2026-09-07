@@ -550,10 +550,21 @@ lot (is_feed_pen) ← lot_transfers kind='feed_pen', basis $0 ← the source lot
   had), a pasture assignment and an `opening` ledger row. `lot_daily_head`
   gained a FOURTH start-date term for it, the pen's own `arrival_date`, gated
   on `is_feed_pen`: an adjustment is not a start-date source, so a pen holding
-  only found head would otherwise have no window and no head-days at all. A
-  source lot is required because every pen dollar is split by it, and it is
-  cheap to be wrong — pen cost is tracked, not charged, so naming a lot
-  touches that lot's books in no way.
+  only found head would otherwise have no window and no head-days at all.
+  **The source lot is OPTIONAL** (John, 2026-09-07: *"They literally don't
+  come from a lot, I didn't enter them because there wasn't a feed pen lot at
+  that time."*). `feed_pen_ledger.source_lot_id` and
+  `feed_pen_removal_lines.source_lot_id` are nullable and NULL is its own
+  group, `— no source lot —`, the way the Doctoring report separates its three
+  kinds of missing paperwork instead of lumping them. Forcing a lot onto head
+  with no origin would invent a fact. **Every join on `source_lot_id` uses
+  `IS NOT DISTINCT FROM`, never `=`** — `NULL = NULL` is not true, so `=`
+  drops the unattributed group silently out of a report that is supposed to
+  add up. Line uniqueness is a `NULLS NOT DISTINCT` index (PG15+; this
+  database runs 17.6) so one removal cannot collect several unattributed
+  lines. Naming a lot when you DO know is still worth it and is cheap to be
+  wrong: pen cost is tracked, not charged, so it touches that lot's books in
+  no way.
 - The pen is excluded from the Active Lots report (no invoice, so cost in,
   weight in and break-even are all empty by design) and its lot page hides
   Purchases and Closeout, showing the Feed pen section instead.
