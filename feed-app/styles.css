@@ -304,3 +304,4 @@ table.mini tr.editable td { color: var(--red); }
 .feeder.on .fd-lb { background: var(--green); border-color: var(--green); color: #fff; }
 .feeder .fd-warn { flex: 0 0 100%; font-size: 12px; color: #b3121f; }
 .fd-save { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0 10px; }
+.feeder .fd-trap { flex: 0 0 100%; font-size: 12px; color: #8a4b00; background: #fff4e5; border-radius: 6px; padding: 4px 8px; }

@@ -1132,6 +1132,29 @@ bunk_reads ─▶ feed_loads ── feed_load_lines (item, bay, scale_lb, lb)   
     across — the truck's own arithmetic, not the call — by day against that
     day's weather, plus averages by temperature band and rain days vs dry.
     **A day the truck did not go out is left out, never averaged as zero.**
+- **Feed placed before the cattle (D26, 2026-09-07).** Migration
+  `docs/sql/2026-09-07_placed_feed.sql`. Filling a trap ahead of a new lot used
+  to charge those pounds to whatever OTHER lots the load fed, or refuse to post
+  at all. Now the lot is NAMED when the feeder is called
+  (`bunk_reads.for_lot_id` → `feed_drops.for_lot_id`), the feed leaves the bay
+  on the day it left booked to the PASTURE
+  (`feed_usage.destination_type='pasture'`), and `claim_placed_feed()` moves it
+  to that lot on **the lot's first day with cattle** — never the delivery day,
+  because cost of gain divides by head-days. The usage row is UPDATED, not
+  replaced, so `feed_load_usage` still links it and unpost still reverses it.
+  - **The intent lives on the feed side, never as a 0-head assignment.**
+    `lot_pasture_assignments` is head-math; a placeholder row would leak into
+    pasture inventory, settle-counts, the move/shipment pickers and the
+    mixed-pasture anomaly.
+  - **`split_drop_to_lots` no longer raises on an empty pasture** (it returns
+    0) — it is a fill-in helper, not a policy, and the raise used to kill the
+    whole posting run behind one trap.
+  - **`feed_load_guard()` now honours the `feed_truck.rpc` bypass** so the
+    claim can name the lot on a posted load's drop; that is what keeps the
+    load ticket and the PB tie-out from showing pounds nobody carries.
+  - Unclaimed rows are `feed_placed_unclaimed` and a `placed_feed` row on
+    `inventory_needs_attention`; the office shows a trap badge on Pastures &
+    route and the claim count in the posting banner.
 - **Not built yet:** phase 3 Flutter shell (Scale-Tec template + WebView +
   bridge; iPad build needs a Mac with Xcode and John's individual Apple
   developer account, started 2026-09-04 week), the two charts on the bunk

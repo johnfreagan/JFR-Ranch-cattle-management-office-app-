@@ -296,6 +296,51 @@ days left* - and rides the notification outbox the 7am email needs anyway.
 Deliberately after the first few real fills, so the rate is calibrated
 against something instead of guessed.
 
+### D26. Feed placed before the cattle (2026-09-07)
+John: "This generally happens when receiving a new lot, can we assign the lot
+before it receives cattle then start charging feed as they arrive. I don't
+want to make this too complicated but I want it accurate."
+
+Filling a trap ahead of a new lot used to do one of three wrong things: the
+pounds were split over whatever OTHER lots the load fed; or posting refused
+outright ("dropped nothing") and feed stopped reaching the books; or
+`split_drop_to_lots` raised on the empty pasture and killed the whole posting
+run. All three are fixed.
+
+- **The lot is NAMED when the feeder is called, not guessed later.**
+  `bunk_reads.for_lot_id` -> `feed_drops.for_lot_id`. One tap, at the moment
+  you know the answer, and the office screen shows the trap held for that lot.
+- **The intent lives on the FEED side, not as a 0-head assignment.**
+  `lot_pasture_assignments` is the head-math table; a placeholder row would
+  leak into pasture inventory, settle-counts, the move and shipment pickers
+  and the mixed-pasture anomaly - five places to teach "ignore the empty
+  ones" to solve one problem in one place. The cattle side keeps saying only
+  what is actually standing there.
+- **Feed always leaves the bay on the day it left**, costed at the layer it
+  came off, booked to the PASTURE (`feed_usage.destination_type = 'pasture'`,
+  which the ledger already allowed). Inventory and dollars are right
+  immediately; only the lot is deferred.
+- **`claim_placed_feed()` charges it to the lot on that lot's FIRST DAY WITH
+  CATTLE**, not the delivery day: cost of gain divides by head-days and they
+  cannot eat on a day they were not there. It UPDATES the usage row rather
+  than replacing it, so `feed_load_usage` still links it and unposting the
+  load still reverses it. It also writes the lot onto the drop, so the ticket
+  and the PB tie-out stop showing pounds nobody carries.
+- **Unnamed placed feed is claimed by the first lot to arrive** in that
+  pasture after the delivery; if none has, it stays on the pasture and shows
+  on Needs Attention (`feed_placed_unclaimed`, row kind `placed_feed`) until
+  somebody decides. Feed waiting on a decision should nag, not vanish.
+- **`split_drop_to_lots` no longer raises on an empty pasture** - it is a
+  fill-in helper, not a policy. A drop genuinely made in the wrong pasture
+  now surfaces as placed feed instead of blocking every load behind it.
+- Consequences for the Monday tie-out and month end: pounds show on the truck
+  side in the week they were DELIVERED (the drop's load date) while the cost
+  lands on the lot in the week the cattle arrive, so a placement that crosses
+  a Monday reads as a two-week wash that nets to zero. At month end the feed
+  is out of the bay in the old month and on the lot in the new one; the
+  balance in between is exactly `feed_placed_unclaimed`, which is why that is
+  a view and not a calculation.
+
 ### Stated assumptions (not asked)
 Settings card: tolerance %, minimum split lb, tie-out tolerance %, cut-over
 date. Bulk feeders: total lb, no score. A third feeding is a third load. Head

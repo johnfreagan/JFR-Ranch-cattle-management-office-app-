@@ -27826,6 +27826,25 @@ ${ranchBlocks}
     const ftLocName  = id => (fdLocations.find(l => l.id === id) || {}).name || '?';
     const ftRationName = id => (ftRations.find(r => r.id === id) || {}).name || '—';
     const ftTruckName  = id => (ftTrucks.find(t => t.id === id) || {}).name || '—';
+    // Feed sitting in a pasture the books show empty - a trap filled ahead of
+    // a new lot (D26). Read from feed_placed_unclaimed; the badge says which
+    // lot it is being held for, or that nobody has named one.
+    let ftPlaced = [];
+    async function ftLoadPlaced() {
+        const { data, error } = await supabase.from('feed_placed_unclaimed')
+            .select('pasture_id, qty_lb, for_lot_number, age_days');
+        ftPlaced = error ? [] : (data || []);
+        return error;
+    }
+    function ftTrapBadge(pastureId) {
+        const rows = ftPlaced.filter(x => x.pasture_id === pastureId);
+        if (!rows.length) return '';
+        const lb = rows.reduce((s, x) => s + (Number(x.qty_lb) || 0), 0);
+        const lot = rows.find(x => x.for_lot_number);
+        const age = Math.max(...rows.map(x => Number(x.age_days) || 0));
+        return `<div class="tag ${lot ? '' : 'amber'}" style="margin-top:3px;" title="Feed delivered before the cattle. It charges to the lot on its first day here.">
+            ${fmtNum(lb)} lb placed${lot ? ' for ' + escapeHtml(lot.for_lot_number) : ', no lot named'} · ${age}d</div>`;
+    }
     function ftPastureLabel(id) {
         const p = fdPastures.find(x => x.id === id);
         if (!p) return '?';
@@ -27905,7 +27924,8 @@ ${ranchBlocks}
         }
         const errs = ftLastPost.errors || [];
         let html = `<div class="alert ${errs.length ? 'warning' : 'success'}" style="margin-bottom:12px;">`
-            + `Posted ${ftLastPost.posted} load${ftLastPost.posted === 1 ? '' : 's'}.`;
+            + `Posted ${ftLastPost.posted} load${ftLastPost.posted === 1 ? '' : 's'}.`
+            + (ftLastPost.claimed ? ` ${ftLastPost.claimed} placed feed row${ftLastPost.claimed === 1 ? '' : 's'} charged to the lot that arrived.` : '');
         if (errs.length) {
             html += ` ${errs.length} could not post:<ul style="margin:6px 0 0 18px;">`
                 + errs.map(e => `<li>${escapeHtml(fmtDate(e.load_date))} load ${escapeHtml(String(e.load_seq))}: ${escapeHtml(e.error)}</li>`).join('')
@@ -28654,6 +28674,7 @@ ${l.notes ? `<div class="footer">${escapeHtml(l.notes)}</div>` : ''}
         $('ftPaContent').innerHTML = '<div class="empty">Loading&hellip;</div>';
         const inv = await loadOpenPastureInventory();
         if (inv.error) { $('ftPaContent').innerHTML = `<div class="alert error">${escapeHtml(inv.error.message)}</div>`; return; }
+        await ftLoadPlaced();          // feed waiting in a trap for cattle (D26)
         const headBy = {};
         const lotsBy = {};
         (inv.inventory || []).forEach(i => {
@@ -28684,7 +28705,7 @@ ${l.notes ? `<div class="footer">${escapeHtml(l.notes)}</div>` : ''}
                 data-route-order="${s ? s.route_order : 0}" data-read-order="${s ? (s.read_order || 0) : 0}" class="${s && s.is_active ? 'ft-on-route' : ''}">
             <td><span class="ft-drag" title="Drag to reorder">&#9776;</span></td>
             <td class="num ft-pa-pos muted"></td>
-            <td><strong>${escapeHtml(ftPastureLabel(p.id))}</strong></td>
+            <td><strong>${escapeHtml(ftPastureLabel(p.id))}</strong>${ftTrapBadge(p.id)}</td>
             <td class="num">${head ? fmtNum(head) : '<span class="muted">0</span>'}<div class="muted" style="font-size:11px;">${escapeHtml((lotsBy[p.id] || []).join(', '))}</div></td>
             <td><input type="checkbox" class="ft-pa-active" style="width:auto;" ${s && s.is_active ? 'checked' : ''}></td>
             <td><select class="ft-pa-type" style="max-width:130px;">

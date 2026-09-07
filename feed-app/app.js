@@ -297,7 +297,12 @@ async function pullRefs(quiet) {
             return false;
         }
         const pastureHead = {}; const lotNames = {};
-        const lotWt = {}; ((ls && !ls.error && ls.data) || []).forEach(l => { lotWt[l.lot_id] = { wt: l.projected_current_weight != null ? Number(l.projected_current_weight) : null, dof: l.days_on_feed != null ? Number(l.days_on_feed) : null, adg: l.target_adg != null ? Number(l.target_adg) : null }; });
+        const lotWt = {}; const openLots = [];
+        ((ls && !ls.error && ls.data) || []).forEach(l => {
+            lotWt[l.lot_id] = { wt: l.projected_current_weight != null ? Number(l.projected_current_weight) : null, dof: l.days_on_feed != null ? Number(l.days_on_feed) : null, adg: l.target_adg != null ? Number(l.target_adg) : null };
+            if (l.lot_number && !/^TEST[_-]/i.test(l.lot_number)) openLots.push({ id: l.lot_id, lot_number: l.lot_number });
+        });
+        openLots.sort((a, b) => a.lot_number.localeCompare(b.lot_number));
         (asg.data || []).forEach(a => {
             if (!a.lots || a.lots.closed_at || a.lots.is_test || /^TEST[_-]/i.test(a.lots.lot_number || '')) return;
             const n = Number(a.head_count) || 0; if (n <= 0) return;
@@ -307,6 +312,7 @@ async function pullRefs(quiet) {
             const w = lotWt[a.lot_id] || {};
             if (hit) hit.head += n; else arr.push({ lot_id: a.lot_id, lot_number: a.lots.lot_number, head: n, est_wt: w.wt == null ? null : w.wt, dof: w.dof == null ? null : w.dof, adg: w.adg == null ? null : w.adg });
         });
+        openLots.forEach(l => { if (!lotNames[l.id]) lotNames[l.id] = l.lot_number; });   // a lot with no cattle standing yet still has a name
         const weather = {}; ((wx && !wx.error && wx.data) || []).forEach(w => { weather[w.weather_date] = w; });
         (ld.data || []).forEach(l => (l.feed_drops || []).forEach(d => (d.feed_drop_lots || []).forEach(x => { if (!lotNames[x.lot_id]) lotNames[x.lot_id] = lotNames[x.lot_id] || '?'; })));
         // Reads: today's rows, and the most recent earlier row per pasture
@@ -323,7 +329,7 @@ async function pullRefs(quiet) {
             setup: su.data || [],
             pastures: (pa.data || []).map(p => ({ id: p.id, name: p.name, ranch: p.ranches ? p.ranches.name : '' })),
             items: it.data || [], locations: lo.data || [], trucks: tr.data || [], settings: st.data || {},
-            pastureHead, lotNames, lastReads, history, weather,
+            pastureHead, lotNames, lastReads, history, weather, openLots,
             serverLoads: (ld.data || []).map(normalizeServerLoad)
         };
         saveJSON('feedAppRefs', S.refs);
@@ -515,7 +521,7 @@ function readFor(pid) {
         target_lb: bulk ? 0 : round1((lbhd || 0) * head),
         ration_id: s.ration_id || null, route_order: s.route_order || 0, frozen_load_id: null,
         suggested_lb_per_head: null, clean_days: null, suggest_note: null,
-        est_weight_lb: null, expected_dmi_lb: null, flags: [],
+        est_weight_lb: null, expected_dmi_lb: null, flags: [], for_lot_id: null,
         notes: null, client_id: null, read_by: S.userId, _new: true
     };
     S.reads.rows[pid] = r;
@@ -866,6 +872,7 @@ function feedersCard() {
                 <div class="fd-main"><b>${esc(pastureLabel(pid))}</b>
                     <span class="muted small">${fmt(pastureHeadTotal(pid))} hd${cap ? ' · holds ' + fmt(cap) : ''}${fill ? ` · last ${fmt(fill.lb)} lb, ${days} day${days === 1 ? '' : 's'} ago` : ' · never filled'}</span></div>
                 <div class="fd-lb" data-edit="${pid}">${called > 0 ? fmt(called) + ' lb' : 'call'}</div>
+                ${pastureHeadTotal(pid) === 0 && called > 0 ? `<div class="fd-trap" data-trap="${pid}">${r.for_lot_id ? 'filling for <b>' + esc((R.lotName && R.lotName(r.for_lot_id)) || '?') + '</b>' : '<b>no lot named</b> · tap to name one'}</div>` : ''}
                 ${over ? '<div class="fd-warn">more than the feeders hold</div>' : ''}
             </div>`; }).join('')}
     </div>`;
@@ -879,6 +886,7 @@ function wireFeeders() {
         el.addEventListener('click', e => {
             const r = readFor(pid);
             if (readFrozen(r)) { toast('That feeder is already on a load', 'error'); return; }
+            if (e.target.closest('.fd-trap')) { askTrapLot(pid); return; }
             if (e.target.closest('.fd-lb') && Number(r.target_lb) > 0) {         // tap the number to type one
                 const ans = prompt('Pounds to deliver to ' + pastureLabel(pid) + ':', String(r.target_lb));
                 if (ans === null) return;
@@ -892,7 +900,22 @@ function wireFeeders() {
 function setBulkCall(pid, lb) {
     const r = readFor(pid);
     r.target_lb = lb; r.head_count = pastureHeadTotal(pid); r.lb_per_head = null; r.bunk_score = null;
+    if (!lb) r.for_lot_id = null;
     S.readsDirty = true; S.planEdits = null; persist(); renderPlan();
+    // Filling a trap before the cattle land: name the lot now, while you know
+    // it. The feed books to the pasture and moves to that lot on its first
+    // day with cattle (D26). Nobody has to remember anything later.
+    if (lb > 0 && pastureHeadTotal(pid) === 0 && !r.for_lot_id) askTrapLot(pid);
+}
+function askTrapLot(pid) {
+    const lots = (S.refs && S.refs.openLots) || [];
+    const r = readFor(pid);
+    sheet(`No cattle in ${pastureLabel(pid)} yet`, `<p class="muted small">Filling it for cattle that are coming? Name the lot and the feed lands on it the day they get there. Leave it unnamed and it waits on the office list.</p>
+        <label>Filling this for</label>
+        <select id="shTrapLot"><option value="">not sure yet</option>${lots.map(l => `<option value="${l.id}" ${r.for_lot_id === l.id ? 'selected' : ''}>${esc(l.lot_number)}</option>`).join('')}</select>`, () => {
+        r.for_lot_id = $('shTrapLot').value || null;
+        S.readsDirty = true; persist(); renderPlan();
+    });
 }
 function renderPlan() {
     const sel = $('planTruck');
@@ -1013,6 +1036,7 @@ function startLoad(key) {
         drops: first.drops.map((d, i) => ({
             id: uuid(), load_id: id, pasture_id: d.pasture_id, drop_seq: i + 1, target_lb: d.lb,
             method: cart ? 'allocated' : 'scale', called_lb: cart ? (d.called_lb != null ? d.called_lb : d.lb) : null,
+            for_lot_id: (readFor(d.pasture_id) || {}).for_lot_id || null,
             start_gross_lb: null, end_gross_lb: null, scale_lb: null, lb: 0, started_at: null, done_at: null, link_ok: null,
             edited_by: null, edited_at: null, edit_reason: null, client_id: null, lots: []
         })),
@@ -1200,7 +1224,7 @@ function renderDropping(l) {
     $('drBigLabel').textContent = d ? pastureLabel(d.pasture_id) : 'All drops done';
     $('drTiles').innerHTML = l.drops.map((x, i) => `<div class="tile ${i === l._ui.drop ? 'cur' : ''} ${x.done_at ? 'done' : ''} ${x.edited_at ? 'edited' : ''}" data-i="${i}">
         <div class="name">${esc(pastureLabel(x.pasture_id))}</div>
-        <div class="bay">${fmt(pastureHeadTotal(x.pasture_id))} hd${x.lots && x.lots.length > 1 ? ' · ' + x.lots.length + ' lots' : ''}</div>
+        <div class="bay">${pastureHeadTotal(x.pasture_id) === 0 && x.for_lot_id ? 'for ' + esc(R.lotName(x.for_lot_id)) : fmt(pastureHeadTotal(x.pasture_id)) + ' hd' + (x.lots && x.lots.length > 1 ? ' · ' + x.lots.length + ' lots' : '')}</div>
         <div class="tgt">${fmt(x.target_lb)}</div>
         <div class="got">${x.done_at ? fmt(x.lb) : '0'}</div></div>`).join('');
     $('drTiles').querySelectorAll('.tile').forEach(t => t.addEventListener('click', () => {
