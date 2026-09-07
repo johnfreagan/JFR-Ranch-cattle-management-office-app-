@@ -623,6 +623,14 @@ is unrecoverable in a way an accidental insert is not.
    a view runs as its owner and bypasses RLS entirely regardless of base-table
    policies. Ten views were exposed this way and readable by `anon` with no
    login at all. No exceptions.
+   **`CREATE OR REPLACE VIEW` CLEARS the reloptions when `WITH` is omitted** —
+   it does not carry the existing ones forward. So replacing a live view
+   without repeating the clause silently strips `security_invoker` off a view
+   that had it, which is worse than never setting it: nothing changed in the
+   view's definition, nothing errors, and the RLS bypass is invisible. Caught
+   2026-09-07 by the feed pen migration's own verify block on `lot_daily_head`,
+   before it applied. Repeat the clause on every replace, and assert it
+   afterwards.
 4. **Never GRANT anything to `anon`.** `authenticated` + RLS is the only path.
    Revoke from `PUBLIC`, not just `anon` — Postgres grants function EXECUTE to
    PUBLIC by default, so `revoke ... from anon` alone silently does nothing.

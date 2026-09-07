@@ -101,10 +101,18 @@ $chk$;
 -- and types are unchanged, so replace works — and a DROP ... CASCADE here
 -- would take lot_feed_daily, lot_feed_costs, feed_cost_unallocated,
 -- lot_head_days_by_month, pasture_feed_allocation and the feed truck
--- tie-outs with it, to be rebuilt by hand from memory. Replace also
--- preserves the security_invoker reloption, which a rebuild could drop
--- silently (rule 3 of the access-control section).
-CREATE OR REPLACE VIEW public.lot_daily_head AS
+-- tie-outs with it, to be rebuilt by hand from memory.
+--
+-- THE `WITH` CLAUSE IS NOT OPTIONAL AND IT IS NOT DECORATION.
+-- CREATE OR REPLACE VIEW **CLEARS** a view's reloptions when WITH is
+-- omitted — it does not carry the old ones forward. Replacing this view
+-- without it would silently strip security_invoker from lot_daily_head,
+-- leaving it running as its OWNER with RLS bypassed on lots, invoices,
+-- delivery_receipts, lot_events and sales — rule 3 of the access-control
+-- section, and exactly how ten views were once readable by anon.
+-- Caught by section 13 on the first attempt to apply this, 2026-09-07.
+CREATE OR REPLACE VIEW public.lot_daily_head
+WITH (security_invoker = true) AS
 WITH bounds AS (
     SELECT l.id AS lot_id,
         LEAST(
@@ -167,6 +175,11 @@ SELECT d.lot_id,
   FROM days d
   LEFT JOIN clamped c ON c.lot_id = d.lot_id AND c.d = d.as_of_date
  WINDOW w AS (PARTITION BY d.lot_id ORDER BY d.as_of_date ROWS UNBOUNDED PRECEDING);
+
+-- Belt and braces. The WITH above is what sets it; this makes the
+-- guarantee survive anyone who later edits that clause out, and it is a
+-- no-op when the option is already there.
+ALTER VIEW public.lot_daily_head SET (security_invoker = true);
 
 COMMENT ON VIEW public.lot_daily_head IS
     'Head on hand per lot per day. Bounded by first receipt, first invoice OR first transfer_in — the third term is how a feed pen, which has no receipts, gets head-days at all. Use this, not lot_head_days(), for anything involving cost.';
