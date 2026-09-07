@@ -441,8 +441,10 @@ both are DROP + CREATE rather than CREATE OR REPLACE.
   version won, so the report drew into the LOT's container while its own
   Event detail sat on "Loading…". The report's is now
   `renderDocEventTable`. A duplicate function declaration is legal JS and
-  throws nothing; only a unique name catches it. (`ceilTo` is still declared
-  twice — the two bodies are identical, so it is harmless.)
+  throws nothing; only a unique name catches it. `ceilTo` was the same shape
+  — two identical top-level bodies, harmless only by luck — and the shadowed
+  copy was deleted the same day. There are now **no duplicate top-level
+  function names in index.html**; keep it that way.
 - **The app degrades rather than breaking before the migration lands.** The
   new columns' absence is detected on the first row; the three dimensions
   that need them explain what to run, the two filters that need them warn

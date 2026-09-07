@@ -16855,11 +16855,6 @@ ${body}
         if (mode === 'per_weight') updateMedPreview();
     }
 
-    function ceilTo(value, increment) {
-        if (!increment || increment <= 0) return value;
-        return Math.ceil(value / increment) * increment;
-    }
-
     function updateMedPreview() {
         const rate = parseFloat($('medRate').value);
         const basis = parseFloat($('medBasis').value) || 100;
@@ -17516,6 +17511,13 @@ ${body}
     }
 
     // ---- Dose computation helpers ----
+    // The ONLY ceilTo. There were two identical top-level copies until
+    // 2026-09-07 — this one and another above updateMedPreview() — and
+    // hoisting silently kept this one. Identical bodies made it harmless,
+    // which is exactly why it sat there: a duplicate function declaration is
+    // legal JavaScript and throws nothing. Same trap as renderDoctoringTable,
+    // where the two bodies were NOT the same and a whole report drew into the
+    // wrong container. Do not add a second one.
     function ceilTo(v, inc) {
         if (!inc || inc <= 0) return v;
         return Math.ceil(v / inc) * inc;
