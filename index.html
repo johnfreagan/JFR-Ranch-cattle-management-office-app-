@@ -725,6 +725,7 @@
         }
         .appr-edit:disabled { opacity: .35; cursor: default; }
         .appr-flag.edited { background: #e8f0fe; color: #1a4fa0; }
+        .appr-flag.ok { background: #e5fceb; color: #1b7a34; }
         /* The cowboy's original, kept visible beside the correction so the
            office can see what was actually recorded in the pasture. */
         .appr-orig { font-size: 11px; color: var(--text-muted, #6b6b70); margin-top: 2px; }
@@ -8628,8 +8629,11 @@ window.addEventListener('unhandledrejection', function(e) {
     // moves carry a bare "YYYY-MM-DD". Both are already local, so slicing the
     // date off avoids a timezone shift that could move an entry a day.
     function entryDayKey(r) {
-        const stamp = r.kind === 'move' ? r.raw.date : r.raw.dateTime;
-        const d = String(stamp || '').slice(0, 10);
+        // Doctoring carries dateTime; moves, counts and weights carry a plain
+        // date. A kind added without a case here would fall to Undated, so
+        // this reads the stamp the office already resolved when there is one.
+        const stamp = (r.kind === 'doctoring' || r.kind === 'dead') ? r.raw.dateTime : r.raw.date;
+        const d = String(stamp || r.entry.event_datetime || '').slice(0, 10);
         return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
     }
 
@@ -8763,6 +8767,79 @@ window.addEventListener('unhandledrejection', function(e) {
                     norm(p.name) === norm(pastTxt) && p.ranch_id === ranch.id) || null
             };
         };
+
+        // ---- Counts and test weights -------------------------------------
+        // Both are recorded against a PASTURE. A count is checked against the
+        // books but never posts head on its own; a weight needs a lot, and
+        // the office assigns it here rather than the cowboy at the scale.
+        if (entry.entry_type === 'count' || entry.entry_type === 'weight') {
+            const loc = findPasture(raw.ranch, raw.pasture);
+            const pasture = ov.pasture || loc.pasture;
+            const ranch = pasture ? (lk.ranchesById[pasture.ranch_id] || null) : loc.ranch;
+            if (!pasture) issues.push(`pasture "${raw.ranch || ''} ${raw.pasture || ''}" not found — use Edit to set it`);
+            if (missingWhen) issues.push('no usable date on this entry');
+
+            const here = pasture ? lk.assignments.filter(a => a.pasture_id === pasture.id) : [];
+            const bookHead = here.reduce((t, a) => t + (Number(a.head_count) || 0), 0);
+
+            if (entry.entry_type === 'count') {
+                const counted = entry.head_count != null ? entry.head_count : parseInt(raw.countedHead, 10);
+                const diff = (counted || 0) - bookHead;
+                // A gap is NOT a split to re-cut: it is a death, sale or move
+                // nobody recorded. Approving it would bury that, so it blocks.
+                if (diff !== 0) {
+                    issues.push(`counted ${counted} against ${bookHead} on the books — ` +
+                        `${Math.abs(diff)} ${diff > 0 ? 'over' : 'short'}. Find the missing death, sale or move first.`);
+                }
+                return {
+                    entry, raw, kind: 'count', edited,
+                    lot: null, ranch, pasture, toRanch: null, toPasture: null,
+                    head: counted, bookHead, diff,
+                    action: null, meds: [], isDead: false, notHauled: false,
+                    issues, warnings, ready: issues.length === 0
+                };
+            }
+
+            // weight
+            const drafts = Array.isArray(raw.drafts) ? raw.drafts : [];
+            const totHead = drafts.reduce((t, d) => t + (parseInt(d.head, 10) || 0), 0);
+            const totGross = drafts.reduce((t, d) => t + (parseFloat(d.grossLb) || 0), 0);
+            if (!drafts.length || !totHead || !totGross) issues.push('no usable scale drafts on this entry');
+
+            // weights.lot_id is NOT NULL, so a lot has to be chosen. One lot
+            // in the pasture is not a choice; more than one is, and that is
+            // the question the office answers rather than the cowboy.
+            let lot = ov.lot || null;
+            if (!lot && here.length === 1) {
+                lot = lk.lotsById[here[0].lot_id] || null;
+                if (lot) warnings.push(`lot ${lot.lot_number} inferred — only lot in ${pasture.name}`);
+            } else if (!lot && here.length > 1) {
+                const names = here.map(a => (lk.lotsById[a.lot_id] || {}).lot_number).filter(Boolean).join(', ');
+                issues.push(`${here.length} lots in ${pasture ? pasture.name : ''} (${names}) — use Edit to say which one was weighed`);
+            } else if (!lot && pasture) {
+                issues.push(`no open lot in ${pasture.name}`);
+            }
+
+            // The office's decision wins; failing that the method's default,
+            // which is what the cowboy was shown as a guide.
+            const det = entry.resolved_detail || {};
+            const shrinkPct = det.shrink_pct != null ? Number(det.shrink_pct)
+                            : (raw.suggestedShrinkPct != null ? Number(raw.suggestedShrinkPct) : null);
+            if (shrinkPct == null || isNaN(shrinkPct)) issues.push('no shrink set — use Edit');
+            else if (det.shrink_pct == null) warnings.push(`shrink defaulted to ${shrinkPct}% from "${raw.method || 'method not given'}" — confirm it with Edit`);
+            const appliesTo = det.applies_to || 'pasture';
+            const grossAvg = totHead ? totGross / totHead : null;
+            const bookedAvg = grossAvg != null && shrinkPct != null ? grossAvg * (1 - shrinkPct / 100) : null;
+
+            return {
+                entry, raw, kind: 'weight', edited,
+                lot, ranch, pasture, toRanch: null, toPasture: null,
+                head: totHead, totGross, grossAvg, bookedAvg, shrinkPct, appliesTo,
+                method: raw.method || null, drafts,
+                action: null, meds: [], isDead: false, notHauled: false,
+                issues, warnings, ready: issues.length === 0
+            };
+        }
 
         // ---- Moves resolve on their own terms ----------------------------
         // They carry from/to pastures and a head count, and NO lot: the field
@@ -8953,7 +9030,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 supabase.from('pending_field_entries')
                     .select('id, entry_type, client_id, raw, status, review_notes, submitted_at, submitted_by, ' +
                             'event_datetime, lot_id, pasture_id, to_pasture_id, field_action_id, ' +
-                            'tag_number, no_tag, head_count, resolved_meds')
+                            'tag_number, no_tag, head_count, resolved_meds, resolved_detail')
                     .eq('status', 'pending')
                     .order('event_datetime', { ascending: true }),
                 loadApprovalLookups()
@@ -9023,11 +9100,35 @@ window.addEventListener('unhandledrejection', function(e) {
                     <button type="button" class="appr-day-all" data-day="${escapeHtml(dayKey)}">Select all</button>
                 </div>`;
 
-            ['doctoring', 'move', 'dead'].forEach(kind => {
+            ['doctoring', 'move', 'dead', 'count', 'weight'].forEach(kind => {
                 const rows = dayRows.filter(r => r.kind === kind);
                 if (!rows.length) return;
-                const label = kind === 'doctoring' ? 'Doctoring' : (kind === 'move' ? 'Moves' : 'Dead');
+                const label = kind === 'doctoring' ? 'Doctoring'
+                            : kind === 'move' ? 'Moves'
+                            : kind === 'dead' ? 'Dead'
+                            : kind === 'count' ? 'Pasture counts'
+                            : 'Test weights';
                 html += `<div class="appr-section"><h3>${label} (${rows.length})</h3>`;
+
+                // A count belongs to a pasture, not a lot, and a weight only
+                // gets its lot once the office assigns one — so both group by
+                // pasture instead of forcing them under "(lot not set)".
+                if (kind === 'count' || kind === 'weight') {
+                    const byPast = {};
+                    rows.forEach(r => {
+                        const key = r.pasture
+                            ? `${r.ranch ? r.ranch.name + ' – ' : ''}${r.pasture.name}`
+                            : `${r.raw.ranch || ''} ${r.raw.pasture || ''}`.trim() || '(pasture not set)';
+                        (byPast[key] = byPast[key] || []).push(r);
+                    });
+                    Object.keys(byPast).sort().forEach(key => {
+                        html += `<div class="appr-lot"><div class="appr-lot-head">${escapeHtml(key)}</div>`;
+                        byPast[key].forEach(r => { html += approvalRowHtml(r, false); });
+                        html += `</div>`;
+                    });
+                    html += `</div>`;
+                    return;
+                }
 
                 const byLot = {};
                 rows.forEach(r => {
@@ -9060,6 +9161,8 @@ window.addEventListener('unhandledrejection', function(e) {
     function approvalRowHtml(r, showWhy) {
         const raw = r.raw;
         const isMove = r.kind === 'move';
+        // Counts and weights render their own row below; they share none of
+        // the tag/med shape the doctoring path assumes.
         const tag = isMove ? '—' : (r.tag || 'NT');
         // Moves carry `date`; doctoring carries `dateTime`.
         const stamp = isMove ? raw.date : raw.dateTime;
@@ -9069,6 +9172,42 @@ window.addEventListener('unhandledrejection', function(e) {
                     ? { month: 'short', day: 'numeric' }
                     : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
             : '';
+
+        if (r.kind === 'count' || r.kind === 'weight') {
+            const where = `${escapeHtml((r.ranch && r.ranch.name) || raw.ranch || '')} ` +
+                          `${escapeHtml((r.pasture && r.pasture.name) || raw.pasture || '')}`;
+            const body = r.kind === 'count'
+                ? `${where} · counted <b>${r.head}</b> vs <b>${r.bookHead}</b> on the books` +
+                  (r.diff === 0 ? ' <span class="appr-flag ok">ties</span>'
+                                : ` <span class="appr-flag danger">${Math.abs(r.diff)} ${r.diff > 0 ? 'over' : 'short'}</span>`)
+                : `${where} · ${r.drafts.length} draft${r.drafts.length === 1 ? '' : 's'} · ` +
+                  `<b>${r.head}</b> hd · ${Math.round(r.totGross).toLocaleString()} lb gross · ` +
+                  (r.grossAvg != null ? `<b>${r.grossAvg.toFixed(1)}</b> gross avg` : '') +
+                  (r.bookedAvg != null ? ` → <b>${r.bookedAvg.toFixed(1)}</b> at ${r.shrinkPct}%` : '') +
+                  (r.lot ? ` · ${escapeHtml(r.lot.lot_number)}` : '') +
+                  ` · <span class="appr-flag">${r.appliesTo === 'lot' ? 'whole lot' : 'this pasture'}</span>`;
+            return `
+            <div class="appr-row ${r.ready ? '' : 'blocked'}">
+                <input type="checkbox" class="appr-check" ${r.ready ? '' : 'disabled'} data-id="${r.entry.id}" title="${r.ready ? 'Select to approve' : 'Resolve the issues first'}">
+                <span class="appr-tag">${r.kind === 'count' ? '🔢' : '⚖️'}</span>
+                <span class="appr-action">${r.kind === 'count' ? 'Count' : 'Test weight'}</span>
+                <span class="appr-detail">${body}</span>
+                <input type="date" class="appr-date" data-id="${r.entry.id}"
+                       value="${escapeHtml(String(r.entry.event_datetime || '').slice(0, 10))}"
+                       ${r.entry.status === 'pending' ? '' : 'disabled'}>
+                <span class="appr-when"></span>
+                <span class="appr-who">${escapeHtml(raw.recordedBy || '')}</span>
+                ${r.edited ? '<span class="appr-flag edited">edited</span>' : ''}
+                <input type="text" class="appr-note" data-id="${r.entry.id}"
+                       placeholder="note…" value="${escapeHtml(r.entry.review_notes || '')}">
+                <button type="button" class="appr-edit" data-id="${r.entry.id}" data-perm="office"
+                        title="Set the lot, the true shrink, and what this sample stands for"
+                        ${r.entry.status === 'pending' ? '' : 'disabled'}>✎</button>
+                <button type="button" class="appr-reject" data-id="${r.entry.id}" title="Reject and send back to the cowboy">✖</button>
+                ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
+                ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
+            </div>`;
+        }
 
         const lotBit = isMove
             ? (r.split
@@ -9226,6 +9365,66 @@ window.addEventListener('unhandledrejection', function(e) {
         return refs;
     }
 
+    // A count posts NO head. It either confirms the pasture and stamps the
+    // verified marker the Anomalies check reads, or it does not tie and never
+    // reached here — resolveApprovalEntry blocks it.
+    async function postCountEntry(r) {
+        const day = String(r.entry.event_datetime || '').slice(0, 10);
+        const note = [r.raw.notes, `counted by ${r.raw.recordedBy || 'field'}`].filter(Boolean).join(' · ');
+        const stamp = `[counted ${day}]` + (note ? ' ' + note : '');
+        const { data: asg, error } = await supabase
+            .from('lot_pasture_assignments')
+            .select('id, notes').eq('pasture_id', r.pasture.id).is('moved_out', null);
+        if (error) throw new Error(`count ${r.pasture.name}: ${error.message}`);
+        const touched = [];
+        for (const a of (asg || [])) {
+            const prev = (a.notes || '').replace(/\[counted \d{4}-\d{2}-\d{2}\][^·]*/, '').trim();
+            const { data, error: uErr } = await supabase.from('lot_pasture_assignments')
+                .update({ notes: [prev, stamp].filter(Boolean).join(' · ') })
+                .eq('id', a.id).select('id');
+            if (uErr) throw new Error(`count ${r.pasture.name}: ${uErr.message}`);
+            if (!data || !data.length) throw new Error(`count ${r.pasture.name}: nothing was saved`);
+            touched.push({ id: a.id, notes: a.notes });
+        }
+        return { kind: 'pasture_count', id: r.pasture.id, restore: touched };
+    }
+
+    // One row per scale draft, so each drag stays visible under the average.
+    // Gross is what came off the scale; total_weight_lb is booked after the
+    // office's shrink, and the two are stored separately so a later true-up
+    // calibrates on gross rather than on an already-shrunk number.
+    async function postWeightEntry(r) {
+        const day = String(r.entry.event_datetime || '').slice(0, 10);
+        const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(r.entry.id);
+        const rows = r.drafts.map((d, i) => {
+            const gross = Number(d.grossLb) || 0;
+            return {
+                lot_id: r.lot.id,
+                pasture_id: r.pasture.id,
+                pasture_name: `${r.ranch ? r.ranch.name + ' - ' : ''}${r.pasture.name}`,
+                weigh_date: day,
+                weight_type: 'pasture_check',
+                head_weighed: parseInt(d.head, 10) || 0,
+                gross_weight_lb: gross,
+                shrink_pct: r.shrinkPct,
+                total_weight_lb: Math.round(gross * (1 - r.shrinkPct / 100) * 100) / 100,
+                weigh_method: r.method,
+                applies_to: r.appliesTo,
+                weigh_session_id: sessionId,
+                draft_no: i + 1,
+                notes: [r.raw.notes, `field test weight by ${r.raw.recordedBy || 'field'}`]
+                        .filter(Boolean).join(' · '),
+                recorded_by: currentUser.id
+            };
+        });
+        const { data, error } = await supabase.from('weights').insert(rows).select('id');
+        if (error) throw new Error(`weights ${r.pasture.name}: ${error.message}`);
+        if (!data || data.length !== rows.length) {
+            throw new Error(`weights ${r.pasture.name}: ${data ? data.length : 0} of ${rows.length} rows saved`);
+        }
+        return { kind: 'weight_session', id: sessionId, ids: data.map(x => x.id) };
+    }
+
     async function rollbackPosted(posted) {
         const failures = [];
         // Reverse order: undo the most recent first.
@@ -9242,6 +9441,18 @@ window.addEventListener('unhandledrejection', function(e) {
                 } else if (p.kind === 'lot_movement') {
                     const { error } = await supabase.rpc('delete_move_event', { p_movement_id: p.id });
                     if (error) throw error;
+                } else if (p.kind === 'weight_session') {
+                    // Plain rows, no head math — deleting them restores nothing
+                    // but the absence of the sample, which is the right undo.
+                    const { error } = await supabase.from('weights').delete().in('id', p.ids);
+                    if (error) throw error;
+                } else if (p.kind === 'pasture_count') {
+                    // Put every note back exactly as it was.
+                    for (const t of (p.restore || [])) {
+                        const { error } = await supabase.from('lot_pasture_assignments')
+                            .update({ notes: t.notes }).eq('id', t.id);
+                        if (error) throw error;
+                    }
                 }
             } catch (err) {
                 failures.push(`${p.kind} ${p.id}: ${err.message || err}`);
@@ -9258,10 +9469,14 @@ window.addEventListener('unhandledrejection', function(e) {
         const nDoc = rows.filter(r => r.kind === 'doctoring').length;
         const nDead = rows.filter(r => r.kind === 'dead').length;
         const nMove = rows.filter(r => r.kind === 'move').length;
+        const nCount = rows.filter(r => r.kind === 'count').length;
+        const nWeight = rows.filter(r => r.kind === 'weight').length;
         const priceWarn = rows.filter(r => r.warnings.some(w => w.includes('no price'))).length;
         let msg = `Post ${rows.length} entr${rows.length === 1 ? 'y' : 'ies'} to the books?\n\n` +
                   `  ${nDoc} doctoring\n  ${nDead} death${nDead === 1 ? '' : 's'}\n` +
-                  `  ${nMove} move${nMove === 1 ? '' : 's'}\n\n` +
+                  `  ${nMove} move${nMove === 1 ? '' : 's'}\n` +
+                  (nCount ? `  ${nCount} pasture count${nCount === 1 ? '' : 's'} (confirms the books, posts no head)\n` : '') +
+                  (nWeight ? `  ${nWeight} test weight${nWeight === 1 ? '' : 's'}\n` : '') + '\n' +
                   `If any one fails, the whole batch is rolled back.`;
         if (priceWarn) msg += `\n\n⚠ ${priceWarn} carry an unpriced medication and will post with $0 cost. ` +
                               `Cost is frozen at approval and cannot be corrected later by pricing the med.`;
@@ -9279,10 +9494,15 @@ window.addEventListener('unhandledrejection', function(e) {
         // a pasture, posted before a death recorded in that same pasture,
         // would leave record_death_with_pasture with no active assignment and
         // fail a batch that is perfectly valid in the right order.
+        // Counts and weights touch no head, so they sit with doctoring ahead
+        // of the head-math entries rather than in the replay order.
         const headMath = rows.filter(r => r.kind === 'dead' || r.kind === 'move')
             .sort((a, b) => String(a.entry.event_datetime || '')
                 .localeCompare(String(b.entry.event_datetime || '')));
-        const ordered = [...rows.filter(r => r.kind === 'doctoring'), ...headMath];
+        const ordered = [
+            ...rows.filter(r => r.kind === 'doctoring' || r.kind === 'count' || r.kind === 'weight'),
+            ...headMath
+        ];
 
         const posted = [];
         try {
@@ -9291,6 +9511,8 @@ window.addEventListener('unhandledrejection', function(e) {
                 try {
                     refs = [].concat(r.kind === 'dead' ? await postDeathEntry(r)
                                    : r.kind === 'move' ? await postMoveEntry(r)
+                                   : r.kind === 'count' ? await postCountEntry(r)
+                                   : r.kind === 'weight' ? await postWeightEntry(r)
                                    : await postDoctoringEntry(r));
                 } catch (e) {
                     // A multi-lot move can fail half-posted. Its completed
@@ -9687,7 +9909,45 @@ window.addEventListener('unhandledrejection', function(e) {
         const day = stamp.slice(0, 10);
 
         let html = '';
-        if (r.kind === 'move') {
+        if (r.kind === 'count' || r.kind === 'weight') {
+            $('apprEditTitle').textContent = r.kind === 'count' ? 'Correct count' : 'Correct test weight';
+            const ranchId = r.pasture ? r.pasture.ranch_id : (r.ranch ? r.ranch.id : '');
+            html = `
+                <label for="aeDate">Date</label>
+                <input type="date" id="aeDate" value="${escapeHtml(day)}">
+                <label for="aeFromRanch">Ranch</label>
+                <select id="aeFromRanch">${apprRanchOptions(lk, ranchId)}</select>
+                <label for="aeFromPasture">Pasture</label>
+                <select id="aeFromPasture">${apprPastureOptions(lk, ranchId, r.pasture ? r.pasture.id : '')}</select>`;
+            if (r.kind === 'weight') {
+                const pct = r.shrinkPct != null ? r.shrinkPct : '';
+                html += `
+                <label for="aeLot">Lot weighed</label>
+                <select id="aeLot">${apprLotOptionsForPasture(lk, r.pasture ? r.pasture.id : '', r.lot ? r.lot.id : '')}</select>
+                <label for="aeApplies">Stands for</label>
+                <select id="aeApplies">
+                    <option value="pasture" ${r.appliesTo !== 'lot' ? 'selected' : ''}>just this pasture</option>
+                    <option value="lot" ${r.appliesTo === 'lot' ? 'selected' : ''}>the whole lot</option>
+                </select>
+                <label for="aeShrink">True shrink %</label>
+                <input type="number" id="aeShrink" step="0.1" min="0" max="49" value="${pct}">`;
+                $('apprEditWas').innerHTML =
+                    `Cowboy recorded: <b>${escapeHtml(String(raw.ranch || ''))} ${escapeHtml(String(raw.pasture || ''))}</b>, ` +
+                    `${r.drafts.length} draft${r.drafts.length === 1 ? '' : 's'}, ` +
+                    `<b>${r.head}</b> hd, <b>${Math.round(r.totGross).toLocaleString()}</b> lb gross ` +
+                    `(${r.grossAvg != null ? r.grossAvg.toFixed(1) : '?'} avg), weighed ` +
+                    `<b>${escapeHtml(String(raw.method || '?'))}</b> — he was shown ` +
+                    `${escapeHtml(String(raw.suggestedShrinkPct || '?'))}% as a guide.` +
+                    (raw.notes ? ` · &ldquo;${escapeHtml(raw.notes)}&rdquo;` : '') +
+                    `<br>Drafts: ${r.drafts.map(d => `${d.head} hd / ${Math.round(d.grossLb).toLocaleString()} lb`).join(' · ')}`;
+            } else {
+                $('apprEditWas').innerHTML =
+                    `Cowboy recorded: <b>${escapeHtml(String(raw.ranch || ''))} ${escapeHtml(String(raw.pasture || ''))}</b>, ` +
+                    `counted <b>${escapeHtml(String(raw.countedHead || ''))}</b> head` +
+                    (raw.notes ? ` · &ldquo;${escapeHtml(raw.notes)}&rdquo;` : '');
+            }
+        }
+        else if (r.kind === 'move') {
             $('apprEditTitle').textContent = 'Correct move';
             const fromRanchId = r.pasture ? r.pasture.ranch_id : (r.ranch ? r.ranch.id : '');
             const toRanchId   = r.toPasture ? r.toPasture.ranch_id : (r.toRanch ? r.toRanch.id : '');
@@ -9768,7 +10028,8 @@ window.addEventListener('unhandledrejection', function(e) {
                 ps.onchange = () => { $('aeLot').innerHTML = apprLotOptionsForPasture(lk, ps.value, ''); };
             }
         };
-        wire('aeFromRanch', 'aeFromPasture', r.kind === 'move');
+        // On a weight the pasture also narrows the lot list, same as a move.
+        wire('aeFromRanch', 'aeFromPasture', r.kind === 'move' || r.kind === 'weight');
         wire('aeToRanch', 'aeToPasture', false);
 
         showModal('apprEditModal');
@@ -9785,6 +10046,46 @@ window.addEventListener('unhandledrejection', function(e) {
         if (!day) { showAlert('apprEditAlert', 'A date is required.', 'error'); return; }
 
         const patch = {};
+        if (r.kind === 'count' || r.kind === 'weight') {
+            const past = val('aeFromPasture');
+            if (!past) { showAlert('apprEditAlert', 'A pasture is required.', 'error'); return; }
+            Object.assign(patch, {
+                pasture_id: past,
+                event_datetime: new Date(day + 'T00:00:00').toISOString()
+            });
+            if (r.kind === 'weight') {
+                const lot = val('aeLot');
+                const shrink = val('aeShrink');
+                if (!lot) { showAlert('apprEditAlert', 'Pick the lot that was weighed — a weight cannot be stored without one.', 'error'); return; }
+                const pct = shrink === '' ? null : Number(shrink);
+                if (pct == null || isNaN(pct) || pct < 0 || pct >= 50) {
+                    showAlert('apprEditAlert', 'Shrink must be a percentage between 0 and 49.', 'error');
+                    return;
+                }
+                Object.assign(patch, {
+                    lot_id: lot,
+                    // shrink_pct and applies_to belong to `weights`, not to
+                    // this table, so they ride in resolved_detail until the
+                    // approval writes the real rows.
+                    resolved_detail: Object.assign({}, r.entry.resolved_detail || {}, {
+                        shrink_pct: pct,
+                        applies_to: val('aeApplies') || 'pasture'
+                    })
+                });
+            }
+            try {
+                const { data, error } = await supabase.from('pending_field_entries')
+                    .update(patch).eq('id', id).eq('status', 'pending').select('id');
+                if (error) throw error;
+                if (!data || !data.length) throw new Error('nothing was saved — the entry may have just been approved or rejected by someone else');
+                hideModal('apprEditModal');
+                showAlert('globalAlert', 'Correction saved.', 'success');
+                await loadApprovals();
+            } catch (err) {
+                showAlert('apprEditAlert', `Could not save: ${err.message || err}`, 'error');
+            }
+            return;
+        }
         if (isMove) {
             const fromP = val('aeFromPasture'), toP = val('aeToPasture'), lot = val('aeLot');
             const head = parseInt(val('aeHead'), 10);

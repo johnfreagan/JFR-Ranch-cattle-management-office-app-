@@ -697,6 +697,58 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
   (`drug_off` means removed to the proper location for dead animals; it has
   nothing to do with drug withdrawal.)
 
+## Pasture counts and test weights (live 2026-09-07)
+
+Recorded on the field app's Pasture tab, reviewed on the office Approvals
+tab. Migrations: `docs/sql/2026-09-07_field_counts_and_test_weights.sql` and
+`..._07b_pfe_resolved_detail.sql`. **Neither kind posts head.**
+
+- **`pending_field_entries.entry_type` now has four values** —
+  `doctoring | move | count | weight`. Adding a fifth means touching THREE
+  places in the office or it resolves correctly and then vanishes: the
+  `['doctoring','move','dead','count','weight']` loop in `renderApprovals`,
+  `entryDayKey()` (which otherwise files it under Undated), and the
+  `ordered` list in `approveSelected`. All three were missed on the first
+  cut and only surfaced under test.
+- **A count that does not tie is BLOCKED, never absorbed.** A gap between
+  the count and the books is a death, sale or move nobody recorded — a
+  different problem — and approving it would bury the thing worth finding.
+  A count that ties writes the same `[counted YYYY-MM-DD]` marker the Settle
+  screen writes, which is what silences the Anomalies check.
+- **Neither kind asks the cowboy which lot.** On a mixed pasture nobody at
+  the scale can say, which is the whole premise of the pro-rata split.
+  `weights.lot_id` is NOT NULL, so the OFFICE assigns it at approval — one
+  lot in the pasture is inferred with a warning, more than one blocks and
+  names them.
+- **Shrink is indicative in the field, true at approval.** John's factors
+  (2026-09-07): **3% weighed on the ground, 2% hauled and weighed** — hauled
+  cattle have already shrunk on the trailer. The field app shows the shrunk
+  figure so the number in the cowboy's hand is realistic; the office sets
+  what is stored, and a shrink still on the method default warns that nobody
+  has confirmed it.
+- **`weights` stores gross AND booked separately.** `gross_weight_lb` is off
+  the scale, `total_weight_lb` is booked after shrink. A later true-up has to
+  calibrate on GROSS or each estimate's error compounds into the next — the
+  same rule the silage allowance follows. `weights_booked_le_gross_check`
+  and `weights_gross_present_check` refuse the two ways to get this wrong.
+- **One `weights` row per scale draft**, sharing a `weigh_session_id`, so the
+  average can be rebuilt with each drag still visible underneath it.
+- **`applies_to`** ('pasture' | 'lot') is John's call that the office decides
+  whether a sample stands for the pasture it came off or the whole lot, and
+  is asked about mixed lots at that point.
+- **`pending_field_entries.resolved_detail` (jsonb) holds review decisions
+  with no column of their own** — a weight's `shrink_pct` and `applies_to`.
+  They belong to `weights`, not to the staging table, but have to persist
+  between the edit and the approval. Do NOT overload `resolved_meds`; it is
+  med-specific.
+- **NOTHING READS `weights` YET.** John's decision (2026-09-07) is option A:
+  capture and display only. A test weight must not re-anchor
+  `projected_current_weight`, feed realized ADG, or drive the `per_lb` COG
+  mode — a pasture weight is full of grass and water while a pay weight is
+  shrunk, and the first 20 head into the trap are the gentle ones, not a
+  random sample. Revisit once there are real weights to compare against what
+  the projection said.
+
 ## Schema landmines (verified by painful trial and error — trust these)
 
 - `doctoring_events.tag_number` is TEXT. `lot_tags.tag_number` is INTEGER.
@@ -857,6 +909,13 @@ A fourth tab: pick a ranch, then a pasture, and it shows the lots standing
 there with head and a pasture total. Reads `pastureLotsMap`, the same cache
 the move form's split uses, so it works with no signal.
 
+- **The pickers offer only pastures that HOLD cattle** (v21). Built from
+  `pastureLotsMap`, not from the pasture list: on ~60 pastures most are empty
+  most of the time, and offering them all buries the handful that matter. A
+  device that has never synced says "No cattle on the books — sync first"
+  rather than showing an empty dropdown. Consequence to know: a pasture the
+  books show as empty cannot be selected, so cattle found somewhere the books
+  do not know about cannot be counted there — that is a move to record first.
 - **It is deliberately not a yard sheet.** Both selectors must be answered
   before anything appears; there is no all-pastures list, no ranch subtotal
   and no route to an operation-wide number. John's reason (2026-09-02): a

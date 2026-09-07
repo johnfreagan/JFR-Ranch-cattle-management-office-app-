@@ -440,6 +440,28 @@ body.modal-open { overflow: hidden; }
     .tab-ico { display: none; }
 }
 
+/* Count and test-weight forms on the pasture page. */
+.pv-form-head { font-size: 16px; margin: 0 0 10px; }
+.pv-form-where { color: #007aff; }
+.pv-compare { font-size: 13px; padding: 8px 2px; color: #8e8e93; }
+.pv-compare.ok  { color: #1b7a34; font-weight: 600; }
+.pv-compare.bad { color: #d70015; font-weight: 600; }
+.pv-draft-x {
+    border: 0; background: none; color: #d70015; font-size: 20px;
+    padding: 0 4px; cursor: pointer; line-height: 1; margin-top: 0 !important;
+    width: auto; flex: 0 0 auto;
+}
+.pv-totals { margin-top: 10px; border-top: 1px solid #d1d1d6; padding-top: 8px; }
+.pv-tot-row {
+    display: flex; justify-content: space-between; font-size: 14px; padding: 3px 0;
+}
+.pv-tot-row.muted-row { color: #1b7a34; }
+.pv-tot-note { font-size: 11px; color: #8e8e93; padding-top: 4px; }
+.secondary-btn {
+    background: #f2f2f7 !important; color: #1c1c1e !important;
+    border: 1px solid #d1d1d6 !important;
+}
+
 /* Pasture inventory — one pasture, never a list. */
 .pv-hint { color: #8e8e93; font-size: 14px; padding: 16px 4px; text-align: center; }
 .pv-card {
