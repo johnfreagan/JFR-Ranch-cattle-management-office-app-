@@ -2137,6 +2137,7 @@
                 <div id="fdUsMatrixWrap" style="margin-top:14px;">
                     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
                         <select id="fdMxAddLot" style="max-width:200px;"><option value="">— Add a lot column —</option></select>
+                        <select id="fdMxAddCc" style="max-width:220px;"><option value="">— Add a cost centre column —</option></select>
                         <select id="fdMxAddItem" style="max-width:240px;"><option value="">— Add a commodity row —</option></select>
                         <button type="button" id="fdMxResetBtn">Reset sheet</button>
                     </div>
@@ -26777,7 +26778,12 @@ ${ranchBlocks}
     // in closeout months later. PB's own lines round - on the 8/24-30 invoice
     // for 36-27 the nine lines sum to 99,209 against a stated 99,210 - so the
     // check carries a tolerance, and warns rather than blocking.
-    let fdMatrix = null;   // { lotIds:[], rows:[{uid,item_id,location_id}], cells:{}, pbTotals:{} }
+    // cols is an ordered list of {kind:'lot'|'cc', id}. It was lotIds until
+    // 2026-09-07; cost-centre feeding (cowherd, bulls, horses) had to be
+    // typed one row at a time in Single rows while everything else went on
+    // the weekly sheet, which is how a week gets entered half in one screen
+    // and half in another and one half gets forgotten.
+    let fdMatrix = null;   // { cols:[], rows:[{uid,item_id,location_id}], cells:{}, pbTotals:{} }
     const FD_TIE_TOLERANCE_LB = 5;
 
     function fdMxMode() {
@@ -26785,7 +26791,22 @@ ${ranchBlocks}
         return el ? el.value : 'matrix';
     }
 
-    function fdMxCellKey(uid, lotId) { return uid + '|' + lotId; }
+    // A column's stable key. Prefixed by kind so a lot and a cost centre can
+    // never collide on a shared uuid, and so a cell key says what it is.
+    function fdMxColKey(c) { return c.kind + ':' + c.id; }
+    function fdMxCellKey(uid, colKey) { return uid + '|' + colKey; }
+    function fdMxColLabel(c) {
+        if (c.kind === 'lot') {
+            const l = fdOpenLots.find(x => x.id === c.id);
+            return l ? l.lot_number : '?';
+        }
+        const cc = fdCostCenters.find(x => x.id === c.id);
+        return cc ? cc.name : '?';
+    }
+    function fdMxColExists(c) {
+        return c.kind === 'lot' ? fdOpenLots.some(l => l.id === c.id)
+                                : fdCostCenters.some(x => x.id === c.id);
+    }
 
     // The bay a commodity comes out of, in order of confidence: where it is
     // usually kept, else the only bay that actually holds any, else nothing.
@@ -26824,8 +26845,10 @@ ${ranchBlocks}
             const A = fdItem(a.item_id), B = fdItem(b.item_id);
             return (A ? A.name : '').localeCompare(B ? B.name : '');
         });
+        // Lots only to start with. Most weeks nothing goes to a cost centre,
+        // and a column of empty cowherd boxes every Monday is noise.
         fdMatrix = {
-            lotIds: fdOpenLots.map(l => l.id),
+            cols: fdOpenLots.map(l => ({ kind: 'lot', id: l.id })),
             rows: withStock,
             cells: {},
             pbTotals: {}
@@ -26839,16 +26862,17 @@ ${ranchBlocks}
         if (!fdMatrix) return;
         const rows = [];
         fdMatrix.rows.forEach(r => {
-            fdMatrix.lotIds.forEach(lotId => {
-                const v = fdMatrix.cells[fdMxCellKey(r.uid, lotId)];
-                const n = parseFloat(v);
+            fdMatrix.cols.forEach(c => {
+                const key = fdMxColKey(c);
+                const n = parseFloat(fdMatrix.cells[fdMxCellKey(r.uid, key)]);
                 if (!(n > 0)) return;
                 rows.push({
-                    uid: r.uid + '_' + lotId,
+                    uid: r.uid + '_' + key,
                     item_id: r.item_id,
                     from_location_id: r.location_id,
-                    destination_type: 'lot',
-                    lot_id: lotId,
+                    destination_type: c.kind === 'lot' ? 'lot' : 'cost_center',
+                    lot_id: c.kind === 'lot' ? c.id : '',
+                    cost_center_id: c.kind === 'cc' ? c.id : '',
                     pasture_id: '',
                     to_location_id: '',
                     qty_lb: String(n)
@@ -26858,18 +26882,20 @@ ${ranchBlocks}
         fdUsageSheet = { rows };
     }
 
-    function fdMxColumnTotal(lotId) {
+    function fdMxColumnTotal(colKey) {
         if (!fdMatrix) return 0;
         return fdMatrix.rows.reduce((t, r) => {
-            const n = parseFloat(fdMatrix.cells[fdMxCellKey(r.uid, lotId)]);
+            const n = parseFloat(fdMatrix.cells[fdMxCellKey(r.uid, colKey)]);
             return t + (n > 0 ? n : 0);
         }, 0);
     }
 
+    // Every column, cost centres included - this feeds the bay draw-down,
+    // and pounds going to the cowherd come out of the same pile.
     function fdMxRowTotal(uid) {
         if (!fdMatrix) return 0;
-        return fdMatrix.lotIds.reduce((t, lotId) => {
-            const n = parseFloat(fdMatrix.cells[fdMxCellKey(uid, lotId)]);
+        return fdMatrix.cols.reduce((t, c) => {
+            const n = parseFloat(fdMatrix.cells[fdMxCellKey(uid, fdMxColKey(c))]);
             return t + (n > 0 ? n : 0);
         }, 0);
     }
@@ -26885,20 +26911,26 @@ ${ranchBlocks}
 
     function fdMxRender() {
         if (!fdMatrix) { $('fdMxTable').innerHTML = ''; return; }
-        const lots = fdMatrix.lotIds
-            .map(id => fdOpenLots.find(l => l.id === id))
-            .filter(Boolean);
+        // A lot that closed or a cost centre deactivated since the sheet was
+        // opened would render as "?" and still take pounds.
+        fdMatrix.cols = fdMatrix.cols.filter(fdMxColExists);
+        const cols = fdMatrix.cols;
 
+        const picked = k => new Set(fdMatrix.cols.filter(c => c.kind === k).map(c => c.id));
+        const inLots = picked('lot'), inCcs = picked('cc');
         $('fdMxAddLot').innerHTML = '<option value="">— Add a lot column —</option>' +
-            fdOpenLots.filter(l => !fdMatrix.lotIds.includes(l.id))
+            fdOpenLots.filter(l => !inLots.has(l.id))
                 .map(l => `<option value="${l.id}">${escapeHtml(l.lot_number)}</option>`).join('');
+        $('fdMxAddCc').innerHTML = '<option value="">— Add a cost centre column —</option>' +
+            fdCostCenters.filter(c => !inCcs.has(c.id))
+                .map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
         $('fdMxAddItem').innerHTML = '<option value="">— Add a commodity row —</option>' +
             fdItems.filter(i => i.is_active)
                 .map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('');
 
-        if (!lots.length || !fdMatrix.rows.length) {
+        if (!cols.length || !fdMatrix.rows.length) {
             $('fdMxTable').innerHTML =
-                '<div class="empty">Add at least one lot column and one commodity row.</div>';
+                '<div class="empty">Add at least one lot or cost centre column, and one commodity row.</div>';
             $('fdMxTie').innerHTML = '';
             return;
         }
@@ -26906,8 +26938,9 @@ ${ranchBlocks}
         const head = `<tr>
             <th style="min-width:200px;">Commodity</th>
             <th style="min-width:150px;">Out of</th>
-            ${lots.map(l => `<th class="num" style="min-width:110px;">${escapeHtml(l.lot_number)}
-                <div style="font-weight:400;"><button type="button" class="fd-mx-droplot" data-lot="${l.id}"
+            ${cols.map(c => `<th class="num" style="min-width:110px;">${escapeHtml(fdMxColLabel(c))}
+                ${c.kind === 'cc' ? '<div class="muted" style="font-weight:400; font-size:10px;">cost centre</div>' : ''}
+                <div style="font-weight:400;"><button type="button" class="fd-mx-dropcol" data-col="${fdMxColKey(c)}"
                      style="font-size:10px; padding:0 4px; background:none; border:none; color:var(--text-muted); cursor:pointer;">remove</button></div></th>`).join('')}
             <th class="num" style="min-width:100px;">Row total</th>
             <th style="width:28px;"></th>
@@ -26930,9 +26963,9 @@ ${ranchBlocks}
                                : fmtNum(Math.max(0, draw.left)) + ' of ' + fmtNum(draw.onHand) + ' lb left'}
                     </div>
                 </td>
-                ${lots.map(l => `<td class="num"><input type="number" step="0.01" min="0"
-                    data-fd-mx-cell="${fdMxCellKey(r.uid, l.id)}"
-                    value="${fdMatrix.cells[fdMxCellKey(r.uid, l.id)] || ''}"
+                ${cols.map(c => `<td class="num"><input type="number" step="0.01" min="0"
+                    data-fd-mx-cell="${fdMxCellKey(r.uid, fdMxColKey(c))}"
+                    value="${fdMatrix.cells[fdMxCellKey(r.uid, fdMxColKey(c))] || ''}"
                     style="max-width:96px; text-align:right;"></td>`).join('')}
                 <td class="num" data-fd-mx-rowtot="${r.uid}">${fmtNum(fdMxRowTotal(r.uid))}</td>
                 <td><button type="button" class="fd-mx-droprow" data-uid="${r.uid}"
@@ -26942,23 +26975,31 @@ ${ranchBlocks}
 
         // The column footer is where the sheet becomes verifiable: PB's own
         // Amount Fed against what was typed.
+        // The PB row is the tie-out, and PB invoices LOTS. The cowherd is not
+        // on that invoice - John: "commodities for our cowherd that is not in
+        // the program" - so a cost-centre column gets no PB box and is left
+        // out of the tie count. An input there would invite a number that
+        // cannot be checked against anything, and would make "3 of 4 tie"
+        // read as a problem when nothing is wrong.
         const foot = `<tr style="border-top:2px solid var(--border);">
             <td colspan="2" style="font-weight:600;">Typed total</td>
-            ${lots.map(l => `<td class="num" data-fd-mx-coltot="${l.id}" style="font-weight:600;">${fmtNum(fdMxColumnTotal(l.id))}</td>`).join('')}
-            <td class="num" style="font-weight:600;" data-fd-mx-grand>${fmtNum(lots.reduce((t, l) => t + fdMxColumnTotal(l.id), 0))}</td>
+            ${cols.map(c => `<td class="num" data-fd-mx-coltot="${fdMxColKey(c)}" style="font-weight:600;">${fmtNum(fdMxColumnTotal(fdMxColKey(c)))}</td>`).join('')}
+            <td class="num" style="font-weight:600;" data-fd-mx-grand>${fmtNum(cols.reduce((t, c) => t + fdMxColumnTotal(fdMxColKey(c)), 0))}</td>
             <td></td>
         </tr>
         <tr>
             <td colspan="2">PB &ldquo;Amount Fed&rdquo;
                 <div class="muted" style="font-size:11px;">type it off the invoice</div></td>
-            ${lots.map(l => `<td class="num"><input type="number" step="0.01" min="0"
-                data-fd-mx-pb="${l.id}" value="${fdMatrix.pbTotals[l.id] || ''}"
-                style="max-width:96px; text-align:right;"></td>`).join('')}
+            ${cols.map(c => c.kind === 'lot'
+                ? `<td class="num"><input type="number" step="0.01" min="0"
+                    data-fd-mx-pb="${fdMxColKey(c)}" value="${fdMatrix.pbTotals[fdMxColKey(c)] || ''}"
+                    style="max-width:96px; text-align:right;"></td>`
+                : `<td class="num muted" style="font-size:11px;">not on PB</td>`).join('')}
             <td colspan="2"></td>
         </tr>
         <tr>
             <td colspan="2"></td>
-            ${lots.map(l => `<td class="num" data-fd-mx-tie="${l.id}" style="font-size:11px;"></td>`).join('')}
+            ${cols.map(c => `<td class="num" data-fd-mx-tie="${fdMxColKey(c)}" style="font-size:11px;"></td>`).join('')}
             <td colspan="2"></td>
         </tr>`;
 
@@ -26996,9 +27037,9 @@ ${ranchBlocks}
                 fdMxRender();
             };
         });
-        $('fdMxTable').querySelectorAll('.fd-mx-droplot').forEach(btn => {
+        $('fdMxTable').querySelectorAll('.fd-mx-dropcol').forEach(btn => {
             btn.onclick = () => {
-                fdMatrix.lotIds = fdMatrix.lotIds.filter(id => id !== btn.dataset.lot);
+                fdMatrix.cols = fdMatrix.cols.filter(c => fdMxColKey(c) !== btn.dataset.col);
                 fdMxRender();
             };
         });
@@ -27029,15 +27070,16 @@ ${ranchBlocks}
         });
 
         let grand = 0;
-        fdMatrix.lotIds.forEach(lotId => {
-            const tot = fdMxColumnTotal(lotId);
-            grand += tot;
-            const tc = $('fdMxTable').querySelector(`[data-fd-mx-coltot="${lotId}"]`);
+        fdMatrix.cols.forEach(c => {
+            const key = fdMxColKey(c);
+            const tot = fdMxColumnTotal(key);
+            grand += tot;                       // the sheet's whole draw, cost centres included
+            const tc = $('fdMxTable').querySelector(`[data-fd-mx-coltot="${key}"]`);
             if (tc) tc.textContent = fmtNum(tot);
 
-            const tie = $('fdMxTable').querySelector(`[data-fd-mx-tie="${lotId}"]`);
-            if (!tie) return;
-            const pb = parseFloat(fdMatrix.pbTotals[lotId]);
+            const tie = $('fdMxTable').querySelector(`[data-fd-mx-tie="${key}"]`);
+            if (!tie || c.kind !== 'lot') return;
+            const pb = parseFloat(fdMatrix.pbTotals[key]);
             if (!(pb > 0)) { tie.innerHTML = ''; tie.style.color = ''; return; }
             const diff = tot - pb;
             if (Math.abs(diff) <= FD_TIE_TOLERANCE_LB) {
@@ -27059,17 +27101,19 @@ ${ranchBlocks}
         if (!box || !fdMatrix) return;
         const off = [];
         let tied = 0, untyped = 0;
-        fdMatrix.lotIds.forEach(lotId => {
-            const lot = fdOpenLots.find(l => l.id === lotId);
-            const pb = parseFloat(fdMatrix.pbTotals[lotId]);
-            const tot = fdMxColumnTotal(lotId);
+        // Lot columns only. A cost centre has no PB figure to tie to, so
+        // counting it here would report a gap that does not exist.
+        fdMatrix.cols.filter(c => c.kind === 'lot').forEach(c => {
+            const key = fdMxColKey(c);
+            const pb = parseFloat(fdMatrix.pbTotals[key]);
+            const tot = fdMxColumnTotal(key);
             if (!(pb > 0)) { if (tot > 0) untyped++; return; }
             if (Math.abs(tot - pb) <= FD_TIE_TOLERANCE_LB) tied++;
-            else off.push(`${lot ? lot.lot_number : '?'} off by ${fmtNum(Math.abs(tot - pb))} lb`);
+            else off.push(`${fdMxColLabel(c)} off by ${fmtNum(Math.abs(tot - pb))} lb`);
         });
         if (!off.length && !tied && !untyped) { box.innerHTML = ''; return; }
         box.innerHTML = `<div class="muted" style="font-size:12px;">
-            ${tied ? `<span style="color:var(--success);">✓ ${tied} column${tied === 1 ? '' : 's'} tie to PB.</span> ` : ''}
+            ${tied ? `<span style="color:var(--success);">✓ ${tied} column${tied === 1 ? ' ties' : 's tie'} to PB.</span> ` : ''}
             ${off.length ? `<span style="color:#b58900;">⚠ ${off.join(' · ')}.</span> ` : ''}
             ${untyped ? `${untyped} column${untyped === 1 ? ' has' : 's have'} feed typed but no PB total to check against.` : ''}
         </div>`;
@@ -28133,7 +28177,15 @@ ${ranchBlocks}
     });
     $('fdMxAddLot').addEventListener('change', e => {
         if (!e.target.value || !fdMatrix) return;
-        if (!fdMatrix.lotIds.includes(e.target.value)) fdMatrix.lotIds.push(e.target.value);
+        if (!fdMatrix.cols.some(c => c.kind === 'lot' && c.id === e.target.value))
+            fdMatrix.cols.push({ kind: 'lot', id: e.target.value });
+        e.target.value = '';
+        fdMxRender();
+    });
+    $('fdMxAddCc').addEventListener('change', e => {
+        if (!e.target.value || !fdMatrix) return;
+        if (!fdMatrix.cols.some(c => c.kind === 'cc' && c.id === e.target.value))
+            fdMatrix.cols.push({ kind: 'cc', id: e.target.value });
         e.target.value = '';
         fdMxRender();
     });
@@ -28642,11 +28694,23 @@ ${ranchBlocks}
         'Corn', 'DDGS', 'Peanut Hulls', 'Cottonseed Hulls', 'WCS',
         'Penchlor', 'Corrid Crumbles', '(old)Premix', 'BatchTransPre',
         'TranPremix', '24Corn/Sorg Silage', '25Corn Silage', 'SoyHull',
-        'Molasses', 'Salt', 'Limiter'
+        'Molasses', 'Salt', 'Limiter',
+        // Ranly TMR Mineral is an ADDITIVE despite the name (John,
+        // 2026-09-07: "it's not a mineral") - it is mixed into the ration in
+        // the barn, exactly like Penchlor, Corrid Crumbles and Limiter, which
+        // are all feed boxes. The name is what put it on the mineral sheet.
+        // Last in the list because a box added to the Redwing Feed
+        // Application template now lands at the end of that screen; move the
+        // string if it sits somewhere else there.
+        'Ranly Mixing Min'
     ];
+    // The mineral template is what goes OUT to cattle on grass, put out by
+    // the sack. Note Salt is on the feed list and Redman Bag Salt is here:
+    // it is the same substance in two roles, so item_type cannot decide this
+    // and the box name has to.
     const FD_RW_MIN_BOXES = [
         'Redman Bag Salt', 'ADM Master Gain', 'IGR Master Gain',
-        'MLS Tubs', 'Purina Min', 'One Grass', 'Ranly Mixing Min'
+        'MLS Tubs', 'Purina Min', 'One Grass'
     ];
 
     let fdRwData = null;
