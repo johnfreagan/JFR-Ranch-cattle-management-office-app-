@@ -367,16 +367,39 @@ function daysOnFeedFrom(dateStr) {
 // review time against live data, so the client deliberately does NOT
 // guess at those foreign keys here.
 function toStagingRow(record) {
-    const isMove = record.type === 'move';
+    const kind = record.type === 'move' ? 'move'
+               : record.type === 'count' ? 'count'
+               : record.type === 'weight' ? 'weight'
+               : 'doctoring';
     const tag = String(record.tagNumber || '').trim();
+
+    // A count and a weight both carry a head figure and a plain date, and
+    // neither has a tag. head_count is what the office lists them by.
+    if (kind === 'count' || kind === 'weight') {
+        const head = kind === 'count'
+            ? parseInt(record.countedHead, 10)
+            : (record.drafts || []).reduce((t, d) => t + (parseInt(d.head, 10) || 0), 0);
+        return {
+            entry_type: kind,
+            client_id: String(record.id),
+            raw: record,
+            tag_number: null,
+            no_tag: false,
+            event_datetime: toIsoOrNull(record.date),
+            head_count: isNaN(head) ? 0 : head,
+            submitted_by: currentUserId,
+            status: 'pending'
+        };
+    }
+
     return {
-        entry_type: isMove ? 'move' : 'doctoring',
+        entry_type: kind,
         client_id: String(record.id),
         raw: record,
-        tag_number: isMove ? null : (tag || null),
-        no_tag: !isMove && /^NT\d*$/i.test(tag),
-        event_datetime: toIsoOrNull(isMove ? record.date : record.dateTime),
-        head_count: isMove ? (parseInt(record.headCount, 10) || 0) : null,
+        tag_number: kind === 'move' ? null : (tag || null),
+        no_tag: kind !== 'move' && /^NT\d*$/i.test(tag),
+        event_datetime: toIsoOrNull(kind === 'move' ? record.date : record.dateTime),
+        head_count: kind === 'move' ? (parseInt(record.headCount, 10) || 0) : null,
         submitted_by: currentUserId,
         status: 'pending'
     };
@@ -993,6 +1016,7 @@ function openPastureView() {
     ranchSel.value = '';
     pastSel.innerHTML = '<option value="">Select Ranch first...</option>';
     pastSel.disabled = true;
+    pvShowForm(null);
     renderPastureView();
 }
 
@@ -1010,10 +1034,17 @@ function renderPastureView() {
     const ranch = String(document.getElementById('pvRanch').value || '').trim();
     const past = String(document.getElementById('pvPasture').value || '').trim();
 
+    const actions = document.getElementById('pvActions');
     if (!ranch || !past) {
         box.innerHTML = '<div class="pv-hint">Pick a ranch and a pasture to see what is in it.</div>';
+        if (actions) actions.style.display = 'none';
+        pvShowForm(null);
+        if (actions) actions.style.display = 'none';
         return;
     }
+    // Counting and weighing are things you do TO a pasture, so they only
+    // appear once one is named — same gate as the inventory itself.
+    if (actions) actions.style.display = 'block';
 
     const here = pastureLotsMap[`${ranch} - ${past}`] || [];
     const total = here.reduce((t, x) => t + (Number(x.head) || 0), 0);
@@ -1054,6 +1085,212 @@ document.getElementById('pvRanch').onchange = function() {
     renderPastureView();
 };
 document.getElementById('pvPasture').onchange = renderPastureView;
+
+// =========================================================
+// PASTURE COUNT AND TEST WEIGHTS
+//
+// Both are recorded against the PASTURE, not a lot. On a mixed pasture the
+// cowboy cannot say which lot an animal belongs to — that is the whole
+// premise of the pro-rata split — so he is not asked. The office assigns the
+// lot at approval, where it can also ask about mixed lots.
+//
+// Shrink here is INDICATIVE only, so the figure in his hand is realistic
+// while he works. The true factor is set by the office at approval and is
+// what gets stored. Defaults are John's: 3% weighed on the ground, 2% hauled
+// and weighed — hauled cattle have already shrunk on the trailer.
+const SHRINK_DEFAULTS = { ground: 3, hauled: 2 };
+
+function pvWhere() {
+    const ranch = String(document.getElementById('pvRanch').value || '').trim();
+    const past = String(document.getElementById('pvPasture').value || '').trim();
+    return { ranch, past, label: ranch && past ? `${ranch} - ${past}` : '' };
+}
+
+function pvShowForm(which) {
+    const count = document.getElementById('pvCountForm');
+    const weigh = document.getElementById('pvWeighForm');
+    const actions = document.getElementById('pvActions');
+    count.style.display = which === 'count' ? 'block' : 'none';
+    weigh.style.display = which === 'weigh' ? 'block' : 'none';
+    actions.style.display = which ? 'none' : 'block';
+    if (!which) return;
+    const { label } = pvWhere();
+    document.querySelectorAll('.pv-form-where').forEach(el => { el.textContent = label; });
+}
+
+// ---- count ----------------------------------------------------------
+function pvOpenCount() {
+    document.getElementById('pvCountHead').value = '';
+    document.getElementById('pvCountNotes').value = '';
+    document.getElementById('pvCountDate').valueAsDate = new Date();
+    pvShowForm('count');
+    pvCompareCount();
+}
+
+// Say straight away whether the count ties, because a gap is a different
+// problem from a bad split: it means a death, sale or move nobody recorded,
+// and the office cannot settle the pasture until that is found.
+function pvCompareCount() {
+    const el = document.getElementById('pvCountCompare');
+    const { label } = pvWhere();
+    const here = pastureLotsMap[label] || [];
+    const book = here.reduce((t, x) => t + (Number(x.head) || 0), 0);
+    const v = document.getElementById('pvCountHead').value;
+    const counted = v === '' ? null : parseInt(v, 10);
+    if (counted == null || isNaN(counted)) {
+        el.className = 'pv-compare';
+        el.textContent = `Books show ${book} head here.`;
+        return;
+    }
+    const diff = counted - book;
+    if (diff === 0) {
+        el.className = 'pv-compare ok';
+        el.textContent = `Ties with the books (${book} head).`;
+    } else {
+        el.className = 'pv-compare bad';
+        el.textContent = `Books show ${book}. That is ${Math.abs(diff)} ${diff > 0 ? 'more' : 'short'} — ` +
+                         `send it anyway and the office will work out why.`;
+    }
+}
+
+function pvSaveCount() {
+    const { ranch, past, label } = pvWhere();
+    const v = document.getElementById('pvCountHead').value;
+    const counted = v === '' ? null : parseInt(v, 10);
+    if (counted == null || isNaN(counted) || counted < 0) {
+        showToast('🛑 Enter the head you counted', 'error', 3000);
+        return;
+    }
+    if (!recordedByInput.value.trim()) {
+        showToast('🛑 Put your name in on the Doctoring tab first', 'error', 3500);
+        return;
+    }
+    const here = pastureLotsMap[label] || [];
+    const book = here.reduce((t, x) => t + (Number(x.head) || 0), 0);
+    if (!confirm(`Send count?\n${label}\nCounted ${counted} head (books say ${book}).`)) return;
+
+    const rec = {
+        type: 'count',
+        id: 'C-' + Date.now(),
+        date: document.getElementById('pvCountDate').value,
+        ranch, pasture: past,
+        countedHead: String(counted),
+        bookHead: String(book),
+        lots: here.map(x => ({ lot: x.lot, head: x.head })),
+        notes: document.getElementById('pvCountNotes').value.trim(),
+        recordedBy: recordedByInput.value.trim()
+    };
+    pushToCloud(rec);
+    showToast(`🔢 Count sent: ${label}, ${counted} hd`, 'success', 2500);
+    pvShowForm(null);
+}
+
+// ---- test weights ---------------------------------------------------
+function pvOpenWeigh() {
+    document.getElementById('pvWeighNotes').value = '';
+    document.getElementById('pvWeighDate').valueAsDate = new Date();
+    document.getElementById('pvWeighMethod').value = 'ground';
+    document.getElementById('pvDrafts').innerHTML = '';
+    pvAddDraftRow();
+    pvShowForm('weigh');
+}
+
+function pvAddDraftRow() {
+    const box = document.getElementById('pvDrafts');
+    const n = box.querySelectorAll('.pv-draft').length + 1;
+    const row = document.createElement('div');
+    row.className = 'lot-split-row pv-draft';
+    row.innerHTML = `
+        <span class="lot-split-name">Draft ${n}</span>
+        <input type="number" class="pv-draft-head" min="1" step="1" inputmode="numeric"
+               placeholder="hd" style="width:70px; text-align:right;">
+        <input type="number" class="pv-draft-lb" min="1" step="1" inputmode="numeric"
+               placeholder="lb total" style="width:100px; text-align:right;">
+        <button type="button" class="pv-draft-x" title="Remove this draft">&times;</button>`;
+    box.appendChild(row);
+    row.querySelectorAll('input').forEach(el => el.addEventListener('input', pvWeighTotals));
+    row.querySelector('.pv-draft-x').addEventListener('click', () => {
+        row.remove();
+        // Renumber so the labels match what is on screen.
+        [...box.querySelectorAll('.pv-draft')].forEach((r, i) => {
+            r.querySelector('.lot-split-name').textContent = `Draft ${i + 1}`;
+        });
+        pvWeighTotals();
+    });
+    pvWeighTotals();
+}
+
+function pvDraftValues() {
+    return [...document.querySelectorAll('.pv-draft')].map(r => ({
+        head: parseInt(r.querySelector('.pv-draft-head').value, 10) || 0,
+        grossLb: parseFloat(r.querySelector('.pv-draft-lb').value) || 0
+    })).filter(d => d.head > 0 && d.grossLb > 0);
+}
+
+function pvWeighTotals() {
+    const el = document.getElementById('pvWeighTotals');
+    const drafts = pvDraftValues();
+    const head = drafts.reduce((t, d) => t + d.head, 0);
+    const lb = drafts.reduce((t, d) => t + d.grossLb, 0);
+    if (!head || !lb) { el.innerHTML = ''; return; }
+    const method = document.getElementById('pvWeighMethod').value;
+    const pct = SHRINK_DEFAULTS[method] || 0;
+    const grossAvg = lb / head;
+    const shrunkAvg = grossAvg * (1 - pct / 100);
+    el.innerHTML = `
+        <div class="pv-tot-row"><span>${head} head weighed</span><span>${Math.round(lb).toLocaleString()} lb gross</span></div>
+        <div class="pv-tot-row"><span>Gross average</span><span><b>${grossAvg.toFixed(1)} lb</b></span></div>
+        <div class="pv-tot-row muted-row"><span>Less ${pct}% shrink</span><span><b>${shrunkAvg.toFixed(1)} lb</b></span></div>
+        <div class="pv-tot-note">The office sets the true shrink when this is approved.</div>`;
+}
+
+function pvSaveWeigh() {
+    const { ranch, past, label } = pvWhere();
+    const drafts = pvDraftValues();
+    if (!drafts.length) {
+        showToast('🛑 Enter at least one draft — head and total pounds', 'error', 3500);
+        return;
+    }
+    if (!recordedByInput.value.trim()) {
+        showToast('🛑 Put your name in on the Doctoring tab first', 'error', 3500);
+        return;
+    }
+    const head = drafts.reduce((t, d) => t + d.head, 0);
+    const lb = drafts.reduce((t, d) => t + d.grossLb, 0);
+    const method = document.getElementById('pvWeighMethod').value;
+    const pct = SHRINK_DEFAULTS[method] || 0;
+    if (!confirm(`Send test weights?\n${label}\n${drafts.length} draft${drafts.length === 1 ? '' : 's'}, ` +
+                 `${head} head, ${Math.round(lb).toLocaleString()} lb gross\n` +
+                 `${(lb / head).toFixed(1)} lb gross average`)) return;
+
+    const rec = {
+        type: 'weight',
+        id: 'W-' + Date.now(),
+        date: document.getElementById('pvWeighDate').value,
+        ranch, pasture: past,
+        method,
+        suggestedShrinkPct: String(pct),
+        drafts: drafts.map((d, i) => ({ draft: i + 1, head: d.head, grossLb: d.grossLb })),
+        totalHead: String(head),
+        totalGrossLb: String(lb),
+        lots: (pastureLotsMap[label] || []).map(x => ({ lot: x.lot, head: x.head })),
+        notes: document.getElementById('pvWeighNotes').value.trim(),
+        recordedBy: recordedByInput.value.trim()
+    };
+    pushToCloud(rec);
+    showToast(`⚖️ Weights sent: ${head} hd, ${(lb / head).toFixed(0)} lb avg`, 'success', 2500);
+    pvShowForm(null);
+}
+
+document.getElementById('pvCountBtn').onclick = pvOpenCount;
+document.getElementById('pvWeighBtn').onclick = pvOpenWeigh;
+document.getElementById('pvCountCancel').onclick = () => pvShowForm(null);
+document.getElementById('pvWeighCancel').onclick = () => pvShowForm(null);
+document.getElementById('pvCountSave').onclick = pvSaveCount;
+document.getElementById('pvWeighSave').onclick = pvSaveWeigh;
+document.getElementById('pvCountHead').addEventListener('input', pvCompareCount);
+document.getElementById('pvAddDraft').onclick = pvAddDraftRow;
+document.getElementById('pvWeighMethod').onchange = pvWeighTotals;
 
 function populateMoveDropdowns() {
     const fromRanch = document.getElementById('moveFromRanch');

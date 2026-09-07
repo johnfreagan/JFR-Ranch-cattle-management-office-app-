@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <title>Beta Cattle Tracker</title>
-    <link rel="stylesheet" href="styles.css?v=v19">
+    <link rel="stylesheet" href="styles.css?v=v20">
     <style>
         @media (max-width: 600px) {
             .mobile-row { flex-direction: row !important; gap: 8px !important; }
@@ -146,7 +146,7 @@
 // has to keep working without app.js.
 // ---------------------------------------------------------------------
 (function () {
-    var BUILD = 'v19';
+    var BUILD = 'v20';
     window.__FIELD_BUILD = BUILD;
 
     var reported = false;
@@ -237,7 +237,7 @@
             <span>App stuck or not loading right?</span>
             <button type="button" id="loginResetBtn">Reset app</button>
         </div>
-        <div class="build-stamp">build v19</div>
+        <div class="build-stamp">build v20</div>
     </form>
 </div>
 
@@ -458,6 +458,70 @@
             </div>
         </div>
         <div id="pvResult"></div>
+
+        <!-- Both open only once a pasture is chosen; renderPastureView shows them. -->
+        <div id="pvActions" style="display:none; margin-top:14px;">
+            <div class="form-row mobile-row">
+                <button type="button" id="pvCountBtn" class="secondary-btn" style="flex:1;"
+                        title="Record a physical count of this pasture.">🔢 Record a count</button>
+                <button type="button" id="pvWeighBtn" class="secondary-btn" style="flex:1;"
+                        title="Record test weights, one scale draft at a time.">⚖️ Test weights</button>
+            </div>
+        </div>
+
+        <!-- COUNT -->
+        <div id="pvCountForm" style="display:none; margin-top:14px;">
+            <h3 class="pv-form-head">Count &mdash; <span class="pv-form-where"></span></h3>
+            <div class="form-row mobile-row">
+                <div class="form-group" style="flex:1;">
+                    <label>Head counted:</label>
+                    <input type="number" id="pvCountHead" min="0" step="1" inputmode="numeric" placeholder="Total in this pasture">
+                </div>
+                <div class="form-group" style="flex:1;">
+                    <label>Date:</label>
+                    <input type="date" id="pvCountDate">
+                </div>
+            </div>
+            <div id="pvCountCompare" class="pv-compare"></div>
+            <div class="form-group">
+                <label>Notes:</label>
+                <input type="text" id="pvCountNotes" placeholder="e.g. counted at the gate">
+            </div>
+            <div class="form-row mobile-row">
+                <button type="button" id="pvCountCancel" class="secondary-btn" style="flex:1;">Cancel</button>
+                <button type="button" id="pvCountSave" style="flex:1;">Send count</button>
+            </div>
+        </div>
+
+        <!-- TEST WEIGHTS -->
+        <div id="pvWeighForm" style="display:none; margin-top:14px;">
+            <h3 class="pv-form-head">Test weights &mdash; <span class="pv-form-where"></span></h3>
+            <div class="form-row mobile-row">
+                <div class="form-group" style="flex:1;">
+                    <label>Weighed:</label>
+                    <select id="pvWeighMethod">
+                        <option value="ground">On the ground (3% shrink)</option>
+                        <option value="hauled">Hauled and weighed (2% shrink)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex:1;">
+                    <label>Date:</label>
+                    <input type="date" id="pvWeighDate">
+                </div>
+            </div>
+            <label>Scale drafts:</label>
+            <div id="pvDrafts" class="lot-split"></div>
+            <button type="button" id="pvAddDraft" class="secondary-btn" style="margin-top:8px;">+ Add a draft</button>
+            <div id="pvWeighTotals" class="pv-totals"></div>
+            <div class="form-group">
+                <label>Notes:</label>
+                <input type="text" id="pvWeighNotes" placeholder="e.g. off the trap, morning">
+            </div>
+            <div class="form-row mobile-row">
+                <button type="button" id="pvWeighCancel" class="secondary-btn" style="flex:1;">Cancel</button>
+                <button type="button" id="pvWeighSave" style="flex:1;">Send weights</button>
+            </div>
+        </div>
     </div>
 
     <div id="historySection" style="display: none;">
@@ -753,6 +817,6 @@
      same-origin assets, so a CDN copy would leave the app dead offline on a
      cold start - which is exactly when a phone in a pasture needs it. -->
 <script src="supabase.min.js?v=2.46.1"></script>
-<script src="app.js?v=v19"></script>
+<script src="app.js?v=v20"></script>
 </body>
 </html>
