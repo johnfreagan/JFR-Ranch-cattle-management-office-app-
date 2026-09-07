@@ -23,9 +23,12 @@ See "Access control" below and `docs/security-model.md`.
   Aug 2026 arrival → FY 2027. A DB trigger (`derive_fiscal_year`) enforces this.
 - Stocker operation: high-risk lightweight steers (275–350 lb in). ~11 ranches,
   ~60 pastures. Lots are the core unit (e.g. 36-27, 37X, 47-26).
-- Head math invariant: head_in − head_dead − head_sold = head_current, and
-  head_current must equal the sum of open lot_pasture_assignments. Divergence
-  = "drift" and shows on the Anomalies report. Never create drift.
+- Head math invariant: head_in − head_dead − head_sold − transfer_out +
+  transfer_in + adjustment = head_current, and head_current must equal the sum
+  of open lot_pasture_assignments. Divergence = "drift" and shows on the
+  Anomalies report. Never create drift. (`lot_status` has always carried the
+  transfer and adjustment terms; missing head and strays back — see "Strays
+  and missing head" — are the first time an ordinary lot uses one.)
 - Processing (receiving meds) is captured on **delivery receipts via
   receiving_protocol_id** — NOT as doctoring events. Cost views derive from
   receipts × protocol_meds × medication pricing.
@@ -569,6 +572,78 @@ lot (is_feed_pen) ← lot_transfers kind='feed_pen', basis $0 ← the source lot
   weight in and break-even are all empty by design) and its lot page hides
   Purchases and Closeout, showing the Feed pen section instead.
   `is_feed_pen` is settable on a NEW lot only.
+
+## Strays and missing head (built 2026-09-07)
+
+Migration `docs/sql/2026-09-07d_strays_and_missing.sql`; every decision and the
+rejected alternatives in `docs/stray-cattle-design.md`. From John's question:
+cattle come back that were killed off, or that have been gone so long the lot
+has closed.
+
+```
+missing out   -> negative adjustment, cause 'missing'        (record_missing_head)
+stray back in -> positive adjustment, cause 'stray_return'   (record_stray_return)
+lot closed    -> the FEED PEN at $0, entry_kind 'stray'      (record_feed_pen_opening)
+either one    -> delete_head_adjustment
+```
+
+- **Head you cannot find are NOT a death.** Lot 47-26 was closed 2026-09-03 by
+  writing 2 head off as a death, cause `missing from shipping`. Nothing died,
+  and that row sits in the lot's mortality rate (8/187 rather than 6/187), the
+  death-timing card and the pull-failure denominators of the Doctoring & Deaths
+  report — none of which read `cause`; they count `head_dead`. This is the feed
+  pen's own butchered/missing ruling reaching ordinary lots. **No new
+  `event_type`**: `adjustment` is already signed and already summed by
+  `lot_status.head_current` and `lot_daily_head`.
+- **A stray comes back on the day it was FOUND, at $0** — never by deleting the
+  write-off, once any time has passed. `lot_daily_head` would hand the lot every
+  head-day back to the write-off date and silently re-price feed, cost of gain,
+  labor and treatment on every day since, for an animal nobody was feeding.
+  Deleting is right only for an entry that was simply wrong and is fresh; the
+  reversal's confirm text says which is which and names the other button.
+- **A CLOSED lot is never re-opened for a stray.** `lot_daily_head` ends a lot
+  at `LEAST(closed_at, ranch_today())`, so re-opening un-finalises a reported
+  fiscal year. Both closed lots are FY 2026, which is the common case for a
+  stray, not an edge case. It goes in the **feed pen at $0** naming the closed
+  lot — pen cost is TRACKED, never charged back, so that lot's books are
+  untouched. A `STRAY-27` lot per year was rejected as a second copy of the
+  pen's machinery for a handful of head; hanging it on a current-year lot was
+  rejected because it contaminates a real cohort's mortality and per-head cost.
+- **`feed_pen_ledger.entry_kind` gained `'stray'`**, distinct from `'opening'`
+  (found in the pen, never carried anywhere). Same lesson as the Doctoring
+  report's three kinds of missing paperwork. `record_feed_pen_opening` gained
+  `p_entry_kind` and was **DROPped and recreated, not overloaded**, and the
+  migration drops BOTH signatures — dropping only the old one made the file fail
+  its own idempotency test.
+- **`feed_pen_ledger.opening_event_id` cascades from `lot_events`**, so
+  reversing an opening cannot leave the attribution ledger holding head the head
+  math no longer carries. The backfill links only where exactly one candidate
+  event matches.
+- **`delete_head_adjustment` is one reversal for all three**, and both
+  directions carry a trap. Negative (head come back): reopen a closed assignment
+  with EXACTLY the head returning, never adding to the stale stored count — the
+  `delete_death_event` bug. Positive (head leave again): REFUSE when the
+  assignment no longer holds them, rather than taking a count negative and
+  creating drift that surfaces days later. A pen's butchered/missing rows are
+  the tail of a removal and are not reversible from this card.
+- **The closeout carries a `Missing` line, carved OUT of Cattle in** exactly as
+  death loss is, so Cattle in + Death loss + Missing still sum to the invoices
+  and total cost is unchanged. `survivingHead` drops the missing head. Strays
+  back net the line down and flip it to **Strays back** when more come back than
+  were written off. **Nothing projects forward** — nobody assumes a rate of
+  going missing the way they assume a death rate.
+- Two Anomalies findings: **head written off as missing on a lot still open**
+  (medium inside 90 days), and **a death whose cause reads as unaccounted-for**
+  (medium open / low closed — flagged on closed lots too, because it is
+  inflating that lot's death rate now and is still a correction to approve).
+- **Reclassifying 47-26 is offered, not run.** The `UPDATE` is commented at the
+  foot of the migration; it rewrites a reported prior year and needs John's
+  explicit say-so. `head_count` stays `-2` — `lot_status` subtracts a death's
+  absolute value and ADDS an adjustment's signed value, so `head_current` lands
+  in the same place.
+- **`record_feed_pen_opening` had no screen at all** before this; the three
+  calves in Corner/H1 went in by hand-written SQL. It is now
+  "+ Head found / stray in" on the pen's year card.
 
 ## Access control (RLS — read before touching auth, policies, or views)
 
