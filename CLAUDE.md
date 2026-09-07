@@ -30,8 +30,21 @@ See "Access control" below and `docs/security-model.md`.
   receiving_protocol_id** — NOT as doctoring events. Cost views derive from
   receipts × protocol_meds × medication pricing.
 - Treatment cost comes from doctoring_events + doctoring_event_meds (cost is
-  FROZEN per row at save time).
-- Processing $/hd is per head IN; Treatment $/hd is per LIVE head current.
+  FROZEN per row at save time). **A NULL cost is a hole, not a frozen
+  number**, and may be back-filled from the current price list with a
+  `WHERE cost IS NULL` guard — done 2026-09-04 on the X lots (682 rows,
+  $8,873.41, `docs/sql/2026-09-04_backfill_x_lot_med_costs.sql`). The
+  non-X lots still carry ~1,178 unpriced rows.
+- **A receipt with no `receiving_protocol_id` has NO processing cost**, and
+  the lot's $/hd reads diluted (dollars from the covered loads over every
+  head in). The lot tile shows "5 of 10 loads" in amber when coverage is
+  partial and "no protocol" when it is zero; the Receiving report prints
+  per head processed AND per head in, and lists the loads without one.
+  Found 2026-09-04: 59X had 5 of 10 loads covered; 37X, 37X-1 and 37X-F
+  had none, and their cattle pre-date every protocol in the system.
+- Processing $/hd is per head IN; Treatment $/hd is per SURVIVING head
+  (`head_in − head_dead`, shipped or not). It was per head current until
+  2026-09-04, which loaded 60X's whole treatment bill onto its last 29 head.
 
 ### Changing a protocol or a drug price — read before editing either
 
@@ -94,6 +107,14 @@ The Closeout tab shows one set of economics in three columns. It is
   11%. In total dollars death loss needs no line; it falls out of the
   division. The projection estimates only **deaths still to come**:
   `clamp(0, head_current, head_in × pct − head_dead)`.
+  **Since 2026-09-04 death loss IS shown as its own line** (John: "very
+  important line item") — but CARVED OUT of Cattle in, never added on
+  top: `deathLossUsd = head_dead × avgCostIn`, `cattleLive = cattleCost −
+  deathLossUsd`, projection adds `deathsToCome × avgCostIn` and takes it
+  out of cattle in again. The two lines sum to the invoices, total cost
+  is unchanged, and Cattle in per head lands on the same figure as the
+  lot tile. Death loss is valued at cost IN only; the dead animals'
+  processing, feed and doctoring stay in those lines.
 - **Cost of gain and labor are charged against head-days, never against
   today's head count × total days.** Cattle that shipped in June ate grass
   until June. On 37X-1 the old math charged 75 head × 231 days = 17,325
@@ -101,12 +122,98 @@ The Closeout tab shows one set of economics in three columns. It is
   nowhere.
 - A **per-head** (flat) COG or labor rate is charged once on `head_in` and
   never carried forward again. Only **per-day** rates accrue on head-days.
+- **COG mode `per_lb` (2026-09-04, John's call) charges the rate on POUNDS
+  GAINED, trued up to the scale.** Migration
+  `docs/sql/2026-09-04_cog_per_lb.sql` adds `lots.assumed_cog_per_lb` and
+  widens both `cog_mode` CHECKs. Gain to date = `lot_realized_adg.
+  total_gain_lb` (real pay weight less weight in, on head already shipped)
+  + target ADG × the head-days NOT covered by `sold_head_days`. The
+  projection adds target ADG × forward head-days. Each sale with a pay
+  weight moves its slice from estimate to fact, so a fully shipped lot has
+  no estimate left. The budget column uses its own frozen `target_adg`.
+  Before the feed boundary the gain is pro-rated onto `hdBefore` by
+  head-days. This deliberately reverses the older "per-pound is display
+  only" rule below: the assumed ADG is biased low, so the estimated slice
+  reads LIGHT until the cattle ship — the screen warns when realized ADG on
+  shipped head runs more than 5% over the assumption, with both dollar
+  figures. The transfer basis (`ltStoredRates`) feeds `lots.target_adg` in
+  for this mode only. **The Closeout input is LOCKED to `per_lb`** (John, later
+  2026-09-04: "lock on the closeout input screen $ per pound as the
+  default COG metric"). There is no COG mode selector; `closeoutRates()`
+  always returns `per_lb` and Save writes `cog_mode='per_lb'` +
+  `assumed_cog_per_lb`, leaving the old per-day / flat columns as audit.
+  A lot still stored `per_day` opens with per-day ÷ target ADG in the box
+  and a "converted … save to keep" hint; the books do not change until
+  saved, and the transfer basis keeps reading the stored mode until then.
+  `closeoutActual`/`closeoutBudget` still handle all three modes because
+  frozen budgets and unsaved lots carry them. Labor keeps its selector,
+  per head-day.
 - **Interest** accrues on the cattle for the whole period and on operating
   cost at half the period, the usual convention for a cost that builds
   linearly. The old screen charged interest on the purchase price only.
 - Treatment carries forward at the lot's own observed $/head-day, not at the
   budgeted med figure — once there is history, the lot's own burn rate beats
   an assumption.
+- **Break-even is the LOT AVERAGE per head sold, never "what the last head
+  must bring".** (2026-09-04) The first cut of the remnant block, and the
+  table's break-even row since the rebuild, took whole-lot cost less banked
+  revenue over the pounds still on feed — so on 60X the last 29 of 251 head
+  carried the entire lot's margin and read $6-10/lb. John: "a $10 pound
+  breakeven can't be correct." Now `costPerHeadSold = totalCost /
+  headSoldAtClose`, break-even is that over finish weight, and the
+  **Cattle still on feed** block prices the remnant at its equal share
+  (`remnantCost`). The lot-shortfall figure survives only as a footnote
+  labelled as the lot's margin landing on its last head.
+- **Processing and doctoring are two lines with two assumptions**
+  (2026-09-04; John "historically combined both on projections"). Migration
+  `docs/sql/2026-09-04_processing_doctoring_split.sql` adds
+  `lots.assumed_processing_per_head` / `assumed_doctoring_per_head` and
+  `lot_budgets.processing_per_head` / `doctoring_per_head`;
+  `med_per_head` stays for budgets frozen before, shown combined on the
+  Processing row. **Processing projection = actual from the receipts + the
+  assumption × head on loads with NO protocol** — once every load carries
+  a protocol the derived actual IS the projection and the assumption is
+  unused ("as soon as processing is set … that number can become the
+  projection number, adjusted for actual"). **Doctoring projection =
+  actual + observed burn, floored at the assumption × head_in while the lot
+  is on feed**, so a young lot with two pulls does not project nothing.
+- **Processing and doctoring show as ONE `Medicine` row on the closeout
+  table** (John, 2026-09-06: "combine processing and doctoring medicine on
+  closeout"). The two assumptions, the two projections and the two budget
+  columns are unchanged underneath; only the table line is combined
+  (`actual.medicine`, `proj.medicineFwd`). The row drills `toggle:med`,
+  which opens two indented child rows in place, Processing (drills to the
+  Receiving report) and Doctoring (drills to Animal Health), remembered in
+  `closeoutMedOpen` / localStorage like the view toggle. The `other` med
+  category, which was inside `operating` but on no row, is now in Medicine
+  and shows as a third child only when non-zero, so the rows sum to Total
+  cost. A budget frozen before the split shows its one figure on the
+  Medicine row and blanks on the children.
+- **Once any head have shipped the whole table SPLITS** (John, 2026-09-04:
+  "on the actual you include total cost not the proportion that goes with
+  sold hd count"). `split = soldHead > 0`; every cost line goes through
+  `sp(actual, fwd)` → Actual = sold share of the line to date, Projection =
+  left share + forward, and a fourth column **Lot at close** = the two
+  added back, which is what the budget variance compares to. Shares are per
+  head over `headSoldAtClose`. Before any sale there are three columns,
+  whole-lot to date and whole-lot at close, as always.
+- **Net: Actual is on the head SOLD, Projection is on the head LEFT**
+  (John, 2026-09-04). The sold head carry their share of cost TO DATE
+  (`actualCostPerHd = actual.totalCost / headSoldAtClose`) against the
+  checks banked — nothing projected touches them ("use actual sales for
+  the sold head, not the projected price for the remainder"). The head
+  left carry that share PLUS every forward dollar against forward revenue
+  (`leftCost`, `leftBreakEvenPerLb`). Sold + left = lot net exactly; a
+  "Net, whole lot" row shows the sum once anything has shipped. Before any
+  sale the Actual net is blank and the Projection net is the whole lot.
+- **Totals / Per head toggle** above the table (`closeoutView`, remembered
+  in localStorage). Per head divides each column by ITS OWN head: budget
+  survivors, head sold (or surviving head before any sale), head left (or
+  head sold at close), head sold at close. Rows marked `unit:'count'` or
+  `unit:'ratio'` are never divided.
+- **No locks or edit buttons on the closeout inputs.** Every assumption
+  is prefilled from the lot; click and type. (A readonly lock with an
+  "edit" button was built and removed the same day at John's request.)
 - **`lots.target_sale_cwt` is $/lb despite the name**, and the new
   `lot_budgets.budget_cost_per_cwt` follows it for consistency. Both are
   multiplied by a weight in pounds. Do not "fix" one without the other.
@@ -672,7 +779,8 @@ rules:
   allocation; from 9/1 every lot charges actual feed. Silage is not being fed and
   is carried as a named reconciling item ($225,155). No backdating.
 - **`feed_direct_from` must be a RANCH-LEVEL DATE, not the per-lot flag phase 4
-  shipped.** That flag has no date and rewrites a lot's whole life: setting it on
+  shipped.** (It only bites on lots that HAVE a non-feed rate — see the
+  one-number rule under phase 4.) That flag has no date and rewrites a lot's whole life: setting it on
   36-27 on 9/1 would re-price August from $2.00 to ~$1.00/hd/day with no actual
   feed to replace it — about $6,400 evaporating. The closeout must SPLIT
   head-days on the date.
@@ -691,12 +799,14 @@ rules:
 - **A count variance means different things per item.** Barn commodities: we know
   what was fed, so it is SHRINK. Mineral: no feeding record exists, so it is
   CONSUMPTION, allocated by head-days across every open lot. One per-item setting.
-- **Per-pound cost of gain is a DISPLAY metric and an input convenience only —
-  never a projection driver.** John's assumed ADG is deliberately biased low;
-  converting a $/lb cost rate through it makes the cost projection optimistic
-  ($94/head in the worked example) while the revenue side is already conservative.
-  Assumed ADG drives weight and revenue; REALIZED ADG drives anything touching
-  cost.
+- **The observed cost-per-pound-of-gain read-out stays on REALIZED ADG only.**
+  John's assumed ADG is deliberately biased low; converting a $/lb cost rate
+  through it makes the cost projection optimistic ($94/head in the worked
+  example) while the revenue side is already conservative. **Superseded in
+  part 2026-09-04:** the `per_lb` COG mode (Closeout section) does charge a
+  $/lb rate on assumed-ADG gain, by John's decision, and mitigates this by
+  truing up to real pay weights as head ship and warning when the shipped
+  head ran ahead of the assumption.
 - **A premix short is not an ordinary short.** It means the ingredients are still
   on the books — two errors, and the feed still allocates cleanly so nothing looks
   broken. That is how PB reached −1,109,171 lb. It needs its own anomaly wording.
@@ -716,9 +826,20 @@ rules:
   vanish, it surfaces there and on `lot_feed_costs.unallocated_usd`, and the
   Closeout warns.
 - **`lots.assumed_nonfeed_cog_per_day` is the COG split, per lot, NULL until
-  known.** While NULL the Closeout charges assumed COG unchanged, shows feed
-  beside it, and says the two OVERLAP. Set it and that lot charges actual feed
-  plus the non-feed rate. Nothing recomputes retroactively.
+  known — and NULL means COG IS ONE NUMBER.** John, 2026-09-04: "I consider
+  COG to be feed and non-feed cost of gain … for now I think in terms of one
+  number." While NULL the assumed COG rate is charged on every head-day, the
+  feed cut-over date is ignored for that lot, and actual feed shows as a
+  **memo row, never added** — the rate already contains it. There is no
+  overlap warning and no Anomalies finding for a missing non-feed rate any
+  more. Set the rate (Closeout → working assumptions, saved with the rest)
+  and that lot switches to actual feed plus the non-feed rate from the
+  cut-over. Nothing recomputes retroactively.
+- **Forward feed rate is dollars-since-cut-over over head-days-since-cut-over**
+  (`currentFeedAfterBoundary / hdAfter`), not the view's `cost_per_head_day`,
+  which divides by the lot's whole life. On 36-27 that view read five cents a
+  head-day off one day of mineral over 8,931 head-days and carried ~$4,000
+  to March. Whole-life is the fallback only when the split is not loaded.
 - Feed carries forward in the Projection at the lot's own observed $/hd/day,
   the same treatment cost already gets.
 - **A premix is many-in-one-out**: `make_feed_batch` consumes N commodities
@@ -833,6 +954,14 @@ Orders under Meds are two screens, and a vendor billing both on one invoice
 would have nowhere to file it.
 
 - `Loads In` became **Deliveries**; the old `Inventory` sub-tab became **On Hand**.
+- **The group menu (`.sub-group` / `.group-menu`) is shared, not Inventory's.**
+  `subGroupToggle()`, `subGroupsClose()` and `subGroupsRelabel()` sit with the
+  sub-tab wiring; one document-level click closes any open menu. The Reports
+  bar uses the same shape (2026-09-03): Active Lots · Daily Report ·
+  Anomalies stay flat, **Pastures ▾** holds Yard Sheet and Pasture
+  Utilization, **Health ▾** holds Receiving, Doctoring & Deaths and Death
+  Analysis. Settings is the LAST top-level tab. Do not write a third copy of
+  the menu logic for the next bar that grows.
 - **The medications catalog stays under Animal Health.** Dose, `round_up_to`,
   price and protocol membership are a doctoring tool read by the field app's
   pickers. Inventory → Meds will hold the *stock*. One drug, two screens.
@@ -966,6 +1095,39 @@ closes it early.
   There is no node on this machine — run `osascript -l JavaScript
   scripts/validate.jxa.js index.html`, which does both checks on JavaScriptCore.
 - Tiles on lot detail use buildTileRows() row-style (label left, value right).
+  **Every tile row is a drill-down** (2026-09-04): a row carries `drill`
+  (a lot section name, `deaths`, or `receiving`) and `lotDrill()` routes
+  one delegated click. `receiving` leaves the lot for Reports → Health →
+  Receiving with the lot pre-picked via `processingReportPendingLot`.
+  Closeout table rows and the remnant / gain tiles drill the same way
+  (`.co-drill`); `input:calc_cog` style targets land on that assumption
+  input, focused. A drill into Sales or Closeout is refused when the role's
+  CSS hides that tab, so crew never opens a dollar section from a head tile.
+  A drill that LEAVES the lot (Receiving report, feed cost) shows
+  `#drillBackBar`, "← Back to lot 60X", which reopens the lot in the section
+  you left. It is set AFTER the navigation because `clearAllNavActive()`
+  clears it: leaving by the main nav means done with that lot.
+- **Fresh Cattle is its own report** under Reports → Health (2026-09-04),
+  `reportFreshView` / `initFreshCattleReport()`. It used to sit above
+  Processing Cost on the Receiving page.
+- **The lot page is one section per PROCESS** (John's sketch, 2026-09-04):
+  Currently in · Purchases (invoices, unlinked load outs, tags) · Animal
+  Health (doctoring, deaths) · Moves (moves, transfers, merge) · Sales ·
+  Closeout · Audit log. `showLotSubtab()` switches; `LOT_SECTIONS` is the
+  list; `'activity'` still maps to `current` for old call sites. **The
+  section and scroll position survive a re-render of the SAME lot** — every
+  action calls `showLotDetail(currentLot.id)`, and before this that threw
+  you to the top of one long page after each death or invoice. Only opening
+  a different lot starts at Currently in. **The audit log loads only when
+  its section is opened** (`auditLogLoadedFor`); it is the heaviest read
+  on the page and John's note says "only open if selected". Tab counts are
+  read off the card counts the loaders already write (`refreshLotTabCounts`)
+  rather than taught to ten loaders.
+- **Break-even tiles divide by head SOLD, never by head still here.** The
+  lot-header floor tile did `total_cost / (head_now × weight)` and read
+  $27.16/lb on 60X's last 29 of 251 head; the closeout row and remnant
+  block had the same shape. All three now use surviving head (`head_in −
+  head_dead`, or `headSoldAtClose` in the projection).
 - Modals: showModal()/hideModal(); alerts via showAlert(id, msg, type).
 - Print/share pattern: window.open + document.write for print; jsPDF +
   navigator.share({files}) for textable PDFs, download fallback on desktop.
