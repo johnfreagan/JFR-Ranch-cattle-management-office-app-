@@ -10,7 +10,7 @@
 // Bump CACHE_VERSION whenever you deploy changes to index.html / app.js / styles.css.
 // =========================================================
 
-const CACHE_VERSION = 'v18';   // v18: modals scroll instead of clipping
+const CACHE_VERSION = 'v19';   // v19: one-pasture inventory tab
 const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 
 // Must match the query strings index.html actually requests, or these get
@@ -21,9 +21,9 @@ const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 const APP_SHELL = [
     './',
     './index.html',
-    './app.js?v=v18',
+    './app.js?v=v19',
     './supabase.min.js?v=2.46.1',
-    './styles.css?v=v18',
+    './styles.css?v=v19',
     './manifest.json'
 ];
 

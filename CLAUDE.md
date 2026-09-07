@@ -753,6 +753,28 @@ math and each lot's assignments keep summing to its `head_current`.
   `ranchToday()` is timezone skew between whoever typed it and the ranch day,
   not a reason to keep nagging.
 
+### Pasture inventory in the field app (v19)
+
+A fourth tab: pick a ranch, then a pasture, and it shows the lots standing
+there with head and a pasture total. Reads `pastureLotsMap`, the same cache
+the move form's split uses, so it works with no signal.
+
+- **It is deliberately not a yard sheet.** Both selectors must be answered
+  before anything appears; there is no all-pastures list, no ranch subtotal
+  and no route to an operation-wide number. John's reason (2026-09-02): a
+  phone gets left on a truck seat, and a whole-ranch total one tap from the
+  home screen is not something to hand out.
+- **The selection resets every time the tab is opened**, rather than being
+  remembered. Leaving the last pasture on screen would defeat the same point.
+- A pasture holding more than one lot says so, and says the split is the
+  books' estimate — the same caveat the move form carries.
+- **Layers of authorization (crew lead vs crew) are anticipated, not built.**
+  John, 2026-09-02: "might have to eventually have layers... not at this
+  point but might be a need." This screen is already the shape that would
+  want: one pasture, nothing aggregate. A `crew_lead` role would be one line
+  in `can_read_operational()` plus the `user_profiles.role` CHECK, the same
+  path `accountant` took.
+
 ### Anomalies: pastures that will not go to zero
 
 Three checks, all in `loadAnomaliesReport()`:

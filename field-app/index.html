@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <title>Beta Cattle Tracker</title>
-    <link rel="stylesheet" href="styles.css?v=v18">
+    <link rel="stylesheet" href="styles.css?v=v19">
     <style>
         @media (max-width: 600px) {
             .mobile-row { flex-direction: row !important; gap: 8px !important; }
@@ -146,7 +146,7 @@
 // has to keep working without app.js.
 // ---------------------------------------------------------------------
 (function () {
-    var BUILD = 'v18';
+    var BUILD = 'v19';
     window.__FIELD_BUILD = BUILD;
 
     var reported = false;
@@ -237,7 +237,7 @@
             <span>App stuck or not loading right?</span>
             <button type="button" id="loginResetBtn">Reset app</button>
         </div>
-        <div class="build-stamp">build v18</div>
+        <div class="build-stamp">build v19</div>
     </form>
 </div>
 
@@ -261,9 +261,10 @@
     </div>
 
     <div class="tab-container">
-        <button type="button" id="doctoringTabBtn" class="tab-btn active" title="Record doctoring treatments — 1st pull, 2nd pull, dead animals, etc.">🩺 Doctoring</button>
-        <button type="button" id="movesTabBtn" class="tab-btn" title="Record pasture-to-pasture cattle moves.">🚚 Moves</button>
-        <button type="button" id="historyTabBtn" class="tab-btn" title="View, search, edit, or delete records from today and yesterday.">📖 History</button>
+        <button type="button" id="doctoringTabBtn" class="tab-btn active" title="Record doctoring treatments — 1st pull, 2nd pull, dead animals, etc."><span class="tab-ico">🩺</span>Doctoring</button>
+        <button type="button" id="movesTabBtn" class="tab-btn" title="Record pasture-to-pasture cattle moves."><span class="tab-ico">🚚</span>Moves</button>
+        <button type="button" id="pastureTabBtn" class="tab-btn" title="What the books say is standing in one pasture. Pick a ranch and a pasture."><span class="tab-ico">🌾</span>Pasture</button>
+        <button type="button" id="historyTabBtn" class="tab-btn" title="View, search, edit, or delete records from the last 7 days."><span class="tab-ico">📖</span>History</button>
     </div>
     
     <datalist id="medicationList"></datalist>
@@ -440,6 +441,24 @@
         </div>
         <button type="submit" id="saveMoveBtn" title="Save this pasture move locally and queue it for upload.">Save Move</button>
     </form>
+
+    <!-- Pasture inventory. Deliberately ONE pasture at a time: you have to
+         name the ranch and the pasture before anything appears, there is no
+         all-pastures list and no ranch or ranch-wide total. A phone gets left
+         on a truck seat. -->
+    <div id="pastureSection" style="display: none;">
+        <div class="form-row mobile-row">
+            <div class="form-group" style="flex: 1;">
+                <label>Ranch:</label>
+                <select id="pvRanch"><option value="">Select Ranch...</option></select>
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label>Pasture:</label>
+                <select id="pvPasture" disabled><option value="">Select Ranch first...</option></select>
+            </div>
+        </div>
+        <div id="pvResult"></div>
+    </div>
 
     <div id="historySection" style="display: none;">
         <h2 id="historyHeader" style="margin-top: 0;">Recent Records (Last 7 Days)</h2>
@@ -734,6 +753,6 @@
      same-origin assets, so a CDN copy would leave the app dead offline on a
      cold start - which is exactly when a phone in a pasture needs it. -->
 <script src="supabase.min.js?v=2.46.1"></script>
-<script src="app.js?v=v18"></script>
+<script src="app.js?v=v19"></script>
 </body>
 </html>
