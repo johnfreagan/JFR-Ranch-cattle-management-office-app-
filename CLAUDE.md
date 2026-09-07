@@ -450,6 +450,96 @@ both are DROP + CREATE rather than CREATE OR REPLACE.
   that need them explain what to run, the two filters that need them warn
   that they were not applied, and everything else works.
 
+## The feed pen (built 2026-09-07)
+
+Cripples, chronics and anything else with little value left. Migration
+`docs/sql/2026-09-07_feed_pen.sql`; every decision and the rejected
+alternatives in `docs/feed-pen-design.md`. Office+owner; the pen carries
+dollars so it reads through `can_read_books()`.
+
+```
+lot (is_feed_pen) ← lot_transfers kind='feed_pen', basis $0 ← the source lot
+      │                        │
+      │                        └─▶ feed_pen_ledger (which lot each head came off)
+      ├── feed + doctoring accrue on the pen like any lot
+      └─▶ feed_pen_removals ── sold | butchered | died | missing
+```
+
+- **The pen is a LOT, not a cost centre and not a new object.** Head math,
+  head-day feed spreading and doctoring are each implemented once and keyed
+  on `lot_id`. A `cost_centers` row is deliberately the ABSENCE of a lot —
+  `lot_feed_daily` and `feed_cost_unallocated` read `destination_type='lot'`
+  only — so it can hold no head, no deaths and no sales.
+- **Cattle enter at a $0 basis and the source lot keeps every dollar.** The
+  two `lot_transfers` basis CHECKs relaxed from `> 0` to `>= 0`, and zero is
+  still refused for `fold_in`/`sort`. `record_lot_transfer` also refuses a
+  MISMATCH between the kind and the two lots: a pen move typed as a 'sort'
+  would carry the source lot's whole at-cost basis in, silently, because
+  both are valid transfers.
+- **The source lot's cost per surviving head goes UP when a chronic leaves,
+  and that is the honest read** — the money was spent on cattle that will not
+  pay it back. Its closeout says so on the transferred-out row.
+- **`lot_daily_head` gained a THIRD start-date term: the lot's first
+  `transfer_in`.** A pen has no receipt and no invoice, so without it the pen
+  has no rows at all — no head-days, so no feed can spread to it and every
+  pound lands in `feed_cost_unallocated`. It is a no-op for every ordinary
+  lot because `record_lot_transfer` already refuses a transfer dated before
+  the destination's first arrival, and the migration PROVES that (one lot on
+  the place carries a transfer_in; its bound does not move) rather than
+  assuming it. `CREATE OR REPLACE`, never DROP CASCADE — a cascade takes
+  `lot_feed_daily`, `lot_feed_costs`, `feed_cost_unallocated`,
+  `lot_head_days_by_month`, `pasture_feed_allocation` and the feed truck
+  tie-outs with it, and can silently drop `security_invoker` on the rebuild.
+- **The pen keeps its OWN books** — salvage against feed and medicine —
+  and that net posts to Redwing at year end. **Cost by source lot is
+  TRACKED, never charged back.** John, 2026-09-07: *"the source lot might be
+  closed by time feed pen calf is cleaned up."* Charging it would also
+  double-charge the same head, which already took its whole loss at
+  transfer.
+- **One pen per fiscal year** (partial unique index on `fiscal_year WHERE
+  is_feed_pen`). Date it **1 July** — `close_feed_pen_year` dates the
+  rollover 1 July and refuses a destination pen that did not exist yet, for
+  the same clamping reason as above. At year end the pen closes, the net
+  posts, remaining head roll forward at $0 and **cost restarts at zero**.
+- **The rollover writes the ledger rows itself, and that is why
+  `feed_pen_ledger` is a table.** A rollover transfer's `source_lot_id` is
+  the OLD PEN, so derived from `lot_transfers` alone every animal would read
+  as having come off `FEEDPEN-26` and the lot it actually left would be
+  lost. Ordinary pen transfers get their ledger row from a trigger, so a
+  later caller cannot forget it.
+- **Butchered and missing are negative `adjustment` events with a `cause`,
+  not new event types.** `adjustment` is already signed and already summed
+  by both `lot_status` and `lot_daily_head`; two new types would mean
+  teaching the two views every dollar in the app is built on. And filing
+  either as a death puts it in the mortality rate, the death-timing card and
+  the pull-failure denominators of the Doctoring & Deaths report.
+  **Butchered carries no value** (John's call): it is a disposal, not a sale.
+- **`record_feed_pen_removal` freezes the pen cost BEFORE writing any head
+  math.** The cost views read `lot_daily_head`, which reads the very
+  `lot_events`/`sales` row the function is about to insert — compute after
+  and the figure frozen against the source lot is short by the head's last
+  day. Each source lot has a POOL (accrued to date less already frozen) and
+  a removal draws its share by head, so the frozen figures can never exceed
+  what the pen actually spent.
+- **Removals cannot be edited, only deleted and re-entered.** The reversal
+  reopens an assignment the removal closed outright rather than adding head
+  on top of it — the `delete_death_event` trap.
+- **A pen death does NOT count against the source lot's mortality**, because
+  the animal left that lot as a `transfer_out` before it died. A lot that
+  uses the pen therefore reads a better death rate than it earned. Nothing
+  can fix that in the lot's own numbers without double-counting the head, so
+  the pen report carries deaths by source lot and the closeout says so.
+- **KNOWN GAP: a pen death recorded outside Record removal** — the lot's own
+  death log, or a field entry through Approvals — writes correct head math
+  and NO ledger row, so pen cost keeps splitting onto a lot whose head is
+  gone. It is detected, not silent: `feed_pen_reconciliation` compares the
+  two books and Anomalies raises it high-severity. Closing it is small; see
+  the design doc for the two options.
+- The pen is excluded from the Active Lots report (no invoice, so cost in,
+  weight in and break-even are all empty by design) and its lot page hides
+  Purchases and Closeout, showing the Feed pen section instead.
+  `is_feed_pen` is settable on a NEW lot only.
+
 ## Access control (RLS — read before touching auth, policies, or views)
 
 The gate is `public.current_user_role()`. It reads `user_profiles.role` for

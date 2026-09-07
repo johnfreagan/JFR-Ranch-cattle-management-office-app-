@@ -911,6 +911,7 @@
             <button class="sub-tab active" data-subtab="active-lots">Active Lots</button>
             <button class="sub-tab" data-subtab="daily-report" data-perm="office">Daily Report</button>
             <button class="sub-tab" data-subtab="anomalies">Anomalies</button>
+            <button class="sub-tab" data-subtab="feed-pen" data-perm="office">Feed Pen</button>
             <div class="sub-group" data-group="pastures">
                 <button type="button" class="sub-tab group-btn">Pastures <span class="caret">&#9662;</span></button>
                 <div class="group-menu">
@@ -970,6 +971,9 @@
                             <button class="sub-tab" data-lot-subtab="moves">Moves <span class="tab-count" id="tabCountMoves"></span></button>
                             <button class="sub-tab" data-perm="office" data-lot-subtab="sales">Sales <span class="tab-count" id="tabCountSales"></span></button>
                             <button class="sub-tab" data-perm="office" data-lot-subtab="closeout">Closeout</button>
+                            <!-- Only ever visible on a lot carrying is_feed_pen;
+                                 showLotSubtab hides it everywhere else. -->
+                            <button class="sub-tab hidden" data-perm="office" data-lot-subtab="feedpen">Feed pen <span class="tab-count" id="tabCountFeedpen"></span></button>
                             <button class="sub-tab" data-lot-subtab="audit">Audit log</button>
                         </div>
                         <!-- Kebab menu for admin actions -->
@@ -1098,9 +1102,57 @@
                         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                             <button class="primary card-add-btn" id="newTransferBtn" data-perm="office" data-write>→ + Transfer head</button>
                             <button class="primary card-add-btn" id="newMergeBtn" data-perm="office" data-write>⇉ Merge into another lot</button>
+                            <!-- Feed pen decision 2: the SAME transfer path with
+                                 the basis at zero. A separate mechanism would be
+                                 a second pasture sync, a second date floor and a
+                                 second reversal to keep correct. -->
+                            <button class="primary card-add-btn" id="sendToFeedPenBtn" data-perm="office" data-write>🩹 Send to feed pen</button>
                         </div>
                     </div>
                     <div id="lotTransfersContent"></div>
+                </div>
+            </div>
+
+            <!-- The feed pen's own section. Decision 9: the pen accrues feed
+                 and medicine and NOTHING else, so the ordinary Closeout — nine
+                 assumption boxes, every one of them wrong here — is hidden and
+                 this stands in its place. -->
+            <div id="lotTabFeedpen" class="hidden">
+                <div class="card" id="feedPenSummaryCard" data-perm="office">
+                    <div class="card-header">
+                        <h3>The pen's year</h3>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button id="fpPrintBtn">🖨 Print</button>
+                            <button id="fpPdfBtn" class="primary">Text / share PDF</button>
+                            <button id="fpCloseYearBtn" data-perm="owner" data-write>Close fiscal year</button>
+                        </div>
+                    </div>
+                    <p class="muted" style="font-size: 12px; margin: -4px 0 10px 0;">
+                        Salvage against feed and medicine. Cattle arrive at $0 — every dollar they
+                        cost stays on the lot they left — so this is the pen's own margin, and
+                        it is what posts to Redwing at year end.
+                    </p>
+                    <div id="fpSummaryContent"><div class="empty">Loading…</div></div>
+                </div>
+
+                <div class="card" id="feedPenSourceCard" data-perm="office">
+                    <div class="card-header">
+                        <h3>Cost by the lot they left <span class="card-count" id="fpSourceCount">(0)</span></h3>
+                    </div>
+                    <p class="muted" style="font-size: 12px; margin: -4px 0 10px 0;">
+                        Frozen at the date each head was removed. Tracked, not charged back — the
+                        lot a feed pen calf came off is very often closed by the time it is
+                        cleaned up.
+                    </p>
+                    <div id="fpSourceContent"><div class="empty">Loading…</div></div>
+                </div>
+
+                <div class="card" id="feedPenRemovalsCard" data-perm="office">
+                    <div class="card-header">
+                        <h3>Removals <span class="card-count" id="fpRemovalsCount">(0)</span></h3>
+                        <button class="primary card-add-btn" id="fpNewRemovalBtn" data-perm="office" data-write>+ Record removal</button>
+                    </div>
+                    <div id="fpRemovalsContent"></div>
                 </div>
             </div>
 
@@ -1687,6 +1739,30 @@
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">All data integrity checks across active lots. Run this regularly to catch drift early. Click any lot to drill in.</p>
                 <div id="reportAnomaliesContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Feed pen report. The same cost-by-source-lot table the pen's own
+             lot page carries, rendered from one function, with a year picker
+             so a closed pen can still be read. -->
+        <div id="reportFeedPenView" class="hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Feed Pen</h2>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <select id="fpReportPen" style="font-size: 13px;"></select>
+                        <button id="reportFeedPenPrintBtn">🖨 Print</button>
+                        <button id="reportFeedPenPdfBtn" class="primary">Text / share PDF</button>
+                        <button id="reportFeedPenRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
+                    Cripples, chronics and anything else with little value left. They leave
+                    their lot at $0 — every dollar stays behind — and accrue feed and a little
+                    medicine here until they are sold, butchered, die or disappear. What that
+                    salvage costs, and off which lots the cattle came.
+                </p>
+                <div id="reportFeedPenContent"><div class="empty">Loading…</div></div>
             </div>
         </div>
 
@@ -4187,6 +4263,16 @@
                     <input type="number" id="targetAdg" step="0.01" placeholder="e.g. 2.50">
                 </div>
             </div>
+            <div style="margin-bottom: 14px;" data-perm="office">
+                <label style="font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                    <input type="checkbox" id="lotIsFeedPen" style="width: auto;"> This is the feed pen
+                </label>
+                <div class="muted" style="font-size: 11px; margin-top: 3px;" id="lotIsFeedPenHint">
+                    Cripples and chronics, transferred in at $0. One pen per fiscal year — date it
+                    <strong>1 July</strong>, the first day of the year it belongs to. A pen accrues feed
+                    and medicine only: no cost of gain, labor, interest, death loss or budget.
+                </div>
+            </div>
             <div>
                 <label for="lotNotes">Notes</label>
                 <textarea id="lotNotes"></textarea>
@@ -4314,6 +4400,104 @@
         <div class="modal-actions">
             <button type="button" id="ltCancelBtn">Cancel</button>
             <button type="button" class="primary" id="ltSaveBtn" data-perm="office" data-write>Save transfer</button>
+        </div>
+    </div>
+</div>
+
+<!-- A head leaving the feed pen. Decision 6: four outcomes, each writing
+     the head-math artifact it actually IS — a sale row, a death through the
+     existing RPC, or a signed adjustment for butchered and missing. The
+     source-lot split is pre-filled pro-rata on what is standing, because
+     tags generally are not available (decision 10). -->
+<div class="modal-backdrop" id="feedPenRemovalModal">
+    <div class="modal" style="max-width: 760px;">
+        <h2 id="fprTitle">Remove from the feed pen</h2>
+        <div id="fprAlert"></div>
+        <div class="muted" style="font-size: 13px; margin-bottom: 14px;">
+            What became of these cattle. Sold banks a check in the pen; butchered and
+            missing carry no value; died goes through the ordinary death path so it
+            still reaches the health reports.
+        </div>
+
+        <div class="form-grid" style="margin-bottom: 14px;">
+            <div>
+                <label for="fprMethod">What happened</label>
+                <select id="fprMethod">
+                    <option value="sold">Sold</option>
+                    <option value="butchered">Butchered</option>
+                    <option value="died">Died</option>
+                    <option value="missing">Disappeared — no carcass, no check</option>
+                </select>
+            </div>
+            <div>
+                <label for="fprDate">Date</label>
+                <input type="date" id="fprDate">
+            </div>
+        </div>
+
+        <div class="form-grid" style="margin-bottom: 14px;">
+            <div>
+                <label for="fprPasture">Out of which pen</label>
+                <select id="fprPasture"></select>
+            </div>
+            <div>
+                <label for="fprTag">Tag (optional)</label>
+                <input type="text" id="fprTag" placeholder="e.g. 1247" autocomplete="off">
+                <div class="muted" style="font-size: 11px; margin-top: 2px;">
+                    A named tag settles which lot it came off. Set the split below to match.
+                </div>
+            </div>
+        </div>
+
+        <div id="fprMoneyBlock" style="margin-bottom: 14px;">
+            <div class="form-grid">
+                <div>
+                    <label for="fprProceeds">Proceeds $</label>
+                    <input type="number" step="0.01" min="0" id="fprProceeds" placeholder="0.00">
+                </div>
+                <div>
+                    <label for="fprBuyer">Buyer</label>
+                    <input type="text" id="fprBuyer" autocomplete="off">
+                </div>
+                <div>
+                    <label for="fprWeight">Pay weight (lb, optional)</label>
+                    <input type="number" step="1" min="1" id="fprWeight">
+                </div>
+            </div>
+        </div>
+
+        <div id="fprCauseBlock" class="hidden" style="margin-bottom: 14px;">
+            <label for="fprCause">Cause (optional)</label>
+            <input type="text" id="fprCause" placeholder="e.g. chronic, never recovered" autocomplete="off">
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;">
+                <h4 style="margin: 0;">Which lots did they come off</h4>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <label for="fprHead" style="margin: 0; font-size: 12px;">How many head</label>
+                    <input type="number" id="fprHead" min="1" step="1" style="width: 90px;" placeholder="head">
+                    <span class="muted" style="font-size: 12px;" id="fprHeadTotal"></span>
+                </div>
+            </div>
+            <div id="fprLines"></div>
+            <div class="muted" style="font-size: 11px; margin-top: 6px;">
+                Pre-filled pro-rata on what is standing in the pen, largest-remainder so the
+                head sum exactly. Nobody can tell by eye which animal belongs to which lot —
+                override a row when a tag says otherwise.
+            </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <label for="fprNotes">Notes (optional)</label>
+            <textarea id="fprNotes" rows="2" style="width: 100%; padding: 6px 8px; font-size: 13px; resize: vertical;"></textarea>
+        </div>
+
+        <div id="fprSummary" style="margin-bottom: 14px;"></div>
+
+        <div class="modal-actions">
+            <button type="button" id="fprCancelBtn">Cancel</button>
+            <button type="button" class="primary" id="fprSaveBtn" data-perm="office" data-write>Save removal</button>
         </div>
     </div>
 </div>
@@ -5447,12 +5631,35 @@ window.addEventListener('unhandledrejection', function(e) {
     // now that threw you back to the top of one long page. Now the same lot
     // re-renders into the same section at the same scroll position, and only
     // opening a DIFFERENT lot starts you at Currently in.
-    const LOT_SECTIONS = ['current', 'purchases', 'health', 'moves', 'sales', 'closeout', 'audit'];
+    const LOT_SECTIONS = ['current', 'purchases', 'health', 'moves', 'sales', 'closeout', 'feedpen', 'audit'];
     let currentLotSubtab = 'current';
     let auditLogLoadedFor = null;   // lot id the audit log was last rendered for; it loads on demand
+    let feedPenLoadedFor  = null;   // same, for the feed pen section
     function showLotSubtab(subtab) {
         if (subtab === 'activity') subtab = 'current';   // older call sites
         if (!LOT_SECTIONS.includes(subtab)) subtab = 'current';
+
+        // A feed pen is a lot, but it is not an ordinary one. Decision 9: it
+        // accrues feed and medicine and nothing else, so the Closeout — nine
+        // assumption boxes, every one of them wrong here — is hidden and the
+        // Feed pen section stands in its place. Purchases goes too: a pen
+        // never takes a delivery, so both its cards are always empty.
+        //
+        // Toggling .hidden is safe against the data-perm CSS, which is
+        // display:none !important and wins regardless: removing .hidden from
+        // an office-only tab still shows crew nothing.
+        const isPen = !!(currentLot && currentLot.is_feed_pen);
+        const bar = $('lotDetailSubtabs');
+        if (bar) {
+            const tab = name => bar.querySelector(`.sub-tab[data-lot-subtab="${name}"]`);
+            [['feedpen', isPen], ['purchases', !isPen], ['closeout', !isPen]].forEach(([name, show]) => {
+                const b = tab(name);
+                if (b) b.classList.toggle('hidden', !show);
+            });
+        }
+        if (isPen && (subtab === 'purchases' || subtab === 'closeout')) subtab = 'feedpen';
+        if (!isPen && subtab === 'feedpen') subtab = 'current';
+
         currentLotSubtab = subtab;
         $('lotDetailSubtabs').querySelectorAll('.sub-tab').forEach(b => {
             b.classList.toggle('active', b.dataset.lotSubtab === subtab);
@@ -5466,6 +5673,12 @@ window.addEventListener('unhandledrejection', function(e) {
         if (subtab === 'audit' && currentLot && auditLogLoadedFor !== currentLot.id) {
             auditLogLoadedFor = currentLot.id;
             loadAuditLog(currentLot.id);
+        }
+        // Same shape as the audit log: the pen's books are three reads and
+        // are wanted only when the section is open.
+        if (subtab === 'feedpen' && currentLot && feedPenLoadedFor !== currentLot.id) {
+            feedPenLoadedFor = currentLot.id;
+            loadFeedPen(currentLot.id);
         }
     }
     // Tile drill-downs. A section name lands in that section; 'deaths'
@@ -5591,6 +5804,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const keepScroll = sameLot ? window.scrollY : 0;
         lastDetailLotId = lotId;
         auditLogLoadedFor = null;
+        feedPenLoadedFor  = null;
         showLotSubtab(sameLot ? currentLotSubtab : 'current');
         $('lotStatsTier1').innerHTML='';
         $('lotStatsTier2').innerHTML='';
@@ -6331,8 +6545,10 @@ window.addEventListener('unhandledrejection', function(e) {
         }
         const newXfer = document.getElementById('newTransferBtn');
         const newMerge = document.getElementById('newMergeBtn');
+        const toPen    = document.getElementById('sendToFeedPenBtn');
         if (newXfer)  newXfer.addEventListener('click',  () => openLotTransfer('sort'));
         if (newMerge) newMerge.addEventListener('click', () => openLotTransfer('fold_in'));
+        if (toPen)    toPen.addEventListener('click',    () => openLotTransfer('feed_pen'));
         if (newDeath) {
             newDeath.addEventListener('click', () => {
                 document.getElementById('recordDeathsBtn').click();
@@ -7084,6 +7300,12 @@ window.addEventListener('unhandledrejection', function(e) {
         // net of anything it transferred out. Leaving it out understated
         // forward interest on cattle the lot genuinely owns.
         const carriedTransfer = (actual.transferInUsd || 0) - (actual.transferOutUsd || 0);
+        // Feed pen decision 2: those head left at $0 and this lot kept every
+        // dollar, so the transferred-out line reads (-$0.00) for them. Say
+        // why, or it looks like a number that failed to compute.
+        const penOutHead = (currentLotTransfers || [])
+            .filter(t => t.kind === 'feed_pen' && t.source_lot_id === lot.id)
+            .reduce((n, t) => n + (Number(t.head_count) || 0), 0);
         const interestFwd  = interestOn(0, actual.cattleCost + actual.operating + carriedTransfer + operatingFwd,
                                         remainingDays || 0, rates.intPct);
 
@@ -7648,7 +7870,12 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${actual.transferOutHead > 0 ? row(
                         `Transferred out <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferOutHead)} hd</a>`,
                         null, -sp(actual.transferOutUsd).a, -sp(actual.transferOutUsd).p,
-                        {note:'moved to another lot', fmt: signed}, split ? -actual.transferOutUsd : undefined) : ''}
+                        {note: penOutHead > 0
+                            ? (penOutHead === actual.transferOutHead
+                                ? `${fmtNum(penOutHead)} to the feed pen at $0 — cost retained here`
+                                : `moved to another lot · ${fmtNum(penOutHead)} of them to the feed pen at $0`)
+                            : 'moved to another lot',
+                         fmt: signed}, split ? -actual.transferOutUsd : undefined) : ''}
                     ${row(`<span style="display:inline-block; width:12px; color:var(--text-muted);">${closeoutMedOpen ? '▾' : '▸'}</span>Medicine`,
                         budget ? b('med') : null, sp(actual.medicine, proj.medicineFwd).a, sp(actual.medicine, proj.medicineFwd).p, {
                         note: (actual.otherMed > 0 ? 'processing + doctoring + other' : 'processing + doctoring') + (closeoutMedOpen ? '' : ' · click to open'),
@@ -7704,6 +7931,14 @@ window.addEventListener('unhandledrejection', function(e) {
                 ${proj.deathsToCome > 0 ? `Projection assumes ${fmtNum(Math.round(proj.deathsToCome))} more death${Math.round(proj.deathsToCome)===1?'':'s'} on top of the ${fmtNum(actual.headDead)} so far.` : ''}
                 ${(actual.transferInHead > 0 || actual.transferOutHead > 0) ? `
                     <div style="margin-top:6px;">
+                        ${penOutHead > 0 ? `<div style="margin-bottom:6px;">
+                            <strong>${fmtNum(penOutHead)} head went to the feed pen and took no cost with them.</strong>
+                            Everything they cost is still in these totals, divided over fewer head — the honest
+                            read, because that money was spent on cattle that will not pay it back. What the pen
+                            then spends feeding them is tracked against this lot on the Feed Pen report and is
+                            deliberately NOT charged here. Nor do their deaths in the pen count against this
+                            lot's mortality: they had already left it.
+                        </div>` : ''}
                         <strong>Head in stays what this lot received.</strong>
                         Transferred cattle were received onto the other lot and processed on its protocol,
                         so Processing $/hd and Treatment $/hd here still describe the
@@ -7904,10 +8139,38 @@ window.addEventListener('unhandledrejection', function(e) {
         $('endTag').value=mode==='duplicate'?'':(seed?.end_tag||'');
         $('targetAdg').value=seed?.target_adg||'';
         $('lotNotes').value=mode==='duplicate'?'':(seed?.notes||'');
+        // Settable on a NEW lot only. Flipping it on a lot that already holds
+        // real cattle would hide its Closeout, strip its assumptions out of
+        // every cost view that reads them and let head transfer in at $0 —
+        // and a duplicate of a pen would collide with the one-per-fiscal-year
+        // index rather than doing anything useful.
+        const penBox = $('lotIsFeedPen');
+        penBox.checked  = mode === 'edit' ? !!seed?.is_feed_pen : false;
+        penBox.disabled = mode !== 'new';
+        $('lotIsFeedPenHint').innerHTML = mode === 'new'
+            ? `Cripples and chronics, transferred in at $0. One pen per fiscal year — date it
+               <strong>1 July</strong>, the first day of the year it belongs to. A pen accrues feed
+               and medicine only: no cost of gain, labor, interest, death loss or budget.`
+            : `Set when the lot is created and not changeable afterwards — it decides whether cattle
+               may arrive at $0 and whether the lot has a closeout at all.`;
         $('lotForm').dataset.mode=mode;
         $('lotForm').dataset.seedId=mode==='duplicate'?(seed?.id||''):'';
         showModal('lotModal');
     }
+
+    // A pen dated today would derive the right fiscal year but leave the
+    // July rollover with nowhere to land: close_feed_pen_year dates the
+    // rollover 1 July and refuses a destination pen that did not exist yet.
+    $('lotIsFeedPen').addEventListener('change', () => {
+        if (!$('lotIsFeedPen').checked || ($('lotForm').dataset.mode || 'new') !== 'new') return;
+        const today = ranchToday();
+        const y = Number(today.slice(0, 4));
+        const julyFirst = (Number(today.slice(5, 7)) >= 7 ? y : y - 1) + '-07-01';
+        setDateValue('arrivalDate', julyFirst);
+        if (!$('lotNumber').value.trim()) {
+            $('lotNumber').value = 'FEEDPEN-' + String((Number(julyFirst.slice(0,4)) + 1) % 100).padStart(2, '0');
+        }
+    });
 
     $('newLotBtn').addEventListener('click',()=>openLotModal(null,'new'));
     $('editLotBtn').addEventListener('click',()=>openLotModal(currentLot,'edit'));
@@ -7931,6 +8194,7 @@ window.addEventListener('unhandledrejection', function(e) {
             notes:$('lotNotes').value.trim()||null,
             created_by:currentUser.id
         };
+        if(mode==='new') payload.is_feed_pen=$('lotIsFeedPen').checked;
 
         if(mode==='duplicate'&&seedId){
             const {data:seed}=await supabase.from('lots').select('*').eq('id',seedId).single();
@@ -8250,7 +8514,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'fieldActionsView', 'fieldProtocolsView',
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
-         'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportFreshView', 'reportDoctoringView',
+         'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportFeedPenView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportFreshView', 'reportDoctoringView',
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
          'feedBatchesView', 'feedCostView', 'feedRedwingView', 'invPurchasesView',
@@ -9676,6 +9940,9 @@ window.addEventListener('unhandledrejection', function(e) {
         } else if (subtab === 'anomalies') {
             $('reportAnomaliesView').classList.remove('hidden');
             loadAnomaliesReport();
+        } else if (subtab === 'feed-pen') {
+            $('reportFeedPenView').classList.remove('hidden');
+            initFeedPenReport();
         } else if (subtab === 'pasture-utilization') {
             $('reportPasturesView').classList.remove('hidden');
             loadPastureUtilizationReport();
@@ -12669,6 +12936,53 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             return;
         }
 
+        // Cattle leave a pen by being sold, butchered, dying or going missing
+        // — never by transfer. The RPC refuses it too; this says so first.
+        if (currentLot.is_feed_pen && kind !== 'fy_rollover') {
+            showAlert('globalAlert', 'Cattle leave the feed pen through Record removal, not a transfer.');
+            return;
+        }
+
+        // A feed pen move needs somewhere to move to. The pen for the CURRENT
+        // fiscal year, which is the only open one.
+        // The pen must never be an ordinary transfer destination: cattle
+        // enter it at $0 and a 'sort' would carry the whole basis in. The RPC
+        // refuses it, but a picker that offers a choice which then errors is
+        // a worse screen than one that does not offer it.
+        const penIdsRes = await supabase.from('lots').select('id').eq('is_feed_pen', true);
+        const penIds = new Set((penIdsRes && !penIdsRes.error ? (penIdsRes.data || []) : []).map(l => l.id));
+
+        let pen = null;
+        let penPastures = null;
+        if (kind === 'feed_pen') {
+            const penRes = await supabase.from('lots')
+                .select('id, lot_number, fiscal_year, arrival_date, closed_at')
+                .eq('is_feed_pen', true).is('closed_at', null)
+                .order('fiscal_year', { ascending: false }).limit(1);
+            if (penRes.error) {
+                showAlert('globalAlert', 'Could not read the feed pen: ' + penRes.error.message);
+                return;
+            }
+            pen = (penRes.data || [])[0] || null;
+            if (!pen) {
+                showAlert('globalAlert', 'There is no open feed pen. Create one for this fiscal year first — a lot with "feed pen" ticked.');
+                return;
+            }
+            // A new pen stands in no pasture yet, and the ordinary
+            // destination list is "where either lot already is" — which on a
+            // first move would offer only the pasture the cripple is leaving.
+            // The pen is a physical pen it has to be able to reach.
+            const pastRes = await supabase.from('pastures')
+                .select('id, name, ranches!inner(name)').eq('is_active', true);
+            if (pastRes.error) {
+                showAlert('globalAlert', 'Could not load pastures: ' + pastRes.error.message);
+                return;
+            }
+            penPastures = (pastRes.data || [])
+                .map(x => [x.id, `${x.ranches ? x.ranches.name + ' – ' : ''}${x.name}`])
+                .sort((a, b) => a[1].localeCompare(b[1]));
+        }
+
         const res = await loadOpenPastureInventory();
         if (res.error) {
             showAlert('globalAlert', 'Could not load pasture inventory: ' + res.error.message);
@@ -12681,12 +12995,22 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             return;
         }
 
-        const basis = ltComputeBasis();
+        // Decision 2: cattle enter the pen at ZERO. Not the closeout basis —
+        // the source lot keeps every dollar, which is the whole point.
+        const basis = kind === 'feed_pen'
+            ? { perHead: 0, surviving: null, breakdown: {
+                    reason: 'feed pen',
+                    note: 'Cripple or chronic. Moved at $0; all cost stays on the source lot.',
+                    source_lot: currentLot.lot_number,
+                    computed_at: ranchToday() } }
+            : ltComputeBasis();
         ltState = {
             kind,
+            pen,
+            penPastures,
             inventory: res.inventory,
             mine,
-            lotIndex: res.lotIndex.filter(l => l.lot_id !== currentLot.id),
+            lotIndex: res.lotIndex.filter(l => l.lot_id !== currentLot.id && !penIds.has(l.lot_id)),
             lines: [],
             basis,
             weightTouched: false
@@ -12702,15 +13026,25 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             ltState.lines.push({ from: mine[0].pasture_id, to: mine[0].pasture_id, head: '' });
         }
 
-        $('ltTitle').textContent = kind === 'fold_in'
+        $('ltTitle').textContent = kind === 'feed_pen'
+            ? `Send head from ${currentLot.lot_number} to the feed pen`
+            : kind === 'fold_in'
             ? `Merge ${currentLot.lot_number} into another lot`
             : `Transfer head out of ${currentLot.lot_number}`;
-        $('ltIntro').innerHTML = kind === 'fold_in'
+        $('ltIntro').innerHTML = kind === 'feed_pen'
+            ? `Cripples and chronics move to ${pen.lot_number} at <strong>$0</strong>. Every dollar they
+               have cost stays on ${currentLot.lot_number} — its cost per surviving head goes up, which
+               is the honest read: that money was spent on cattle that will not pay it back. In the pen
+               they accrue feed and a little medicine and nothing else.`
+            : kind === 'fold_in'
             ? `Every head still standing in ${currentLot.lot_number} moves to the lot you pick, carrying its cost. ${currentLot.lot_number} then closes.`
             : `Head move to another lot carrying their cost. Both lots stay open.`;
 
-        $('ltDestLot').innerHTML = '<option value="">Select a lot…</option>' +
-            ltState.lotIndex.map(l => `<option value="${l.lot_id}">${l.lot_number}</option>`).join('');
+        $('ltDestLot').innerHTML = kind === 'feed_pen'
+            ? `<option value="${pen.id}">${pen.lot_number} (FY ${pen.fiscal_year})</option>`
+            : '<option value="">Select a lot…</option>' +
+              ltState.lotIndex.map(l => `<option value="${l.lot_id}">${l.lot_number}</option>`).join('');
+        $('ltDestLot').disabled = (kind === 'feed_pen');
         $('ltDate').value = ranchToday();
         $('ltDate').max = ranchToday();
         $('ltTags').value = '';
@@ -12725,12 +13059,29 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         // so this reads light when the big end comes off a lot.
         const projWt = currentStatus.projected_current_weight
             ? Math.round(Number(currentStatus.projected_current_weight)) : '';
-        $('ltWeight').value = projWt;
-        $('ltWeightHint').innerHTML = projWt
-            ? `Lot average projected for ${ranchToday()}. These cattle are not average if you sorted them — type over it.`
-            : 'No projected weight for this lot. Enter your best estimate.';
+        // Derived decision 3: a weight is REQUIRED on an ordinary transfer
+        // because a blank falls back to the destination's arrival weight and
+        // that assumption is wrong. The pen has no ADG, no break-even and no
+        // cost of gain, so nothing downstream can be wrong — and asking for
+        // an estimated weight on a cripple only invites a made-up number.
+        if (kind === 'feed_pen') {
+            $('ltWeight').value = '';
+            $('ltWeightHint').innerHTML = 'Optional. The pen has no ADG or cost of gain for a weight to feed, so leave it blank unless one crossed a scale.';
+        } else {
+            $('ltWeight').value = projWt;
+            $('ltWeightHint').innerHTML = projWt
+                ? `Lot average projected for ${ranchToday()}. These cattle are not average if you sorted them — type over it.`
+                : 'No projected weight for this lot. Enter your best estimate.';
+        }
 
-        if (basis) {
+        if (kind === 'feed_pen') {
+            $('ltBasis').value = fmtMoney(0);
+            $('ltBasisHint').innerHTML =
+                `<strong>Zero, deliberately.</strong> ${currentLot.lot_number} keeps the purchase and every
+                 dollar of carry on these head. Nothing about this moves money between the two lots; what
+                 the pen then spends feeding them is tracked back against ${currentLot.lot_number} without
+                 being charged to it.`;
+        } else if (basis) {
             $('ltBasis').value = fmtMoney(basis.perHead);
 
             // A missing assumption does not error, it just contributes zero -
@@ -12774,6 +13125,9 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     // is, which covers both the remnant that stays put and the sort that goes
     // to join the other lot.
     function ltDestPastureOptions() {
+        // Sending cattle to the pen: every active pasture, because the pen is
+        // a physical place and on the first move it stands nowhere yet.
+        if (ltState.kind === 'feed_pen' && ltState.penPastures) return ltState.penPastures;
         const destId = $('ltDestLot').value;
         const seen = new Map();
         ltState.mine.forEach(m => seen.set(m.pasture_id, m.pasture_label));
@@ -12973,13 +13327,18 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         // A closed lot has no head to give and cannot take any in, so the RPC
         // refuses both. Hide the commands rather than let them fail.
         const closed = !!(currentLot && currentLot.closed_at);
-        ['newTransferBtn', 'newMergeBtn'].forEach(id => {
+        const isPen  = !!(currentLot && currentLot.is_feed_pen);
+        // A closed lot has no head to give and cannot take any in. A feed pen
+        // gives cattle up only through Record removal, so all three commands
+        // go — including "Send to feed pen", which would be the pen sending
+        // to itself.
+        ['newTransferBtn', 'newMergeBtn', 'sendToFeedPenBtn'].forEach(id => {
             const b = document.getElementById(id);
-            if (b) b.classList.toggle('hidden', closed);
+            if (b) b.classList.toggle('hidden', closed || isPen);
         });
 
         if (!rows.length) {
-            host.innerHTML = '<div class="empty">No transfers. Cattle folded in from another lot, or sorted out to one, show here.</div>';
+            host.innerHTML = '<div class="empty">No transfers. Cattle folded in from another lot, sorted out to one, or sent to the feed pen show here.</div>';
             return;
         }
 
@@ -12989,6 +13348,10 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             const arrow = isOut ? '→' : '←';
             const verb  = isOut ? 'to' : 'from';
             const bd = t.basis_breakdown || {};
+            // Decision 2: a pen move carries no money on purpose. Printing
+            // "$0.00 · $0.00/hd" beside it reads as a missing number rather
+            // than a decision, which is exactly the confusion to avoid.
+            const isPenMove = (t.kind === 'feed_pen' || t.kind === 'fy_rollover');
             const flags = [];
             if (t.crosses_fiscal_year) flags.push(`<span style="color:#b58900;">crosses FY ${t.source_fiscal_year} → ${t.dest_fiscal_year}</span>`);
             if (t.tags_outstanding)    flags.push('<span style="color:#b58900;">tags not identified</span>');
@@ -13000,9 +13363,15 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
                     <div>
                         <strong>${arrow} ${fmtNum(t.head_count)} head ${verb} ${other}</strong>
-                        <span class="muted"> · ${fmtDate(t.transfer_date)} · ${t.kind === 'fold_in' ? 'merge' : 'sort'}</span>
+                        <span class="muted"> · ${fmtDate(t.transfer_date)} · ${
+                            t.kind === 'fold_in'    ? 'merge'
+                          : t.kind === 'feed_pen'   ? 'to the feed pen'
+                          : t.kind === 'fy_rollover'? 'fiscal year rollover'
+                          : 'sort'}</span>
                     </div>
-                    <div><strong>${fmtMoney(t.basis_total)}</strong> <span class="muted">${fmtMoney(t.basis_per_head)}/hd</span></div>
+                    <div>${isPenMove
+                        ? `<strong>$0</strong> <span class="muted">cost retained</span>`
+                        : `<strong>${fmtMoney(t.basis_total)}</strong> <span class="muted">${fmtMoney(t.basis_per_head)}/hd</span>`}</div>
                 </div>
                 ${flags.length ? `<div style="font-size:11.5px; margin-top:3px;">${flags.join(' · ')}</div>` : ''}
                 <div class="muted" style="font-size:11.5px; margin-top:4px; line-height:1.5;">
@@ -13012,7 +13381,10 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                         ? `<strong>${t.source_protocol_name}${t.source_protocol_version ? ' ' + t.source_protocol_version : ''}</strong>`
                         : 'an unrecorded protocol'}${isOut ? '' : ' — not this lot&rsquo;s'}
                     ${t.tags_named ? ` · ${fmtNum(t.tags_named)} tag${t.tags_named === 1 ? '' : 's'} named` : ''}
-                    ${bd.cattle != null ? `<br>Basis: cattle ${fmtMoney(bd.cattle)} · processing ${fmtMoney(bd.processing)} · treatment ${fmtMoney(bd.treatment)} · feed ${fmtMoney(bd.feed)} · COG ${fmtMoney(bd.cog)} · labor ${fmtMoney(bd.labor)} · interest ${fmtMoney(bd.interest)} over ${fmtNum(bd.surviving_head)} surviving head` : ''}
+                    ${isPenMove ? `<br>${isOut
+                        ? `Every dollar these head cost stays on ${escapeHtml(currentLot.lot_number)} — the cost per surviving head goes up, which is the honest read. What the pen then spends on them is tracked back against this lot on the Feed Pen report without being charged to it.`
+                        : `Arrived at $0; all cost stayed on ${escapeHtml(t.source_lot_number || 'the source lot')}.`}` : ''}
+                    ${(!isPenMove && bd.cattle != null) ? `<br>Basis: cattle ${fmtMoney(bd.cattle)} · processing ${fmtMoney(bd.processing)} · treatment ${fmtMoney(bd.treatment)} · feed ${fmtMoney(bd.feed)} · COG ${fmtMoney(bd.cog)} · labor ${fmtMoney(bd.labor)} · interest ${fmtMoney(bd.interest)} over ${fmtNum(bd.surviving_head)} surviving head` : ''}
                     ${t.notes ? `<br>${t.notes.replace(/\n/g, '<br>')}` : ''}
                 </div>
                 <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;">
@@ -13261,6 +13633,568 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         });
     })();
 
+
+    // =====================================================================
+    // THE FEED PEN (2026-09-07)
+    // =====================================================================
+    // Cripples, chronics and anything else with little value left. Every
+    // decision and the rejected alternatives: docs/feed-pen-design.md. The
+    // four that shape this code:
+    //
+    //   * The pen is a LOT (lots.is_feed_pen), so head math, head-day feed
+    //     spreading and doctoring are the ones already built. Nothing here
+    //     reimplements any of the three.
+    //   * Cattle arrive at $0 and the source lot keeps every dollar. The
+    //     transfer modal handles that; this file is what happens after.
+    //   * The pen keeps its OWN books - salvage against feed and medicine -
+    //     and what each source lot's head cost is frozen at removal and
+    //     TRACKED, never charged back. John: the source lot might be closed
+    //     by the time a feed pen calf is cleaned up.
+    //   * Four ways out, each writing the head-math artifact it actually is.
+    //     The RPC does that; the form only says which.
+    let fpState = null;          // the removal modal
+    let fpCache = null;          // { pen, summary, sources, removals, holdings }
+    let fpReportCache = null;    // the Reports version, keyed by pen lot id
+
+    const FP_METHODS = {
+        sold:      { label: 'Sold',       verb: 'sold',       money: true  },
+        butchered: { label: 'Butchered',  verb: 'butchered',  money: false },
+        died:      { label: 'Died',       verb: 'died',       money: false },
+        missing:   { label: 'Disappeared',verb: 'disappeared',money: false }
+    };
+
+    // Every read the pen page needs. A missing table is not an error: the
+    // migration may not be applied yet, and crew cannot read any of it, so
+    // both come back as "nothing here" rather than a broken screen.
+    async function fpLoad(penLotId) {
+        const [sumRes, srcRes, remRes] = await Promise.all([
+            supabase.from('feed_pen_summary').select('*').eq('pen_lot_id', penLotId).maybeSingle(),
+            supabase.from('feed_pen_cost_by_source').select('*').eq('pen_lot_id', penLotId),
+            supabase.from('feed_pen_removals')
+                .select('*, feed_pen_removal_lines(*), pastures(name, ranches(name))')
+                .eq('pen_lot_id', penLotId)
+                .order('removal_date', { ascending: false })
+        ]);
+        const missing = [sumRes, srcRes, remRes].some(r => r && r.error &&
+            /does not exist|schema cache|relation/i.test(r.error.message || ''));
+        return {
+            missing,
+            summary:  (sumRes && !sumRes.error) ? sumRes.data : null,
+            sources:  (srcRes && !srcRes.error && srcRes.data) ? srcRes.data : [],
+            removals: (remRes && !remRes.error && remRes.data) ? remRes.data : []
+        };
+    }
+
+    const FP_MIGRATION_NOTE = `<div class="empty">The feed pen tables are not in the database yet.
+        Apply <code>docs/sql/2026-09-07_feed_pen.sql</code> in the Supabase SQL editor, then reload.</div>`;
+
+    async function loadFeedPen(penLotId) {
+        $('fpSummaryContent').innerHTML  = '<div class="empty">Loading…</div>';
+        $('fpSourceContent').innerHTML   = '<div class="empty">Loading…</div>';
+        $('fpRemovalsContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        const data = await fpLoad(penLotId);
+        if (data.missing) {
+            $('fpSummaryContent').innerHTML = FP_MIGRATION_NOTE;
+            $('fpSourceContent').innerHTML = '';
+            $('fpRemovalsContent').innerHTML = '';
+            return;
+        }
+        fpCache = data;
+
+        $('fpSummaryContent').innerHTML  = fpRenderSummary(data.summary, currentLot);
+        $('fpSourceContent').innerHTML   = fpRenderSources(data.sources);
+        $('fpRemovalsContent').innerHTML = fpRenderRemovals(data.removals);
+        const sc = $('fpSourceCount');   if (sc) sc.textContent = `(${data.sources.length})`;
+        const rc = $('fpRemovalsCount'); if (rc) rc.textContent = `(${data.removals.length})`;
+        const tc = $('tabCountFeedpen'); if (tc) tc.textContent = data.summary && data.summary.head_on_hand
+            ? String(data.summary.head_on_hand) : '';
+
+        // A closed pen year is read-only: the net has been posted.
+        const shut = !!(currentLot && currentLot.closed_at);
+        ['fpNewRemovalBtn', 'fpCloseYearBtn'].forEach(id => {
+            const b = $(id); if (b) b.classList.toggle('hidden', shut);
+        });
+    }
+
+    function fpRenderSummary(sm, lot) {
+        if (!sm) return '<div class="empty">Nothing has been in this pen yet.</div>';
+        const n = v => Number(v) || 0;
+        const out = n(sm.head_sold) + n(sm.head_butchered) + n(sm.head_died) + n(sm.head_missing);
+        const cost = n(sm.total_cost_usd);
+        const net  = n(sm.net_usd);
+        const perHeadDay = n(sm.head_days) > 0 ? cost / n(sm.head_days) : null;
+
+        const tile = (label, value, note) => `
+            <div style="flex:1 1 150px; min-width:140px; border:1px solid var(--border); border-radius:8px; padding:9px 11px;">
+                <div class="muted" style="font-size:11.5px; text-transform:uppercase; letter-spacing:.03em;">${label}</div>
+                <div style="font-size:19px; font-weight:600; margin-top:2px;">${value}</div>
+                ${note ? `<div class="muted" style="font-size:11px; margin-top:2px;">${note}</div>` : ''}
+            </div>`;
+
+        const disposal = [
+            n(sm.head_sold)      ? `${fmtNum(sm.head_sold)} sold` : null,
+            n(sm.head_butchered) ? `${fmtNum(sm.head_butchered)} butchered` : null,
+            n(sm.head_died)      ? `${fmtNum(sm.head_died)} died` : null,
+            n(sm.head_missing)   ? `${fmtNum(sm.head_missing)} disappeared` : null
+        ].filter(Boolean).join(' · ') || 'none yet';
+
+        return `
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+            ${tile('In the pen', fmtNum(sm.head_on_hand), `${fmtNum(sm.head_in)} in, ${fmtNum(out)} gone`)}
+            ${tile('Feed', fmtMoney(sm.feed_usd), perHeadDay != null ? `${fmtMoney(perHeadDay)}/hd/day all in` : '')}
+            ${tile('Medicine', fmtMoney(sm.med_usd), '')}
+            ${tile('Salvage', fmtMoney(sm.salvage_usd), n(sm.head_sold) ? `${fmtNum(sm.head_sold)} head sold` : 'nothing sold yet')}
+            ${tile(net >= 0 ? 'Net' : 'Net loss',
+                   `<span style="color:${net >= 0 ? 'var(--success,#1c7c31)' : 'var(--danger,#d70015)'};">${fmtMoney(net)}</span>`,
+                   'salvage less feed and medicine')}
+        </div>
+        <div class="muted" style="font-size:12px;">
+            Fiscal year ${sm.fiscal_year} · ${fmtNum(sm.head_days)} head-days · out: ${disposal}.
+            ${lot && lot.closed_at
+                ? `<strong>Year closed ${fmtDate(String(lot.closed_at).slice(0,10))}</strong> — ${fmtMoney(net)} posted to Redwing.`
+                : 'Cattle arrived at $0, so this net is the pen’s own result and nothing here is charged to the lots they came off.'}
+        </div>`;
+    }
+
+    // The answer to "what did the feed pen cattle off lot 60X cost us".
+    function fpRenderSources(rows) {
+        if (!rows.length) return '<div class="empty">No cattle have been sent to this pen yet.</div>';
+        const n = v => Number(v) || 0;
+        const sorted = [...rows].sort((a, b) => n(b.accrued_usd) - n(a.accrued_usd));
+        const tot = k => sorted.reduce((s, r) => s + n(r[k]), 0);
+
+        const body = sorted.map(r => {
+            const gone = [
+                n(r.head_sold)      ? `${r.head_sold} sold` : null,
+                n(r.head_butchered) ? `${r.head_butchered} butchered` : null,
+                n(r.head_died)      ? `${r.head_died} died` : null,
+                n(r.head_missing)   ? `${r.head_missing} gone` : null
+            ].filter(Boolean).join(', ') || '—';
+            return `<tr>
+                <td>${escapeHtml(r.source_lot_number)}
+                    ${r.source_closed_at ? '<span class="muted" style="font-size:11px;"> · closed</span>' : ''}
+                    <div class="muted" style="font-size:11px;">FY ${r.source_fiscal_year}</div></td>
+                <td class="num">${fmtNum(r.head_in)}</td>
+                <td class="num">${fmtNum(r.head_on_hand)}</td>
+                <td style="font-size:12px;">${gone}</td>
+                <td class="num">${fmtMoney(r.frozen_removed_usd)}</td>
+                <td class="num">${fmtMoney(r.accrued_open_usd)}</td>
+                <td class="num"><strong>${fmtMoney(r.accrued_usd)}</strong></td>
+                <td class="num">${n(r.salvage_usd) ? fmtMoney(r.salvage_usd) : '—'}</td>
+            </tr>`;
+        }).join('');
+
+        return `
+        <div style="overflow-x:auto;">
+        <table>
+            <thead><tr>
+                <th>Lot they left</th>
+                <th class="num">Sent</th>
+                <th class="num">Still here</th>
+                <th>What became of them</th>
+                <th class="num">Frozen at removal</th>
+                <th class="num">Running, still here</th>
+                <th class="num">Pen cost</th>
+                <th class="num">Salvage</th>
+            </tr></thead>
+            <tbody>${body}</tbody>
+            <tfoot><tr style="font-weight:600; border-top:2px solid var(--border);">
+                <td>All lots</td>
+                <td class="num">${fmtNum(tot('head_in'))}</td>
+                <td class="num">${fmtNum(tot('head_on_hand'))}</td>
+                <td></td>
+                <td class="num">${fmtMoney(tot('frozen_removed_usd'))}</td>
+                <td class="num">${fmtMoney(tot('accrued_open_usd'))}</td>
+                <td class="num">${fmtMoney(tot('accrued_usd'))}</td>
+                <td class="num">${fmtMoney(tot('salvage_usd'))}</td>
+            </tr></tfoot>
+        </table></div>
+        <p class="muted" style="font-size:11.5px; margin-top:8px;">
+            <strong>Frozen at removal</strong> is the figure taken the day each head left the pen and it
+            never moves again. <strong>Running</strong> is what the head still standing have run up since.
+            Neither is charged to the lot — it is already carrying everything those cattle cost before
+            they came here. A pen death also does not count against that lot's mortality: the animal had
+            already left it, so a lot that uses the pen reads a better death rate than it earned.
+        </p>`;
+    }
+
+    function fpRenderRemovals(rows) {
+        if (!rows.length) return '<div class="empty">Nothing has left this pen yet.</div>';
+        return rows.map(r => {
+            const m = FP_METHODS[r.method] || { label: r.method };
+            const past = r.pastures
+                ? `${r.pastures.ranches ? r.pastures.ranches.name + ' – ' : ''}${r.pastures.name}` : '';
+            const lines = (r.feed_pen_removal_lines || []).map(l => {
+                const lot = (fpCache && fpCache.sources.find(s => s.source_lot_id === l.source_lot_id));
+                return `${lot ? escapeHtml(lot.source_lot_number) : 'lot'} ${fmtNum(l.head_count)} hd
+                        <span class="muted">(${fmtMoney(l.pen_cost_usd)} pen cost)</span>`;
+            }).join(' · ');
+            return `<div style="border-bottom:1px solid var(--border); padding:8px 0;">
+                <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                    <div>
+                        <strong>${fmtNum(r.head_count)} hd ${escapeHtml(m.label.toLowerCase())}</strong>
+                        <span class="muted"> · ${fmtDate(r.removal_date)}${past ? ' · ' + escapeHtml(past) : ''}</span>
+                        ${r.tag_number ? `<span class="muted"> · tag ${escapeHtml(r.tag_number)}</span>` : ''}
+                    </div>
+                    <div style="text-align:right;">
+                        ${Number(r.proceeds_usd) ? `<strong>${fmtMoney(r.proceeds_usd)}</strong>` : '<span class="muted">no value</span>'}
+                        <div class="muted" style="font-size:11.5px;">${fmtMoney(r.pen_cost_usd)} pen cost frozen</div>
+                    </div>
+                </div>
+                <div class="muted" style="font-size:11.5px; margin-top:3px;">${lines}</div>
+                ${r.buyer ? `<div class="muted" style="font-size:11.5px;">Buyer: ${escapeHtml(r.buyer)}</div>` : ''}
+                ${r.cause ? `<div class="muted" style="font-size:11.5px;">Cause: ${escapeHtml(r.cause)}</div>` : ''}
+                ${r.notes ? `<div class="muted" style="font-size:11.5px;">${escapeHtml(r.notes)}</div>` : ''}
+                <div style="margin-top:5px;">
+                    <button type="button" class="fp-del" data-id="${r.id}" data-perm="owner" data-write
+                            style="font-size:11.5px; padding:3px 8px;">Delete</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    // ---- recording a removal ------------------------------------------
+    async function openFeedPenRemoval() {
+        if (!currentLot || !currentLot.is_feed_pen) return;
+        if (currentLot.closed_at) {
+            showAlert('globalAlert', 'This pen year is closed. Reopen it before recording a removal.');
+            return;
+        }
+
+        const res = await loadOpenPastureInventory();
+        if (res.error) {
+            showAlert('globalAlert', 'Could not load pasture inventory: ' + res.error.message);
+            return;
+        }
+        const pens = res.inventory.filter(i => i.lot_id === currentLot.id);
+        if (!pens.length) {
+            showAlert('globalAlert', 'The feed pen holds no cattle in any pasture.');
+            return;
+        }
+        // Always re-read rather than trusting fpCache: the Reports screen
+        // borrows that variable for whichever pen it is showing, and a split
+        // pre-filled off another year's pen would be wrong in a way nobody
+        // would question.
+        const data = await fpLoad(currentLot.id);
+        const standing = (data.sources || []).filter(r => Number(r.head_on_hand) > 0);
+        if (!standing.length) {
+            showAlert('globalAlert', 'Nothing is standing in the pen against a source lot.');
+            return;
+        }
+
+        fpState = { pens, standing, lines: standing.map(sr => ({ src: sr.source_lot_id, head: 0 })) };
+
+        $('fprMethod').value = 'sold';
+        $('fprDate').value = ranchToday();
+        $('fprDate').max = ranchToday();
+        $('fprPasture').innerHTML = pens.map(p =>
+            `<option value="${p.pasture_id}">${escapeHtml(p.pasture_label)} (${fmtNum(p.head_count)} hd)</option>`).join('');
+        ['fprHead', 'fprTag', 'fprProceeds', 'fprBuyer', 'fprWeight', 'fprCause', 'fprNotes']
+            .forEach(id => { const el = $(id); if (el) el.value = ''; });
+
+        fprMethodChanged();
+        fprRenderLines();
+        showModal('feedPenRemovalModal');
+    }
+
+    function fprMethodChanged() {
+        const m = $('fprMethod').value;
+        $('fprMoneyBlock').classList.toggle('hidden', !(FP_METHODS[m] || {}).money);
+        $('fprCauseBlock').classList.toggle('hidden', m !== 'died');
+        fprRecompute();
+    }
+
+    // Decision 10: the split is pre-filled pro-rata on what is standing and
+    // then editable. Typing the total is the common case — one cripple, three
+    // lots in the pen, and nobody can say by eye whose it is. A tag settles
+    // it, and then the row is typed over.
+    function fprSpreadFromTotal() {
+        const total = parseInt($('fprHead').value, 10);
+        if (isNaN(total) || total <= 0) return;
+        const share = fprSpread(total);
+        fpState.lines.forEach((l, i) => { l.head = share[i]; });
+        fprPaintLines();
+        fprRecompute();
+    }
+
+    function fprPaintLines() {
+        $('fprLines').querySelectorAll('.fpr-head').forEach(inp => {
+            inp.value = fpState.lines[Number(inp.dataset.idx)].head || '';
+        });
+    }
+
+    function fprRenderLines() {
+        const host = $('fprLines');
+        host.innerHTML = fpState.standing.map((sr, idx) => `
+            <div style="display:grid; grid-template-columns: 1fr 100px; gap:8px; align-items:center; margin-bottom:6px;">
+                <div>${escapeHtml(sr.source_lot_number)}
+                    <span class="muted" style="font-size:11.5px;">— ${fmtNum(sr.head_on_hand)} standing</span></div>
+                <input type="number" class="fpr-head" data-idx="${idx}" min="0" step="1"
+                       max="${sr.head_on_hand}" value="${fpState.lines[idx].head || ''}" placeholder="0">
+            </div>`).join('');
+        host.querySelectorAll('.fpr-head').forEach(inp => {
+            inp.addEventListener('input', () => {
+                const i = Number(inp.dataset.idx);
+                fpState.lines[i].head = inp.value === '' ? 0 : Math.max(0, parseInt(inp.value, 10) || 0);
+                // A hand-typed row is the truth: the total box follows it.
+                // Setting .value in script fires no 'input', so this cannot
+                // bounce back through fprSpreadFromTotal and undo the edit.
+                const tot = fpState.lines.reduce((n, l) => n + (Number(l.head) || 0), 0);
+                $('fprHead').value = tot || '';
+                fprRecompute();
+            });
+        });
+        fprRecompute();
+    }
+
+    // Decision 10: the split is pre-filled pro-rata on what is standing,
+    // largest-remainder so the parts sum EXACTLY - the mixed-pasture rule,
+    // for the same reason John gave then: nobody can tell by eye which
+    // animal belongs to which lot.
+    function fprSpread(total) {
+        const standing = fpState.standing.map(s => Number(s.head_on_hand) || 0);
+        const pool = standing.reduce((a, b) => a + b, 0);
+        if (!pool || total <= 0) return standing.map(() => 0);
+        const exact = standing.map(h => total * h / pool);
+        const base  = exact.map(Math.floor);
+        let short = total - base.reduce((a, b) => a + b, 0);
+        exact.map((e, i) => ({ i, frac: e - Math.floor(e) }))
+             .sort((a, b) => b.frac - a.frac || a.i - b.i)
+             .forEach(x => { if (short > 0) { base[x.i]++; short--; } });
+        return base;
+    }
+
+    function fprRecompute() {
+        if (!fpState) return;   // the method select fires on reset too
+        const head = fpState.lines.reduce((s, l) => s + (Number(l.head) || 0), 0);
+        $('fprHeadTotal').textContent = head ? `${fmtNum(head)} head` : 'no head yet';
+        const m = $('fprMethod').value;
+        const meta = FP_METHODS[m] || {};
+        const bits = [];
+        if (head) bits.push(`<strong>${fmtNum(head)} head ${escapeHtml(meta.verb || m)}</strong>`);
+        if (meta.money) {
+            const pro = parseFloat($('fprProceeds').value);
+            if (!isNaN(pro) && pro > 0 && head) bits.push(`${fmtMoney(pro)} — ${fmtMoney(pro / head)}/head`);
+        } else if (m === 'butchered') {
+            bits.push('No value booked. Butchered is a disposal, not a sale.');
+        } else if (m === 'missing') {
+            bits.push('No carcass and no check. Recorded as a count adjustment, deliberately not a death — a death here would land in the mortality rate.');
+        } else if (m === 'died') {
+            bits.push('Goes through the ordinary death path, so it still reaches the health reports.');
+        }
+        $('fprSummary').innerHTML = bits.length
+            ? `<div class="muted" style="font-size:12.5px;">${bits.join('<br>')}</div>` : '';
+    }
+
+    function fprValidate() {
+        const errors = [];
+        const head = fpState.lines.reduce((s, l) => s + (Number(l.head) || 0), 0);
+        if (head <= 0) errors.push('Enter how many head, against the lots they came off.');
+        fpState.lines.forEach((l, i) => {
+            const avail = Number(fpState.standing[i].head_on_hand) || 0;
+            if ((Number(l.head) || 0) > avail) {
+                errors.push(`${fpState.standing[i].source_lot_number} has ${fmtNum(avail)} standing in the pen.`);
+            }
+        });
+        const pen = fpState.pens.find(p => p.pasture_id === $('fprPasture').value);
+        if (pen && head > pen.head_count) {
+            errors.push(`${pen.pasture_label} holds ${fmtNum(pen.head_count)} head; this removes ${fmtNum(head)}.`);
+        }
+        const m = $('fprMethod').value;
+        if ((FP_METHODS[m] || {}).money) {
+            const pro = parseFloat($('fprProceeds').value);
+            if (isNaN(pro) || pro < 0) errors.push('A sale needs its proceeds — enter 0 if the check really was nothing.');
+        }
+        return { errors, head };
+    }
+
+    async function fprSave() {
+        const v = fprValidate();
+        if (v.errors.length) { showAlert('fprAlert', v.errors[0]); return; }
+
+        const m = $('fprMethod').value;
+        const money = !!(FP_METHODS[m] || {}).money;
+        const weight = parseFloat($('fprWeight').value);
+
+        $('fprSaveBtn').disabled = true;
+        const { error } = await supabase.rpc('record_feed_pen_removal', {
+            p_pen_lot_id:    currentLot.id,
+            p_pasture_id:    $('fprPasture').value,
+            p_removal_date:  $('fprDate').value,
+            p_method:        m,
+            p_lines:         fpState.lines
+                                 .filter(l => (Number(l.head) || 0) > 0)
+                                 .map(l => ({ source_lot_id: l.src, head_count: Number(l.head) })),
+            p_proceeds_usd:  money ? (parseFloat($('fprProceeds').value) || 0) : 0,
+            p_buyer:         money ? ($('fprBuyer').value.trim() || null) : null,
+            p_net_weight_lb: (money && !isNaN(weight) && weight > 0) ? weight : null,
+            p_tag_number:    $('fprTag').value.trim() || null,
+            p_cause:         m === 'died' ? ($('fprCause').value.trim() || null) : null,
+            p_notes:         $('fprNotes').value.trim() || null,
+            p_recorded_by:   currentUser.id
+        });
+        $('fprSaveBtn').disabled = false;
+
+        if (error) { showAlert('fprAlert', 'Could not save the removal: ' + error.message); return; }
+
+        hideModal('feedPenRemovalModal');
+        fpState = null;
+        feedPenLoadedFor = null;
+        showLotDetail(currentLot.id);
+    }
+
+    // fromReport matters: the same list is drawn on the pen's lot page and on
+    // the Reports screen, and on Reports there is no currentLot to go back to
+    // — reading one there and refreshing the lot page would navigate somewhere
+    // the user never asked to be.
+    async function fpDeleteRemoval(id, fromReport) {
+        if (!confirm('Delete this removal and put the cattle back in the pen?\n\n' +
+                     'The sale, death or count adjustment behind it is reversed too, and the pen ' +
+                     'cost frozen against the lots they came off is released.')) return;
+        const { error } = await supabase.rpc('delete_feed_pen_removal', { p_removal_id: id });
+        if (error) { showAlert('globalAlert', 'Could not reverse the removal: ' + error.message); return; }
+        if (fromReport) { fpReportCache = null; renderFeedPenReport(true); return; }
+        feedPenLoadedFor = null;
+        showLotDetail(currentLot.id);
+    }
+
+    // ---- closing the year ----------------------------------------------
+    // Decision 8, John: "Restart at zero at year end and net income or loss
+    // to redwing books." The rollover is dated 1 July because the new pen's
+    // fiscal year starts that day and nothing may be dated before a lot
+    // existed - lot_daily_head would clamp it up and hand the pen head-days
+    // for cattle that were not in it.
+    async function fpCloseYear() {
+        if (!currentLot || !currentLot.is_feed_pen) return;
+        const sm = fpCache && fpCache.summary;
+        const head = sm ? Number(sm.head_on_hand) || 0 : 0;
+        const net  = sm ? Number(sm.net_usd) || 0 : 0;
+
+        let newPenId = null;
+        if (head > 0) {
+            const res = await supabase.from('lots')
+                .select('id, lot_number, fiscal_year')
+                .eq('is_feed_pen', true).is('closed_at', null)
+                .eq('fiscal_year', (Number(currentLot.fiscal_year) || 0) + 1)
+                .maybeSingle();
+            if (res.error || !res.data) {
+                showAlert('globalAlert',
+                    `${fmtNum(head)} head are still standing in ${currentLot.lot_number}. ` +
+                    `Create next year's pen (FY ${(Number(currentLot.fiscal_year) || 0) + 1}, a lot with ` +
+                    `"feed pen" ticked) before closing this one, or remove the cattle first.`);
+                return;
+            }
+            newPenId = res.data.id;
+            if (!confirm(`Close ${currentLot.lot_number} and roll ${fmtNum(head)} head into ${res.data.lot_number} at $0?\n\n` +
+                         `The year's net of ${fmtMoney(net)} posts to Redwing and the new pen's cost starts at zero.`)) return;
+        } else {
+            if (!confirm(`Close ${currentLot.lot_number}? Its net of ${fmtMoney(net)} posts to Redwing.`)) return;
+        }
+
+        const { data, error } = await supabase.rpc('close_feed_pen_year', {
+            p_pen_lot_id:     currentLot.id,
+            p_new_pen_lot_id: newPenId,
+            p_rollover_date:  null,
+            p_recorded_by:    currentUser.id
+        });
+        if (error) { showAlert('globalAlert', 'Could not close the pen year: ' + error.message); return; }
+
+        const r = data || {};
+        showAlert('globalAlert',
+            `${currentLot.lot_number} closed. Post ${fmtMoney(r.net_usd)} to Redwing as the feed pen's ` +
+            `FY ${r.fiscal_year} result — ${fmtMoney(r.salvage_usd)} salvage less ${fmtMoney(r.feed_usd)} ` +
+            `feed and ${fmtMoney(r.med_usd)} medicine.` +
+            (r.head_rolled ? ` ${fmtNum(r.head_rolled)} head rolled forward at $0.` : ''), 'success');
+        feedPenLoadedFor = null;
+        showLotDetail(currentLot.id);
+    }
+
+    // ---- the Reports version -------------------------------------------
+    // The same cost-by-source-lot table, off the same render function, with a
+    // year picker so a closed pen can still be read. Two mounts, one body:
+    // a second copy would drift, which is how this app ended up with two
+    // head-day implementations that disagree by 29%.
+    let feedPenReportInitialized = false;
+    async function initFeedPenReport() {
+        if (!feedPenReportInitialized) {
+            $('reportFeedPenRefreshBtn').addEventListener('click', () => renderFeedPenReport(true));
+            $('fpReportPen').addEventListener('change', () => renderFeedPenReport(false));
+            wireReportOutputs('reportFeedPen', 'reportFeedPenContent', 'Feed Pen');
+            feedPenReportInitialized = true;
+        }
+        const res = await supabase.from('lots')
+            .select('id, lot_number, fiscal_year, closed_at')
+            .eq('is_feed_pen', true)
+            .order('fiscal_year', { ascending: false });
+        if (res.error) {
+            $('reportFeedPenContent').innerHTML = /does not exist|schema cache|relation|column/i.test(res.error.message || '')
+                ? FP_MIGRATION_NOTE
+                : `<div class="empty">Could not read the feed pens: ${escapeHtml(res.error.message)}</div>`;
+            return;
+        }
+        const pens = res.data || [];
+        if (!pens.length) {
+            $('fpReportPen').innerHTML = '';
+            $('reportFeedPenContent').innerHTML = `<div class="empty">There is no feed pen yet.
+                Create a lot for this fiscal year with "feed pen" ticked, then send cripples to it
+                from any lot's Moves section.</div>`;
+            return;
+        }
+        const keep = $('fpReportPen').value;
+        $('fpReportPen').innerHTML = pens.map(p =>
+            `<option value="${p.id}">${escapeHtml(p.lot_number)} — FY ${p.fiscal_year}${p.closed_at ? ' (closed)' : ''}</option>`).join('');
+        if (keep && pens.some(p => p.id === keep)) $('fpReportPen').value = keep;
+        renderFeedPenReport(true);
+    }
+
+    async function renderFeedPenReport(refetch) {
+        const penId = $('fpReportPen').value;
+        if (!penId) return;
+        $('reportFeedPenContent').innerHTML = '<div class="empty">Loading…</div>';
+        if (refetch || !fpReportCache || fpReportCache.penId !== penId) {
+            const data = await fpLoad(penId);
+            fpReportCache = { penId, data };
+        }
+        const { data } = fpReportCache;
+        if (data.missing) { $('reportFeedPenContent').innerHTML = FP_MIGRATION_NOTE; return; }
+
+        // fpRenderRemovals reads fpCache for lot numbers; point it at this pen
+        // while the report draws so the two mounts really do share one body.
+        const held = fpCache;
+        fpCache = data;
+        try {
+            $('reportFeedPenContent').innerHTML =
+                fpRenderSummary(data.summary, null) +
+                '<h3 style="margin:18px 0 6px 0;">Cost by the lot they left</h3>' +
+                fpRenderSources(data.sources) +
+                `<h3 style="margin:18px 0 6px 0;">Removals</h3>` +
+                fpRenderRemovals(data.removals);
+        } finally {
+            fpCache = held;
+        }
+    }
+
+    (function wireFeedPen() {
+        const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
+        on('fpNewRemovalBtn', 'click', openFeedPenRemoval);
+        on('fpCloseYearBtn',  'click', fpCloseYear);
+        on('fprCancelBtn',    'click', () => { hideModal('feedPenRemovalModal'); fpState = null; });
+        on('fprSaveBtn',      'click', fprSave);
+        on('fprMethod',       'change', fprMethodChanged);
+        on('fprHead',         'input',  () => { if (fpState) fprSpreadFromTotal(); });
+        on('fprProceeds',     'input',  () => { if (fpState) fprRecompute(); });
+        wireReportOutputs('fp', 'lotTabFeedpen', 'Feed pen');
+
+        // Delegated: the removals list is rebuilt on every save.
+        document.addEventListener('click', (e) => {
+            const b = e.target.closest && e.target.closest('.fp-del');
+            if (!b) return;
+            e.preventDefault();
+            fpDeleteRemoval(b.dataset.id, !!b.closest('#reportFeedPenContent'));
+        });
+    })();
+
     async function loadAnomaliesReport() {
         if (!anomaliesReportInitialized) {
             $('reportAnomaliesRefreshBtn').addEventListener('click', loadAnomaliesReport);
@@ -13271,7 +14205,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         // Pull everything we need in parallel
         const [statusRes, lotsRes, assignmentsRes, receiptsRes,
-               bayRes, premixRes, settingsRes, transferRes] = await Promise.all([
+               bayRes, premixRes, settingsRes, transferRes, penRes] = await Promise.all([
             supabase.from('lot_status').select('lot_id, lot_number, head_in, head_in_invoiced, head_in_received, head_pending_invoice, head_dead, head_sold, head_current, closed_at'),
             supabase.from('lots').select('id, is_test, closed_at, lot_number, assumed_nonfeed_cog_per_day'),
             // pasture_id and names come along for the stranded-head checks:
@@ -13290,7 +14224,11 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             // is about feed and meds. Absent view or crew both return nothing,
             // and neither is an error.
             supabase.from('lot_transfer_provenance')
-                .select('transfer_id, transfer_date, head_count, source_lot_id, source_lot_number, dest_lot_id, dest_lot_number, tags_outstanding, basis_stale, basis_total, crosses_fiscal_year')
+                .select('transfer_id, transfer_date, head_count, source_lot_id, source_lot_number, dest_lot_id, dest_lot_number, tags_outstanding, basis_stale, basis_total, crosses_fiscal_year'),
+            // The feed pen's attribution ledger against its head math. Absent
+            // until the feed pen migration is applied, which is not an error.
+            supabase.from('feed_pen_reconciliation')
+                .select('pen_lot_id, lot_number, fiscal_year, head_current, ledger_head, variance')
         ]);
 
         // Active tags MUST be paginated: PostgREST caps responses at 1000 rows and
@@ -13448,6 +14386,28 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 type: 'tag_count_mismatch',
                 title: 'Tag registration mismatch',
                 detail: `One receipt expected ${r.expected} tags but ${r.actual} were registered`
+            });
+        });
+
+        // ---- FEED PEN -----------------------------------------------
+        // The pen's attribution ledger is a SECOND book beside lot_status —
+        // it has to be, because a fiscal-year rollover would otherwise make
+        // every animal read as having come off last year's pen. A second
+        // book can drift, and drift here means the pen's feed and medicine
+        // are being attributed to the wrong lots. Nothing else would show it.
+        (penRes && !penRes.error ? (penRes.data || []) : []).forEach(pr => {
+            if (!Number(pr.variance)) return;
+            findings.push({
+                lot_id: pr.pen_lot_id,
+                lot_number: pr.lot_number,
+                severity: 'high',
+                type: 'feed_pen_ledger',
+                title: 'Feed pen ledger does not tie to head math',
+                detail: `Head math says ${fmtNum(pr.head_current)} in the pen; the source-lot ledger ` +
+                        `adds to ${fmtNum(pr.ledger_head)} — ${pr.variance > 0 ? '+' : ''}${pr.variance}. ` +
+                        `Every dollar of pen feed and medicine is split by that ledger, so until it ties ` +
+                        `the cost is landing on the wrong lots. A death, sale or move was almost ` +
+                        `certainly recorded on the pen outside Record removal.`
             });
         });
 
@@ -14300,6 +15260,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     let alInitialized = false;
     let alLots = [];
     let alAssignRows = [];
+    let alFeedPenIds = new Set();
 
     async function loadActiveLotsReport() {
         if (!alInitialized) {
@@ -14325,13 +15286,18 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         $('reportActiveLotsContent').innerHTML = '<div class="empty">Loading…</div>';
 
         try {
-            const [statusRes, assignRows] = await Promise.all([
+            const [statusRes, assignRows, penRes] = await Promise.all([
                 supabase.from('lot_status').select('*').order('arrival_date', { ascending: false }),
-                fetchOpenAssignmentRows()
+                fetchOpenAssignmentRows(),
+                // lot_status carries no is_feed_pen — it is a view over lots
+                // and widening it would move every consumer. One extra read
+                // is cheaper than that risk.
+                supabase.from('lots').select('id').eq('is_feed_pen', true)
             ]);
             if (statusRes.error) throw statusRes.error;
             alLots = statusRes.data || [];
             alAssignRows = assignRows;
+            alFeedPenIds = new Set((penRes && !penRes.error ? (penRes.data || []) : []).map(l => l.id));
         } catch (e) {
             $('reportActiveLotsContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(e.message)}</div>`;
             return;
@@ -14372,6 +15338,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const pastureFilter = pickedValues('alFilterPasture');
 
         let rows = alLots;
+        // A feed pen is a lot but not a stocker lot: it has no invoice, so no
+        // cost in, no weight in and no break-even, and every economic column
+        // here would read as a hole in the data rather than as the deliberate
+        // zero it is. It has its own report.
+        const penCount = rows.filter(l => alFeedPenIds.has(l.lot_id) && !l.closed_at).length;
+        rows = rows.filter(l => !alFeedPenIds.has(l.lot_id));
         if (!includeClosed) rows = rows.filter(l => !l.closed_at);
         if (!includeTest) rows = rows.filter(l => !isTestLot(l.lot_number));
         if (lotFilter.length) rows = rows.filter(l => lotFilter.includes(l.lot_number));
@@ -14388,6 +15360,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             $('reportActiveLotsContent').innerHTML = '<div class="empty">No lots match filters.</div>';
             return;
         }
+        const penNote = penCount
+            ? `<p class="muted" style="font-size:11.5px; margin-top:10px;">
+                 ${penCount === 1 ? 'The feed pen is' : `${penCount} feed pens are`} not listed —
+                 cattle arrive there at $0, so cost in, weight in and break-even are all empty by design.
+                 Reports &rarr; Feed Pen.</p>`
+            : '';
 
         // Sort according to current state
         const sortKey = reportSortState['active-lots']?.key;
@@ -14474,6 +15452,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 <thead><tr>${headerHtml}</tr></thead>
                 <tbody>${bodyRows}${totalsRow}</tbody>
             </table>
+            ${penNote}
         `;
 
         // Header click → sort

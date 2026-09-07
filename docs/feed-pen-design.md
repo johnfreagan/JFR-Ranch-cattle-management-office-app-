@@ -257,6 +257,26 @@ to measure against.
    a saved shipment, for the same reason: an edit would unwind head math that
    already happened.
 
+## The known gap — a pen death recorded the ordinary way
+
+A pen death entered anywhere but **Record removal** — the lot's own death log,
+or a crew entry through the field app and the Approvals tab — writes correct
+head math and **no ledger row**. Head math then says the pen holds one fewer
+animal than the attribution ledger does, and the pen's feed and medicine keep
+being split across a lot whose head is gone.
+
+It is **detected, not silent**: `feed_pen_reconciliation` compares the two
+books and the Anomalies report raises it as a high-severity finding naming the
+pen and the variance. That was the reason for building the reconciliation view
+at all — a second book beside `lot_status` can drift, and the only unacceptable
+version of that is one nobody sees.
+
+Closing it properly means either teaching the death path to write the ledger
+row when the lot is a pen, or refusing a death on a pen lot outside the removal
+form. Both are small; neither is built, because which one is right depends on
+whether crew should be able to record a pen death from the field at all — see
+below.
+
 ## Still to settle
 
 - **Which physical pens.** The pen lot stands in ordinary pastures
