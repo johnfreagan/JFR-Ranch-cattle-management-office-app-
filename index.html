@@ -1533,7 +1533,11 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Active Lots</h2>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button id="reportActiveLotsPrintBtn">🖨 Print</button>
+                        <button id="reportActiveLotsPdfBtn" class="primary">Text / share PDF</button>
                     <button id="reportActiveLotsRefreshBtn">Refresh</button>
+                    </div>
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Snapshot of every active lot. Click a column header to sort. Click any row to open the lot.</p>
                 <div class="report-filters" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 12px; background: #fafaf6; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px;">
@@ -1675,7 +1679,11 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Anomalies</h2>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button id="reportAnomaliesPrintBtn">🖨 Print</button>
+                        <button id="reportAnomaliesPdfBtn" class="primary">Text / share PDF</button>
                     <button id="reportAnomaliesRefreshBtn">Refresh</button>
+                    </div>
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">All data integrity checks across active lots. Run this regularly to catch drift early. Click any lot to drill in.</p>
                 <div id="reportAnomaliesContent"><div class="empty">Loading…</div></div>
@@ -1705,6 +1713,8 @@
                 <div class="card-header">
                     <h2>Processing Cost</h2>
                     <div style="display: flex; gap: 10px; align-items: center;">
+                        <button id="reportProcessingPrintBtn">🖨 Print</button>
+                        <button id="reportProcessingPdfBtn" class="primary">Text / share PDF</button>
                         <select id="reportProcessingLot" style="min-width: 160px;"></select>
                         <button id="reportProcessingRefreshBtn">Refresh</button>
                         <button id="reportProcessingOpenLot" class="primary" title="Open the picked lot">← Back to lot</button>
@@ -1720,7 +1730,11 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Pasture Utilization</h2>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button id="reportPasturesPrintBtn">🖨 Print</button>
+                        <button id="reportPasturesPdfBtn" class="primary">Text / share PDF</button>
                     <button id="reportPasturesRefreshBtn">Refresh</button>
+                    </div>
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Acres and stocking on every pasture. Click a column header to sort, a head count to see the lots in that pasture, a lot to open it, or a pasture name to open the pasture.</p>
                 <div class="report-filters" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 12px; background: #fafaf6; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px;">
@@ -1753,6 +1767,8 @@
                 <div class="card-header">
                     <h2>Death Analysis</h2>
                     <div>
+                        <button id="reportDeathAnalysisPrintBtn">🖨 Print</button>
+                        <button id="reportDeathAnalysisPdfBtn" class="primary">Text / share PDF</button>
                         <label style="display:inline-block; margin-right: 12px; font-size: 13px;">
                             <input type="checkbox" id="reportDeathIncludeClosed" style="width:auto; vertical-align: middle;" checked> Include closed lots
                         </label>
@@ -1778,6 +1794,8 @@
                 <div class="card-header">
                     <h2>Doctoring &amp; Deaths</h2>
                     <div>
+                        <button id="reportDocPrintBtn">🖨 Print</button>
+                        <button id="reportDocPdfBtn" class="primary">Text / share PDF</button>
                         <button id="reportDocExportBtn">Export CSV</button>
                     </div>
                 </div>
@@ -4872,6 +4890,172 @@ window.addEventListener('unhandledrejection', function(e) {
         if(type==='success') setTimeout(()=>{el.innerHTML='';},3000);
     }
     function clearAlert(id){const el=$(id); if(el) el.innerHTML='';}
+
+    // ---- ONE REPORT, TWO OUTPUTS -----------------------------------------
+    // John, 2026-09-07: "Every report in the office app needs a print button
+    // ... I want a print and pdf button on each for consistency."
+    //
+    // These WALK WHAT THE REPORT RENDERED rather than rebuilding it. Every
+    // report here already has filters, groupings and derived rows; a second
+    // implementation per report would be six more places for the printed
+    // sheet to disagree with the screen it was printed from. Same reasoning
+    // as the Redwing PDF, which has done it this way since it was written.
+    //
+    // The cost of walking the DOM is that a report has to render tables to
+    // be printable. Every one of these does.
+
+    // jsPDF's standard fonts are WinAnsi-encoded, so anything outside Latin-1
+    // prints as a stray quote mark. DELETING those characters is worse than
+    // it sounds: an en dash dropped out of "0-14 days" leaves "014 days", a
+    // number that never existed. So substitute, never remove.
+    const PDF_SUBS = [
+        [/[\u2010-\u2015]/g, '-'],      // hyphens and dashes
+        [/[\u2018\u2019\u201B]/g, "'"],  // curly single quotes
+        [/[\u201C\u201D]/g, '"'],       // curly double quotes
+        [/\u2026/g, '...'], [/\u00A0/g, ' '],
+        [/[\u0394\u2206]/g, 'delta '],  // the head-mismatch badge
+        [/[\u2713\u2714]/g, 'OK '], [/[\u26A0\uFE0F]/g, '! '],
+        [/[\u2191\u25B2]/g, 'up '], [/[\u2193\u25BC]/g, 'down '],
+        [/[\u2192\u27A1]/g, '-> '], [/\u00D7/g, 'x']
+    ];
+    function pdfSafe(t) {
+        let out = String(t == null ? '' : t);
+        PDF_SUBS.forEach(([re, to]) => { out = out.replace(re, to); });
+        // Whatever is left outside Latin-1 becomes a space, not nothing, so
+        // two words or two numbers can never be welded into one.
+        return out.replace(/[^\x20-\xFF]/g, ' ').replace(/ {2,}/g, ' ').trim();
+    }
+
+    // Cells carrying controls print as whatever the person last picked, not
+    // as a dropdown; a button prints as nothing.
+    function repCellText(td) {
+        const sel = td.querySelector('select');
+        if (sel) return sel.selectedOptions.length ? sel.selectedOptions[0].textContent.trim() : '';
+        const inp = td.querySelector('input');
+        if (inp) return inp.type === 'checkbox' ? (inp.checked ? 'yes' : 'no') : (inp.value || '');
+        const clone = td.cloneNode(true);
+        clone.querySelectorAll('button').forEach(b => b.remove());
+        return clone.textContent.replace(/\s+/g, ' ').trim();
+    }
+
+    // The report's own headings between its tables, so a multi-table report
+    // (Death Analysis, Anomalies) keeps its structure on paper.
+    function repBlocks(host) {
+        const blocks = [];
+        host.querySelectorAll('table').forEach(tbl => {
+            let cap = '';
+            for (let el = tbl.previousElementSibling; el; el = el.previousElementSibling) {
+                if (el.matches('table')) break;
+                const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+                if (t && t.length < 120) { cap = t; break; }
+            }
+            const head = [...tbl.querySelectorAll('thead tr')].map(tr =>
+                [...tr.children].map(th => ({ text: repCellText(th), span: th.colSpan > 1 ? th.colSpan : 1,
+                                              num: th.classList.contains('num') })));
+            const rows = [...tbl.querySelectorAll('tbody tr, tfoot tr')].map(tr =>
+                [...tr.children].map(td => ({ text: repCellText(td), span: td.colSpan > 1 ? td.colSpan : 1,
+                                              num: td.classList.contains('num') })));
+            if (head.length || rows.length) blocks.push({ cap, head, rows });
+        });
+        return blocks;
+    }
+
+    // Anything a report wants said under the title - what it is filtered to,
+    // how many rows, a warning. Printed so a page found on a desk explains
+    // itself.
+    function repMeta(extra) {
+        return ['JFR Ranch Co. Ltd.', ranchToday()].concat(extra || []).join('  ·  ');
+    }
+
+    function printReport(hostId, title, extra) {
+        const host = $(hostId);
+        const blocks = host ? repBlocks(host) : [];
+        if (!blocks.length) { alert('Nothing to print yet — let the report finish loading.'); return; }
+        const wide = blocks.some(b => b.head.some(r => r.reduce((n, c) => n + c.span, 0) > 7));
+
+        const tbl = b => `
+            ${b.cap ? `<div class="cap">${escapeHtml(b.cap)}</div>` : ''}
+            <table>
+                ${b.head.length ? `<thead>${b.head.map(r => `<tr>${r.map(c =>
+                    `<th${c.span > 1 ? ` colspan="${c.span}"` : ''}${c.num ? ' class="r"' : ''}>${escapeHtml(c.text)}</th>`
+                  ).join('')}</tr>`).join('')}</thead>` : ''}
+                <tbody>${b.rows.map(r => `<tr>${r.map(c =>
+                    `<td${c.span > 1 ? ` colspan="${c.span}"` : ''}${c.num ? ' class="r"' : ''}>${escapeHtml(c.text)}</td>`
+                  ).join('')}</tr>`).join('')}</tbody>
+            </table>`;
+
+        const w = window.open('', '_blank');
+        if (!w) { alert('The browser blocked the print window. Allow pop-ups for this site.'); return; }
+        w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+        <title>${escapeHtml(title)} — ${ranchToday()}</title>
+        <style>
+            @page{size:${wide ? 'landscape' : 'portrait'};}
+            body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#111;}
+            h1{font-size:18px;margin:0 0 2px 0;}
+            .meta{color:#555;font-size:11.5px;margin-bottom:12px;}
+            .cap{font-weight:700;font-size:12px;margin:14px 0 4px;}
+            table{border-collapse:collapse;width:100%;font-size:12px;margin-bottom:8px;}
+            th,td{border:1px solid #999;padding:3px 6px;text-align:left;vertical-align:top;}
+            th{background:#eee;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;}
+            td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;}
+            @media print{ body{margin:11mm;} tr{break-inside:avoid;} thead{display:table-header-group;} }
+        ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
+        <h1>${escapeHtml(title)}</h1>
+        <div class="meta">${escapeHtml(repMeta(extra))}</div>
+        ${blocks.map(tbl).join('')}
+        </body></html>`);
+        w.document.close();
+        w.focus();
+        setTimeout(() => w.print(), 250);
+    }
+
+    async function shareReportPdf(hostId, title, extra) {
+        if (!pdfReady()) return;
+        const host = $(hostId);
+        const blocks = host ? repBlocks(host) : [];
+        if (!blocks.length) { alert('Nothing to share yet — let the report finish loading.'); return; }
+        const wide = blocks.some(b => b.head.some(r => r.reduce((n, c) => n + c.span, 0) > 7));
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: wide ? 'landscape' : 'portrait' });
+        doc.setFontSize(15);
+        doc.text(title, 14, 16);
+        doc.setFontSize(9);
+        doc.setTextColor(110);
+        // jsPDF's standard fonts are WinAnsi-encoded: a stray non-Latin-1
+        // character prints as a quote mark rather than failing loudly.
+        doc.text(pdfSafe(repMeta(extra)), 14, 22);
+        doc.setTextColor(40);
+
+        let y = 28;
+        blocks.forEach(b => {
+            if (b.cap) {
+                doc.setFontSize(10);
+                doc.text(pdfSafe(b.cap), 14, y);
+                y += 5;
+            }
+            const cell = c => ({ content: pdfSafe(c.text),
+                                 colSpan: c.span,
+                                 styles: c.num ? { halign: 'right' } : {} });
+            doc.autoTable({
+                startY: y,
+                head: b.head.map(r => r.map(cell)),
+                body: b.rows.map(r => r.map(cell)),
+                styles: { fontSize: 8, cellPadding: 2 },
+                headStyles: { fillColor: [240, 240, 234], textColor: 30, fontStyle: 'bold' }
+            });
+            y = doc.lastAutoTable.finalY + 8;
+        });
+        await sharePdfFile(doc, `JFR-${title.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}-${ranchToday()}.pdf`, title);
+    }
+
+    // Wire a report's Print and PDF buttons in one line. extraFn is called at
+    // click time, not at wire time, so the meta line reflects the filters as
+    // they are NOW rather than as they were when the tab was first opened.
+    function wireReportOutputs(prefix, hostId, title, extraFn) {
+        const pr = $(prefix + 'PrintBtn'), pd = $(prefix + 'PdfBtn');
+        if (pr) pr.addEventListener('click', () => printReport(hostId, title, extraFn ? extraFn() : []));
+        if (pd) pd.addEventListener('click', () => shareReportPdf(hostId, title, extraFn ? extraFn() : []));
+    }
 
     // ---- PRINT WINDOW CHROME ---------------------------------------------
     // Every print view in this app opens a script-created tab and calls
@@ -13045,6 +13229,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     async function loadAnomaliesReport() {
         if (!anomaliesReportInitialized) {
             $('reportAnomaliesRefreshBtn').addEventListener('click', loadAnomaliesReport);
+            wireReportOutputs('reportAnomalies', 'reportAnomaliesContent', 'Anomalies');
             anomaliesReportInitialized = true;
         }
         $('reportAnomaliesContent').innerHTML = '<div class="empty">Running checks…</div>';
@@ -14096,6 +14281,10 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 renderActiveLotsReport();
             });
             $('reportActiveLotsRefreshBtn').addEventListener('click', loadActiveLotsReport);
+            wireReportOutputs('reportActiveLots', 'reportActiveLotsContent', 'Active Lots', () => [
+                $('reportShowClosed').checked ? 'closed lots included' : 'open lots',
+                ...($('reportShowTest').checked ? ['test lots included'] : [])
+            ]);
             alInitialized = true;
         }
         $('reportActiveLotsContent').innerHTML = '<div class="empty">Loading…</div>';
@@ -14296,6 +14485,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 renderPastureUtilization();
             });
             $('reportPasturesRefreshBtn').addEventListener('click', loadPastureUtilizationReport);
+            wireReportOutputs('reportPastures', 'reportPasturesContent', 'Pasture Utilization');
             puInitialized = true;
         }
         $('reportPasturesContent').innerHTML = '<div class="empty">Loading…</div>';
@@ -14487,6 +14677,11 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             processingReportInit = true;
             sel.addEventListener('change', loadProcessingReport);
             $('reportProcessingRefreshBtn').addEventListener('click', loadProcessingReport);
+            wireReportOutputs('reportProcessing', 'reportProcessingContent', 'Processing Cost', () => {
+                const sel = $('reportProcessingLot');
+                const l = sel && sel.selectedOptions.length ? sel.selectedOptions[0].textContent.trim() : '';
+                return l ? ['lot ' + l] : [];
+            });
             // Back to the picked lot. If a tile drilled here, the return bar
             // already knows the section; otherwise open the lot fresh.
             $('reportProcessingOpenLot').addEventListener('click', () => {
@@ -14993,6 +15188,12 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         $('reportDeathByDofContent').innerHTML = dofTableHtml;
     }
 
+    // Death Analysis renders two tables into two containers; print the card
+    // so both come out on one sheet, which is how the question is asked.
+    wireReportOutputs('reportDeathAnalysis', 'reportDeathAnalysisView', 'Death Analysis', () => [
+        $('reportDeathIncludeClosed').checked ? 'closed lots included' : 'open lots only',
+        ...($('reportDeathIncludeTest').checked ? ['test lots included'] : [])
+    ]);
     $('reportDeathIncludeClosed').addEventListener('change', loadDeathAnalysisReport);
     $('reportDeathIncludeTest').addEventListener('change', loadDeathAnalysisReport);
 
@@ -15728,6 +15929,7 @@ ${body}
             $('reportDocApplyBtn').addEventListener('click', runDoctoringReport);
             $('reportDocResetBtn').addEventListener('click', resetDoctoringFilters);
             $('reportDocExportBtn').addEventListener('click', exportDoctoringReportCsv);
+            wireReportOutputs('reportDoc', 'reportDocTableContent', 'Doctoring & Deaths');
 
             // Date preset buttons
             document.querySelectorAll('.date-preset-btn').forEach(btn => {
@@ -15866,7 +16068,7 @@ ${body}
         }
 
         renderDoctoringSummary(rows, totalHeadInLots, allDeaths, totalHeadOnFeed, totalShipped);
-        renderDoctoringTable(rows);
+        renderDocReportTable(rows);
     }
 
     function renderDoctoringSummary(rows, totalHeadInLots, allDeaths, totalHeadOnFeed, totalShipped) {
@@ -16285,7 +16487,15 @@ ${body}
     // Sortable table state
     let docTableSort = { key: 'event_date', dir: 'desc' };
 
-    function renderDoctoringTable(rows) {
+    // Named for the REPORT, not for doctoring in general. There is another
+    // renderDoctoringTable() on the lot-detail page, declared later in the
+    // same scope, and a function declaration later in a scope wins: every
+    // call here resolved to the lot's version, which writes into
+    // #doctoringContent. So this table sat on "Loading…" forever while the
+    // summary and charts above it rendered fine - which is why it went
+    // unnoticed. Found 2026-09-07 wiring the report's print button, because
+    // there was nothing on the page to print.
+    function renderDocReportTable(rows) {
         if (rows.length === 0) {
             $('reportDocTableContent').innerHTML = '<div class="empty">No events match these filters.</div>';
             return;
@@ -16371,7 +16581,7 @@ ${body}
                     docTableSort.key = k;
                     docTableSort.dir = (k === 'event_date' || k === 'days_since_prev_event' || k === 'days_pull_to_death' || k === 'pull_position') ? 'desc' : 'asc';
                 }
-                renderDoctoringTable(rows);
+                renderDocReportTable(rows);
             });
         });
     }
