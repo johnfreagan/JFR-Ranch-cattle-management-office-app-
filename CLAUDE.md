@@ -1065,7 +1065,29 @@ and the anchor work only did one:
   an assumption that is 18% wrong, and the source is on screen so it can be
   discounted. There is no per-lot override yet; add one if a lot's shipped
   head are known to be unrepresentative.
-- **The LEVEL correction is NOT built.** `docs/weight-estimation-design.md`
+- **A pasture weighing is now VISIBLE, as a note** (John, 2026-09-10: *"stand
+  visible at least as a note … the time this matters is in the growyard phase
+  and cattle when we get closer to shipping to have an accurate weight because
+  different pastures perform differently some years"*). View
+  `lot_pasture_weights`, migration
+  `docs/sql/2026-09-10_lot_pasture_weights.sql`, shown as a **Last weighed**
+  column on the lot's Currently in table.
+  - **It is a NOTE, never an anchor.** It moves no projection, no cost and no
+    head; `applies_to='pasture'` still anchors nothing. Proven in the
+    migration and re-proven live: a 76-head weighing on 36-27's pasture 3 read
+    465.6 lb booked, +38.0 against the lot's 427.6, and
+    `projected_current_weight` stayed 427.55 on `assumed` throughout.
+  - **John's answer is what makes this safe where a general per-pasture anchor
+    was not.** The horizon is SHORT — a weighing a fortnight before shipping
+    has no months in which to drift onto the wrong animals — and near shipping
+    the PASTURE number is the one that gets used, because trucks load off
+    pastures. The lot average is a closeout figure.
+  - **`head_changed` and `moved_in_since` are the honesty of it.** A weighing
+    describes the ANIMALS that were on the scale, so the moment head come or
+    go it is describing a group that no longer stands there. The column goes
+    amber and says which — *"weighed 60 hd, 76 here now"* or *"cattle moved in
+    since"* — rather than letting a stale number read as current.
+- **The rest of the LEVEL correction is NOT built.** `docs/weight-estimation-design.md`
   holds it: pasture-level weights and sorting big/little are the same shape,
   and the blocker is that **cattle move and a weight belongs to the animals,
   not the pasture** — tags recycle, so once head are pooled there is no way

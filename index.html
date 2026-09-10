@@ -22190,20 +22190,60 @@ ${ranchBlocks}
 
         const totalHead = enriched.reduce((s, a) => s + a.head_count, 0);
 
+        // What each pasture last weighed. A NOTE, never an anchor - it moves
+        // no projection. John, 2026-09-10: the moment it matters is the
+        // growyard phase and the run-up to shipping, "because different
+        // pastures perform differently some years", and near shipping the
+        // pasture number is the one that gets used because trucks load off
+        // pastures.
+        let pwByPasture = {};
+        const { data: pw, error: pwErr } = await supabase
+            .from('lot_pasture_weights')
+            .select('*')
+            .eq('lot_id', lotId);
+        if (!pwErr && pw) pw.forEach(r => { pwByPasture[r.pasture_id] = r; });
+
+        // A weighing describes the ANIMALS that were on the scale, not the
+        // pasture. Once head come or go it is describing a group that no
+        // longer stands there, so say so rather than letting an old number
+        // read as current.
+        const weightCell = (pastureId) => {
+            const r = pwByPasture[pastureId];
+            if (!r || r.weigh_date == null) return '<span class="muted">&mdash;</span>';
+            const stale = r.head_changed || r.moved_in_since;
+            const vs = r.vs_lot_lb != null
+                ? ` ${Number(r.vs_lot_lb) >= 0 ? '+' : ''}${fmtNum(r.vs_lot_lb, 0)} vs lot`
+                : '';
+            const why = r.moved_in_since ? 'cattle moved in since'
+                      : r.head_changed   ? `weighed ${fmtNum(r.head_weighed)} hd, ${fmtNum(r.head_now)} here now`
+                      : '';
+            return `<strong>${fmtNum(r.avg_booked_lb, 0)} lb</strong>` +
+                   `<div class="muted" style="font-size:11px;">` +
+                   `${fmtNum(r.head_weighed)} hd &middot; ${fmtDate(r.weigh_date)}` +
+                   `${r.days_since != null ? ` (${fmtNum(r.days_since)}d)` : ''}${vs}` +
+                   (stale ? `<br><span style="color:var(--warning,#b8860b);">${escapeHtml(why)}</span>` : '') +
+                   `</div>`;
+        };
+        const anyWeighed = enriched.some(g => (pwByPasture[g.pasture_id] || {}).weigh_date != null);
+
         const rows = enriched.map(g => `
             <tr>
                 <td><span class="location-link" data-pasture-id="${g.pasture_id}" style="cursor: pointer; color: var(--text); text-decoration: none;"><strong>${escapeHtml(g.ranch_name)}</strong> / ${escapeHtml(g.pasture_name)}</span></td>
                 <td class="num"><strong>${fmtNum(g.head_count)}</strong></td>
+                <td class="num">${weightCell(g.pasture_id)}</td>
                 <td class="muted" style="font-size: 12px;">since ${fmtDate(g.moved_in)}</td>
             </tr>
         `).join('');
 
         $('currentLocationsContent').innerHTML = `
             <table style="font-size: 13px;">
-                <thead><tr><th>Pasture</th><th class="num">Head</th><th>Since</th></tr></thead>
+                <thead><tr><th>Pasture</th><th class="num">Head</th><th class="num">Last weighed</th><th>Since</th></tr></thead>
                 <tbody>${rows}</tbody>
-                <tfoot><tr style="border-top: 1px solid var(--border);"><td><strong>Total</strong></td><td class="num"><strong>${fmtNum(totalHead)}</strong></td><td></td></tr></tfoot>
+                <tfoot><tr style="border-top: 1px solid var(--border);"><td><strong>Total</strong></td><td class="num"><strong>${fmtNum(totalHead)}</strong></td><td></td><td></td></tr></tfoot>
             </table>
+            ${anyWeighed ? `<p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">
+                A pasture weighing is a note, not the lot's weight &mdash; it does not move the projection.
+                It describes the cattle that were on the scale, so it goes amber once head have come or gone.</p>` : ''}
             <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">To change pasture inventory: use + Move (relocate cattle), record sales, or record deaths. All changes leave an audit trail.</p>
         `;
         const cnt2 = document.getElementById('currentLocationsCount');

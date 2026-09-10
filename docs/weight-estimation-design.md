@@ -105,8 +105,29 @@ honest answer to sorting and needs no new schema. B2 is the expensive one and
 its central problem — cattle move and weights belong to animals — has no
 clean solution, so it should not be built on a guess.
 
-**Open for John:** whether a pasture weighing should visibly stand for that
-pasture (B2) or fold into the lot (B1). Everything else follows from that.
+**ANSWERED 2026-09-10.** John: *"stand visible at least as a note. The time
+this matters is in the growyard phase and cattle when we get closer to
+shipping to have an accurate weight because different pastures perform
+differently some years."*
+
+That is neither B1 nor B2 as written, and it is better than both. **Visible,
+but a note** — so the pasture number is on screen where it is wanted, and the
+projection is left alone, which means the move-decay problem cannot corrupt
+anything. And it narrows the horizon: the moment that matters is the run-up to
+shipping, not the whole life of the lot, so a weighing has weeks to stay
+honest rather than months to drift.
+
+**BUILT** (`docs/sql/2026-09-10_lot_pasture_weights.sql`): the view
+`lot_pasture_weights` and a **Last weighed** column on the lot's Currently in
+table, carrying the average, the head weighed, the date, the age in days and
+the difference against the lot estimate — plus `head_changed` /
+`moved_in_since`, which turn the cell amber and say why when the weighing no
+longer describes the cattle standing there.
+
+**Still open, and cheaper now:** whether a partial weighing should also BLEND
+into the lot average (B1). The note does not, deliberately. Worth revisiting
+once there are real weighings to look at — the display will show whether the
+pastures diverge enough for a blended lot number to be worth having.
 
 ## Standing rules, whatever gets built
 
