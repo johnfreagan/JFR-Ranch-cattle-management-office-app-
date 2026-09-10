@@ -68,7 +68,7 @@ with lot_avg_wt as (
     union all
     -- invoice head no receipt covers, at the invoice's protocol
     select i.id, 'invoice', i.lot_id,
-           i.head_count - coalesce(rh.head, 0),
+           (i.head_count - coalesce(rh.head, 0))::integer,   -- keep the column integer; sum() must stay bigint
            i.receiving_protocol_id,
            coalesce(i.total_weight_lb / nullif(i.head_count, 0)::numeric, law.avg_wt)
       from invoices i
@@ -132,7 +132,7 @@ with lot_avg_wt as (
      where dr.receiving_protocol_id is not null and dr.head_count > 0
     union all
     select i.id, i.lot_id,
-           i.head_count - coalesce(rh.head, 0),
+           (i.head_count - coalesce(rh.head, 0))::integer,   -- keep the column integer; sum() must stay bigint
            i.receiving_protocol_id,
            coalesce(i.total_weight_lb / nullif(i.head_count, 0)::numeric, law.avg_wt)
       from invoices i
