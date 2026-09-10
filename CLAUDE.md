@@ -689,11 +689,17 @@ is unrecoverable in a way an accidental insert is not.
 5. **New tables need RLS *and* policies.** `ENABLE ROW LEVEL SECURITY` with no
    policy is a total lockout; policies without `ENABLE` are decoration.
 6. **`SECURITY DEFINER` needs a reason and a pinned `search_path`.** Each one
-   bypasses RLS. Deliberate today (all seven verified 2026-08-25 to carry a
+   bypasses RLS. Deliberate today (all eight verified 2026-09-10 to carry a
    pinned `search_path`): `current_user_role` (it is the gate),
    `admin_list_users`, `guard_last_owner`, `handle_new_user`,
    `cleanup_attachment_storage`, `lot_projected_weight`,
-   `lot_weighted_arrival_date`. Default to INVOKER — the head-math RPCs
+   `lot_projected_weight_detail`, `lot_weighted_arrival_date`. The eighth
+   was added 2026-09-10 and inherits its reason from the function it backs:
+   `lot_projected_weight` has been DEFINER since it was written, which is
+   the only reason crew — who cannot read `invoices` — see a projected
+   weight at all. An INVOKER detail function would have handed crew the
+   number with a blank provenance beside it. Default to INVOKER — the
+   head-math RPCs
    (`record_death_with_pasture`, `record_move_with_pasture`, the delete
    reversals) are all INVOKER and must stay that way.
 7. **Run `supabase/migrations/20260821000300_rls_verify.sql` after any
@@ -793,13 +799,91 @@ tab. Migrations: `docs/sql/2026-09-07_field_counts_and_test_weights.sql` and
   They belong to `weights`, not to the staging table, but have to persist
   between the edit and the approval. Do NOT overload `resolved_meds`; it is
   med-specific.
-- **NOTHING READS `weights` YET.** John's decision (2026-09-07) is option A:
-  capture and display only. A test weight must not re-anchor
-  `projected_current_weight`, feed realized ADG, or drive the `per_lb` COG
-  mode — a pasture weight is full of grass and water while a pay weight is
-  shrunk, and the first 20 head into the trap are the gentle ones, not a
-  random sample. Revisit once there are real weights to compare against what
-  the projection said.
+- **`weights` now feeds the projection — but only a WHOLE-LOT row does**
+  (2026-09-10, the CFO project; migration
+  `docs/sql/2026-09-10_lot_weight_anchor.sql`). This reverses the
+  2026-09-07 "option A, capture and display only" decision, and answers
+  rather than discards its reason. That reason was sound: a pasture weight
+  is full of grass and water while a pay weight is shrunk, and the first 20
+  head into the trap are the gentle ones, not a random sample. So `weights`
+  gained a third field, `coverage` ('whole_lot' | 'sample'), and ONLY
+  `coverage='whole_lot'` **and** `applies_to='lot'` anchors anything.
+  Everything the field app writes is `weight_type='pasture_check'` at the
+  default `coverage='sample'` and still anchors nothing — **anchoring is
+  opt-in, and no screen sets it yet.** Realized ADG and the `per_lb` COG
+  mode still do not read `weights`; that half of option A stands.
+- **The three fields on `weights` are three different questions.**
+  `weight_type` is the occasion (arrival · chute · pasture_check · sale ·
+  individual · other), `applies_to` is what the sample stands for (pasture
+  or lot, decided by the office at approval), and `coverage` is whether
+  every head was on the scale. The third had to exist because the office is
+  explicitly allowed to say a 20-head draft stands for the lot average —
+  `applies_to='lot'` — and that is NOT the statement "we ran all 585 head
+  across the scale". Only the second may anchor a lot average, so
+  overloading `applies_to` would have made a gentle-cattle draft the
+  lot's weight.
+
+## Projected weight: the anchor (rebuilt 2026-09-10)
+
+`lot_projected_weight()` used to ignore every weight taken after purchase —
+invoice average plus days-since-arrival times `target_adg`, forever. It now
+starts from an ANCHOR and walks forward. Migration:
+`docs/sql/2026-09-10_lot_weight_anchor.sql`.
+
+```
+lot_weight_anchor (view)  ──▶ lot_projected_weight_detail()  ──▶ lot_projected_weight()
+  newest whole-lot weight        the day-by-day walk               thin wrapper
+  else the purchase weight       + provenance                      (scalar, unchanged signature)
+```
+
+- **`lot_projected_weight_detail()` is the implementation and the scalar
+  function is a wrapper over it.** Two copies of this arithmetic would
+  become the `lot_head_days` trap — a function and a view that disagree by
+  29% and nobody notices for months. One body, two entry points.
+- **Anchor precedence: newest whole-lot weighing, else the purchase
+  weight.** A **sale weight is never an anchor** for the head still
+  standing — those are the cattle that LEFT. A CHECK makes
+  `coverage='whole_lot'` with `weight_type` of `sale` or `individual`
+  unrepresentable, and the view's WHERE repeats the rule where it is relied
+  on.
+- **Several scale drafts sharing a `weigh_session_id` are ONE anchor.**
+  Weighing 585 head in six drags is one weighing, so the drafts are summed
+  back up before the newest is picked; otherwise the last drag off the
+  trailer would become the lot's average weight.
+- **Phase day-numbers are measured from the WEIGHTED ARRIVAL DATE, not from
+  the anchor.** `lot_adg_phases` describes a lot's life from when the cattle
+  landed — a receiving phase is the first ten days on the place. Measuring
+  from the anchor would restart the receiving slump every time the lot was
+  weighed. Days no phase covers fall back to `lots.target_adg`; a NULL
+  `target_adg` is 0, as before.
+- **`adg_used` is the BLENDED rate actually applied**, so
+  `anchor_avg + adg_used × days_since_anchor` always reproduces the number.
+  `adg_source` is `'phase'` if any day in the walk drew from a phase.
+- **`lot_weight_anchor` returns one row per lot ALWAYS**, with NULL anchor
+  columns where a lot has neither invoices nor a whole-lot weight
+  (FEEDPEN-27 is the live case). A dashboard can then show "no anchor"
+  rather than silently dropping the lot. The function returns NO ROW for
+  those, which is what makes the scalar return NULL.
+- **The anchor's own `head` is the INVOICE head, not `head_in`.** On 36-27
+  that is 562 against a `head_in` of 585, because the receipts run ahead of
+  the invoices. That is the old function's denominator unchanged; do not
+  "fix" it here without moving `avg_weight_in` on `lot_status` with it.
+- **`lot_weight_anchor` counts days on `ranch_today()`; `lot_status`
+  counts them on `CURRENT_DATE`.** Deliberate, and the reason is worth
+  keeping: `lot_status` is uniformly CURRENT_DATE already
+  (`projected_current_weight`, `days_on_feed`,
+  `days_since_weighted_arrival`), and a single ranch-day column dropped into
+  a UTC-day view is worse than either — `days_since_anchor` would read one
+  day behind the projection printed beside it every evening Central, so a
+  dashboard dividing the gain by the days would read DOUBLE the real ADG for
+  those hours, silently. Moving the whole view onto `ranch_today()` moves
+  `projected_current_weight` with it and is its own migration.
+- **Nothing in the books moved when this landed, and the migration proves
+  it rather than claiming it.** It snapshots
+  `lot_status.projected_current_weight` for every lot into a temp table
+  before the rewrite and raises if any lot differs afterwards by so much as
+  the last decimal place. With `weights` and `lot_adg_phases` empty the two
+  formulas are arithmetically identical; all 12 lots verified 2026-09-10.
 
 ## Schema landmines (verified by painful trial and error — trust these)
 
