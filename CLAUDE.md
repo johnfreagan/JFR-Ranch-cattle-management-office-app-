@@ -49,7 +49,11 @@ See "Access control" below and `docs/security-model.md`.
   (37X: 361 of 369 head have no receipt rows at all). The migration also
   copied the invoice protocol onto receipts that had none, open lots first
   and 31-26 (closed, FY2026, 1,766 hd, $28,586.51 on "25 Fall Light Steer
-  Processing") the same day on John's call: "processing cost on all lots". `procCoverage` counts head, not loads, and carries
+  Processing") the same day on John's call: "processing cost on all lots".
+  47-26 had a protocol nowhere; John picked "26 Summer X Steers/Bulls
+  Receiving v1" for it (2 invoices, 10 receipts, 187 hd). Every real lot
+  now prices processing; the only holes left are Protivity lines on the
+  26 Summer X protocol until it is priced. `procCoverage` counts head, not loads, and carries
   `headOnInvoiceProtocol`; the tile reads "N of M hd".
 - **A receipt with no `receiving_protocol_id` has NO processing cost**, and
   the lot's $/hd reads diluted (dollars from the covered loads over every

@@ -222,3 +222,11 @@ commit;
 --   from invoices i join lots l on l.id = i.lot_id
 --  where i.id = r.invoice_id and r.receiving_protocol_id is null
 --    and i.receiving_protocol_id is not null and l.lot_number = '31-26';
+
+-- 47-26 (closed, FY2026): no protocol on invoice or receipt. John chose
+-- "26 Summer X Steers/Bulls Receiving v1" (option B) on 2026-09-10; applied
+-- through the connector: 2 invoices and 10 receipts, 187 hd. Protivity on
+-- that protocol was still unpriced at the time, so its lines fill in once it
+-- is priced.
+-- do $$ ... update invoices / delivery_receipts where lot_number = '47-26'
+--          and receiving_protocol_id is null ... $$;  (see session notes)
