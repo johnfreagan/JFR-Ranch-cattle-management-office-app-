@@ -859,6 +859,7 @@
         <div class="sub-tabs hidden" id="salesSubtabs" data-perm="office">
             <button class="sub-tab active" data-subtab="shipments">Shipments</button>
             <button class="sub-tab" data-subtab="accounting">Accounting Report</button>
+            <button class="sub-tab" data-subtab="positions">Positions</button>
         </div>
         <!-- Inventory. Sub-tabs are the ACTIVITY; the chip is the MATERIAL.
              The first four are material-agnostic and read the shared
@@ -2583,6 +2584,54 @@
 
             <div class="card">
                 <div id="acctReportContent"><div class="empty">Pick a shipment.</div></div>
+            </div>
+        </div>
+
+        <!-- ============================================================
+             POSITIONS: futures, options, LRP endorsements and forward
+             sales. Roughly fifteen rows a year, so this is deliberately a
+             list and a form - no bulk import, no wizard, nothing clever.
+
+             UNITS on this whole screen: cattle prices are cents per pound,
+             which is the same number as dollars per hundredweight. LRP
+             premium is dollars per head.
+             ============================================================ -->
+        <div id="positionsView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Hedge coverage by sale month</h2>
+                    <button id="posRefreshBtn">Refresh</button>
+                </div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    Pounds expected to sell against pounds protected. Expected comes from open lots
+                    carrying a target ship date and target ship weight; only short futures, long
+                    puts, LRP and forward sales count as protection, and corn never does.
+                </p>
+                <div id="posCoverageContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>Positions</h2>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 0;">
+                            <input type="checkbox" id="posShowClosed" style="width: auto;">
+                            Show closed
+                        </label>
+                        <button class="primary" id="posNewBtn" data-write>+ New position</button>
+                    </div>
+                </div>
+                <div id="posListContent"><div class="empty">Loading&hellip;</div></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><h2>Market quotes</h2></div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    The latest close on each listed contract month, as pulled by the
+                    <code>market-quotes-sync</code> job. Cattle are cents per pound
+                    (= $/cwt); corn is cents per bushel.
+                </p>
+                <div id="posQuotesContent"><div class="empty">Loading&hellip;</div></div>
             </div>
         </div>
 
@@ -5126,6 +5175,154 @@
                 <button type="button" class="primary" id="tagConflictOverrideBtn" title="Save and register all tags. Conflicts will retire the previous registration with note.">Register anyway</button>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     POSITION ENTRY. Fields are shown per kind by posSyncFields(), which
+     mirrors the per-type CHECK constraints on public.positions. The DB is
+     the enforcement; this only decides what is on screen.
+     ============================================================ -->
+<div class="modal-backdrop" id="positionModal">
+    <div class="modal">
+        <h2 id="positionModalTitle">New position</h2>
+        <div id="positionModalAlert"></div>
+        <form id="positionForm">
+            <input type="hidden" id="posId">
+
+            <div class="form-grid" style="margin-bottom: 14px;">
+                <div>
+                    <label for="posType">Kind *</label>
+                    <select id="posType" required>
+                        <option value="futures">Futures</option>
+                        <option value="option">Option</option>
+                        <option value="lrp">LRP endorsement</option>
+                        <option value="forward_sale">Forward sale</option>
+                        <option value="forward_purchase">Forward purchase</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="posTradeDate">Trade date *</label>
+                    <input type="date" id="posTradeDate" required>
+                </div>
+            </div>
+
+            <div class="form-grid" style="margin-bottom: 14px;">
+                <div data-pf="instrument">
+                    <label for="posInstrument">Instrument *</label>
+                    <select id="posInstrument">
+                        <option value="feeder_cattle">Feeder cattle</option>
+                        <option value="live_cattle">Live cattle</option>
+                        <option value="corn">Corn</option>
+                    </select>
+                </div>
+                <div data-pf="contractMonth">
+                    <label for="posContractMonth">Contract month *</label>
+                    <input type="month" id="posContractMonth">
+                </div>
+                <div data-pf="side">
+                    <label for="posSide">Side *</label>
+                    <select id="posSide">
+                        <option value="short">Short</option>
+                        <option value="long">Long</option>
+                    </select>
+                </div>
+                <div data-pf="optionType">
+                    <label for="posOptionType">Put or call *</label>
+                    <select id="posOptionType">
+                        <option value="put">Put</option>
+                        <option value="call">Call</option>
+                    </select>
+                </div>
+                <div data-pf="contracts">
+                    <label for="posContracts">Contracts *</label>
+                    <input type="number" id="posContracts" step="1" min="1" placeholder="e.g. 3">
+                    <div class="muted" style="font-size: 12px; margin-top: 4px;" id="posContractsHint"></div>
+                </div>
+                <div data-pf="strike">
+                    <label for="posStrike">Strike (&cent;/lb) *</label>
+                    <input type="number" id="posStrike" step="0.001" placeholder="e.g. 320.000">
+                </div>
+                <div data-pf="entryPrice">
+                    <label for="posEntryPrice">Price (&cent;/lb)</label>
+                    <input type="number" id="posEntryPrice" step="0.001" placeholder="e.g. 325.725">
+                </div>
+                <div data-pf="coveragePrice">
+                    <label for="posCoveragePrice">Coverage price (&cent;/lb) *</label>
+                    <input type="number" id="posCoveragePrice" step="0.001" placeholder="e.g. 310.000">
+                </div>
+                <div data-pf="premium">
+                    <label for="posPremium">Producer premium ($/head)</label>
+                    <input type="number" id="posPremium" step="0.01" placeholder="e.g. 18.40">
+                </div>
+                <div data-pf="head">
+                    <label for="posHead">Head *</label>
+                    <input type="number" id="posHead" step="1" min="1" placeholder="e.g. 250">
+                </div>
+                <div data-pf="lbPerHead">
+                    <label for="posLbPerHead">Lb per head</label>
+                    <input type="number" id="posLbPerHead" step="1" placeholder="e.g. 800">
+                </div>
+                <div data-pf="totalLb">
+                    <label for="posTotalLb">Total lb (overrides)</label>
+                    <input type="number" id="posTotalLb" step="1" placeholder="blank = head &times; lb/head">
+                </div>
+                <div data-pf="endDate">
+                    <label for="posEndDate">End / delivery date *</label>
+                    <input type="date" id="posEndDate">
+                </div>
+                <div data-pf="counterparty">
+                    <label for="posCounterparty">Counterparty</label>
+                    <input type="text" id="posCounterparty" placeholder="buyer, or the AIP for an LRP">
+                </div>
+                <div data-pf="account">
+                    <label for="posAccount">Account</label>
+                    <input type="text" id="posAccount" placeholder="brokerage account">
+                </div>
+            </div>
+
+            <!-- Status and exit only mean anything on a position that exists. -->
+            <div id="posStatusBlock" class="hidden" style="margin-bottom: 14px;">
+                <div class="form-grid">
+                    <div>
+                        <label for="posStatus">Status</label>
+                        <select id="posStatus">
+                            <option value="open">Open</option>
+                            <option value="closed">Closed</option>
+                            <option value="expired">Expired</option>
+                        </select>
+                    </div>
+                    <div data-pf="__exit">
+                        <label for="posExitDate">Exit date *</label>
+                        <input type="date" id="posExitDate">
+                    </div>
+                    <div data-pf="__exit">
+                        <label for="posExitPrice">Exit price (&cent;/lb)</label>
+                        <input type="number" id="posExitPrice" step="0.001">
+                    </div>
+                </div>
+            </div>
+
+            <h3 style="margin: 18px 0 6px 0;">Lots covered</h3>
+            <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
+                Optional, and free to be approximate &mdash; these links say which cattle the
+                position was put on for. They do not drive the coverage table above, which
+                buckets on the contract or end month.
+            </p>
+            <div id="posLinkList"></div>
+            <button type="button" id="posAddLinkBtn" style="margin-top: 6px;">+ Add lot</button>
+
+            <div style="margin-top: 16px;">
+                <label for="posNotes">Notes</label>
+                <input type="text" id="posNotes" placeholder="optional">
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="posDeleteBtn" class="danger hidden" data-perm="office" data-write>Delete</button>
+                <button type="button" id="posCancelBtn">Cancel</button>
+                <button type="submit" class="primary" id="posSaveBtn" data-perm="office" data-write>Save position</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -8748,7 +8945,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportFeedPenView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportFreshView', 'reportDoctoringView',
-         'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView',
+         'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView', 'positionsView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
          'feedBatchesView', 'feedCostView', 'feedRedwingView', 'invPurchasesView',
          'feedCostCentersView',
@@ -9060,13 +9257,21 @@ window.addEventListener('unhandledrejection', function(e) {
             if (shrinkPct == null || isNaN(shrinkPct)) issues.push('no shrink set — use Edit');
             else if (det.shrink_pct == null) warnings.push(`shrink defaulted to ${shrinkPct}% from "${raw.method || 'method not given'}" — confirm it with Edit`);
             const appliesTo = det.applies_to || 'pasture';
+            // Coverage: did every head go across the scale, or is this a draft?
+            // Defaults to 'sample' to match the column default - anchoring the
+            // lot's projected weight is opt-in, and nobody has opted in until
+            // an office reviewer says so here.
+            const coverage = det.coverage === 'whole_lot' ? 'whole_lot' : 'sample';
+            if (coverage === 'whole_lot' && appliesTo === 'lot') {
+                warnings.push('this will become the lot\u2019s weight anchor \u2014 its projected weight will be re-based on it');
+            }
             const grossAvg = totHead ? totGross / totHead : null;
             const bookedAvg = grossAvg != null && shrinkPct != null ? grossAvg * (1 - shrinkPct / 100) : null;
 
             return {
                 entry, raw, kind: 'weight', edited,
                 lot, ranch, pasture, toRanch: null, toPasture: null,
-                head: totHead, totGross, grossAvg, bookedAvg, shrinkPct, appliesTo,
+                head: totHead, totGross, grossAvg, bookedAvg, shrinkPct, appliesTo, coverage,
                 method: raw.method || null, drafts,
                 action: null, meds: [], isDead: false, notHauled: false,
                 issues, warnings, ready: issues.length === 0
@@ -9642,6 +9847,10 @@ window.addEventListener('unhandledrejection', function(e) {
                 total_weight_lb: Math.round(gross * (1 - r.shrinkPct / 100) * 100) / 100,
                 weigh_method: r.method,
                 applies_to: r.appliesTo,
+                // Only whole_lot + applies_to='lot' anchors lot_projected_weight().
+                // Every other combination is captured and displayed and moves
+                // no number, which is what the column default already says.
+                coverage: r.coverage === 'whole_lot' ? 'whole_lot' : 'sample',
                 weigh_session_id: sessionId,
                 draft_no: i + 1,
                 notes: [r.raw.notes, `field test weight by ${r.raw.recordedBy || 'field'}`]
@@ -10161,6 +10370,12 @@ window.addEventListener('unhandledrejection', function(e) {
                     <option value="pasture" ${r.appliesTo !== 'lot' ? 'selected' : ''}>just this pasture</option>
                     <option value="lot" ${r.appliesTo === 'lot' ? 'selected' : ''}>the whole lot</option>
                 </select>
+                <label for="aeCoverage">Coverage</label>
+                <select id="aeCoverage">
+                    <option value="sample" ${r.coverage !== 'whole_lot' ? 'selected' : ''}>a sample &mdash; a draft off the pasture</option>
+                    <option value="whole_lot" ${r.coverage === 'whole_lot' ? 'selected' : ''}>every head was on the scale</option>
+                </select>
+                <div class="muted" style="font-size:12px;margin:4px 0 10px 0;" id="aeCoverageHint"></div>
                 <label for="aeShrink">True shrink %</label>
                 <input type="number" id="aeShrink" step="0.1" min="0" max="49" value="${pct}">`;
                 $('apprEditWas').innerHTML =
@@ -10264,6 +10479,32 @@ window.addEventListener('unhandledrejection', function(e) {
         wire('aeFromRanch', 'aeFromPasture', r.kind === 'move' || r.kind === 'weight');
         wire('aeToRanch', 'aeToPasture', false);
 
+        // Coverage and "stands for" are two different questions and only their
+        // COMBINATION anchors the lot's projected weight. Say which way this
+        // one falls rather than leaving the reviewer to know the rule: a
+        // whole-lot weighing marked "just this pasture" looks like it should
+        // anchor and does not.
+        if ($('aeCoverage') && $('aeApplies')) {
+            const paintCoverageHint = () => {
+                const whole = $('aeCoverage').value === 'whole_lot';
+                const forLot = $('aeApplies').value === 'lot';
+                const hint = $('aeCoverageHint');
+                if (whole && forLot) {
+                    hint.innerHTML = '<b>This becomes the lot\u2019s weight anchor.</b> Its projected ' +
+                        'weight will be re-based on this weighing and carried forward from today.';
+                } else if (whole) {
+                    hint.textContent = 'Every head weighed, but standing only for this pasture — ' +
+                        'captured and displayed, and it does not move the lot\u2019s projected weight.';
+                } else {
+                    hint.textContent = 'A sample never anchors the lot average, whatever it stands for — ' +
+                        'the gentle cattle come into the trap first.';
+                }
+            };
+            $('aeCoverage').addEventListener('change', paintCoverageHint);
+            $('aeApplies').addEventListener('change', paintCoverageHint);
+            paintCoverageHint();
+        }
+
         showModal('apprEditModal');
     }
 
@@ -10301,7 +10542,8 @@ window.addEventListener('unhandledrejection', function(e) {
                     // approval writes the real rows.
                     resolved_detail: Object.assign({}, r.entry.resolved_detail || {}, {
                         shrink_pct: pct,
-                        applies_to: val('aeApplies') || 'pasture'
+                        applies_to: val('aeApplies') || 'pasture',
+                        coverage: val('aeCoverage') === 'whole_lot' ? 'whole_lot' : 'sample'
                     })
                 });
             }
@@ -12378,7 +12620,9 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('salesSubtabs').addEventListener('click', (e) => {
         const btn = e.target.closest('.sub-tab');
         if (!btn) return;
-        if (btn.dataset.subtab === 'accounting') showSalesReportTab(); else showSalesTab();
+        if (btn.dataset.subtab === 'accounting') showSalesReportTab();
+        else if (btn.dataset.subtab === 'positions') showPositionsTab();
+        else showSalesTab();
     });
     $('acctShipment').addEventListener('change', () => loadAcctReport($('acctShipment').value));
     ['acctAccount', 'acctProfitCenter', 'acctProductionYear'].forEach(id => {
@@ -32462,6 +32706,483 @@ ${ranchBlocks}
 
     $('fdCostRefreshBtn').addEventListener('click', loadFeedCost);
     $('fdCostOpenOnly').addEventListener('change', loadFeedCost);
+
+    // =====================================================================
+    // POSITIONS - futures, options, LRP endorsements and forward sales
+    //
+    // ~15 rows a year. Deliberately a list and a form: no bulk import, no
+    // wizard, no inline-edit grid. Obvious beats clever at this volume.
+    //
+    // UNITS: every price on this screen is stored exactly as typed. Cattle
+    // are cents per pound, which is the same number as dollars per
+    // hundredweight - the same convention as lots.target_sale_cwt. LRP
+    // premium is dollars per head.
+    // =====================================================================
+    let positionsCache = [];
+    let posLotOptions  = [];
+
+    // The app-side mirror of the per-type CHECK constraints on
+    // public.positions. The DB is the enforcement; this only decides what is
+    // on screen and what gets nulled out on save, so a kind cannot carry a
+    // stale field from the kind that was selected before it.
+    const POS_FIELDS = {
+        futures:          ['instrument','contractMonth','side','contracts','entryPrice','account'],
+        option:           ['instrument','contractMonth','side','optionType','contracts','strike','entryPrice','account'],
+        lrp:              ['head','lbPerHead','totalLb','coveragePrice','premium','endDate','counterparty','account'],
+        forward_sale:     ['head','lbPerHead','totalLb','entryPrice','endDate','counterparty'],
+        forward_purchase: ['head','lbPerHead','totalLb','entryPrice','endDate','counterparty'],
+    };
+    const POS_TYPE_LABEL = {
+        futures: 'Futures', option: 'Option', lrp: 'LRP',
+        forward_sale: 'Forward sale', forward_purchase: 'Forward purchase'
+    };
+    const POS_INSTRUMENT_LABEL = {
+        feeder_cattle: 'Feeder cattle', live_cattle: 'Live cattle', corn: 'Corn'
+    };
+    // Deliverable pounds per contract. Mirrors public.futures_contract_lb();
+    // corn is 5,000 BUSHELS and deliberately has no pound figure, so an input
+    // hedge can never be counted as cattle coverage.
+    const POS_CONTRACT_LB = { feeder_cattle: 50000, live_cattle: 40000 };
+
+    /**
+     * Pounds this position covers. Mirrors the COALESCE in
+     * public.hedge_coverage_by_month exactly - if the two ever disagree the
+     * screen is lying about coverage, so they are kept side by side.
+     */
+    function posPounds(p) {
+        if (p.total_lb != null) return Number(p.total_lb);
+        const size = POS_CONTRACT_LB[p.instrument];
+        if (p.contracts != null && size) return Number(p.contracts) * size;
+        if (p.head != null && p.lb_per_head != null) return Number(p.head) * Number(p.lb_per_head);
+        return null;
+    }
+
+    /** The headline price for a kind - what a person would read off the ticket. */
+    function posHeadlinePrice(p) {
+        if (p.position_type === 'lrp')    return p.coverage_price;
+        if (p.position_type === 'option') return p.strike;
+        return p.entry_price;
+    }
+
+    async function showPositionsTab() {
+        hideAllViews();
+        clearAllNavActive();
+        $('navSales').classList.add('active');
+        $('salesSubtabs').classList.remove('hidden');
+        $('salesSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            b.classList.toggle('active', b.dataset.subtab === 'positions');
+        });
+        $('positionsView').classList.remove('hidden');
+        await loadPositions();
+    }
+
+    async function loadPositions() {
+        $('posListContent').innerHTML = '<div class="empty">Loading&hellip;</div>';
+
+        let q = supabase.from('positions')
+            .select('*, position_lot_links(id, lot_id, lb_allocated, head_allocated)')
+            .order('trade_date', { ascending: false });
+        if (!$('posShowClosed').checked) q = q.eq('status', 'open');
+
+        const { data, error } = await q;
+        if (error) {
+            $('posListContent').innerHTML =
+                `<div class="alert error">Could not load positions: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+        positionsCache = data || [];
+
+        // Test lots are excluded from the picker the way they are everywhere
+        // else. Closed lots stay: a position can outlive the lot it covered.
+        const { data: lots, error: lotErr } = await supabase
+            .from('lots').select('id, lot_number, closed_at, is_test').order('lot_number');
+        if (lotErr) {
+            $('posListContent').innerHTML =
+                `<div class="alert error">Could not load lots: ${escapeHtml(lotErr.message)}</div>`;
+            return;
+        }
+        posLotOptions = (lots || []).filter(l => !l.is_test);
+
+        renderPositionsList();
+        await renderHedgeCoverage();
+        await renderMarketQuotes();
+    }
+
+    function renderPositionsList() {
+        if (!positionsCache.length) {
+            $('posListContent').innerHTML =
+                '<div class="empty">No positions recorded. Use + New position to add one.</div>';
+            return;
+        }
+        const lotName = id => (posLotOptions.find(l => l.id === id) || {}).lot_number || '?';
+
+        const rows = positionsCache.map(p => {
+            const lb    = posPounds(p);
+            const price = posHeadlinePrice(p);
+            const month = p.contract_month || p.end_date;
+            const links = (p.position_lot_links || []).map(l => escapeHtml(lotName(l.lot_id))).join(', ');
+            let size;
+            if (p.contracts != null) {
+                size = `${fmtNum(p.contracts)} ct`;
+            } else if (p.head != null) {
+                size = `${fmtNum(p.head)} hd`;
+            } else {
+                size = '&mdash;';
+            }
+            const sideBits = [];
+            if (p.side)        sideBits.push(p.side);
+            if (p.option_type) sideBits.push(p.option_type);
+            return `<tr>
+                <td>${escapeHtml(POS_TYPE_LABEL[p.position_type] || p.position_type)}</td>
+                <td>${p.instrument ? escapeHtml(POS_INSTRUMENT_LABEL[p.instrument] || p.instrument) : '&mdash;'}</td>
+                <td>${month ? fmtDate(month) : '&mdash;'}</td>
+                <td>${sideBits.length ? escapeHtml(sideBits.join(' ')) : '&mdash;'}</td>
+                <td class="num">${size}</td>
+                <td class="num">${lb != null ? fmtNum(lb) : '&mdash;'}</td>
+                <td class="num">${price != null ? fmtNum(price, 3) : '&mdash;'}</td>
+                <td>${links || '<span class="muted">&mdash;</span>'}</td>
+                <td>${escapeHtml(p.status)}</td>
+                <td><button class="pos-edit" data-id="${p.id}">Edit</button></td>
+            </tr>`;
+        }).join('');
+
+        $('posListContent').innerHTML = `
+            <div style="overflow-x:auto;">
+            <table class="data-table">
+                <thead><tr>
+                    <th>Kind</th><th>Instrument</th><th>Month</th><th>Side</th>
+                    <th class="num">Size</th><th class="num">Lb</th>
+                    <th class="num">Price &cent;/lb</th><th>Lots</th><th>Status</th><th></th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>`;
+    }
+
+    async function renderHedgeCoverage() {
+        const { data, error } = await supabase
+            .from('hedge_coverage_by_month').select('*').order('sale_month');
+        if (error) {
+            $('posCoverageContent').innerHTML =
+                `<div class="alert error">Could not load coverage: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+        if (!data || !data.length) {
+            $('posCoverageContent').innerHTML =
+                '<div class="empty">Nothing to cover yet. A month appears once a lot carries a ' +
+                'target ship date, or a position lands in it.</div>';
+            return;
+        }
+        let anyMissing = false;
+        const rows = data.map(r => {
+            // A month with positions and no expected pounds is worth seeing,
+            // not hiding - it usually means a target ship date is missing.
+            const pct = r.pct_covered;
+            const warn = Number(r.positions_unquantified) > 0
+                ? ' <span class="muted">(a position here carries no poundage)</span>' : '';
+            // lb_expected is blank until the lots carry a target ship weight.
+            // Say WHY rather than printing a bare dash - a blank that explains
+            // itself is a job someone can do; one that does not is a bug report.
+            const missing = Number(r.lots_missing_ship_weight) || 0;
+            if (r.lb_expected == null && missing > 0) anyMissing = true;
+            const lbExpected = r.lb_expected != null
+                ? fmtNum(r.lb_expected)
+                : (missing > 0
+                    ? `<span class="muted">no ship wt on ${fmtNum(missing)} lot${missing === 1 ? '' : 's'}</span>`
+                    : '&mdash;');
+            return `<tr>
+                <td>${fmtDate(r.sale_month)}${warn}</td>
+                <td class="num">${r.head_expected != null ? fmtNum(r.head_expected) : '&mdash;'}</td>
+                <td class="num">${lbExpected}</td>
+                <td class="num">${fmtNum(r.lb_covered)}</td>
+                <td class="num">${pct != null ? fmtNum(pct, 1) + '%' : '&mdash;'}</td>
+                <td class="num">${r.lb_open != null ? fmtNum(r.lb_open) : '&mdash;'}</td>
+                <td class="num">${fmtNum(r.positions_counted)}</td>
+            </tr>`;
+        }).join('');
+        // Deliberately not estimated from a projected weight: a projection of
+        // today's weight is smaller than the sale weight, so it would
+        // OVERSTATE coverage - the one direction that costs money.
+        const note = anyMissing
+            ? '<p class="muted" style="font-size:12px;margin:10px 0 0 0;">' +
+              'Pounds expected, and the coverage percentage, stay blank until those lots carry a ' +
+              'target ship weight (Lot &rarr; Closeout). They are never estimated from a projected ' +
+              'weight &mdash; that would read lighter than the real sale weight and make coverage ' +
+              'look better than it is.</p>'
+            : '';
+        $('posCoverageContent').innerHTML = `
+            <div style="overflow-x:auto;">
+            <table class="data-table">
+                <thead><tr>
+                    <th>Sale month</th><th class="num">Head expected</th><th class="num">Lb expected</th>
+                    <th class="num">Lb covered</th><th class="num">Covered</th>
+                    <th class="num">Lb open</th><th class="num">Positions</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>` + note;
+    }
+
+    async function renderMarketQuotes() {
+        // Only the recent window: the latest close per contract is all this
+        // card shows, and the full history is thousands of rows.
+        const since = new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10);
+        const { data, error } = await supabase
+            .from('market_quotes')
+            .select('instrument, contract_month, settle, quote_date, source')
+            .gte('quote_date', since)
+            .order('quote_date', { ascending: false });
+        if (error) {
+            $('posQuotesContent').innerHTML =
+                `<div class="alert error">Could not load quotes: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+        if (!data || !data.length) {
+            $('posQuotesContent').innerHTML =
+                '<div class="empty">No quotes in the last three weeks. The market-quotes-sync ' +
+                'job runs daily at 23:30 UTC; it can also be run by hand for a date range.</div>';
+            return;
+        }
+        // First row per (instrument, month) wins - the query is date-descending.
+        const latest = new Map();
+        for (const q of data) {
+            const key = `${q.instrument}|${q.contract_month}`;
+            if (!latest.has(key)) latest.set(key, q);
+        }
+        const rows = [...latest.values()]
+            .sort((a, b) => (a.instrument + a.contract_month).localeCompare(b.instrument + b.contract_month))
+            .map(q => `<tr>
+                <td>${escapeHtml(POS_INSTRUMENT_LABEL[q.instrument] || q.instrument)}</td>
+                <td>${fmtDate(q.contract_month)}</td>
+                <td class="num">${fmtNum(q.settle, 3)}</td>
+                <td>${fmtDate(q.quote_date)}</td>
+                <td class="muted">${escapeHtml(q.source)}</td>
+            </tr>`).join('');
+        $('posQuotesContent').innerHTML = `
+            <div style="overflow-x:auto;">
+            <table class="data-table">
+                <thead><tr>
+                    <th>Instrument</th><th>Contract month</th><th class="num">Settle</th>
+                    <th>As of</th><th>Source</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>`;
+    }
+
+    /** Show only the fields the selected kind actually uses. */
+    function posSyncFields() {
+        const type = $('posType').value;
+        const used = POS_FIELDS[type] || [];
+        document.querySelectorAll('#positionForm [data-pf]').forEach(el => {
+            const f = el.dataset.pf;
+            if (f === '__exit') {
+                el.classList.toggle('hidden', $('posStatus').value === 'open');
+            } else {
+                el.classList.toggle('hidden', !used.includes(f));
+            }
+        });
+        const size = POS_CONTRACT_LB[$('posInstrument').value];
+        $('posContractsHint').textContent = size
+            ? `${fmtNum(size)} lb per contract`
+            : 'Corn is 5,000 bushels a contract and never counts as cattle coverage.';
+    }
+
+    function posAddLinkRow(link) {
+        const row = document.createElement('div');
+        row.className = 'pos-link-row';
+        row.style.cssText = 'display:flex; gap:8px; align-items:center; margin-bottom:6px;';
+        const opts = posLotOptions.map(l =>
+            `<option value="${l.id}"${link && link.lot_id === l.id ? ' selected' : ''}>` +
+            `${escapeHtml(l.lot_number)}${l.closed_at ? ' (closed)' : ''}</option>`).join('');
+        row.innerHTML = `
+            <select class="pos-link-lot" style="flex:2;">
+                <option value="">&mdash; pick a lot &mdash;</option>${opts}
+            </select>
+            <input type="number" class="pos-link-lb" step="1" placeholder="lb" style="flex:1;"
+                   value="${link && link.lb_allocated != null ? link.lb_allocated : ''}">
+            <input type="number" class="pos-link-head" step="1" placeholder="head" style="flex:1;"
+                   value="${link && link.head_allocated != null ? link.head_allocated : ''}">
+            <button type="button" class="pos-link-remove">&times;</button>`;
+        $('posLinkList').appendChild(row);
+    }
+
+    function posCollectLinks() {
+        return [...document.querySelectorAll('#posLinkList .pos-link-row')].map(r => {
+            const lb   = r.querySelector('.pos-link-lb').value.trim();
+            const head = r.querySelector('.pos-link-head').value.trim();
+            return {
+                lot_id:         r.querySelector('.pos-link-lot').value || null,
+                lb_allocated:   lb   === '' ? null : Number(lb),
+                head_allocated: head === '' ? null : Number(head),
+            };
+        }).filter(l => l.lot_id);
+    }
+
+    function openPositionModal(id) {
+        clearAlert('positionModalAlert');
+        $('positionForm').reset();
+        $('posLinkList').innerHTML = '';
+        $('posId').value = '';
+
+        const p = id ? positionsCache.find(x => x.id === id) : null;
+        $('positionModalTitle').textContent = p ? 'Edit position' : 'New position';
+        $('posStatusBlock').classList.toggle('hidden', !p);
+        $('posDeleteBtn').classList.toggle('hidden', !p);
+
+        if (p) {
+            $('posId').value            = p.id;
+            $('posType').value          = p.position_type;
+            $('posTradeDate').value     = p.trade_date || '';
+            $('posInstrument').value    = p.instrument || 'feeder_cattle';
+            $('posContractMonth').value = p.contract_month ? p.contract_month.slice(0, 7) : '';
+            $('posSide').value          = p.side || 'short';
+            $('posOptionType').value    = p.option_type || 'put';
+            $('posContracts').value     = p.contracts      ?? '';
+            $('posStrike').value        = p.strike         ?? '';
+            $('posEntryPrice').value    = p.entry_price    ?? '';
+            $('posCoveragePrice').value = p.coverage_price ?? '';
+            $('posPremium').value       = p.premium        ?? '';
+            $('posHead').value          = p.head           ?? '';
+            $('posLbPerHead').value     = p.lb_per_head    ?? '';
+            $('posTotalLb').value       = p.total_lb       ?? '';
+            $('posEndDate').value       = p.end_date       || '';
+            $('posCounterparty').value  = p.counterparty   || '';
+            $('posAccount').value       = p.account        || '';
+            $('posNotes').value         = p.notes          || '';
+            $('posStatus').value        = p.status;
+            $('posExitDate').value      = p.exit_date      || '';
+            $('posExitPrice').value     = p.exit_price     ?? '';
+            (p.position_lot_links || []).forEach(posAddLinkRow);
+        } else {
+            $('posType').value      = 'futures';
+            $('posTradeDate').value = ranchToday();
+            $('posStatus').value    = 'open';
+        }
+
+        posSyncFields();
+        showModal('positionModal');
+    }
+
+    async function savePosition(e) {
+        e.preventDefault();
+        clearAlert('positionModalAlert');
+
+        const type = $('posType').value;
+        const used = POS_FIELDS[type] || [];
+        const num  = id => { const v = $(id).value.trim(); return v === '' ? null : Number(v); };
+        const txt  = id => { const v = $(id).value.trim(); return v === '' ? null : v; };
+        // <input type="month"> hands back YYYY-MM, which is exactly the
+        // first-of-month the CHECK constraint wants.
+        const month = () => ($('posContractMonth').value ? `${$('posContractMonth').value}-01` : null);
+        const on    = f  => used.includes(f);
+
+        const editing = !!$('posId').value;
+        const status  = editing ? $('posStatus').value : 'open';
+
+        const row = {
+            position_type:  type,
+            trade_date:     $('posTradeDate').value || null,
+            status:         status,
+            notes:          txt('posNotes'),
+            instrument:     on('instrument')    ? $('posInstrument').value   : null,
+            contract_month: on('contractMonth') ? month()                    : null,
+            side:           on('side')          ? $('posSide').value         : null,
+            option_type:    on('optionType')    ? $('posOptionType').value   : null,
+            contracts:      on('contracts')     ? num('posContracts')        : null,
+            strike:         on('strike')        ? num('posStrike')           : null,
+            entry_price:    on('entryPrice')    ? num('posEntryPrice')       : null,
+            coverage_price: on('coveragePrice') ? num('posCoveragePrice')    : null,
+            premium:        on('premium')       ? num('posPremium')          : null,
+            head:           on('head')          ? num('posHead')             : null,
+            lb_per_head:    on('lbPerHead')     ? num('posLbPerHead')        : null,
+            total_lb:       on('totalLb')       ? num('posTotalLb')          : null,
+            end_date:       on('endDate')       ? txt('posEndDate')          : null,
+            counterparty:   on('counterparty')  ? txt('posCounterparty')     : null,
+            account:        on('account')       ? txt('posAccount')          : null,
+            exit_date:      status === 'open' ? null : txt('posExitDate'),
+            exit_price:     status === 'open' ? null : num('posExitPrice'),
+        };
+
+        // The DB refuses this too, but a CHECK violation reads like a riddle.
+        // Say the thing that is actually wrong: without pounds the position
+        // silently drops out of the coverage table.
+        if (!['futures','option'].includes(type)
+            && row.total_lb == null
+            && (row.head == null || row.lb_per_head == null)) {
+            showAlert('positionModalAlert',
+                'Give a total weight, or head AND pounds per head. Without pounds this position ' +
+                'cannot be counted toward hedge coverage.');
+            return;
+        }
+        if (status === 'closed' && !row.exit_date) {
+            showAlert('positionModalAlert', 'A closed position needs the date it was closed.');
+            return;
+        }
+
+        let positionId = $('posId').value;
+        if (positionId) {
+            const { error } = await supabase.from('positions').update(row).eq('id', positionId);
+            if (error) { showAlert('positionModalAlert', error.message); return; }
+        } else {
+            const { data, error } = await supabase.from('positions').insert(row).select('id').single();
+            if (error) { showAlert('positionModalAlert', error.message); return; }
+            positionId = data.id;
+        }
+
+        // Links are rebuilt, not diffed. There are two or three of them and a
+        // diff is more ways to be wrong - the same call the shipment
+        // deductions make.
+        const { error: delErr } = await supabase.from('position_lot_links')
+            .delete().eq('position_id', positionId);
+        if (delErr) {
+            showAlert('positionModalAlert',
+                `The position saved, but clearing its old lot links failed: ${delErr.message}`);
+            await loadPositions();
+            return;
+        }
+        const links = posCollectLinks();
+        if (links.length) {
+            const { error: insErr } = await supabase.from('position_lot_links')
+                .insert(links.map(l => ({ position_id: positionId, ...l })));
+            if (insErr) {
+                showAlert('positionModalAlert',
+                    `The position saved, but its lot links did not: ${insErr.message}`);
+                await loadPositions();
+                return;
+            }
+        }
+
+        hideModal('positionModal');
+        await loadPositions();
+    }
+
+    async function posDelete() {
+        const id = $('posId').value;
+        if (!id) return;
+        if (!confirm('Delete this position and its lot links? This cannot be undone.')) return;
+        const { error } = await supabase.from('positions').delete().eq('id', id);
+        if (error) { showAlert('positionModalAlert', error.message); return; }
+        hideModal('positionModal');
+        await loadPositions();
+    }
+
+    // ---- wiring ----------------------------------------------------------
+    $('posNewBtn').addEventListener('click', () => openPositionModal(null));
+    $('posRefreshBtn').addEventListener('click', loadPositions);
+    $('posShowClosed').addEventListener('change', loadPositions);
+    $('posType').addEventListener('change', posSyncFields);
+    $('posInstrument').addEventListener('change', posSyncFields);
+    $('posStatus').addEventListener('change', posSyncFields);
+    $('posCancelBtn').addEventListener('click', () => hideModal('positionModal'));
+    $('posDeleteBtn').addEventListener('click', posDelete);
+    $('posAddLinkBtn').addEventListener('click', () => posAddLinkRow(null));
+    $('positionForm').addEventListener('submit', savePosition);
+    $('posLinkList').addEventListener('click', (e) => {
+        const btn = e.target.closest('.pos-link-remove');
+        if (btn) btn.closest('.pos-link-row').remove();
+    });
+    $('posListContent').addEventListener('click', (e) => {
+        const btn = e.target.closest('.pos-edit');
+        if (btn) openPositionModal(btn.dataset.id);
+    });
 
     checkSession();
 </script>

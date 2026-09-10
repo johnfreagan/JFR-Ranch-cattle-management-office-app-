@@ -804,11 +804,17 @@ is unrecoverable in a way an accidental insert is not.
 5. **New tables need RLS *and* policies.** `ENABLE ROW LEVEL SECURITY` with no
    policy is a total lockout; policies without `ENABLE` are decoration.
 6. **`SECURITY DEFINER` needs a reason and a pinned `search_path`.** Each one
-   bypasses RLS. Deliberate today (all seven verified 2026-08-25 to carry a
+   bypasses RLS. Deliberate today (all eight verified 2026-09-10 to carry a
    pinned `search_path`): `current_user_role` (it is the gate),
    `admin_list_users`, `guard_last_owner`, `handle_new_user`,
    `cleanup_attachment_storage`, `lot_projected_weight`,
-   `lot_weighted_arrival_date`. Default to INVOKER — the head-math RPCs
+   `lot_projected_weight_detail`, `lot_weighted_arrival_date`. The eighth
+   was added 2026-09-10 and inherits its reason from the function it backs:
+   `lot_projected_weight` has been DEFINER since it was written, which is
+   the only reason crew — who cannot read `invoices` — see a projected
+   weight at all. An INVOKER detail function would have handed crew the
+   number with a blank provenance beside it. Default to INVOKER — the
+   head-math RPCs
    (`record_death_with_pasture`, `record_move_with_pasture`, the delete
    reversals) are all INVOKER and must stay that way.
 7. **Run `supabase/migrations/20260821000300_rls_verify.sql` after any
@@ -908,13 +914,219 @@ tab. Migrations: `docs/sql/2026-09-07_field_counts_and_test_weights.sql` and
   They belong to `weights`, not to the staging table, but have to persist
   between the edit and the approval. Do NOT overload `resolved_meds`; it is
   med-specific.
-- **NOTHING READS `weights` YET.** John's decision (2026-09-07) is option A:
-  capture and display only. A test weight must not re-anchor
-  `projected_current_weight`, feed realized ADG, or drive the `per_lb` COG
-  mode — a pasture weight is full of grass and water while a pay weight is
-  shrunk, and the first 20 head into the trap are the gentle ones, not a
-  random sample. Revisit once there are real weights to compare against what
-  the projection said.
+- **`weights` now feeds the projection — but only a WHOLE-LOT row does**
+  (2026-09-10, the CFO project; migration
+  `docs/sql/2026-09-10_lot_weight_anchor.sql`). This reverses the
+  2026-09-07 "option A, capture and display only" decision, and answers
+  rather than discards its reason. That reason was sound: a pasture weight
+  is full of grass and water while a pay weight is shrunk, and the first 20
+  head into the trap are the gentle ones, not a random sample. So `weights`
+  gained a third field, `coverage` ('whole_lot' | 'sample'), and ONLY
+  `coverage='whole_lot'` **and** `applies_to='lot'` anchors anything.
+  Everything the field app writes is `weight_type='pasture_check'` at the
+  default `coverage='sample'` and still anchors nothing — **anchoring is
+  opt-in, and only the office can opt in.** Realized ADG and the `per_lb`
+  COG mode still do not read `weights`; that half of option A stands.
+- **The office sets `coverage` on the Approvals correction screen**
+  (2026-09-10). It rides in `resolved_detail` beside `shrink_pct` and
+  `applies_to` — same reason: it belongs to `weights`, not to the staging
+  table, but has to survive between the edit and the approval. The control
+  is a plain two-option select, and **a live hint says which way the choice
+  falls**, because coverage and "stands for" are two different questions and
+  only their COMBINATION anchors: a whole-lot weighing marked *just this
+  pasture* looks like it should anchor and does not. A row that WILL anchor
+  also raises a review warning saying the lot's projected weight is about to
+  be re-based, so nobody does it by accident on the way past.
+- **The three fields on `weights` are three different questions.**
+  `weight_type` is the occasion (arrival · chute · pasture_check · sale ·
+  individual · other), `applies_to` is what the sample stands for (pasture
+  or lot, decided by the office at approval), and `coverage` is whether
+  every head was on the scale. The third had to exist because the office is
+  explicitly allowed to say a 20-head draft stands for the lot average —
+  `applies_to='lot'` — and that is NOT the statement "we ran all 585 head
+  across the scale". Only the second may anchor a lot average, so
+  overloading `applies_to` would have made a gentle-cattle draft the
+  lot's weight.
+
+## Projected weight: the anchor (rebuilt 2026-09-10)
+
+`lot_projected_weight()` used to ignore every weight taken after purchase —
+invoice average plus days-since-arrival times `target_adg`, forever. It now
+starts from an ANCHOR and walks forward. Migration:
+`docs/sql/2026-09-10_lot_weight_anchor.sql`.
+
+```
+lot_weight_anchor (view)  ──▶ lot_projected_weight_detail()  ──▶ lot_projected_weight()
+  newest whole-lot weight        the day-by-day walk               thin wrapper
+  else the purchase weight       + provenance                      (scalar, unchanged signature)
+```
+
+- **`lot_projected_weight_detail()` is the implementation and the scalar
+  function is a wrapper over it.** Two copies of this arithmetic would
+  become the `lot_head_days` trap — a function and a view that disagree by
+  29% and nobody notices for months. One body, two entry points.
+- **Anchor precedence: newest whole-lot weighing, else the purchase
+  weight.** A **sale weight is never an anchor** for the head still
+  standing — those are the cattle that LEFT. A CHECK makes
+  `coverage='whole_lot'` with `weight_type` of `sale` or `individual`
+  unrepresentable, and the view's WHERE repeats the rule where it is relied
+  on.
+- **Several scale drafts sharing a `weigh_session_id` are ONE anchor.**
+  Weighing 585 head in six drags is one weighing, so the drafts are summed
+  back up before the newest is picked; otherwise the last drag off the
+  trailer would become the lot's average weight.
+- **Phase day-numbers are measured from the WEIGHTED ARRIVAL DATE, not from
+  the anchor.** `lot_adg_phases` describes a lot's life from when the cattle
+  landed — a receiving phase is the first ten days on the place. Measuring
+  from the anchor would restart the receiving slump every time the lot was
+  weighed. Days no phase covers fall back to `lots.target_adg`; a NULL
+  `target_adg` is 0, as before.
+- **`adg_used` is the BLENDED rate actually applied**, so
+  `anchor_avg + adg_used × days_since_anchor` always reproduces the number.
+  `adg_source` is `'phase'` if any day in the walk drew from a phase.
+- **`lot_weight_anchor` returns one row per lot ALWAYS**, with NULL anchor
+  columns where a lot has neither invoices nor a whole-lot weight
+  (FEEDPEN-27 is the live case). A dashboard can then show "no anchor"
+  rather than silently dropping the lot. The function returns NO ROW for
+  those, which is what makes the scalar return NULL.
+- **The anchor's own `head` is the INVOICE head, not `head_in`.** On 36-27
+  that is 562 against a `head_in` of 585, because the receipts run ahead of
+  the invoices. That is the old function's denominator unchanged; do not
+  "fix" it here without moving `avg_weight_in` on `lot_status` with it.
+- **`lot_weight_anchor` counts days on `ranch_today()`; `lot_status`
+  counts them on `CURRENT_DATE`.** Deliberate, and the reason is worth
+  keeping: `lot_status` is uniformly CURRENT_DATE already
+  (`projected_current_weight`, `days_on_feed`,
+  `days_since_weighted_arrival`), and a single ranch-day column dropped into
+  a UTC-day view is worse than either — `days_since_anchor` would read one
+  day behind the projection printed beside it every evening Central, so a
+  dashboard dividing the gain by the days would read DOUBLE the real ADG for
+  those hours, silently. Moving the whole view onto `ranch_today()` moves
+  `projected_current_weight` with it and is its own migration.
+- **Nothing in the books moved when this landed, and the migration proves
+  it rather than claiming it.** It snapshots
+  `lot_status.projected_current_weight` for every lot into a temp table
+  before the rewrite and raises if any lot differs afterwards by so much as
+  the last decimal place. With `weights` and `lot_adg_phases` empty the two
+  formulas are arithmetically identical; all 12 lots verified 2026-09-10.
+
+## Markets and hedge positions (built 2026-09-10)
+
+The database held no price it had not paid itself. Migrations:
+`docs/sql/2026-09-10_markets_and_positions.sql` and
+`..._market_quotes_schedule.sql`. Edge function:
+`supabase/functions/market-quotes-sync/`. Office+owner; it is all dollars,
+so every SELECT reads through `can_read_books()`. Screen: **Sales →
+Positions**.
+
+```
+market_quotes   ← market-quotes-sync (edge fn, daily 23:30 UTC)
+positions ──┬── position_lot_links ── lots
+            └─▶ hedge_coverage_by_month (view)
+```
+
+- **`positions` is ONE table for futures, options, LRP and forwards.** They
+  all answer the same question — how many pounds, in which month, at what
+  price — and the coverage view has to add them together. Four tables would
+  be four joins and four chances to forget one. The cost is that most
+  columns are nullable, so **the per-type CHECK constraints are the whole
+  integrity story**: `positions_futures_fields`, `_option_fields`,
+  `_lrp_fields`, `_forward_fields` each name what their kind cannot do
+  without. The migration's verify block INSERTs a bad row of two kinds and
+  raises if either is accepted — a constraint nobody has watched bite is
+  decoration.
+- **`option_type` is the one column added beyond the spec, and it had to
+  be.** A long put and a long call are opposite exposures; without it an
+  option cannot be scored as coverage at all.
+- **`positions_quantified_check` closes the `SUM()`-ignores-NULL trap at
+  the door.** An LRP or forward with no `total_lb` and no
+  `head`+`lb_per_head` has no derivable pounds, so it would drop silently
+  out of the coverage view and read as "not hedged" while the hedge sat
+  right there. The app refuses it first with a sentence that says that,
+  because a raw CHECK violation reads like a riddle.
+- **Only protection counts as coverage: short futures, long puts, LRP,
+  forward sales.** Long futures, short puts, calls and forward purchases do
+  not put a floor under cattle we will sell. **Corn never counts** —
+  `futures_contract_lb()` returns NULL for it (a corn contract is 5,000
+  bushels, not pounds), so an input hedge cannot leak into cattle coverage
+  even if someone files it wrong.
+- **Futures and options bucket on `contract_month`; LRP and forwards on the
+  month of `end_date`** — the month the protection actually covers.
+- **`lb_expected` is NULL until a lot carries `target_ship_weight`, and no
+  open lot carries one today.** Falling back to `projected_current_weight`
+  was considered and refused: a projection of TODAY's weight is smaller
+  than the sale weight, so it would OVERSTATE `pct_covered` — telling John
+  he is better hedged than he is, which is the one direction that costs
+  money. The view carries `lots_missing_ship_weight` instead and the screen
+  prints *"no ship wt on 1 lot"* rather than a bare dash. Set the target
+  ship weights and the percentage lights up with no code change.
+- **`posPounds()` in the app mirrors the COALESCE in
+  `hedge_coverage_by_month` exactly.** If those two ever disagree the screen
+  is lying about coverage. Same for `POS_CONTRACT_LB` against
+  `futures_contract_lb()`.
+- **UNITS, and this is the `target_sale_cwt` trap again.** Every price —
+  `settle`, `strike`, `entry_price`, `exit_price`, `coverage_price` — is
+  stored AS QUOTED: cattle in US cents per pound, which is the same number
+  as dollars per hundredweight. Corn is cents per bushel. **`premium` is
+  the exception: dollars per HEAD**, because that is how an LRP endorsement
+  is billed. Do not convert one without the other.
+
+### Ingestion
+
+- **The source is Yahoo's chart API, and what it gives is the session's
+  CLOSE, not CME's official settlement** — settlements are a licensed
+  product. The two are close enough for basis, and every row records
+  `source` as `yahoo_chart:GFV26.CME` so nothing downstream can mistake one
+  for the other. Swapping to true settlements later changes the fetcher and
+  the source string; the row shape does not move.
+- **Symbols are per LISTED contract month** (`GF`+month code+`yy`+`.CME`;
+  live cattle `LE`, corn `ZC…CBT`). The month-code lists per product are
+  not cosmetic — there is no December feeder contract and `GFZ26` 404s.
+- **An expired contract 404s and is gone.** `GFH26` (March 2026) already
+  does. So a backfill only reaches as far back as the contracts still on
+  the board have traded — which is 2025-08 onward, comfortably before the
+  first sale on the books (2026-04-20), but a contract that has rolled off
+  cannot be recovered from this source.
+- **A null close is skipped, never carried forward and never
+  interpolated.** A guessed price would be indistinguishable from a real
+  one three months later. If the whole source is unavailable the function
+  writes NOTHING and returns 502 — a half-written curve is worse than
+  yesterday's curve.
+- **Idempotent by the unique key** `(quote_date, instrument,
+  contract_month)`. Verified 2026-09-10: the backfill wrote 2,391 rows and
+  an identical re-run left the count at 2,391. `settle` is updated rather
+  than ignored, so a revised close corrects itself.
+- **The daily job defaults to the last 8 DAYS, not just today.** It costs
+  the same number of requests and it closes any gap a failed run or a
+  holiday left, which a today-only job would leave open forever.
+- **pg_cron and pg_net are now ENABLED** (they had been the blocker on the
+  feed module's wave-3 7am email — that is unblocked as a side effect).
+  The cron job authenticates to the edge function with the PUBLISHABLE key,
+  the one already embedded in index.html. So the endpoint is not open, but
+  anyone with that public key could trigger a run; the blast radius is a
+  Yahoo fetch and an upsert of quotes, and nothing else is reachable.
+  Tightening it means a shared secret set as an edge-function secret in the
+  dashboard, which needs John.
+
+### The screen
+
+Sales gained a third sub-tab. ~15 rows a year, so it is deliberately a list
+and a form — no bulk import, no wizard, no inline-edit grid.
+
+- **`POS_FIELDS` decides what is on screen AND what is nulled on save**, so
+  a position switched from futures to LRP cannot keep a stale
+  `contract_month`. It mirrors the per-type CHECKs; the DB is the
+  enforcement.
+- **Lot links are rebuilt on save, not diffed** — there are two or three
+  and a diff is more ways to be wrong. Same call the shipment deductions
+  make.
+- **The lot picker hides test lots but KEEPS closed ones**: a position can
+  outlive the lot it covered.
+- Three verification rows (a short futures, an LRP, a forward sale, all
+  against 36-27 for March 2027) are in `positions` with
+  `[VERIFICATION ROW 2026-09-10 …]` at the front of their notes. **They are
+  not real hedges** — delete them once the screen has been looked at.
+
 
 ## Schema landmines (verified by painful trial and error — trust these)
 
