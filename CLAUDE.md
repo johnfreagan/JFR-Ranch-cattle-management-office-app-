@@ -854,9 +854,15 @@ tab. Migrations: `docs/sql/2026-09-07_field_counts_and_test_weights.sql` and
 - **The Supabase SQL editor swallows `begin;`/`commit;`** — a wrapped script
   can report "Success. No rows returned" without applying anything. Omit the
   wrapper when pasting into the editor; keep it in files meant for the CLI.
-- **The MCP Supabase connector is READ-ONLY.** DDL and DML fail with
-  `25006: cannot execute ... in a read-only transaction`. Give John pasteable
-  SQL in chat — not a file attachment, not a path. He has said so twice.
+- **The MCP Supabase connector is READ-WRITE as of 2026-09-10** (it ran as
+  `postgres` with `transaction_read_only = off`; the processing-protocol
+  migration was applied through it). It was read-only before, failing DDL
+  and DML with `25006`. Writes still need John's explicit approval first —
+  show findings, propose, wait — and a multi-statement batch runs as ONE
+  transaction, so a type error in the last view rolls back the first
+  UPDATE too (seen 2026-09-10; verify state before re-running). When the
+  connector is read-only again, give John pasteable SQL in chat — not a
+  file attachment, not a path. He has said so twice.
 - When unsure of a column name, QUERY information_schema — do not guess.
   Schemas evolved inconsistently across tables.
   **Exception: do NOT trust information_schema for GRANTS or PRIVILEGES.**
