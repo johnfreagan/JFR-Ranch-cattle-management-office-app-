@@ -214,7 +214,8 @@ end $$;
 
 commit;
 
--- 31-26 (closed, FY2026): run ONLY if the decision is to re-price a closed lot.
+-- 31-26 (closed, FY2026): APPLIED 2026-09-10 through the connector on John's
+-- decision ("processing cost on all lots"): 64 receipts, 1,766 hd, $28,586.51.
 -- update delivery_receipts r
 --    set receiving_protocol_id = i.receiving_protocol_id,
 --        notes = concat_ws(' ', nullif(r.notes, ''), '[2026-09-10 receiving protocol copied from the invoice; closed lot, by decision]')

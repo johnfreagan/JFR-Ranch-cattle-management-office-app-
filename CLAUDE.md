@@ -47,9 +47,9 @@ See "Access control" below and `docs/security-model.md`.
   a load out's own protocol, or its absence, decides the head it covers;
   invoice head that NO load out covers is priced at the invoice's protocol
   (37X: 361 of 369 head have no receipt rows at all). The migration also
-  copied the invoice protocol onto receipts that had none, open lots only —
-  31-26 (closed, FY2026, 1,766 hd) was deliberately left and has its own
-  commented statement. `procCoverage` counts head, not loads, and carries
+  copied the invoice protocol onto receipts that had none, open lots first
+  and 31-26 (closed, FY2026, 1,766 hd, $28,586.51 on "25 Fall Light Steer
+  Processing") the same day on John's call: "processing cost on all lots". `procCoverage` counts head, not loads, and carries
   `headOnInvoiceProtocol`; the tile reads "N of M hd".
 - **A receipt with no `receiving_protocol_id` has NO processing cost**, and
   the lot's $/hd reads diluted (dollars from the covered loads over every
