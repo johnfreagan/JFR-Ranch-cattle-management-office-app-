@@ -311,6 +311,42 @@ counted. There was no way in.
   all. It says "the salvage we are spending is on cattle that came off 37X",
   which is a management fact and not an accounting entry.
 
+## Settled 2026-09-10
+
+- **Pens are NOT fixed.** John: *"Not set pens for feed pen cattle could be in
+  various spots."* So nothing gets a default and nothing gets hardcoded — every
+  active pasture is offered wherever a pen location is asked for, and the pen
+  routinely stands in more than one at once (Corner/H1 and Corner/6 on the day
+  the first three went in). The removals form reads open assignments, so it
+  offers exactly the pens the cattle are actually in.
+- **Feed pen entry stays in the office.** John: *"Feed pen has to be done in
+  office for now."* Crew still see the pen as an ordinary lot and record
+  doctoring and pasture moves against it; sending an animal TO the pen, taking
+  one out, and entering found head are all office. The
+  `pending_field_entries` type stays deferred — it needs its own approval
+  ordering against deaths and moves, which is real machinery for a handful of
+  events a year.
+
+## The year-end posting (built 2026-09-10)
+
+Decision 8 said the net posts to Redwing and left it at that; **Redwing
+posting** on the pen's page is the document Lauren keys from. Same twelve
+columns, same copy / print / PDF path as a transfer posting, and the same
+two-lines-net-to-zero shape.
+
+- **Feed, medicine and salvage are deliberately NOT lines on it.** Those
+  dollars already reached Redwing on the feed invoice, the drug invoice and the
+  salvage cheque. Posting them again would double-count every one. What has not
+  reached Redwing is the pen's production centre carrying a result, and that is
+  what clears — one line off the pen, one line onto wherever the result is
+  coded, equal and opposite.
+- **Account, Profit Center and the destination centre are typed and
+  remembered**, the way the shipment and transfer postings already work. The
+  app carries the numbers; the coding is Lauren's.
+- **It warns while the pen is still open**, because the figures move under the
+  posting until Close fiscal year runs, and it says so when the pen has had
+  nothing fed to it — the format is real even when the year is not.
+
 ## Still to settle
 
 - **Which physical pens.** The pen lot stands in ordinary pastures

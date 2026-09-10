@@ -1129,6 +1129,7 @@
                             <button id="fpFoundBtn" class="primary" data-perm="office" data-write>+ Found in the pen</button>
                             <button id="fpPrintBtn">🖨 Print</button>
                             <button id="fpPdfBtn">Text / share PDF</button>
+                            <button id="fpPostingBtn">Redwing posting</button>
                             <button id="fpCloseYearBtn" data-perm="owner" data-write>Close fiscal year</button>
                         </div>
                     </div>
@@ -4503,6 +4504,47 @@
         <div class="modal-actions">
             <button type="button" id="fprCancelBtn">Cancel</button>
             <button type="button" class="primary" id="fprSaveBtn" data-perm="office" data-write>Save removal</button>
+        </div>
+    </div>
+</div>
+
+<!-- The feed pen's year-end result, in Redwing's column order. Decision 8:
+     the pen keeps its own books and the NET posts at year end. Two lines that
+     net to zero, the same shape as a transfer posting — the pen's production
+     centre is cleared and the result lands wherever Lauren codes it. The
+     component costs are NOT posted here: feed and medicine already reached
+     Redwing on their own invoices, and salvage on its own cheque. Posting
+     them again would double-count. -->
+<div class="modal-backdrop" id="feedPenPostingModal">
+    <div class="modal" style="max-width: 980px;">
+        <h2>Feed pen — year-end Redwing posting</h2>
+        <div id="fppAlert"></div>
+
+        <div class="form-grid" style="margin-bottom: 14px;">
+            <div>
+                <label for="fppAccount">Account</label>
+                <input type="text" id="fppAccount" autocomplete="off">
+            </div>
+            <div>
+                <label for="fppProfitCenter">Profit Center</label>
+                <input type="text" id="fppProfitCenter" autocomplete="off">
+            </div>
+            <div>
+                <label for="fppDestCenter">Result lands on</label>
+                <input type="text" id="fppDestCenter" autocomplete="off" placeholder="production centre">
+                <div class="muted" style="font-size: 11px; margin-top: 2px;">
+                    Where the pen&rsquo;s net goes when its own centre is cleared.
+                </div>
+            </div>
+        </div>
+
+        <div id="fppContent"></div>
+
+        <div class="modal-actions">
+            <button type="button" id="fppCloseBtn">Close</button>
+            <button type="button" id="fppCopyBtn">Copy rows</button>
+            <button type="button" id="fppPrintBtn">🖨 Print</button>
+            <button type="button" class="primary" id="fppPdfBtn">Text / share PDF</button>
         </div>
     </div>
 </div>
@@ -13873,7 +13915,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             { lot: t.dest_lot_number,   year: t.dest_fiscal_year,   head:  t.head_count, weight:  lb, amount:  total, note }
         ];
     }
-    function xpCells(r, k) {
+    // Shared with the feed pen year-end posting: same twelve columns, same
+    // row shape (a per-row production year and a free-text notation, which
+    // is what separates it from acctRowCells' per-pasture shape). One place
+    // builds the cells so the screen, the print sheet, the PDF and the
+    // clipboard cannot disagree about what a posting says.
+    function acctPostingCells(r, k) {
         return [
             k.account,
             Number(r.head).toFixed(8),
@@ -13924,7 +13971,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             <table style="font-size:12px; white-space:nowrap;">
                 <thead><tr>${ACCT_COLUMNS.map((c, i) =>
                     `<th style="text-align:${[1,2,3,5].includes(i) ? 'right' : 'left'};">${escapeHtml(c)}</th>`).join('')}</tr></thead>
-                <tbody>${rows.map(r => `<tr>${xpCells(r, k).map((c, i) =>
+                <tbody>${rows.map(r => `<tr>${acctPostingCells(r, k).map((c, i) =>
                     `<td style="text-align:${[1,2,3,5].includes(i) ? 'right' : 'left'};">${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}
                 </tbody>
             </table>`;
@@ -13934,7 +13981,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         if (!xpCache) return;
         const k = xpConstants();
         const text = [ACCT_COLUMNS.join('\t')]
-            .concat(xpRows(xpCache).map(r => xpCells(r, k).join('\t')))
+            .concat(xpRows(xpCache).map(r => acctPostingCells(r, k).join('\t')))
             .join('\n');
         const done = () => showAlert('xpAlert', 'Rows copied — paste straight into Redwing.', 'success');
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -13950,7 +13997,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const t = xpCache, k = xpConstants(), rows = xpRows(t);
         const w = window.open('', '_blank');
         if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
-        const body = rows.map(r => `<tr>${xpCells(r, k).map((c, i) =>
+        const body = rows.map(r => `<tr>${acctPostingCells(r, k).map((c, i) =>
             `<td class="${[1,2,3,5].includes(i) ? 'r' : ''}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
         // Landscape, same as the shipment report: twelve columns will not fit
         // portrait at a readable size.
@@ -14531,6 +14578,134 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         showLotDetail(currentLot.id);
     }
 
+    // ---- the year-end Redwing posting ----------------------------------
+    // Decision 8: the pen keeps its own books and the NET posts to Redwing at
+    // year end. This is the document Lauren keys from — the same twelve
+    // columns, the same copy / print / PDF path as a transfer posting, and
+    // the same two-lines-net-to-zero shape.
+    //
+    // WHAT IS DELIBERATELY NOT ON IT: feed, medicine and salvage as their own
+    // lines. Those dollars already reached Redwing on the feed invoice, the
+    // drug invoice and the salvage cheque. Posting them again would
+    // double-count every one of them. What has NOT reached Redwing is the
+    // pen's production centre carrying a result, and that is what clears.
+    const FPP_LS_KEY = 'jfr_feed_pen_posting_constants';
+    let fppCache = null;   // the feed_pen_summary row being posted
+
+    function fppConstants() {
+        return {
+            account:      $('fppAccount').value.trim(),
+            profitCenter: $('fppProfitCenter').value.trim(),
+            destCenter:   $('fppDestCenter').value.trim()
+        };
+    }
+    function fppLoadConstants() {
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem(FPP_LS_KEY) || '{}') || {}; }
+        catch (e) { saved = {}; }
+        $('fppAccount').value      = saved.account      ?? '';
+        $('fppProfitCenter').value = saved.profitCenter ?? '';
+        $('fppDestCenter').value   = saved.destCenter   ?? '';
+    }
+    function fppSaveConstants() {
+        try { localStorage.setItem(FPP_LS_KEY, JSON.stringify(fppConstants())); }
+        catch (e) { /* storage unavailable; the posting still works */ }
+    }
+
+    // Two lines, equal and opposite, so they net to zero by construction —
+    // the property that makes a posting safe to key in.
+    function fppRows(sm, k) {
+        const net  = round2(Number(sm.net_usd) || 0);
+        const note = `Feed pen ${sm.lot_number} FY${sm.fiscal_year} result`;
+        return [
+            { lot: sm.lot_number,          year: sm.fiscal_year, head: 0, weight: 0, amount: -net, note },
+            { lot: k.destCenter || '(not set)', year: sm.fiscal_year, head: 0, weight: 0, amount:  net, note }
+        ];
+    }
+
+    function renderFeedPenPosting() {
+        if (!fppCache) return;
+        const sm = fppCache, k = fppConstants(), rows = fppRows(sm, k);
+        const n = v => Number(v) || 0;
+        const net = round2(rows.reduce((a, r) => a + r.amount, 0));
+        const result = round2(n(sm.net_usd));
+        const nothingYet = n(sm.feed_usd) === 0 && n(sm.med_usd) === 0 && n(sm.salvage_usd) === 0;
+
+        $('fppContent').innerHTML = `
+            <table style="font-size:12px; margin-bottom:10px;"><tbody>
+                <tr><td class="muted" style="width:210px;">Pen</td><td><strong>${escapeHtml(sm.lot_number)}</strong> · FY ${sm.fiscal_year}</td></tr>
+                <tr><td class="muted">Head</td><td>${fmtNum(sm.head_in)} in · ${fmtNum(sm.head_on_hand)} still standing · ${fmtNum(sm.head_days)} head-days</td></tr>
+                <tr><td class="muted">Salvage</td><td>${fmtMoney(sm.salvage_usd)}</td></tr>
+                <tr><td class="muted">Feed</td><td>(${fmtMoney(sm.feed_usd)})</td></tr>
+                <tr><td class="muted">Medicine</td><td>(${fmtMoney(sm.med_usd)})</td></tr>
+                <tr><td class="muted">${result >= 0 ? 'Net income' : 'Net loss'}</td>
+                    <td><strong style="color:${result >= 0 ? 'var(--success,#1c7c31)' : 'var(--danger,#d70015)'};">${fmtMoney(result)}</strong></td></tr>
+            </tbody></table>
+
+            ${nothingYet ? `<div class="alert" style="margin-bottom:10px;">
+                Nothing has been fed to this pen and nothing has been salvaged, so the result is
+                ${fmtMoney(0)} and these lines are both zero. This is the format, not the year.
+            </div>` : ''}
+            ${sm.closed_at ? '' : `<div class="alert" style="margin-bottom:10px;">
+                <strong>${escapeHtml(sm.lot_number)} is still open.</strong> These are the figures as they
+                stand today, not the year's result. Post after Close fiscal year, or the number moves
+                under the posting.
+            </div>`}
+
+            <div class="alert ${net === 0 ? 'success' : 'error'}" style="margin-bottom:10px;">
+                ${net === 0
+                    ? 'The two lines net to zero — the pen&rsquo;s production centre is cleared and its result lands on the other.'
+                    : `These lines net to ${fmtMoney(net)} rather than zero. Do not post this.`}
+            </div>
+            ${k.destCenter ? '' : `<div class="alert" style="margin-bottom:10px;">
+                No production centre set for the result, so the second line reads
+                <strong>(not set)</strong>. Fill in <em>Result lands on</em> above before keying it.
+            </div>`}
+
+            <div style="overflow-x:auto;">
+            <table style="font-size:12px; white-space:nowrap;">
+                <thead><tr>${ACCT_COLUMNS.map((c, i) =>
+                    `<th style="text-align:${[1,2,3,5].includes(i) ? 'right' : 'left'};">${escapeHtml(c)}</th>`).join('')}</tr></thead>
+                <tbody>${rows.map(r => `<tr>${acctPostingCells(r, k).map((c, i) =>
+                    `<td style="text-align:${[1,2,3,5].includes(i) ? 'right' : 'left'};">${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}
+                </tbody>
+            </table></div>`;
+    }
+
+    async function openFeedPenPosting() {
+        if (!currentLot || !currentLot.is_feed_pen) return;
+        const res = await supabase.from('feed_pen_summary').select('*')
+            .eq('pen_lot_id', currentLot.id).maybeSingle();
+        if (res.error) {
+            showAlert('globalAlert', 'Could not read the pen&rsquo;s books: ' + res.error.message);
+            return;
+        }
+        if (!res.data) {
+            showAlert('globalAlert', 'Nothing has been in this pen yet, so there is no result to post.');
+            return;
+        }
+        fppCache = res.data;
+        fppLoadConstants();
+        clearAlert('fppAlert');
+        renderFeedPenPosting();
+        showModal('feedPenPostingModal');
+    }
+
+    function fppCopy() {
+        if (!fppCache) return;
+        const k = fppConstants();
+        const text = [ACCT_COLUMNS.join('\t')]
+            .concat(fppRows(fppCache, k).map(r => acctPostingCells(r, k).join('\t')))
+            .join('\n');
+        const done = () => showAlert('fppAlert', 'Rows copied — paste straight into Redwing.', 'success');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done,
+                () => showAlert('fppAlert', 'Could not reach the clipboard. Select the table and copy by hand.'));
+        } else {
+            showAlert('fppAlert', 'Clipboard unavailable here. Select the table and copy by hand.');
+        }
+    }
+
     // ---- closing the year ----------------------------------------------
     // Decision 8, John: "Restart at zero at year end and net income or loss
     // to redwing books." The rollover is dated 1 July because the new pen's
@@ -14651,6 +14826,17 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
         on('fpNewRemovalBtn', 'click', openFeedPenRemoval);
         on('fpFoundBtn',      'click', openFeedPenFound);
+        on('fpPostingBtn',    'click', openFeedPenPosting);
+        on('fppCloseBtn',     'click', () => { hideModal('feedPenPostingModal'); fppCache = null; });
+        on('fppCopyBtn',      'click', fppCopy);
+        // The print sheet and the PDF are scraped from what is on screen, so
+        // there is no third rendering of the rows to drift from the other two.
+        on('fppPrintBtn',     'click', () => printReport('fppContent',
+            fppCache ? `Feed pen ${fppCache.lot_number} — FY${fppCache.fiscal_year} Redwing posting` : 'Feed pen posting'));
+        on('fppPdfBtn',       'click', () => shareReportPdf('fppContent',
+            fppCache ? `Feed pen ${fppCache.lot_number} — FY${fppCache.fiscal_year} Redwing posting` : 'Feed pen posting'));
+        ['fppAccount', 'fppProfitCenter', 'fppDestCenter'].forEach(id =>
+            on(id, 'input', () => { fppSaveConstants(); renderFeedPenPosting(); }));
         on('fpoCancelBtn',    'click', () => hideModal('feedPenOpeningModal'));
         on('fpoSaveBtn',      'click', fpoSave);
         on('fpCloseYearBtn',  'click', fpCloseYear);

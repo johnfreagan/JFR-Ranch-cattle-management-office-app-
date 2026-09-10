@@ -602,6 +602,20 @@ lot (is_feed_pen) ← lot_transfers kind='feed_pen', basis $0 ← the source lot
   no way. Entered from **+ Found in the pen** on the pen's own page; the lot
   picker keeps CLOSED lots on the list, because the lot found head came off is
   very often finished, and defaults to no source lot.
+- **The year-end net posts through Redwing posting on the pen's page**
+  (2026-09-10): two lines, equal and opposite, clearing the pen's production
+  centre onto wherever the result is coded. **Feed, medicine and salvage are
+  NOT lines on it** — those dollars already reached Redwing on their own
+  invoices and cheques, and posting them again double-counts. It reuses
+  `acctPostingCells` with the transfer posting rather than a third copy of
+  the twelve columns, and its print sheet and PDF are scraped from what is on
+  screen, so nothing can drift from what you are looking at.
+- **Pens are NOT fixed and pen entry is office-only** (John, 2026-09-10:
+  "Not set pens for feed pen cattle could be in various spots" / "Feed pen has
+  to be done in office for now"). Nothing gets a default pasture; the pen
+  routinely stands in several at once. Crew see the pen as an ordinary lot for
+  doctoring and moves, but sending cattle to it, taking them out and entering
+  found head are all office.
 - The pen is excluded from the Active Lots report (no invoice, so cost in,
   weight in and break-even are all empty by design) and its lot page hides
   Purchases and Closeout, showing the Feed pen section instead.
