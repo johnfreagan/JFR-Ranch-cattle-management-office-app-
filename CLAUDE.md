@@ -819,8 +819,18 @@ tab. Migrations: `docs/sql/2026-09-07_field_counts_and_test_weights.sql` and
   `coverage='whole_lot'` **and** `applies_to='lot'` anchors anything.
   Everything the field app writes is `weight_type='pasture_check'` at the
   default `coverage='sample'` and still anchors nothing — **anchoring is
-  opt-in, and no screen sets it yet.** Realized ADG and the `per_lb` COG
-  mode still do not read `weights`; that half of option A stands.
+  opt-in, and only the office can opt in.** Realized ADG and the `per_lb`
+  COG mode still do not read `weights`; that half of option A stands.
+- **The office sets `coverage` on the Approvals correction screen**
+  (2026-09-10). It rides in `resolved_detail` beside `shrink_pct` and
+  `applies_to` — same reason: it belongs to `weights`, not to the staging
+  table, but has to survive between the edit and the approval. The control
+  is a plain two-option select, and **a live hint says which way the choice
+  falls**, because coverage and "stands for" are two different questions and
+  only their COMBINATION anchors: a whole-lot weighing marked *just this
+  pasture* looks like it should anchor and does not. A row that WILL anchor
+  also raises a review warning saying the lot's projected weight is about to
+  be re-based, so nobody does it by accident on the way past.
 - **The three fields on `weights` are three different questions.**
   `weight_type` is the occasion (arrival · chute · pasture_check · sale ·
   individual · other), `applies_to` is what the sample stands for (pasture

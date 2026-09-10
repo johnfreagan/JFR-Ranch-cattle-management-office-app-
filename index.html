@@ -9039,13 +9039,21 @@ window.addEventListener('unhandledrejection', function(e) {
             if (shrinkPct == null || isNaN(shrinkPct)) issues.push('no shrink set — use Edit');
             else if (det.shrink_pct == null) warnings.push(`shrink defaulted to ${shrinkPct}% from "${raw.method || 'method not given'}" — confirm it with Edit`);
             const appliesTo = det.applies_to || 'pasture';
+            // Coverage: did every head go across the scale, or is this a draft?
+            // Defaults to 'sample' to match the column default - anchoring the
+            // lot's projected weight is opt-in, and nobody has opted in until
+            // an office reviewer says so here.
+            const coverage = det.coverage === 'whole_lot' ? 'whole_lot' : 'sample';
+            if (coverage === 'whole_lot' && appliesTo === 'lot') {
+                warnings.push('this will become the lot\u2019s weight anchor \u2014 its projected weight will be re-based on it');
+            }
             const grossAvg = totHead ? totGross / totHead : null;
             const bookedAvg = grossAvg != null && shrinkPct != null ? grossAvg * (1 - shrinkPct / 100) : null;
 
             return {
                 entry, raw, kind: 'weight', edited,
                 lot, ranch, pasture, toRanch: null, toPasture: null,
-                head: totHead, totGross, grossAvg, bookedAvg, shrinkPct, appliesTo,
+                head: totHead, totGross, grossAvg, bookedAvg, shrinkPct, appliesTo, coverage,
                 method: raw.method || null, drafts,
                 action: null, meds: [], isDead: false, notHauled: false,
                 issues, warnings, ready: issues.length === 0
@@ -9621,6 +9629,10 @@ window.addEventListener('unhandledrejection', function(e) {
                 total_weight_lb: Math.round(gross * (1 - r.shrinkPct / 100) * 100) / 100,
                 weigh_method: r.method,
                 applies_to: r.appliesTo,
+                // Only whole_lot + applies_to='lot' anchors lot_projected_weight().
+                // Every other combination is captured and displayed and moves
+                // no number, which is what the column default already says.
+                coverage: r.coverage === 'whole_lot' ? 'whole_lot' : 'sample',
                 weigh_session_id: sessionId,
                 draft_no: i + 1,
                 notes: [r.raw.notes, `field test weight by ${r.raw.recordedBy || 'field'}`]
@@ -10140,6 +10152,12 @@ window.addEventListener('unhandledrejection', function(e) {
                     <option value="pasture" ${r.appliesTo !== 'lot' ? 'selected' : ''}>just this pasture</option>
                     <option value="lot" ${r.appliesTo === 'lot' ? 'selected' : ''}>the whole lot</option>
                 </select>
+                <label for="aeCoverage">Coverage</label>
+                <select id="aeCoverage">
+                    <option value="sample" ${r.coverage !== 'whole_lot' ? 'selected' : ''}>a sample &mdash; a draft off the pasture</option>
+                    <option value="whole_lot" ${r.coverage === 'whole_lot' ? 'selected' : ''}>every head was on the scale</option>
+                </select>
+                <div class="muted" style="font-size:12px;margin:4px 0 10px 0;" id="aeCoverageHint"></div>
                 <label for="aeShrink">True shrink %</label>
                 <input type="number" id="aeShrink" step="0.1" min="0" max="49" value="${pct}">`;
                 $('apprEditWas').innerHTML =
@@ -10243,6 +10261,32 @@ window.addEventListener('unhandledrejection', function(e) {
         wire('aeFromRanch', 'aeFromPasture', r.kind === 'move' || r.kind === 'weight');
         wire('aeToRanch', 'aeToPasture', false);
 
+        // Coverage and "stands for" are two different questions and only their
+        // COMBINATION anchors the lot's projected weight. Say which way this
+        // one falls rather than leaving the reviewer to know the rule: a
+        // whole-lot weighing marked "just this pasture" looks like it should
+        // anchor and does not.
+        if ($('aeCoverage') && $('aeApplies')) {
+            const paintCoverageHint = () => {
+                const whole = $('aeCoverage').value === 'whole_lot';
+                const forLot = $('aeApplies').value === 'lot';
+                const hint = $('aeCoverageHint');
+                if (whole && forLot) {
+                    hint.innerHTML = '<b>This becomes the lot\u2019s weight anchor.</b> Its projected ' +
+                        'weight will be re-based on this weighing and carried forward from today.';
+                } else if (whole) {
+                    hint.textContent = 'Every head weighed, but standing only for this pasture — ' +
+                        'captured and displayed, and it does not move the lot\u2019s projected weight.';
+                } else {
+                    hint.textContent = 'A sample never anchors the lot average, whatever it stands for — ' +
+                        'the gentle cattle come into the trap first.';
+                }
+            };
+            $('aeCoverage').addEventListener('change', paintCoverageHint);
+            $('aeApplies').addEventListener('change', paintCoverageHint);
+            paintCoverageHint();
+        }
+
         showModal('apprEditModal');
     }
 
@@ -10280,7 +10324,8 @@ window.addEventListener('unhandledrejection', function(e) {
                     // approval writes the real rows.
                     resolved_detail: Object.assign({}, r.entry.resolved_detail || {}, {
                         shrink_pct: pct,
-                        applies_to: val('aeApplies') || 'pasture'
+                        applies_to: val('aeApplies') || 'pasture',
+                        coverage: val('aeCoverage') === 'whole_lot' ? 'whole_lot' : 'sample'
                     })
                 });
             }
