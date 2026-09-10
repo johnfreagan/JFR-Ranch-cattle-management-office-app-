@@ -35,6 +35,17 @@ See "Access control" below and `docs/security-model.md`.
   `WHERE cost IS NULL` guard — done 2026-09-04 on the X lots (682 rows,
   $8,873.41, `docs/sql/2026-09-04_backfill_x_lot_med_costs.sql`). The
   non-X lots still carry ~1,178 unpriced rows.
+- **`invoices.receiving_protocol_id` is a FALLBACK, not a label** (2026-09-10,
+  `docs/sql/2026-09-10_processing_invoice_protocol.sql`). The invoice form
+  had carried a protocol picker that no view read, so 37X / 37X-1 / 37X-F
+  showed $0 processing with the protocol sitting on every invoice. Now:
+  a load out's own protocol, or its absence, decides the head it covers;
+  invoice head that NO load out covers is priced at the invoice's protocol
+  (37X: 361 of 369 head have no receipt rows at all). The migration also
+  copied the invoice protocol onto receipts that had none, open lots only —
+  31-26 (closed, FY2026, 1,766 hd) was deliberately left and has its own
+  commented statement. `procCoverage` counts head, not loads, and carries
+  `headOnInvoiceProtocol`; the tile reads "N of M hd".
 - **A receipt with no `receiving_protocol_id` has NO processing cost**, and
   the lot's $/hd reads diluted (dollars from the covered loads over every
   head in). The lot tile shows "5 of 10 loads" in amber when coverage is

@@ -5902,11 +5902,24 @@ window.addEventListener('unhandledrejection', function(e) {
         const procFromReceipts = (procCostRes && procCostRes.data)
             ? (Number(procCostRes.data.total_cost) || 0) : 0;
         const procLoads = (procCoverRes && !procCoverRes.error && procCoverRes.data) ? procCoverRes.data : [];
+        // Invoice head that no load out covers (2026-09-10). The processing
+        // views price those at the INVOICE's protocol - 37X had 361 of 369
+        // head on invoices with no receipt rows at all, and its protocol sat
+        // on the invoices where nothing read it. A load out's own protocol,
+        // or its absence, still wins for the head it covers.
+        const invGaps = (invoicesRes && invoicesRes.data ? invoicesRes.data : []).map(i => ({
+            gap: (Number(i.head_count) || 0) - (i.delivery_receipts || []).reduce((t, r) => t + (Number(r.head_count) || 0), 0),
+            proto: !!i.receiving_protocol_id
+        })).filter(g => g.gap > 0);
+        const gapWithProto = invGaps.filter(g => g.proto).reduce((t, g) => t + g.gap, 0);
+        const gapWithout   = invGaps.filter(g => !g.proto).reduce((t, g) => t + g.gap, 0);
         const procCoverage = {
             loads: procLoads.length,
             loadsWithProtocol: procLoads.filter(r => r.receiving_protocol_id).length,
-            headWithProtocol: procLoads.filter(r => r.receiving_protocol_id).reduce((t, r) => t + (Number(r.head_count) || 0), 0),
-            headWithout: procLoads.filter(r => !r.receiving_protocol_id).reduce((t, r) => t + (Number(r.head_count) || 0), 0)
+            headWithProtocol: procLoads.filter(r => r.receiving_protocol_id).reduce((t, r) => t + (Number(r.head_count) || 0), 0) + gapWithProto,
+            headWithout: procLoads.filter(r => !r.receiving_protocol_id).reduce((t, r) => t + (Number(r.head_count) || 0), 0) + gapWithout,
+            headOnInvoiceProtocol: gapWithProto,   // priced off the invoice, no load out
+            headNoReceiptNoProtocol: gapWithout    // on an invoice with neither
         };
         const procUnpricedLines = (procCostRes && procCostRes.data)
             ? (Number(procCostRes.data.unpriced_line_count) || 0) : 0;
@@ -6188,7 +6201,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // Phase 18: split med cost — Processing over head_in, Treatment over
         // surviving head (head_in - head_dead), shipped or still here.
         const pc = currentActualMedCost ? currentActualMedCost.procCoverage : null;
-        const procPartial = pc && pc.loads > 0 && pc.loadsWithProtocol < pc.loads;
+        const procPartial = pc && pc.headWithout > 0 && pc.headWithProtocol > 0;
         if (currentActualMedCost && currentActualMedCost.processing > 0) {
             costRows.push({
                 label: 'Proc $/hd',
@@ -6203,15 +6216,15 @@ window.addEventListener('unhandledrejection', function(e) {
                 // protocol, the division covers every head in.
                 costRows.push({
                     label: '',
-                    value: `<span title="${pc.headWithout} head on ${pc.loads - pc.loadsWithProtocol} load${pc.loads - pc.loadsWithProtocol === 1 ? '' : 's'} have no receiving protocol, so their processing is not on the books. $${(currentActualMedCost.processingPerHeadProcessed || 0).toFixed(2)}/hd on the ${pc.headWithProtocol} processed.">${pc.loadsWithProtocol} of ${pc.loads} loads</span>`,
+                    value: `<span title="${pc.headWithout} head have no receiving protocol on their load out or their invoice, so their processing is not on the books. $${(currentActualMedCost.processingPerHeadProcessed || 0).toFixed(2)}/hd on the ${pc.headWithProtocol} processed.">${fmtNum(pc.headWithProtocol)} of ${fmtNum(pc.headWithProtocol + pc.headWithout)} hd</span>`,
                     color: 'warning',
                     drill: 'purchases', drillTitle: 'Set the receiving protocol on each load out'
                 });
             }
-        } else if (pc && pc.loads > 0 && pc.loadsWithProtocol === 0) {
+        } else if (pc && pc.headWithout > 0 && pc.headWithProtocol === 0) {
             // No load has a protocol, so processing is not on the books at
             // all. Silence here looked like "no cost" on the 37X lots.
-            costRows.push({ label: 'Proc $/hd', value: 'no protocol', color: 'warning', drill: 'purchases', drillTitle: 'No load on this lot has a receiving protocol. Open each load out and set one.' });
+            costRows.push({ label: 'Proc $/hd', value: 'no protocol', color: 'warning', drill: 'purchases', drillTitle: 'No load out or invoice on this lot has a receiving protocol. Set one on each invoice (and on a load out when it differs).' });
         }
         if (currentActualMedCost && currentActualMedCost.treatment > 0) {
             costRows.push({
@@ -7607,13 +7620,13 @@ window.addEventListener('unhandledrejection', function(e) {
         if ($('calc_proc_hint')) {
             const pcv = currentActualMedCost ? currentActualMedCost.procCoverage : null;
             if (actual.processing > 0 && pcv && pcv.headWithout === 0) {
-                $('calc_proc_hint').innerHTML = `<strong>${fmtMoney(actual.processing)}</strong> actual on all ${fmtNum(pcv.loads)} loads (${fmtMoney(actual.processing / Math.max(1, actual.headIn))}/hd) — this is the projection; the assumption is not used.`;
+                $('calc_proc_hint').innerHTML = `<strong>${fmtMoney(actual.processing)}</strong> actual on every head in (${fmtMoney(actual.processing / Math.max(1, actual.headIn))}/hd)${pcv.headOnInvoiceProtocol > 0 ? ` · ${fmtNum(pcv.headOnInvoiceProtocol)} hd priced off the invoice's protocol` : ''} — this is the projection; the assumption is not used.`;
             } else if (actual.processing > 0 && pcv) {
-                $('calc_proc_hint').innerHTML = `<strong>${fmtMoney(actual.processing)}</strong> actual on ${pcv.loadsWithProtocol} of ${pcv.loads} loads · ${fmtNum(pcv.headWithout)} hd on the rest carried at the assumption${rates.procPerHead ? ' = ' + fmtMoney(rates.procPerHead * pcv.headWithout) : ''}.`;
+                $('calc_proc_hint').innerHTML = `<strong>${fmtMoney(actual.processing)}</strong> actual on ${fmtNum(pcv.headWithProtocol)} hd · ${fmtNum(pcv.headWithout)} hd with no protocol on load out or invoice carried at the assumption${rates.procPerHead ? ' = ' + fmtMoney(rates.procPerHead * pcv.headWithout) : ''}.`;
             } else {
                 $('calc_proc_hint').textContent = rates.procPerHead
-                    ? `No load has a receiving protocol yet — ${fmtNum(actual.headIn)} hd × $${Number(rates.procPerHead).toFixed(2)} = ${fmtMoney(rates.procPerHead * actual.headIn)}. Set the protocol on the loads and actual takes over.`
-                    : 'No load has a receiving protocol yet. Enter an assumed $/head, or set the protocol on the loads.';
+                    ? `No load out or invoice has a receiving protocol yet — ${fmtNum(actual.headIn)} hd × $${Number(rates.procPerHead).toFixed(2)} = ${fmtMoney(rates.procPerHead * actual.headIn)}. Set the protocol on the invoices and actual takes over.`
+                    : 'No load out or invoice has a receiving protocol yet. Enter an assumed $/head, or set the protocol on the invoices.';
             }
         }
         if ($('calc_med_actual_hint')) {
@@ -16227,7 +16240,7 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         if (!lotId) { content.innerHTML = '<div class="empty">Pick a lot.</div>'; return; }
         content.innerHTML = '<div class="empty">Loading…</div>';
 
-        const [detailRes, statusRes, coverRes] = await Promise.all([
+        const [detailRes, statusRes, coverRes, invRes] = await Promise.all([
             supabase.from('lot_processing_cost_detail')
                 .select('*')
                 .eq('lot_id', lotId)
@@ -16236,12 +16249,24 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
             supabase.from('delivery_receipts')
                 .select('receipt_date, head_count, receiving_protocol_id')
                 .eq('lot_id', lotId)
-                .order('receipt_date')
+                .order('receipt_date'),
+            supabase.from('invoices')
+                .select('invoice_date, invoice_number, head_count, receiving_protocol_id, delivery_receipts(head_count)')
+                .eq('lot_id', lotId)
+                .order('invoice_date')
         ]);
         const loads = (coverRes && !coverRes.error && coverRes.data) ? coverRes.data : [];
         const loadsNoProto = loads.filter(r => !r.receiving_protocol_id);
-        const headProcessed = loads.filter(r => r.receiving_protocol_id).reduce((t, r) => t + (Number(r.head_count) || 0), 0);
-        const headNoProto   = loadsNoProto.reduce((t, r) => t + (Number(r.head_count) || 0), 0);
+        // Invoice head no load out covers is priced at the invoice's protocol
+        // (2026-09-10); with neither it is a gap like a load with none.
+        const invGaps = ((invRes && !invRes.error && invRes.data) ? invRes.data : []).map(i => ({
+            ...i, gap: (Number(i.head_count) || 0) - (i.delivery_receipts || []).reduce((t, r) => t + (Number(r.head_count) || 0), 0)
+        })).filter(i => i.gap > 0);
+        const invOnProto  = invGaps.filter(i => i.receiving_protocol_id);
+        const invNoProto  = invGaps.filter(i => !i.receiving_protocol_id);
+        const headOnInvoice = invOnProto.reduce((t, i) => t + i.gap, 0);
+        const headProcessed = loads.filter(r => r.receiving_protocol_id).reduce((t, r) => t + (Number(r.head_count) || 0), 0) + headOnInvoice;
+        const headNoProto   = loadsNoProto.reduce((t, r) => t + (Number(r.head_count) || 0), 0) + invNoProto.reduce((t, i) => t + i.gap, 0);
 
         if (detailRes.error) {
             content.innerHTML = `<div class="alert error">Error: ${escapeHtml(detailRes.error.message)}</div>`;
@@ -16249,8 +16274,8 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         }
         const rows = detailRes.data || [];
         if (rows.length === 0) {
-            content.innerHTML = '<div class="empty">No processing data — this lot has no delivery receipts with a receiving protocol.' +
-                (loads.length ? ` ${loads.length} load${loads.length === 1 ? '' : 's'} (${fmtNum(headNoProto)} hd) with no protocol set. Open each load out and set "Receiving protocol".` : '') + '</div>';
+            content.innerHTML = '<div class="empty">No processing data — no load out or invoice on this lot carries a receiving protocol.' +
+                (headNoProto ? ` ${fmtNum(headNoProto)} hd with no protocol set. Set "Receiving protocol" on each invoice, and on a load out only when it differs.` : '') + '</div>';
             return;
         }
 
@@ -16310,10 +16335,11 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
                     </tr>
                 </tfoot>
             </table>
-            ${loadsNoProto.length ? `<div class="alert" style="background:#fff8e6; border:1px solid #d4a017; color:#6a4c0a; padding:8px 10px; margin-top:10px; border-radius:var(--radius); font-size:12.5px;">
-                <strong>${loadsNoProto.length} load${loadsNoProto.length === 1 ? '' : 's'} (${fmtNum(headNoProto)} hd) carry no receiving protocol</strong>, so their processing is not on the books and the two per-head figures above disagree:
-                ${loadsNoProto.map(r => `${fmtDate(r.receipt_date)} · ${fmtNum(r.head_count)} hd`).join(' · ')}.
-                Open each load out on the lot and set "Receiving protocol".
+            ${headOnInvoice ? `<div class="muted" style="font-size:12px; margin-top:8px;">${fmtNum(headOnInvoice)} hd have no load out and are priced off the invoice's protocol: ${invOnProto.map(i => `${fmtDate(i.invoice_date)} · ${fmtNum(i.gap)} hd`).join(' · ')}.</div>` : ''}
+            ${headNoProto ? `<div class="alert" style="background:#fff8e6; border:1px solid #d4a017; color:#6a4c0a; padding:8px 10px; margin-top:10px; border-radius:var(--radius); font-size:12.5px;">
+                <strong>${fmtNum(headNoProto)} hd carry no receiving protocol</strong> on their load out or their invoice, so their processing is not on the books and the two per-head figures above disagree:
+                ${[...loadsNoProto.map(r => `load out ${fmtDate(r.receipt_date)} · ${fmtNum(r.head_count)} hd`), ...invNoProto.map(i => `invoice ${fmtDate(i.invoice_date)} · ${fmtNum(i.gap)} hd`)].join(' · ')}.
+                Set "Receiving protocol" on the invoice, or on the load out when it differs.
             </div>` : ''}
             ${unpricedNote}`;
     }
