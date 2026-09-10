@@ -8,7 +8,7 @@
 -- ($931.67) - both closed, FY2026. Two rows stay NULL: one Dexamethasone on
 -- 59X (no price on the list) and one free-text Bloat-Pac on 31-26 (no
 -- medication row at all). The count check raises so a re-run cannot
--- double-apply.
+-- double-apply. Applied through the connector 2026-09-10: 1,159 rows.
 
 do $$
 declare
