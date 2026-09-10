@@ -573,7 +573,14 @@ lot (is_feed_pen) ← lot_transfers kind='feed_pen', basis $0 ← the source lot
   Purchases and Closeout, showing the Feed pen section instead.
   `is_feed_pen` is settable on a NEW lot only.
 
-## Strays and missing head (built 2026-09-07)
+## Strays and missing head (built 2026-09-07, applied 2026-09-10)
+
+**Live.** Applied through the MCP connector's `apply_migration`, verified
+byte-exact against the file by `md5(prosrc)`, and smoke-tested on the live
+schema inside a DO block that raised at the end so every write rolled back:
+59X wrote off 2 head (pasture 3 → 1, `head_current` 3 → 1, **`head_dead`
+unmoved at 4**), the reversal restored both exactly, and a closed lot refused
+a stray return. Zero residue afterwards.
 
 Migration `docs/sql/2026-09-07d_strays_and_missing.sql`; every decision and the
 rejected alternatives in `docs/stray-cattle-design.md`. From John's question:
@@ -907,9 +914,22 @@ tab. Migrations: `docs/sql/2026-09-07_field_counts_and_test_weights.sql` and
 - **The Supabase SQL editor swallows `begin;`/`commit;`** — a wrapped script
   can report "Success. No rows returned" without applying anything. Omit the
   wrapper when pasting into the editor; keep it in files meant for the CLI.
-- **The MCP Supabase connector is READ-ONLY.** DDL and DML fail with
-  `25006: cannot execute ... in a read-only transaction`. Give John pasteable
-  SQL in chat — not a file attachment, not a path. He has said so twice.
+- **The MCP Supabase connector CAN now write** (corrected 2026-09-10). It
+  gained `apply_migration` (DDL) alongside `execute_sql`; the older note here
+  said it was read-only and that DDL failed with `25006`, which is no longer
+  true. `apply_migration` **supplies its own transaction**, so strip
+  `begin;`/`commit;` from the file before passing it — the inner `commit;`
+  closes the wrapper early, the same trap the CLI has.
+  Two things that have NOT changed: John still often wants pasteable SQL in
+  chat rather than a path (he has said so twice), and **this is the live books
+  of a real ranch — schema changes and data corrections still need his
+  explicit approval before execution**, connector or no connector.
+  **Transcription is the new risk.** The SQL reaches the tool as a typed
+  parameter, not as a file, so a long migration is retyped by hand and a
+  one-character slip is silent. After applying, prove it: build the same file
+  on a scratch PostgreSQL (`initdb` as the `postgres` user; the server binaries
+  live in `/usr/lib/postgresql/16/bin`) and compare `md5(prosrc)` per function
+  against the live database. Equal hashes mean the transcription was exact.
 - When unsure of a column name, QUERY information_schema — do not guess.
   Schemas evolved inconsistently across tables.
   **Exception: do NOT trust information_schema for GRANTS or PRIVILEGES.**

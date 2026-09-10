@@ -401,6 +401,41 @@ that mistake easy. Look at those 2 rows before dropping.
 
 ---
 
+## 21. Nineteen functions are EXECUTE-able by `anon` (found 2026-09-10)
+
+**Status:** found while verifying the strays migration. Not caused by it — its
+own four functions were checked and are clean.
+
+Postgres grants function `EXECUTE` to `PUBLIC` by default, and `anon` inherits
+through `PUBLIC`. Nineteen functions in `public` still carry the default ACL
+(`{=X/postgres,...}` — the leading `=X` is PUBLIC), so a caller holding only the
+embedded publishable key can invoke them. This is **CLAUDE.md access-control
+rule 4** — *"Revoke from `PUBLIC`, not just `anon`"* — and the newer migrations
+that never wrote a REVOKE are where it crept back in.
+
+The list includes real write RPCs: `record_feed_pen_removal`,
+`close_feed_pen_year`, `delete_feed_pen_removal`, `feed_pen_freeze_costs`,
+`feed_pen_allocate_proceeds`, `feed_pen_split_head`, plus the trigger functions
+and guards (`pfe_guard_settled`, `lot_budgets_frozen`, `feed_load_guard`, …)
+and `futures_contract_lb`.
+
+**How bad is it, honestly:** all nineteen are **SECURITY INVOKER**, so anon
+still hits RLS on every table they touch and gets `42501`. Nothing here is an
+open door on its own. But it is one missing `INVOKER` away from being one, and
+a trigger function called directly is a shape nobody has thought about. This is
+defence-in-depth that the rule exists to keep.
+
+**The fix** is one guarded `DO` block revoking `ALL ... FROM PUBLIC` and
+`FROM anon` on each, re-granting `authenticated` and `service_role` — the same
+loop section 7 of `2026-09-07d_strays_and_missing.sql` already runs for its
+four. Cheap, but it touches nineteen live functions, so it needs John's say-so
+and a pass afterwards confirming the app and field app still work.
+
+Worth adding to `rls_verify` at the same time: it checks table grants to `anon`
+but does not check function `EXECUTE`, which is why this sat unseen.
+
+---
+
 ## Closed
 
 - **2026-08-27 — The RLS verify script now exists.** `CLAUDE.md` rule 7 and
