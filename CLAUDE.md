@@ -1061,10 +1061,27 @@ and the anchor work only did one:
   and `realized_thin` shows amber. A projection that silently changed basis
   when the first load shipped would be worse than either basis alone.
 - **Shipped head are not a random sample.** You generally ship the best first,
-  so realized ADG tends to OVERSTATE what the remnant is doing. It still beats
-  an assumption that is 18% wrong, and the source is on screen so it can be
-  discounted. There is no per-lot override yet; add one if a lot's shipped
-  head are known to be unrepresentative.
+  so realized ADG tends to OVERSTATE what the remnant is doing. The source is
+  on screen so it can be discounted. There is no per-lot override yet; add one
+  if a lot's shipped head are known to be unrepresentative.
+- **37X's 1.473 was NOT a projection miss — read this before "fixing" the
+  assumptions.** John, 2026-09-10: *"the 37X adg missed because we waited too
+  long to ship and the cattle backed up. Not a projection miss and mgt miss by
+  me due to a falling market and holding too long."* The 1.80 assumption was
+  sound; the cattle were held past their window in a falling market and the
+  gain flattened at the end. **A realized ADG under the assumption is
+  therefore not evidence the assumption was wrong** — it is a question, and
+  "held too long" and "assumed too high" produce the identical number. Do not
+  quietly walk `lots.target_adg` down to chase a realized figure without
+  asking which one happened; that would bake a marketing decision into the
+  standing assumption for every lot that follows.
+- **A blended realized ADG hides the CURVE, and that is the real limitation
+  here.** 37X did not gain 1.473 all year — it gained near the assumption and
+  then went flat. One rate over the whole span understates it mid-life and is
+  right only for the remnant, which happens to be what the projection needs.
+  `lot_adg_phases` is the tool for saying so explicitly (it already outranks
+  the realized rate), and a lot known to have backed up is exactly the case
+  worth entering phases for.
 - **A pasture weighing is now VISIBLE, as a note** (John, 2026-09-10: *"stand
   visible at least as a note … the time this matters is in the growyard phase
   and cattle when we get closer to shipping to have an accurate weight because

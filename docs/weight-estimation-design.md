@@ -23,6 +23,17 @@ since the `per_lb` COG work; the projection simply never read it. 37X was the
 proof: 283 head shipped at a realized **1.473** while the projection carried
 its last 32 head forward at the assumed **1.80** — 910.7 lb against about 823.
 
+**Why 37X came in low, in John's words (2026-09-10):** *"the 37X adg missed
+because we waited too long to ship and the cattle backed up. Not a projection
+miss and mgt miss by me due to a falling market and holding too long."* This
+matters for how the whole feature is read. The 1.80 was a good assumption; the
+cattle were held past their window and the gain went flat at the end. So a
+realized ADG under the assumption is **a question, not a verdict** — "held too
+long" and "assumed too high" produce the same number, and only one of them is
+a reason to change the assumption. It is also why a single blended rate is a
+blunt instrument: 37X gained near 1.80 for most of its life and then stopped,
+which is a curve, and `lot_adg_phases` is the thing that can say so.
+
 **BUILT 2026-09-10** (`docs/sql/2026-09-10_realized_adg_projection.sql`). Rate
 precedence is now phases → realized → assumed, gated on the sample, with
 `adg_source` on `lot_status` so every screen can say which it used.
