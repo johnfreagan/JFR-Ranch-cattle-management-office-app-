@@ -6566,9 +6566,28 @@ window.addEventListener('unhandledrejection', function(e) {
         }
 
         // ---- TIER 1: WEIGHT ----
+        // "Now" is an estimate and the label says what it rests on, because
+        // the same tile shows three very different things: the lot's own
+        // measured gain off real pay weights, a hand-entered ADG curve, or a
+        // pure assumption. A number that silently changed basis when the
+        // first load shipped would be the worst of the three.
+        const adgSrc  = status.adg_source || null;
+        const adgUsed = status.adg_used != null ? Number(status.adg_used) : null;
+        const NOW_NOTE = {
+            realized:      'on the lot\u2019s own measured gain',
+            realized_thin: 'on measured gain \u2014 thin sample',
+            phase:         'on the entered ADG phases',
+            assumed:       'on the assumed ADG'
+        };
+        const nowLabel = adgSrc && NOW_NOTE[adgSrc]
+            ? `Now <span class="muted" style="font-weight:400;">(${adgUsed != null ? adgUsed.toFixed(2) : '?'} ADG, ` +
+              `${adgSrc === 'realized' || adgSrc === 'realized_thin' ? 'measured' : adgSrc === 'phase' ? 'phased' : 'assumed'})</span>`
+            : 'Now';
         const wtRows = [
             { label: 'Arrival', value: arrivalWt ? fmtNum(arrivalWt) + ' lb' : '—', drill: 'purchases', drillTitle: 'Invoice weights' },
-            { label: 'Now',     value: projWt ? fmtNum(projWt) + ' lb' : '—', drill: 'closeout', drillTitle: 'ADG and ship assumptions' },
+            { label: nowLabel,  value: projWt ? fmtNum(projWt) + ' lb' : '—', drill: 'closeout',
+              drillTitle: adgSrc && NOW_NOTE[adgSrc] ? 'Projected ' + NOW_NOTE[adgSrc] : 'ADG and ship assumptions',
+              color: adgSrc === 'realized_thin' ? 'warning' : undefined },
             { label: useTargetForThird ? 'Target' : 'Est ship', value: wtThird ? fmtNum(wtThird) + ' lb' : '—', drill: 'closeout', drillTitle: 'Ship weight assumption' }
         ];
 

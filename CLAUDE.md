@@ -1010,6 +1010,70 @@ lot_weight_anchor (view)  ──▶ lot_projected_weight_detail()  ──▶ lot
   the last decimal place. With `weights` and `lot_adg_phases` empty the two
   formulas are arithmetically identical; all 12 lots verified 2026-09-10.
 
+### The rate correction: the projection uses the lot's OWN realized ADG
+
+Migration `docs/sql/2026-09-10_realized_adg_projection.sql`. Design record and
+the unbuilt half: `docs/weight-estimation-design.md`.
+
+John, 2026-09-10: *"we don't weigh a lot of cattle … since we shipped
+yesterday I have good estimates on some cattle."* There are **two** corrections
+and the anchor work only did one:
+
+| | fixes | needs | how often |
+|---|---|---|---|
+| **Level** | "these weigh X today" | a scale | rare |
+| **Rate** | "this lot gains Y, not what we assumed" | nothing | every sale |
+
+- **The rate correction is free and the books were throwing it away.**
+  `lot_realized_adg` has computed gain off real pay weights since the `per_lb`
+  COG work; the projection never read it. **37X shipped 283 head at a realized
+  1.473 while its remaining 32 head were carried at the assumed 1.80 — 910.7 lb
+  against 822.6. Eighty-eight pounds a head**, straight into break-even.
+- **Precedence is phases → realized → assumed.** A hand-entered
+  `lot_adg_phases` curve is a deliberate statement and still wins the days it
+  covers; the measured rate beats the guess; the guess is where every lot
+  starts. `adg_source` reports which: `phase | realized | realized_thin |
+  assumed`.
+- **The gates are on the SAMPLE, never on the answer**
+  (`lot_realized_adg_confidence`): at least 20 head with a real pay weight AND
+  at least 10% of head in, or the assumption stands. Under 30% it is used and
+  flagged `realized_thin` — 37X-1 sits there at 66 head of 274.
+- **`lot_realized_adg_confidence` reads `lot_realized_adg_internal()` and the
+  head-in tables DIRECTLY, never `lot_status` or the `lot_realized_adg` view.**
+  `lot_status` calls `lot_projected_weight_detail()`, which calls this, so
+  going through `lot_status` makes the three mutually recursive — Postgres
+  blows the stack (`54001`) rather than erroring usefully. Caught on the first
+  apply.
+- **Nothing booked moved.** Projected weight is an estimate; no cost, no head
+  count, no frozen number. `per_lb` COG reads `lot_realized_adg` and
+  `lots.target_adg` directly and never went through this function.
+  **But it does move two things worth knowing:** break-even displays, and the
+  weight-based DOSE suggestion in doctoring (which reads
+  `projected_current_weight`). Both move toward the truth — if cattle are
+  lighter than assumed, the old dose was too high — but they do move.
+- **The verify block proves the blast radius rather than asserting it**: a lot
+  still on `assumed` that moved raises, a lot that moved without a realized
+  rate raises, a lot with nothing sold claiming a realized rate raises, and
+  `anchor + adg_used × days` must reproduce the projection to the cent.
+  Live result: 37X −88.1, 37X-1 −34.8, 59X +7.3, 37X-F +5.2, 60X +4.8;
+  36-27 (nothing shipped) and every test lot unmoved.
+- **The lot tile says which basis it is on** — *Now (1.47 ADG, measured)* —
+  and `realized_thin` shows amber. A projection that silently changed basis
+  when the first load shipped would be worse than either basis alone.
+- **Shipped head are not a random sample.** You generally ship the best first,
+  so realized ADG tends to OVERSTATE what the remnant is doing. It still beats
+  an assumption that is 18% wrong, and the source is on screen so it can be
+  discounted. There is no per-lot override yet; add one if a lot's shipped
+  head are known to be unrepresentative.
+- **The LEVEL correction is NOT built.** `docs/weight-estimation-design.md`
+  holds it: pasture-level weights and sorting big/little are the same shape,
+  and the blocker is that **cattle move and a weight belongs to the animals,
+  not the pasture** — tags recycle, so once head are pooled there is no way
+  back to which animals were on the scale. Recommendation there is B1 (blend a
+  partial weighing into the lot average once, no pasture dimension) plus B3 (a
+  sort becomes a `lot_transfers` `kind='sort'` into a child lot, which the app
+  already supports), with true per-pasture anchors held back.
+
 ## Markets and hedge positions (built 2026-09-10)
 
 The database held no price it had not paid itself. Migrations:
