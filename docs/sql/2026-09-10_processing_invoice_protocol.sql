@@ -214,10 +214,19 @@ end $$;
 
 commit;
 
--- 31-26 (closed, FY2026): run ONLY if the decision is to re-price a closed lot.
+-- 31-26 (closed, FY2026): APPLIED 2026-09-10 through the connector on John's
+-- decision ("processing cost on all lots"): 64 receipts, 1,766 hd, $28,586.51.
 -- update delivery_receipts r
 --    set receiving_protocol_id = i.receiving_protocol_id,
 --        notes = concat_ws(' ', nullif(r.notes, ''), '[2026-09-10 receiving protocol copied from the invoice; closed lot, by decision]')
 --   from invoices i join lots l on l.id = i.lot_id
 --  where i.id = r.invoice_id and r.receiving_protocol_id is null
 --    and i.receiving_protocol_id is not null and l.lot_number = '31-26';
+
+-- 47-26 (closed, FY2026): no protocol on invoice or receipt. John chose
+-- "26 Summer X Steers/Bulls Receiving v1" (option B) on 2026-09-10; applied
+-- through the connector: 2 invoices and 10 receipts, 187 hd. Protivity on
+-- that protocol was still unpriced at the time, so its lines fill in once it
+-- is priced.
+-- do $$ ... update invoices / delivery_receipts where lot_number = '47-26'
+--          and receiving_protocol_id is null ... $$;  (see session notes)

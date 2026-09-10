@@ -33,8 +33,13 @@ See "Access control" below and `docs/security-model.md`.
   FROZEN per row at save time). **A NULL cost is a hole, not a frozen
   number**, and may be back-filled from the current price list with a
   `WHERE cost IS NULL` guard — done 2026-09-04 on the X lots (682 rows,
-  $8,873.41, `docs/sql/2026-09-04_backfill_x_lot_med_costs.sql`). The
-  non-X lots still carry ~1,178 unpriced rows.
+  $8,873.41, `docs/sql/2026-09-04_backfill_x_lot_med_costs.sql`) and
+  2026-09-10 on everything else (1,159 rows, $10,095: 31-26 and 47-26,
+  both closed FY2026, John: "some data is better than no data",
+  `docs/sql/2026-09-10_backfill_med_costs_all_lots.sql`). Two rows remain
+  NULL because nothing can price them: one Dexamethasone on 59X (no price
+  on the list) and one free-text Bloat-Pac on 31-26 (no medication row).
+  Price Dexamethasone and the same guarded UPDATE fills the 59X row.
 - **`invoices.receiving_protocol_id` is a FALLBACK, not a label** (2026-09-10,
   `docs/sql/2026-09-10_processing_invoice_protocol.sql`). The invoice form
   had carried a protocol picker that no view read, so 37X / 37X-1 / 37X-F
@@ -42,9 +47,13 @@ See "Access control" below and `docs/security-model.md`.
   a load out's own protocol, or its absence, decides the head it covers;
   invoice head that NO load out covers is priced at the invoice's protocol
   (37X: 361 of 369 head have no receipt rows at all). The migration also
-  copied the invoice protocol onto receipts that had none, open lots only —
-  31-26 (closed, FY2026, 1,766 hd) was deliberately left and has its own
-  commented statement. `procCoverage` counts head, not loads, and carries
+  copied the invoice protocol onto receipts that had none, open lots first
+  and 31-26 (closed, FY2026, 1,766 hd, $28,586.51 on "25 Fall Light Steer
+  Processing") the same day on John's call: "processing cost on all lots".
+  47-26 had a protocol nowhere; John picked "26 Summer X Steers/Bulls
+  Receiving v1" for it (2 invoices, 10 receipts, 187 hd). Every real lot
+  now prices processing; the only holes left are Protivity lines on the
+  26 Summer X protocol until it is priced. `procCoverage` counts head, not loads, and carries
   `headOnInvoiceProtocol`; the tile reads "N of M hd".
 - **A receipt with no `receiving_protocol_id` has NO processing cost**, and
   the lot's $/hd reads diluted (dollars from the covered loads over every
