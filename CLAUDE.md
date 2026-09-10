@@ -575,6 +575,10 @@ lot (is_feed_pen) ← lot_transfers kind='feed_pen', basis $0 ← the source lot
   flagged `captured_automatically` and `delete_feed_pen_removal` REFUSES it:
   it never touched the pasture assignment, so reversing the death or sale is
   what puts the head back, and an AFTER DELETE trigger drops the attribution.
+  **The removals list must therefore NOT offer Delete on a captured row** — it
+  says "captured automatically" and points at where the death or sale was
+  entered instead. A Delete there is a button that can only ever produce an
+  error.
 - **Head found in the pen and carried nowhere go in through
   `record_feed_pen_opening`** — a positive `adjustment` (never a receipt or
   invoice, which would give the pen a `head_in` and a purchase cost it never
@@ -595,7 +599,9 @@ lot (is_feed_pen) ← lot_transfers kind='feed_pen', basis $0 ← the source lot
   database runs 17.6) so one removal cannot collect several unattributed
   lines. Naming a lot when you DO know is still worth it and is cheap to be
   wrong: pen cost is tracked, not charged, so it touches that lot's books in
-  no way.
+  no way. Entered from **+ Found in the pen** on the pen's own page; the lot
+  picker keeps CLOSED lots on the list, because the lot found head came off is
+  very often finished, and defaults to no source lot.
 - The pen is excluded from the Active Lots report (no invoice, so cost in,
   weight in and break-even are all empty by design) and its lot page hides
   Purchases and Closeout, showing the Feed pen section instead.

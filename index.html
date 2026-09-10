@@ -1123,8 +1123,12 @@
                     <div class="card-header">
                         <h3>The pen's year</h3>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <!-- Cattle normally reach the pen from a lot's "Send to feed
+                                 pen". This is the other way in: head standing in the pen
+                                 that the books have never carried anywhere. -->
+                            <button id="fpFoundBtn" class="primary" data-perm="office" data-write>+ Found in the pen</button>
                             <button id="fpPrintBtn">🖨 Print</button>
-                            <button id="fpPdfBtn" class="primary">Text / share PDF</button>
+                            <button id="fpPdfBtn">Text / share PDF</button>
                             <button id="fpCloseYearBtn" data-perm="owner" data-write>Close fiscal year</button>
                         </div>
                     </div>
@@ -4499,6 +4503,65 @@
         <div class="modal-actions">
             <button type="button" id="fprCancelBtn">Cancel</button>
             <button type="button" class="primary" id="fprSaveBtn" data-perm="office" data-write>Save removal</button>
+        </div>
+    </div>
+</div>
+
+<!-- Head found standing in the pen that the books never carried anywhere.
+     They cannot arrive by transfer, because no lot is holding them to
+     transfer them out of. A positive 'adjustment' — never a receipt or an
+     invoice, which would give the pen a head_in and a purchase cost it
+     never had. -->
+<div class="modal-backdrop" id="feedPenOpeningModal">
+    <div class="modal" style="max-width: 640px;">
+        <h2>Head found in the feed pen</h2>
+        <div id="fpoAlert"></div>
+        <div class="muted" style="font-size: 13px; margin-bottom: 14px;">
+            For cattle standing in the pen that are not on the books anywhere — never
+            entered, or written off long ago. This adds them to the pen only. It creates
+            no purchase cost and touches no other lot.
+        </div>
+
+        <div class="form-grid" style="margin-bottom: 14px;">
+            <div>
+                <label for="fpoHead">How many head</label>
+                <input type="number" id="fpoHead" min="1" step="1" placeholder="head">
+            </div>
+            <div>
+                <label for="fpoDate">Date</label>
+                <input type="date" id="fpoDate">
+                <div class="muted" style="font-size: 11px; margin-top: 2px;" id="fpoDateHint"></div>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <label for="fpoPasture">Which pen are they standing in</label>
+            <select id="fpoPasture"></select>
+            <div class="muted" style="font-size: 11px; margin-top: 2px;">
+                Any active pasture — found cattle are not always where the pen already stands.
+            </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <label for="fpoSourceLot">Lot they came off (optional)</label>
+            <select id="fpoSourceLot"></select>
+            <div class="muted" style="font-size: 11px; margin-top: 2px;">
+                Leave this on <strong>no source lot</strong> unless you actually know. It decides
+                nothing but which line their share of the feed is reported on — pen cost is
+                tracked, never charged, so naming a lot does not touch that lot&rsquo;s books.
+                Naming one you are guessing at just makes the report say something untrue.
+            </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <label for="fpoNotes">Notes (optional)</label>
+            <textarea id="fpoNotes" rows="2" placeholder="e.g. three calves that have been in the pen since spring"
+                      style="width: 100%; padding: 6px 8px; font-size: 13px; resize: vertical;"></textarea>
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" id="fpoCancelBtn">Cancel</button>
+            <button type="button" class="primary" id="fpoSaveBtn" data-perm="office" data-write>Add to the pen</button>
         </div>
     </div>
 </div>
@@ -14027,7 +14090,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         // A closed pen year is read-only: the net has been posted.
         const shut = !!(currentLot && currentLot.closed_at);
-        ['fpNewRemovalBtn', 'fpCloseYearBtn'].forEach(id => {
+        ['fpNewRemovalBtn', 'fpCloseYearBtn', 'fpFoundBtn'].forEach(id => {
             const b = $(id); if (b) b.classList.toggle('hidden', shut);
         });
     }
@@ -14156,6 +14219,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                         <strong>${fmtNum(r.head_count)} hd ${escapeHtml(m.label.toLowerCase())}</strong>
                         <span class="muted"> · ${fmtDate(r.removal_date)}${past ? ' · ' + escapeHtml(past) : ''}</span>
                         ${r.tag_number ? `<span class="muted"> · tag ${escapeHtml(r.tag_number)}</span>` : ''}
+                        ${r.captured_automatically
+                            ? '<span class="muted" style="font-size:11px;"> · captured automatically</span>' : ''}
                     </div>
                     <div style="text-align:right;">
                         ${Number(r.proceeds_usd) ? `<strong>${fmtMoney(r.proceeds_usd)}</strong>` : '<span class="muted">no value</span>'}
@@ -14167,8 +14232,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 ${r.cause ? `<div class="muted" style="font-size:11.5px;">Cause: ${escapeHtml(r.cause)}</div>` : ''}
                 ${r.notes ? `<div class="muted" style="font-size:11.5px;">${escapeHtml(r.notes)}</div>` : ''}
                 <div style="margin-top:5px;">
-                    <button type="button" class="fp-del" data-id="${r.id}" data-perm="owner" data-write
-                            style="font-size:11.5px; padding:3px 8px;">Delete</button>
+                    ${r.captured_automatically
+                        ? `<span class="muted" style="font-size:11.5px;">Recorded outside Record removal, so reverse it
+                             where it was entered &mdash; the ${r.ref_kind === 'sale' ? 'sale' : 'death'} itself.
+                             The pen attribution goes with it.</span>`
+                        : `<button type="button" class="fp-del" data-id="${r.id}" data-perm="owner" data-write
+                                   style="font-size:11.5px; padding:3px 8px;">Delete</button>`}
                 </div>
             </div>`;
         }).join('');
@@ -14379,6 +14448,89 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         showLotDetail(currentLot.id);
     }
 
+    // ---- head found standing in the pen --------------------------------
+    // The other way in. Cattle normally reach the pen from a lot's "Send to
+    // feed pen", which needs a lot that is holding them; these are carried
+    // nowhere at all. John, 2026-09-07: "They literally don't come from a
+    // lot, I didn't enter them because there wasn't a feed pen lot at that
+    // time." Until this existed it was hand-written SQL every time.
+    async function openFeedPenFound() {
+        if (!currentLot || !currentLot.is_feed_pen) return;
+        if (currentLot.closed_at) {
+            showAlert('globalAlert', 'This pen year is closed. Reopen it before adding head.');
+            return;
+        }
+
+        // Every ACTIVE pasture, not just where the pen already stands: found
+        // cattle are not always in a pen the books have put anything in yet.
+        const [pastRes, lotRes] = await Promise.all([
+            supabase.from('pastures').select('id, name, ranches!inner(name)').eq('is_active', true),
+            supabase.from('lots').select('id, lot_number, fiscal_year, closed_at, is_test, is_feed_pen')
+                .order('lot_number')
+        ]);
+        if (pastRes.error || lotRes.error) {
+            showAlert('globalAlert', 'Could not load pastures or lots: ' +
+                ((pastRes.error || lotRes.error).message));
+            return;
+        }
+
+        $('fpoPasture').innerHTML = (pastRes.data || [])
+            .map(x => ({ id: x.id, label: `${x.ranches ? x.ranches.name + ' – ' : ''}${x.name}` }))
+            .sort((a, b) => a.label.localeCompare(b.label))
+            .map(x => `<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('');
+
+        // A CLOSED lot is a legitimate origin and stays on the list — the
+        // whole reason pen cost is tracked and not charged is that the lot
+        // these came off is very often finished. Test lots and the pens
+        // themselves are not origins.
+        $('fpoSourceLot').innerHTML =
+            '<option value="">— no source lot —</option>' +
+            (lotRes.data || [])
+                .filter(l => !l.is_test && !l.is_feed_pen)
+                .map(l => `<option value="${l.id}">${escapeHtml(l.lot_number)} (FY ${l.fiscal_year})${l.closed_at ? ' · closed' : ''}</option>`)
+                .join('');
+
+        $('fpoHead').value = '';
+        $('fpoNotes').value = '';
+        $('fpoSourceLot').value = '';
+        $('fpoDate').value = ranchToday();
+        $('fpoDate').max = ranchToday();
+        // The pen's own arrival date is the floor: the RPC refuses anything
+        // earlier, because lot_daily_head would clamp it up to the pen's
+        // first day and charge it feed for cattle that were not there.
+        if (currentLot.arrival_date) $('fpoDate').min = currentLot.arrival_date;
+        $('fpoDateHint').textContent = currentLot.arrival_date
+            ? `Not before ${fmtDate(currentLot.arrival_date)}, when ${currentLot.lot_number} starts.` : '';
+
+        clearAlert('fpoAlert');
+        showModal('feedPenOpeningModal');
+    }
+
+    async function fpoSave() {
+        const head = parseInt($('fpoHead').value, 10);
+        if (isNaN(head) || head <= 0) { showAlert('fpoAlert', 'How many head?'); return; }
+        if (!$('fpoPasture').value)   { showAlert('fpoAlert', 'Pick the pen they are standing in.'); return; }
+        if (!$('fpoDate').value)      { showAlert('fpoAlert', 'A date is required.'); return; }
+
+        $('fpoSaveBtn').disabled = true;
+        const { error } = await supabase.rpc('record_feed_pen_opening', {
+            p_pen_lot_id:    currentLot.id,
+            p_pasture_id:    $('fpoPasture').value,
+            p_head:          head,
+            p_source_lot_id: $('fpoSourceLot').value || null,
+            p_event_date:    $('fpoDate').value,
+            p_notes:         $('fpoNotes').value.trim() || null,
+            p_recorded_by:   currentUser.id
+        });
+        $('fpoSaveBtn').disabled = false;
+
+        if (error) { showAlert('fpoAlert', 'Could not add the head: ' + error.message); return; }
+
+        hideModal('feedPenOpeningModal');
+        feedPenLoadedFor = null;
+        showLotDetail(currentLot.id);
+    }
+
     // ---- closing the year ----------------------------------------------
     // Decision 8, John: "Restart at zero at year end and net income or loss
     // to redwing books." The rollover is dated 1 July because the new pen's
@@ -14498,6 +14650,9 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     (function wireFeedPen() {
         const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
         on('fpNewRemovalBtn', 'click', openFeedPenRemoval);
+        on('fpFoundBtn',      'click', openFeedPenFound);
+        on('fpoCancelBtn',    'click', () => hideModal('feedPenOpeningModal'));
+        on('fpoSaveBtn',      'click', fpoSave);
         on('fpCloseYearBtn',  'click', fpCloseYear);
         on('fprCancelBtn',    'click', () => { hideModal('feedPenRemovalModal'); fpState = null; });
         on('fprSaveBtn',      'click', fprSave);
