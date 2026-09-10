@@ -7358,6 +7358,7 @@ window.addEventListener('unhandledrejection', function(e) {
             processingProj, processingFwd, headNoProtocol,
             treatmentProj, treatmentBurnFwd, doctoringFloor, doctoringOnFloor,
             medicineFwd: processingFwd + treatmentFwd,
+            penOutHead,
             cogFwd, laborFwd, treatmentFwd, feedFwd, interestFwd, operatingFwd,
             revenueFwd, totalCost, totalRevenue, net, breakEvenPerLb,
             costPerHeadSold, remnantCost, lotShortfall,
@@ -7871,10 +7872,10 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${actual.transferOutHead > 0 ? row(
                         `Transferred out <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferOutHead)} hd</a>`,
                         null, -sp(actual.transferOutUsd).a, -sp(actual.transferOutUsd).p,
-                        {note: penOutHead > 0
-                            ? (penOutHead === actual.transferOutHead
-                                ? `${fmtNum(penOutHead)} to the feed pen at $0 — cost retained here`
-                                : `moved to another lot · ${fmtNum(penOutHead)} of them to the feed pen at $0`)
+                        {note: proj.penOutHead > 0
+                            ? (proj.penOutHead === actual.transferOutHead
+                                ? `${fmtNum(proj.penOutHead)} to the feed pen at $0 — cost retained here`
+                                : `moved to another lot · ${fmtNum(proj.penOutHead)} of them to the feed pen at $0`)
                             : 'moved to another lot',
                          fmt: signed}, split ? -actual.transferOutUsd : undefined) : ''}
                     ${row(`<span style="display:inline-block; width:12px; color:var(--text-muted);">${closeoutMedOpen ? '▾' : '▸'}</span>Medicine`,
@@ -7932,8 +7933,8 @@ window.addEventListener('unhandledrejection', function(e) {
                 ${proj.deathsToCome > 0 ? `Projection assumes ${fmtNum(Math.round(proj.deathsToCome))} more death${Math.round(proj.deathsToCome)===1?'':'s'} on top of the ${fmtNum(actual.headDead)} so far.` : ''}
                 ${(actual.transferInHead > 0 || actual.transferOutHead > 0) ? `
                     <div style="margin-top:6px;">
-                        ${penOutHead > 0 ? `<div style="margin-bottom:6px;">
-                            <strong>${fmtNum(penOutHead)} head went to the feed pen and took no cost with them.</strong>
+                        ${proj.penOutHead > 0 ? `<div style="margin-bottom:6px;">
+                            <strong>${fmtNum(proj.penOutHead)} head went to the feed pen and took no cost with them.</strong>
                             Everything they cost is still in these totals, divided over fewer head — the honest
                             read, because that money was spent on cattle that will not pay it back. What the pen
                             then spends feeding them is tracked against this lot on the Feed Pen report and is

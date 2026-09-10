@@ -189,6 +189,17 @@ The Closeout tab shows one set of economics in three columns. It is
   and shows as a third child only when non-zero, so the rows sum to Total
   cost. A budget frozen before the split shows its one figure on the
   Medicine row and blanks on the children.
+- **A throw anywhere in `showLotDetail()` before `renderCloseoutCalculator()`
+  leaves the Closeout tab at "Loading…" with no error shown** — that is
+  what "37X has no closeout" looked like on 2026-09-09. The cause was
+  `penOutHead`, computed in `closeoutProjection()` but read as a free
+  variable in `recalculate()`, so a ReferenceError fired only on a lot
+  with a transfer (37X, the one open lot with one). It now rides on
+  `proj.penOutHead`. The harness that caught it loads the real
+  `index.html` in headless Chromium with a fake supabase client fed the
+  lot's live rows (`scripts/` has no copy; it lived in the session
+  scratchpad) — a lot-specific blank tab is a data-shaped code path, so
+  test with that lot's rows, not a generic fixture.
 - **Once any head have shipped the whole table SPLITS** (John, 2026-09-04:
   "on the actual you include total cost not the proportion that goes with
   sold hd count"). `split = soldHead > 0`; every cost line goes through
