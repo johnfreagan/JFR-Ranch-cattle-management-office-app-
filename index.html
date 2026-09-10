@@ -1079,6 +1079,32 @@
                     </div>
                     <div id="deathLogContent"></div>
                 </div>
+
+                <!-- Missing and returned head. Sits beside the death log
+                     because that is where this work is done wrongly today:
+                     lot 47-26 was closed by writing 2 head off as a death
+                     with the cause "missing from shipping". A missing animal
+                     filed as a death lands in the mortality rate, the
+                     death-timing card and the pull-failure denominators, and
+                     it makes the return unwindable only by deleting a death
+                     that never happened. -->
+                <div class="card" id="headAdjustCard">
+                    <div class="card-header">
+                        <h3>Missing and returned head <span class="card-count" id="headAdjustCount">(0)</span></h3>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="primary card-add-btn" id="newMissingBtn" data-perm="office" data-write>− Write off missing</button>
+                            <button class="primary card-add-btn" id="newStrayBtn" data-perm="office" data-write>+ Stray returned</button>
+                        </div>
+                    </div>
+                    <p class="muted card-note" style="font-size: 12px; margin: 0 0 10px 0;">
+                        Head that left without dying, and strays that turn up again. Both are signed
+                        head adjustments, deliberately <strong>not</strong> deaths — nothing died, so
+                        nothing should reach the mortality rate or the pull-failure denominators. A
+                        stray comes back on the day it was found and at no cost: the lot has already
+                        spent what it is going to spend on it.
+                    </p>
+                    <div id="headAdjustContent"></div>
+                </div>
             </div>
 
             <!-- Moves, transfers and merge -->
@@ -4566,6 +4592,57 @@
     </div>
 </div>
 
+<!-- Missing head out, or a stray back in. One modal, two directions: the
+     fields are the same and the only difference is the sign, so two modals
+     would be two copies of the same pasture picker to keep in step. -->
+<div class="modal-backdrop" id="headAdjustModal">
+    <div class="modal" style="max-width: 620px;">
+        <h2 id="haTitle">Write off missing head</h2>
+        <div id="haAlert"></div>
+        <p class="muted" style="font-size: 13px; margin-bottom: 14px;" id="haBlurb"></p>
+
+        <div class="form-grid" style="margin-bottom: 14px;">
+            <div>
+                <label for="haDate">Date</label>
+                <input type="date" id="haDate">
+                <div class="muted" style="font-size: 11px; margin-top: 2px;" id="haDateNote"></div>
+            </div>
+            <div>
+                <label for="haHead">Head</label>
+                <input type="number" id="haHead" min="1" step="1" placeholder="head">
+            </div>
+        </div>
+
+        <div class="form-grid" style="margin-bottom: 14px;">
+            <div>
+                <label for="haPasture" id="haPastureLabel">Pasture</label>
+                <select id="haPasture"></select>
+            </div>
+            <div>
+                <label for="haTag">Tag (optional)</label>
+                <input type="text" id="haTag" placeholder="e.g. 1247" autocomplete="off">
+                <div class="muted" style="font-size: 11px; margin-top: 2px;">
+                    Worth recording. A tag is what settles later whether the animal
+                    that came back is the one that went missing.
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <label for="haNotes">Notes (optional)</label>
+            <textarea id="haNotes" rows="2" style="width: 100%; padding: 6px 8px; font-size: 13px; resize: vertical;"
+                      placeholder="e.g. never came to the trap, hunted the creek twice"></textarea>
+        </div>
+
+        <div id="haSummary" style="margin-bottom: 14px;"></div>
+
+        <div class="modal-actions">
+            <button type="button" id="haCancelBtn">Cancel</button>
+            <button type="button" class="primary" id="haSaveBtn" data-perm="office" data-write>Save</button>
+        </div>
+    </div>
+</div>
+
 <!-- Redwing posting for one transfer. Decision 12: a transfer moves
      accumulated cost between production centres, and across production YEARS
      when the lots sit in different fiscal years, so it is a posting and not an
@@ -5758,6 +5835,7 @@ window.addEventListener('unhandledrejection', function(e) {
             setTimeout(() => { el.style.boxShadow = ''; }, 1400);
         };
         if (target === 'deaths') { showLotSubtab('health'); flash($('deathLogCard')); return; }
+        if (target === 'missing') { showLotSubtab('health'); flash($('headAdjustCard')); return; }
         if (target === 'receiving') {
             processingReportPendingLot = currentLot.id;
             showReportsTab('processing-costs');
@@ -5835,7 +5913,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const n = id => { const el = $(id); if (!el) return 0; const m = /\d+/.exec(el.textContent || ''); return m ? Number(m[0]) : 0; };
         const set = (id, v) => { const el = $(id); if (el) el.textContent = v > 0 ? String(v) : ''; };
         set('tabCountPurchases', n('invoicesCount') + n('receiptsCount'));
-        set('tabCountHealth',    n('doctoringCount') + n('deathLogCount'));
+        set('tabCountHealth',    n('doctoringCount') + n('deathLogCount') + n('headAdjustCount'));
         set('tabCountMoves',     n('moveHistoryCount') + n('lotTransfersCount'));
         set('tabCountSales',     (currentLotSalesCache || []).length);
     }
@@ -6520,6 +6598,10 @@ window.addEventListener('unhandledrejection', function(e) {
         // Load lot pasture assignments, move history, death log, and receipts
         await loadLotLocations(lotId);
         await loadDeathLog(lotId);
+        // Before renderCloseoutCalculator(): the closeout's Missing line reads
+        // headAdjTotals, and rendering first would price a lot's write-offs off
+        // the PREVIOUS lot's numbers — the same ordering trap loadSales carries.
+        await loadHeadAdjustments(lotId);
         await loadReceipts(lotId);
         await loadSales(lotId);
         // After loadSales, not before: the closeout reads currentLotSalesCache
@@ -7271,7 +7353,12 @@ window.addEventListener('unhandledrejection', function(e) {
         // death loss needs no line, it falls out of the division.
         // NOT costPerHeadOnFeed, which nets out revenue and goes negative on
         // a lot that is 95% sold - which every remnant is.
-        const survivingHead = Math.max(0, headIn - headDead - transferOutHead + transferInHead);
+        // Head written off as missing are NOT surviving, and head that came
+        // back are. Signed, so a lot with more strays back than were ever
+        // written off reads negative here and gains a survivor, which is what
+        // has actually happened to it.
+        const netMissing    = (headAdjTotals.missingOut || 0) - (headAdjTotals.strayIn || 0);
+        const survivingHead = Math.max(0, headIn - headDead - netMissing - transferOutHead + transferInHead);
         const basisPerHead  = survivingHead > 0 ? totalCost / survivingHead : null;
 
         // ---- DEATH LOSS AS ITS OWN LINE (John, 2026-09-04: "very important
@@ -7284,7 +7371,14 @@ window.addEventListener('unhandledrejection', function(e) {
         // were spent, and the head that sell carry them in the division.
         const avgCostIn    = headIn > 0 ? cattleCost / headIn : 0;
         const deathLossUsd = headDead * avgCostIn;
-        const cattleLive   = cattleCost - deathLossUsd;
+        // Missing head are the same economic fact as a death — money spent on
+        // an animal that will not pay it back — and they get the SAME
+        // treatment: valued at cost in and carved OUT of Cattle in, never
+        // added on top. Without this line the closeout would keep carrying
+        // them as live cattle, which is the thing the write-off just said
+        // they are not. A stray back nets the line down again.
+        const missingLossUsd = netMissing * avgCostIn;
+        const cattleLive     = cattleCost - deathLossUsd - missingLossUsd;
 
         return {
             headIn, headCurrent, headDead, daysToDate, headDays,
@@ -7300,6 +7394,8 @@ window.addEventListener('unhandledrejection', function(e) {
             transferInUsd, transferOutUsd, transferInHead, transferOutHead, transferInterest,
             survivingHead, basisPerHead,
             avgCostIn, deathLossUsd, cattleLive,
+            netMissing, missingLossUsd,
+            missingOut: headAdjTotals.missingOut || 0, strayIn: headAdjTotals.strayIn || 0,
             soldHead, revenue, soldWeight,
             avgCostHead: headIn > 0 ? cattleCost / headIn : 0,
             costPerHeadOnFeed: headCurrent > 0 ? (totalCost - revenue) / headCurrent : null,
@@ -7941,6 +8037,23 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${row('Death loss', b('deathLoss'), sp(actual.deathLossUsd, proj.deathLossFwd).a, sp(actual.deathLossUsd, proj.deathLossFwd).p, {
                         note: `${fmtNum(actual.headDead)} dead at cost in` + (proj.deathsToCome > 0 ? ` · ${fmtNum(Math.round(proj.deathsToCome))} more assumed` : '') + (rates.deathPct != null ? ` · ${(rates.deathPct*100).toFixed(1)}% assumed` : ''),
                         drill:'deaths', drillTitle:'Death log'}, sp(actual.deathLossUsd, proj.deathLossFwd).l)}
+                    ${actual.netMissing !== 0 ? row(
+                        actual.netMissing > 0 ? 'Missing' : 'Strays back',
+                        null,
+                        sp(actual.missingLossUsd).a, sp(actual.missingLossUsd).p, {
+                        // Carved out of Cattle in exactly like death loss, so
+                        // the three lines still sum to the invoices. Nothing is
+                        // projected forward: nobody assumes a rate of going
+                        // missing the way they assume a death rate.
+                        note: actual.netMissing > 0
+                            ? `${fmtNum(actual.missingOut)} written off at cost in` +
+                              (actual.strayIn > 0 ? ` · ${fmtNum(actual.strayIn)} came back` : '') +
+                              ' · not deaths'
+                            : `${fmtNum(actual.strayIn)} back` +
+                              (actual.missingOut > 0 ? ` against ${fmtNum(actual.missingOut)} written off` : '') +
+                              ' · credited at cost in',
+                        drill:'missing', drillTitle:'Missing and returned head'},
+                        sp(actual.missingLossUsd).l) : ''}
                     ${actual.transferInHead > 0 ? row(
                         `Transferred in <a href="#" class="xfer-drill" data-lot="${lot.id}" style="font-size:11px; font-weight:400;">${fmtNum(actual.transferInHead)} hd</a>`,
                         null, sp(actual.transferInUsd).a, sp(actual.transferInUsd).p,
@@ -14680,7 +14793,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         // Pull everything we need in parallel
         const [statusRes, lotsRes, assignmentsRes, receiptsRes,
-               bayRes, premixRes, settingsRes, transferRes, penRes] = await Promise.all([
+               bayRes, premixRes, settingsRes, transferRes, penRes, headEvRes] = await Promise.all([
             supabase.from('lot_status').select('lot_id, lot_number, head_in, head_in_invoiced, head_in_received, head_pending_invoice, head_dead, head_sold, head_current, closed_at'),
             supabase.from('lots').select('id, is_test, closed_at, lot_number, assumed_nonfeed_cog_per_day'),
             // pasture_id and names come along for the stranded-head checks:
@@ -14703,7 +14816,13 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             // The feed pen's attribution ledger against its head math. Absent
             // until the feed pen migration is applied, which is not an error.
             supabase.from('feed_pen_reconciliation')
-                .select('pen_lot_id, lot_number, fiscal_year, head_current, ledger_head, variance')
+                .select('pen_lot_id, lot_number, fiscal_year, head_current, ledger_head, variance'),
+            // Head written off as missing, strays back, and DEATHS whose cause
+            // says nothing actually died. The second is the 47-26 pattern and
+            // the reason the first exists at all.
+            supabase.from('lot_events')
+                .select('lot_id, event_date, event_type, head_count, cause, notes')
+                .in('event_type', ['death', 'adjustment'])
         ]);
 
         // Active tags MUST be paginated: PostgREST caps responses at 1000 rows and
@@ -14863,6 +14982,86 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 detail: `One receipt expected ${r.expected} tags but ${r.actual} were registered`
             });
         });
+
+        // ---- MISSING HEAD -------------------------------------------
+        // Two findings, and the second is why the first exists. Head written
+        // off as missing are a bet that they will not turn up; John's rule for
+        // a mixed pasture applies here too — the moment there are few enough
+        // left to read tags is the moment to go look. And a DEATH whose cause
+        // says nothing died is sitting in the mortality rate, the death-timing
+        // card and the pull-failure denominators of the Doctoring & Deaths
+        // report, where it does not belong.
+        (() => {
+            const evs = (headEvRes && !headEvRes.error) ? (headEvRes.data || []) : [];
+            if (!evs.length) return;
+            const today = ranchToday();
+            const byLot = {};
+            const MISFILED = /missing|unaccounted|not found|never found|lost|stray/i;
+
+            evs.forEach(e => {
+                if (isTestById[e.lot_id]) return;
+                const g = byLot[e.lot_id] || (byLot[e.lot_id] = { out: 0, back: 0, last: null, misfiled: 0, misfiledHead: 0, misfiledLast: null });
+                if (e.event_type === 'adjustment') {
+                    const d = Number(e.head_count) || 0;
+                    if (d < 0 && e.cause === 'missing') {
+                        g.out += -d;
+                        if (!g.last || e.event_date > g.last) g.last = e.event_date;
+                    } else if (d > 0 && e.cause === 'stray_return') {
+                        g.back += d;
+                    }
+                } else if (MISFILED.test(String(e.cause || ''))) {
+                    g.misfiled += 1;
+                    g.misfiledHead += Math.abs(Number(e.head_count) || 0);
+                    if (!g.misfiledLast || e.event_date > g.misfiledLast) g.misfiledLast = e.event_date;
+                }
+            });
+
+            Object.keys(byLot).forEach(lotId => {
+                const g = byLot[lotId];
+                const st = statusByLotId[lotId];
+                if (!st) return;
+                const isClosed = !!closedAtById[lotId];
+                const net = g.out - g.back;
+
+                // 1. Head still written off on a lot that has not closed.
+                if (!isClosed && net > 0) {
+                    const age = g.last ? daysBetween(g.last, today) : null;
+                    findings.push({
+                        lot_id: lotId,
+                        lot_number: st.lot_number,
+                        severity: (age != null && age <= 90) ? 'medium' : 'low',
+                        type: 'missing_head_open',
+                        title: 'Head written off as missing, lot still open',
+                        detail: `${fmtNum(net)} head unaccounted for` +
+                                (g.back > 0 ? ` (${fmtNum(g.out)} written off, ${fmtNum(g.back)} back)` : '') +
+                                (age != null ? ` · last write-off ${fmtDate(g.last)}, ${fmtNum(age)} days ago` : '') +
+                                '. Nothing died — these are still worth hunting while the lot is open. ' +
+                                'If they turn up, use "+ Stray returned" dated the day found, not a reversal: ' +
+                                'a reversal hands the lot every head-day since and re-prices feed, cost of gain and labor.'
+                    });
+                }
+
+                // 2. A death that reads like a write-off. Flagged on closed lots
+                //    too — it is a data correction someone can still approve, and
+                //    it is silently inflating that lot's death rate meanwhile.
+                if (g.misfiled > 0) {
+                    findings.push({
+                        lot_id: lotId,
+                        lot_number: st.lot_number,
+                        severity: isClosed ? 'low' : 'medium',
+                        type: 'death_reads_as_missing',
+                        title: 'Death recorded for head that may not have died',
+                        detail: `${fmtNum(g.misfiledHead)} head across ${fmtNum(g.misfiled)} death event` +
+                                `${g.misfiled === 1 ? '' : 's'} carry a cause that reads as unaccounted-for` +
+                                (g.misfiledLast ? ` · latest ${fmtDate(g.misfiledLast)}` : '') +
+                                `. A missing animal filed as a death lands in this lot's mortality rate ` +
+                                `(currently ${fmtNum(st.head_dead)} of ${fmtNum(st.head_in)}), the death-timing ` +
+                                `card and the pull-failure denominators. It belongs on "− Write off missing" ` +
+                                `instead${isClosed ? ' — this lot is closed, so reclassifying it is a data correction to approve first' : ''}.`
+                    });
+                }
+            });
+        })();
 
         // ---- FEED PEN -----------------------------------------------
         // The pen's attribution ledger is a SECOND book beside lot_status —
@@ -21764,10 +21963,13 @@ ${ranchBlocks}
             supabase.from('lot_movements')
                 .select('id, move_date, head_count, notes, from_pasture_id, to_pasture_id, created_at')
                 .eq('lot_id', lotId),
+            // Deaths AND signed head adjustments. Missing head and strays back
+            // move the head count exactly as a death does, so a timeline that
+            // showed only deaths would jump by a number nothing on it explains.
             supabase.from('lot_events')
-                .select('id, event_date, head_count, tag_number, cause, notes, pasture_id, created_at')
+                .select('id, event_date, event_type, head_count, tag_number, cause, notes, pasture_id, created_at')
                 .eq('lot_id', lotId)
-                .eq('event_type', 'death'),
+                .in('event_type', ['death', 'adjustment']),
             supabase.from('sales')
                 .select('id, sale_date, head_count, buyer, notes, created_at')
                 .eq('lot_id', lotId),
@@ -21872,8 +22074,8 @@ ${ranchBlocks}
             });
         });
 
-        // Deaths
-        (deathsRes.data || []).forEach(d => {
+        // Deaths and head adjustments
+        (deathsRes.data || []).filter(d => d.event_type !== 'adjustment').forEach(d => {
             const tag = d.tag_number ? ` tag ${d.tag_number}` : '';
             const cause = d.cause ? ` (${d.cause})` : '';
             events.push({
@@ -21885,6 +22087,28 @@ ${ranchBlocks}
                 dest_name: null,
                 head: Math.abs(d.head_count),
                 label: `Death${tag}${cause}`,
+                notes: d.notes
+            });
+        });
+
+        // A signed adjustment reads as a source when head leave and a
+        // destination when they come back, so the From / To columns say which
+        // direction it went without a column of its own.
+        (deathsRes.data || []).filter(d => d.event_type === 'adjustment').forEach(d => {
+            const delta = Number(d.head_count) || 0;
+            const k = (typeof HEAD_ADJ_KINDS !== 'undefined' && HEAD_ADJ_KINDS[d.cause])
+                ? HEAD_ADJ_KINDS[d.cause].label : (d.cause || 'Adjustment');
+            const pname = d.pasture_id ? pastureNames[d.pasture_id] : '(unattributed)';
+            const tag = d.tag_number ? ` tag ${d.tag_number}` : '';
+            events.push({
+                kind: 'adjustment',
+                date: d.event_date,
+                source: delta < 0 ? d.pasture_id : null,
+                source_name: delta < 0 ? pname : null,
+                dest: delta > 0 ? d.pasture_id : null,
+                dest_name: delta > 0 ? pname : null,
+                head: Math.abs(delta),
+                label: `${k}${tag}`,
                 notes: d.notes
             });
         });
@@ -21926,7 +22150,7 @@ ${ranchBlocks}
             if (a.date < b.date) return 1;
             if (a.date > b.date) return -1;
             // Tie-break by kind for stable order: receipts first, then moves, deaths, sales
-            const kindOrder = { receipt: 1, move: 2, death: 3, sale: 4 };
+            const kindOrder = { receipt: 1, move: 2, death: 3, adjustment: 4, sale: 5 };
             return (kindOrder[a.kind] || 9) - (kindOrder[b.kind] || 9);
         });
 
@@ -21969,6 +22193,7 @@ ${ranchBlocks}
             if (kind === 'receipt') return '<span style="color: var(--success);">+</span>';
             if (kind === 'move') return '<span style="color: #4a6db8;">↔</span>';
             if (kind === 'death') return '<span style="color: var(--danger);">×</span>';
+            if (kind === 'adjustment') return '<span style="color: #7a6ba8;">±</span>';
             if (kind === 'sale') return '<span style="color: #b58900;">$</span>';
             return '';
         };
@@ -22140,6 +22365,270 @@ ${ranchBlocks}
             });
         });
     }
+
+    // ==========================================================
+    // MISSING AND RETURNED HEAD — signed adjustments, never deaths
+    // ==========================================================
+    // Migration: docs/sql/2026-09-07d_strays_and_missing.sql
+    // Design record: docs/stray-cattle-design.md
+    //
+    // Lot 47-26 was closed on 2026-09-03 by writing 2 head off as a DEATH
+    // with the cause "missing from shipping". Nothing died. A missing animal
+    // filed as a death lands in the mortality rate, the death-timing card and
+    // the pull-failure denominators of the Doctoring & Deaths report, and it
+    // leaves deleting a death that never happened as the only way back if the
+    // animal turns up in October. The feed pen settled this on 2026-09-07 for
+    // butchered and missing; this is that ruling reaching ordinary lots.
+    //
+    // Both directions are lot_events adjustments — negative out, positive
+    // back — because 'adjustment' is already signed and already summed by
+    // lot_status.head_current and lot_daily_head. Head math needs no new word.
+    let headAdjCache = [];
+    // What the closeout reads. Held here rather than re-queried there, so the
+    // Missing line and the card on screen cannot disagree.
+    let headAdjTotals = { missingOut: 0, strayIn: 0 };
+
+    const HEAD_ADJ_KINDS = {
+        missing:      { label: 'Missing',         hint: 'unaccounted for — deliberately not a death' },
+        stray_return: { label: 'Stray returned',  hint: 'back on the books at $0' },
+        opening:      { label: 'Found in the pen', hint: 'never carried anywhere in the books' },
+        stray:        { label: 'Stray into the pen', hint: 'recovered after its lot had closed' }
+    };
+
+    async function loadHeadAdjustments(lotId) {
+        headAdjCache = [];
+        headAdjTotals = { missingOut: 0, strayIn: 0 };
+        const { data, error } = await supabase
+            .from('lot_events')
+            .select('*, pastures(name, ranches(name))')
+            .eq('lot_id', lotId)
+            .eq('event_type', 'adjustment')
+            .order('event_date', { ascending: false });
+
+        const cnt = $('headAdjustCount');
+        if (error || !data || data.length === 0) {
+            $('headAdjustContent').innerHTML = error
+                ? `<div class="alert error">Could not read head adjustments: ${escapeHtml(error.message)}</div>`
+                : '<div class="empty">No head written off or returned.</div>';
+            if (cnt) cnt.textContent = '(0)';
+            return;
+        }
+        headAdjCache = data;
+        if (cnt) cnt.textContent = `(${data.length})`;
+
+        data.forEach(e => {
+            const d = Number(e.head_count) || 0;
+            if (d < 0) headAdjTotals.missingOut += -d;
+            else headAdjTotals.strayIn += d;
+        });
+
+        // A pen's butchered / missing rows are the tail end of a REMOVAL, and
+        // that has its own reversal which also unwinds the frozen source-lot
+        // cost and the salvage split. Only the pen's own arrivals are
+        // reversible from here; everything on an ordinary lot is.
+        const reversible = e => !(currentLot && currentLot.is_feed_pen)
+            || e.cause === 'opening' || e.cause === 'stray';
+
+        const rows = data.map(e => {
+            const d = Number(e.head_count) || 0;
+            const k = HEAD_ADJ_KINDS[e.cause] || { label: e.cause || 'Adjustment', hint: '' };
+            const past = e.pastures
+                ? `${e.pastures.ranches ? e.pastures.ranches.name + ' / ' : ''}${e.pastures.name}`
+                : '—';
+            return `<tr>
+                <td>${fmtDate(e.event_date)}</td>
+                <td class="num" style="color:${d < 0 ? 'var(--danger,#d70015)' : 'var(--success,#1c7c31)'};">
+                    <strong>${d > 0 ? '+' : '−'}${fmtNum(Math.abs(d))}</strong></td>
+                <td>${escapeHtml(k.label)}<div class="muted" style="font-size:11px;">${escapeHtml(k.hint)}</div></td>
+                <td>${e.tag_number ? `<strong>${escapeHtml(e.tag_number)}</strong>` : '<span class="muted">—</span>'}</td>
+                <td>${escapeHtml(past)}</td>
+                <td class="muted" style="font-size:12px;">${escapeHtml(e.notes || '')}</td>
+                <td>${reversible(e)
+                    ? `<button type="button" class="ha-del" data-id="${e.id}" data-perm="office" data-write
+                               style="font-size:11.5px; padding:3px 8px;">Reverse</button>`
+                    : '<span class="muted" style="font-size:11px;">Record removal</span>'}</td>
+            </tr>`;
+        }).join('');
+
+        const net = headAdjTotals.strayIn - headAdjTotals.missingOut;
+        $('headAdjustContent').innerHTML = `
+            <div style="overflow-x:auto;">
+            <table>
+                <thead><tr>
+                    <th>Date</th><th class="num">Head</th><th>What</th><th>Tag</th>
+                    <th>Pasture</th><th>Notes</th><th></th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+                <tfoot><tr style="font-weight:600; border-top:2px solid var(--border);">
+                    <td>Net</td>
+                    <td class="num">${net > 0 ? '+' : net < 0 ? '−' : ''}${fmtNum(Math.abs(net))}</td>
+                    <td colspan="5" class="muted" style="font-weight:400; font-size:11.5px;">
+                        ${fmtNum(headAdjTotals.missingOut)} written off · ${fmtNum(headAdjTotals.strayIn)} back.
+                        None of this touches the death rate.
+                    </td>
+                </tr></tfoot>
+            </table></div>`;
+
+        $('headAdjustContent').querySelectorAll('.ha-del').forEach(b => {
+            b.addEventListener('click', () => deleteHeadAdjustment(b.dataset.id));
+        });
+    }
+
+    // Before the migration lands the three RPCs do not exist and PostgREST
+    // answers with a schema-cache miss, which reads as a bug rather than as
+    // work not yet applied. Say which it is — the same posture the Doctoring
+    // report takes about its own new columns.
+    function haRpcMessage(error) {
+        const m = (error && error.message) || String(error);
+        return /schema cache|could not find the function|does not exist/i.test(m)
+            ? 'This needs docs/sql/2026-09-07d_strays_and_missing.sql applied first — ' +
+              'the missing/stray entries do not exist in the database yet.'
+            : m;
+    }
+
+    // ---- the entry modal, both directions ----------------------------
+    let haMode = 'missing';
+
+    async function openHeadAdjustModal(mode) {
+        if (!currentLot || !currentStatus) return;
+        if (currentLot.closed_at) {
+            showAlert('globalAlert', 'This lot is closed. Re-open it first — and for a stray off a lot that is finished, the feed pen is the right home, not a re-opened fiscal year.');
+            return;
+        }
+        if (currentLot.is_feed_pen) {
+            showAlert('globalAlert', 'The feed pen has its own entries: "Head found / stray in" to take head on, "Record removal" to let them go.');
+            return;
+        }
+        haMode = mode === 'stray' ? 'stray' : 'missing';
+        clearAlert('haAlert');
+
+        const missing = haMode === 'missing';
+        $('haTitle').textContent = missing ? 'Write off missing head' : 'Stray returned';
+        $('haBlurb').innerHTML = missing
+            ? `Lot ${escapeHtml(currentLot.lot_number)} · ${fmtNum(currentStatus.head_current)} head on the books. ` +
+              'Head you cannot find. This is <strong>not</strong> a death and never reaches the mortality ' +
+              'rate — file a death only when something actually died.'
+            : `Lot ${escapeHtml(currentLot.lot_number)} · ${fmtNum(currentStatus.head_current)} head on the books. ` +
+              'A head back on the books, dated the day it was found and carried at <strong>$0</strong>. ' +
+              'If the write-off was simply wrong and it is still fresh, Reverse it on the card instead — ' +
+              'that hands the lot its head-days back, which is right for a mistake and wrong for a stray.';
+        $('haDateNote').textContent = missing ? '' : 'The day it was found — not the day it went missing.';
+        $('haPastureLabel').textContent = missing ? 'Which pasture it left' : 'Where it is standing now';
+        $('haSummary').innerHTML = '';
+        ['haHead', 'haTag', 'haNotes'].forEach(id => { const el = $(id); if (el) el.value = ''; });
+        setDateValue('haDate', ranchToday());
+        $('haDate').max = ranchToday();
+
+        const sel = $('haPasture');
+        if (missing) {
+            // Only pastures this lot actually stands in: the RPC draws the
+            // head down off an open assignment and refuses anything else.
+            const res = await loadOpenPastureInventory();
+            if (res.error) {
+                showAlert('globalAlert', 'Could not load pasture inventory: ' + res.error.message);
+                return;
+            }
+            const mine = res.inventory.filter(i => i.lot_id === currentLot.id && Number(i.head_count) > 0);
+            if (!mine.length) {
+                showAlert('globalAlert', 'This lot has no cattle standing in any pasture, so there is nothing to write off.');
+                return;
+            }
+            sel.innerHTML = mine.map(i =>
+                `<option value="${i.pasture_id}" data-avail="${i.head_count}">${escapeHtml(i.pasture_label)} (${fmtNum(i.head_count)} hd)</option>`).join('');
+        } else {
+            // A stray can be standing anywhere — including a pasture the lot
+            // has no open assignment in, which is exactly what happens when
+            // it is found with somebody else's cattle. Lead with the ones the
+            // lot already occupies, then offer the rest.
+            await refreshActivePasturesCache();
+            const res = await loadOpenPastureInventory();
+            const mineIds = new Set((res.error ? [] : res.inventory)
+                .filter(i => i.lot_id === currentLot.id).map(i => i.pasture_id));
+            const label = p => `${p.ranch_name || '?'} / ${p.pasture_name || '?'}`;
+            const mine = allActivePasturesCache.filter(p => mineIds.has(p.pasture_id));
+            const rest = allActivePasturesCache.filter(p => !mineIds.has(p.pasture_id));
+            if (!mine.length && !rest.length) {
+                showAlert('globalAlert', 'No active pastures to put it in.');
+                return;
+            }
+            sel.innerHTML =
+                (mine.length ? `<optgroup label="This lot is already here">${mine.map(p =>
+                    `<option value="${p.pasture_id}">${escapeHtml(label(p))}</option>`).join('')}</optgroup>` : '') +
+                (rest.length ? `<optgroup label="Everywhere else">${rest.map(p =>
+                    `<option value="${p.pasture_id}">${escapeHtml(label(p))}</option>`).join('')}</optgroup>` : '');
+        }
+
+        // No permission pass needed: the data-perm gate is CSS off
+        // body[data-role], so markup inserted at runtime is already gated.
+        showModal('headAdjustModal');
+    }
+
+    async function saveHeadAdjustment() {
+        clearAlert('haAlert');
+        const head = parseInt($('haHead').value, 10);
+        const pastureId = $('haPasture').value;
+        const date = $('haDate').value;
+        if (!head || head <= 0) { showAlert('haAlert', 'Enter how many head.'); return; }
+        if (!pastureId)         { showAlert('haAlert', 'Pick a pasture.'); return; }
+        if (!date)              { showAlert('haAlert', 'Pick a date.'); return; }
+
+        // The RPC refuses this too, but a message before the round trip beats
+        // a database error afterwards.
+        if (haMode === 'missing') {
+            const opt = $('haPasture').selectedOptions[0];
+            const avail = opt ? Number(opt.dataset.avail) || 0 : 0;
+            if (head > avail) {
+                showAlert('haAlert', `That pasture holds ${fmtNum(avail)} head of this lot. Reduce the count or pick another.`);
+                return;
+            }
+        }
+
+        $('haSaveBtn').disabled = true;
+        const { error } = await supabase.rpc(
+            haMode === 'missing' ? 'record_missing_head' : 'record_stray_return', {
+                p_lot_id: currentLot.id,
+                p_pasture_id: pastureId,
+                p_head: head,
+                p_event_date: date,
+                p_tag_number: $('haTag').value.trim() || null,
+                p_notes: $('haNotes').value.trim() || null,
+                p_recorded_by: currentUser.id
+            });
+        $('haSaveBtn').disabled = false;
+        if (error) { showAlert('haAlert', haRpcMessage(error)); return; }
+
+        hideModal('headAdjustModal');
+        showAlert('globalAlert', haMode === 'missing'
+            ? `${fmtNum(head)} head written off as missing. Not recorded as a death, so the lot's mortality rate is untouched.`
+            : `${fmtNum(head)} head back on lot ${currentLot.lot_number}, carried at $0 from ${fmtDate(date)}.`, 'success');
+        expandCardOnNextRender('headAdjustCard');
+        showLotDetail(currentLot.id);
+    }
+
+    async function deleteHeadAdjustment(id) {
+        const ev = headAdjCache.find(x => x.id === id);
+        const d = ev ? Number(ev.head_count) || 0 : 0;
+        const msg = d < 0
+            ? `Reverse this write-off? ${fmtNum(Math.abs(d))} head go back on the lot AT THE ORIGINAL DATE, ` +
+              'which hands it every head-day since — feed, cost of gain, labor and treatment all re-price. ' +
+              'That is right for an entry that was simply wrong. For a stray that has genuinely been away, ' +
+              'cancel and use "+ Stray returned" instead, dated the day it was found.'
+            : `Reverse this entry? ${fmtNum(Math.abs(d))} head come back off the lot and out of that pasture.`;
+        if (!confirm(msg)) return;
+
+        const { error } = await supabase.rpc('delete_head_adjustment', { p_event_id: id });
+        if (error) { showAlert('globalAlert', 'Reverse failed: ' + haRpcMessage(error)); return; }
+        showAlert('globalAlert', 'Head adjustment reversed.', 'success');
+        expandCardOnNextRender('headAdjustCard');
+        showLotDetail(currentLot.id);
+    }
+
+    [['newMissingBtn', () => openHeadAdjustModal('missing')],
+     ['newStrayBtn',   () => openHeadAdjustModal('stray')],
+     ['haCancelBtn',   () => hideModal('headAdjustModal')],
+     ['haSaveBtn',     saveHeadAdjustment]].forEach(([id, fn]) => {
+        const el = $(id); if (el) el.addEventListener('click', fn);
+    });
 
     // ==========================================================
     // RECORD DEATHS modal — supports both new and edit
@@ -26352,7 +26841,8 @@ ${ranchBlocks}
             'tagsCard',
             'doctoringCard',
             'moveHistoryCard',
-            'deathLogCard'
+            'deathLogCard',
+            'headAdjustCard'
         ];
         makeCollapsibleByIds(cardIds);
         // Reset all to collapsed for fresh lot detail open
