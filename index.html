@@ -1203,6 +1203,15 @@
                     <p class="muted" style="font-size: 12px; margin: -6px 0 8px 0;">Every event affecting this lot's pasture inventory. Receipts (in), moves, sales, deaths.</p>
                     <div id="auditLogContent"><div class="empty">Loading…</div></div>
                 </div>
+                <!-- Closeout assumptions, as saved. Typing on the closeout is a
+                     what-if and never lands here; Save does. -->
+                <div class="card" id="assumptionHistoryCard" data-perm="office">
+                    <div class="card-header">
+                        <h3>Assumption changes <span class="card-count" id="assumptionHistoryCount">(0)</span></h3>
+                    </div>
+                    <p class="muted" style="font-size: 12px; margin: -6px 0 8px 0;">Every Save on the Closeout that changed an assumption: what it was, what it became, who, when. What-ifs typed and not saved are not here.</p>
+                    <div id="assumptionHistoryContent"><div class="empty">Loading…</div></div>
+                </div>
             </div>
 
             <!-- Sales tab content -->
@@ -1221,6 +1230,8 @@
                 <div class="card">
                     <div class="card-header">
                         <h3>Closeout</h3>
+                        <span id="closeoutWhatIf" class="hidden" style="font-size:12px; color:#6a4c0a; background:#fff8e6; border:1px solid #d4a017; border-radius:4px; padding:3px 8px;">what-if — the table shows what you typed, not what is saved</span>
+                        <button id="resetAssumptionsBtn" data-perm="office" class="hidden" type="button">Reset to saved</button>
                         <button id="saveAssumptionsBtn" data-perm="office" class="primary hidden">Save to lot</button>
                     </div>
                     <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
@@ -8562,6 +8573,10 @@ window.addEventListener('unhandledrejection', function(e) {
             && rates.laborMode===stored.laborMode
             && (rates.shipDate||null)===stored.shipDate);
         $('saveAssumptionsBtn').classList.toggle('hidden',!dirty);
+        // Typing is a what-if until Save (2026-09-11, docs/cog-design-decisions.md
+        // section 7). Say so, and offer the way back.
+        if ($('closeoutWhatIf')) $('closeoutWhatIf').classList.toggle('hidden', !dirty);
+        if ($('resetAssumptionsBtn')) $('resetAssumptionsBtn').classList.toggle('hidden', !dirty);
     }
 
     // ---- the frozen budget box ------------------------------------------
@@ -8662,6 +8677,11 @@ window.addEventListener('unhandledrejection', function(e) {
         recalculate();
     }
 
+    $('resetAssumptionsBtn').addEventListener('click', () => {
+        // The stored assumptions are on currentLot; re-render from them.
+        closeoutFinishTouched = false;
+        renderCloseoutCalculator();
+    });
     $('saveAssumptionsBtn').addEventListener('click',async()=>{
         const rates = closeoutRates();
         const shipDate = rates.shipDate;
@@ -22570,7 +22590,55 @@ ${ranchBlocks}
         events: []        // cached events for current lot
     };
 
+    // Assumption changes on the Audit log tab (2026-09-11). Its own read so
+    // a missing table before the migration lands says so instead of taking
+    // the head-math timeline down with it.
+    const ASSUMPTION_LABELS = {
+        target_sale_cwt: ['Target sale $/lb', v => v == null ? '—' : '$' + Number(v).toFixed(4)],
+        target_adg: ['Target ADG', v => v == null ? '—' : Number(v).toFixed(2)],
+        target_ship_date: ['Target ship date', v => v == null ? '—' : fmtDate(v)],
+        target_days_on_feed: ['Target days on feed', v => v == null ? '—' : fmtNum(v)],
+        target_ship_weight: ['Finish weight', v => v == null ? '—' : fmtNum(Math.round(v)) + ' lb'],
+        assumed_cog_per_lb: ['COG $/lb', v => v == null ? '—' : '$' + Number(v).toFixed(4)],
+        assumed_nonfeed_cog_per_day: ['Non-feed $/hd/day', v => v == null ? 'inherit' : '$' + Number(v).toFixed(4)],
+        labor_mode: ['Labor mode', v => v == null ? '—' : String(v)],
+        assumed_labor_per_day: ['Labor $/hd/day', v => v == null ? '—' : '$' + Number(v).toFixed(4)],
+        assumed_labor_per_head: ['Labor $/hd', v => v == null ? '—' : '$' + Number(v).toFixed(2)],
+        assumed_processing_per_head: ['Processing $/hd', v => v == null ? '—' : '$' + Number(v).toFixed(2)],
+        assumed_doctoring_per_head: ['Doctoring $/hd', v => v == null ? '—' : '$' + Number(v).toFixed(2)],
+        assumed_death_loss_pct: ['Death loss', v => v == null ? '—' : (Number(v) * 100).toFixed(1) + '%'],
+        assumed_interest_pct: ['Interest', v => v == null ? '—' : (Number(v) * 100).toFixed(2) + '%']
+    };
+    async function loadAssumptionHistory(lotId) {
+        const box = $('assumptionHistoryContent'), cnt = $('assumptionHistoryCount');
+        if (!box) return;
+        const { data, error } = await supabase.from('lot_assumption_history')
+            .select('id, changed_at, changed_by, changes')
+            .eq('lot_id', lotId)
+            .order('changed_at', { ascending: false })
+            .limit(200);
+        if (error) {
+            box.innerHTML = '<div class="empty">Not available yet — run docs/sql/2026-09-11_lot_assumption_history.sql.</div>';
+            if (cnt) cnt.textContent = '(0)';
+            return;
+        }
+        const rows = data || [];
+        if (cnt) cnt.textContent = `(${rows.length})`;
+        if (!rows.length) { box.innerHTML = '<div class="empty">No saved changes yet. The stored assumptions are what the lot started with.</div>'; return; }
+        const who = id => (typeof usersCache !== 'undefined' && (usersCache || []).find(u => u.id === id) || {}).full_name || '';
+        box.innerHTML = `<table style="font-size:12.5px; width:100%;"><thead><tr><th style="text-align:left;">When</th><th style="text-align:left;">Changed</th></tr></thead><tbody>` +
+            rows.map(r => {
+                const items = Object.entries(r.changes || {}).map(([k, pair]) => {
+                    const lab = ASSUMPTION_LABELS[k] || [k, v => String(v)];
+                    return `<div><strong>${lab[0]}</strong> ${escapeHtml(lab[1](pair[0]))} → ${escapeHtml(lab[1](pair[1]))}</div>`;
+                }).join('');
+                const w = who(r.changed_by);
+                return `<tr><td style="white-space:nowrap; vertical-align:top;">${fmtDate(String(r.changed_at).slice(0,10))}${w ? `<div class="muted" style="font-size:11px;">${escapeHtml(w)}</div>` : ''}</td><td>${items}</td></tr>`;
+            }).join('') + '</tbody></table>';
+    }
+
     async function loadAuditLog(lotId) {
+        loadAssumptionHistory(lotId);
         const card = $('auditLogCard');
         $('auditLogContent').innerHTML = '<div class="empty">Loading…</div>';
 
