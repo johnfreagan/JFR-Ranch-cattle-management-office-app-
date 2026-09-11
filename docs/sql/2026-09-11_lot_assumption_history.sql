@@ -73,6 +73,9 @@ create policy lot_assumption_history_insert on public.lot_assumption_history
 -- no UPDATE, no DELETE: an audit trail
 revoke all on public.lot_assumption_history from public, anon;
 grant select, insert on public.lot_assumption_history to authenticated;
+-- Supabase's default privileges hand authenticated ALL on a new table; RLS
+-- already denies update/delete (no policy), but the grant should not exist.
+revoke update, delete, truncate, references, trigger on public.lot_assumption_history from authenticated;
 
 -- verify: RLS on, exactly two policies, the trigger exists, and a no-op
 -- update writes nothing
