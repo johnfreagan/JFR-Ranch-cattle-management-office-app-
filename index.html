@@ -7666,7 +7666,7 @@ window.addEventListener('unhandledrejection', function(e) {
             soldWeight += Number(s.net_weight_lb) || Number(s.gross_weight_lb) || 0;
             // A sale with no pay weight never reaches lot_realized_adg, so
             // its head stay on the ADG estimate for good (2026-09-11).
-            if (!(Number(s.net_weight_lb) > 0)) unweighedSoldHead += Number(s.head_count) || 0;
+            if (!(Number(s.net_weight_lb) > 0) && !saleHasNoTicketMark(s)) unweighedSoldHead += Number(s.head_count) || 0;
         });
 
         const totalCost = cattleCost + operating + interest
@@ -8825,11 +8825,47 @@ window.addEventListener('unhandledrejection', function(e) {
     });
 
     // ---- CLOSE / RE-OPEN ----
+    // ---- CLOSE LOT GUARD (2026-09-11, docs/cog-design-decisions.md §3) ----
+    // A closed lot on an estimated cost of gain is a finished number that is
+    // not finished. A sale with no pay weight never reaches lot_realized_adg,
+    // so its head stay on the assumed ADG for good. Close Lot refuses until
+    // every sale carries a pay weight, or is marked as having no scale
+    // ticket - a recorded decision, not a hole. The marker lives in the
+    // sale's notes, the same way [counted YYYY-MM-DD] lives on assignments.
+    const NO_TICKET_MARK = '[no scale ticket]';
+    function saleHasNoTicketMark(sa) { return !!(sa && sa.notes && String(sa.notes).includes(NO_TICKET_MARK)); }
+    async function lotUnweighedSales(lotId) {
+        const { data, error } = await supabase.from('sales')
+            .select('id, sale_date, head_count, buyer, gross_weight_lb, net_weight_lb, notes')
+            .eq('lot_id', lotId);
+        if (error) return { error };
+        return { rows: (data || []).filter(sa => !(Number(sa.net_weight_lb) > 0) && !saleHasNoTicketMark(sa)) };
+    }
+    // Returns true when the lot may close. Offers to mark the unweighed
+    // sales deliberately; refuses otherwise.
+    async function closeLotGuard(lotId, lotNumber) {
+        const { rows, error } = await lotUnweighedSales(lotId);
+        if (error) { showAlert('globalAlert', 'Could not check the sales before closing: ' + friendlyDbError(error.message), 'error'); return false; }
+        if (!rows.length) return true;
+        const head = rows.reduce((t, r) => t + (Number(r.head_count) || 0), 0);
+        const list = rows.map(r => `  ${fmtDate(r.sale_date)} · ${fmtNum(r.head_count)} hd · ${r.buyer || 'no buyer'}${Number(r.gross_weight_lb) > 0 ? ' · gross only' : ' · no weight'}`).join('\n');
+        const ok = confirm(`Lot ${lotNumber} has ${fmtNum(head)} head sold with no pay weight:\n${list}\n\nTheir gain is still an estimate at the assumed ADG, and a closed lot would carry that as final. Enter the pay weights first (Sales tab).\n\nOR mark these sales as having no scale ticket - a recorded decision that the estimate stands - and close now.\n\nOK = mark them and close · Cancel = do not close`);
+        if (!ok) return false;
+        for (const r of rows) {
+            const notes = (r.notes ? r.notes + ' ' : '') + NO_TICKET_MARK + ' ' + ranchToday();
+            const { data, error: uErr } = await supabase.from('sales').update({ notes }).eq('id', r.id).select();
+            if (uErr) { showAlert('globalAlert', 'Could not mark the sale: ' + friendlyDbError(uErr.message), 'error'); return false; }
+            if (!data || !data.length) { showAlert('globalAlert', 'The sale was not marked - that is office and owner only.', 'error'); return false; }
+        }
+        return true;
+    }
+
     $('closeLotBtn').addEventListener('click',async()=>{
         if(!currentLot) return;
         const closing=!currentLot.closed_at;
         const verb=closing?'close':'re-open';
         if(!confirm(`Are you sure you want to ${verb} lot ${currentLot.lot_number}?`)) return;
+        if(closing && !(await closeLotGuard(currentLot.id, currentLot.lot_number))) return;
         $('closeLotBtn').disabled=true;
         const {error}=await supabase.from('lots').update({closed_at:closing?new Date().toISOString():null}).eq('id',currentLot.id);
         $('closeLotBtn').disabled=false;
@@ -12109,6 +12145,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const empty = (data || []).filter(l => l.head_current === 0 && !l.closed_at);
         for (const l of empty) {
             if (confirm(`Lot ${l.lot_number} now has 0 head remaining. Close it?`)) {
+                if (!(await closeLotGuard(l.lot_id, l.lot_number))) continue;
                 const { error: cErr } = await supabase.from('lots')
                     .update({ closed_at: new Date().toISOString() }).eq('id', l.lot_id);
                 if (cErr) showAlert('globalAlert', `Could not close lot ${l.lot_number}: ` + cErr.message, 'error');
@@ -15417,7 +15454,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             // table at all; RLS returns zero rows and no error, so the check
             // simply does not appear for them, like the feed checks above.
             supabase.from('sales')
-                .select('id, lot_id, sale_date, head_count, gross_weight_lb, net_weight_lb, buyer'),
+                .select('id, lot_id, sale_date, head_count, gross_weight_lb, net_weight_lb, buyer, notes'),
             // Frozen budgets, for the budget-vs-working drift check (2026-09-11).
             supabase.from('lot_budgets').select('lot_id, cog_value, target_adg')
         ]);
@@ -15819,6 +15856,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         // recorded, which is what this finding asks for.
         (salesRes && !salesRes.error ? (salesRes.data || []) : []).forEach(sa => {
             if (Number(sa.net_weight_lb) > 0) return;
+            if (saleHasNoTicketMark(sa)) return;   // a recorded decision, not a hole
             if (!sa.lot_id || isTestById[sa.lot_id]) return;
             const st = (statusRes.data || []).find(x => x.lot_id === sa.lot_id);
             if (!st) return;
@@ -23758,7 +23796,8 @@ ${ranchBlocks}
                     .eq('lot_id', currentLot.id)
                     .single();
                 if (latest && latest.head_current === 0 && !currentLot.closed_at) {
-                    if (confirm(`This lot now has 0 head remaining. Close lot ${currentLot.lot_number} now?`)) {
+                    if (confirm(`This lot now has 0 head remaining. Close lot ${currentLot.lot_number} now?`)
+                        && await closeLotGuard(currentLot.id, currentLot.lot_number)) {
                         await supabase
                             .from('lots')
                             .update({ closed_at: new Date().toISOString() })
@@ -27489,7 +27528,8 @@ ${ranchBlocks}
                         'Sale saved, but could not check whether the lot is now empty: ' + latestErr.message, 'error');
                 }
                 if (latest && latest.head_current === 0 && !currentLot.closed_at) {
-                    if (confirm(`This lot now has 0 head remaining. Close lot ${currentLot.lot_number} now?`)) {
+                    if (confirm(`This lot now has 0 head remaining. Close lot ${currentLot.lot_number} now?`)
+                        && await closeLotGuard(currentLot.id, currentLot.lot_number)) {
                         await supabase
                             .from('lots')
                             .update({ closed_at: new Date().toISOString() })

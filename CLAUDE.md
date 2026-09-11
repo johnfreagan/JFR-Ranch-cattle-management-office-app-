@@ -409,6 +409,14 @@ shipments ──┬── shipment_weight_groups ── shipment_loads ── sh
   lb/day; 31-26 1.879 → 1.904, 37X 1.473 → 1.515, 37X-1 1.652 → 1.793.
   The one row with NO weight at all (37X-1, 2026-06-04, 2 hd, priced per head)
   is left alone — there is nothing to recover — and shows on Anomalies.
+- **Close Lot refuses while any sale has no pay weight** (2026-09-11,
+  `closeLotGuard()`, docs/cog-design-decisions.md §3), on all four close
+  paths (the kebab button, the 0-head prompts after a death and a sale,
+  and the shipment save's empty-lot offer). The dialog lists the sales and
+  offers to mark them `[no scale ticket] YYYY-MM-DD` in `sales.notes` — a
+  recorded decision that the estimate stands, the same note-marker
+  convention as `[counted …]`. A marked sale drops out of the closeout's
+  unweighed count and the `sale_no_pay_weight` anomaly.
 - **Three guards now stop it recurring.** The sale form warns live under the
   weight boxes while Net is blank; on save it offers to book the gross as the
   pay weight when the money ties on it, and otherwise makes you confirm past a
