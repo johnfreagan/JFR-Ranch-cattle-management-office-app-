@@ -7519,12 +7519,18 @@ window.addEventListener('unhandledrejection', function(e) {
         // took, so that slice is trued up to the scale ticket and only the
         // head-days not yet weighed out stay on the estimate. When the last
         // truck leaves, nothing is estimated any more.
-        const soldGainLb   = (currentRealizedAdg && currentRealizedAdg.total_gain_lb != null)
+        // Gain is never charged negative (2026-09-11). A lot that shipped
+        // light, or a bad weight in, reads a negative realized gain; a
+        // negative cost of gain would then REDUCE total cost. Clamp to zero
+        // and say so (gainClamped) rather than book a credit for shrink.
+        const rawSoldGainLb = (currentRealizedAdg && currentRealizedAdg.total_gain_lb != null)
             ? Number(currentRealizedAdg.total_gain_lb) : 0;
+        const gainClamped  = rawSoldGainLb < 0;
+        const soldGainLb   = Math.max(0, rawSoldGainLb);
         const soldHeadDays = (currentRealizedAdg && currentRealizedAdg.sold_head_days != null)
             ? Math.min(headDays, Number(currentRealizedAdg.sold_head_days)) : 0;
         const unsettledHeadDays = Math.max(0, headDays - soldHeadDays);
-        const estGainLb    = (rates.adg || 0) * unsettledHeadDays;
+        const estGainLb    = Math.max(0, rates.adg || 0) * unsettledHeadDays;
         const gainToDateLb = soldGainLb + estGainLb;
 
         // A per-head rate is a flat charge taken at receiving; a per-day rate
@@ -7576,11 +7582,14 @@ window.addEventListener('unhandledrejection', function(e) {
         }
 
         const sales = currentLotSalesCache || [];
-        let soldHead = 0, revenue = 0, soldWeight = 0;
+        let soldHead = 0, revenue = 0, soldWeight = 0, unweighedSoldHead = 0;
         sales.forEach(s => {
             soldHead   += Number(s.head_count) || 0;
             revenue    += Number(s.total_price) || 0;
             soldWeight += Number(s.net_weight_lb) || Number(s.gross_weight_lb) || 0;
+            // A sale with no pay weight never reaches lot_realized_adg, so
+            // its head stay on the ADG estimate for good (2026-09-11).
+            if (!(Number(s.net_weight_lb) > 0)) unweighedSoldHead += Number(s.head_count) || 0;
         });
 
         const totalCost = cattleCost + operating + interest
@@ -7627,7 +7636,7 @@ window.addEventListener('unhandledrejection', function(e) {
             // not sum to Total cost.
             medicine: processing + treatment + otherMed,
             feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, cogRate, cogMode,
-            soldGainLb, soldHeadDays, unsettledHeadDays, estGainLb, gainToDateLb,
+            soldGainLb, soldHeadDays, unsettledHeadDays, estGainLb, gainToDateLb, gainClamped, rawSoldGainLb, unweighedSoldHead,
             boundaryActive, splitUnavailable, hdBefore, hdAfter, nonFeedMissing, nonFeedCog,
             operating, totalCost,
             transferInUsd, transferOutUsd, transferInHead, transferOutHead, transferInterest,
@@ -8071,12 +8080,23 @@ window.addEventListener('unhandledrejection', function(e) {
         if (rates.cogMode === 'per_lb' && rates.cog && !(rates.adg > 0) && actual.unsettledHeadDays > 0) {
             warnings.push('Cost of gain is per pound, but there is <b>no target ADG</b> — the head not yet weighed out are charged for zero gain.');
         }
+        // Both directions (2026-09-11). It used to warn only when the cattle
+        // ran AHEAD of the assumption - the error that flatters the lot.
+        // 37X sat 18% below its assumed ADG, charging gain it never made,
+        // and got silence.
         if (rates.cogMode === 'per_lb' && rates.cog && rates.adg > 0 && realizedAdgForWarn != null
-            && actual.unsettledHeadDays > 0 && realizedAdgForWarn > Number(rates.adg) * 1.05) {
-            const est = actual.estGainLb, alt = realizedAdgForWarn * actual.unsettledHeadDays;
+            && actual.unsettledHeadDays > 0 && Math.abs(realizedAdgForWarn - Number(rates.adg)) > Number(rates.adg) * 0.05) {
+            const est = actual.estGainLb, alt = Math.max(0, realizedAdgForWarn) * actual.unsettledHeadDays;
+            const diff = rates.cog * (est - alt);
             warnings.push('Cattle already weighed out gained <b>' + realizedAdgForWarn.toFixed(2) + ' lb/day</b> against the ' +
-                Number(rates.adg).toFixed(2) + ' assumed. The estimated slice of cost of gain (' + fmtMoney(rates.cog * est) +
-                ') would be ' + fmtMoney(rates.cog * alt) + ' at the realized rate. It trues up when the rest ship.');
+                Number(rates.adg).toFixed(2) + ' assumed. The ' + fmtNum(Math.round(actual.unsettledHeadDays)) + ' head-days not yet weighed out are charged at the assumption, so cost of gain to date is <b>' +
+                (diff > 0 ? 'overstated' : 'understated') + ' by about ' + fmtMoney(Math.abs(diff)) + '</b> (' + fmtMoney(rates.cog * est) + ' charged, ' + fmtMoney(rates.cog * alt) + ' at the realized rate). It trues up as the rest ship.');
+        }
+        if (actual.gainClamped) {
+            warnings.push('Realized gain on the head already shipped is <b>negative</b> (' + fmtNum(Math.round(actual.rawSoldGainLb)) + ' lb). Cost of gain is charged as zero on those pounds, never as a credit.');
+        }
+        if (actual.unweighedSoldHead > 0) {
+            warnings.push('<b>' + fmtNum(actual.unweighedSoldHead) + ' head sold with no pay weight</b> - their gain is still an estimate at the assumed ADG and never trues up. Enter the pay weight on the sale, or mark it as having no scale ticket.');
         }
         if (currentLotFeed == null) {
             warnings.push('Feed cost could not be loaded. It is missing from the Actual column, not zero.');
@@ -8131,20 +8151,27 @@ window.addEventListener('unhandledrejection', function(e) {
         // says how far off the estimate is running once any have shipped.
         const realizedAdg = (currentRealizedAdg && currentRealizedAdg.realized_adg != null)
             ? Number(currentRealizedAdg.realized_adg) : null;
-        const gainToDateLb = (realizedAdg != null && actual.headDays > 0)
-            ? realizedAdg * actual.headDays : null;
-        const costOfGainPerLb = (gainToDateLb && gainToDateLb > 0)
-            ? (actual.processing + actual.treatment + actual.otherMed + actual.feed
-               + actual.cog + actual.labor) / gainToDateLb
+        // ONE gain number (2026-09-11): the same pounds the Cost of gain row
+        // prints - real gain on the head weighed out plus the ADG estimate on
+        // the rest. This tile used to divide by realized ADG x every
+        // head-day, a second gain figure on the same screen. Processing is
+        // out of the numerator: it is per head in, spent at the chute, not a
+        // cost of putting on weight. The assumed COG's share is printed
+        // beneath so the guessed part of the figure is visible.
+        const gainToDateLb = (actual.soldGainLb > 0 && actual.gainToDateLb > 0) ? actual.gainToDateLb : null;
+        const costOfGainPerLb = gainToDateLb
+            ? (actual.treatment + actual.otherMed + actual.feed + actual.cog + actual.labor) / gainToDateLb
             : null;
+        const assumedCogShare = gainToDateLb ? actual.cog / gainToDateLb : null;
 
         const gainBlock = `
             <div style="margin-top:10px; padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:12.5px;">
                 <div style="display:flex; gap:22px; flex-wrap:wrap; align-items:baseline;">
-                    <div class="co-drill" data-drill="input:calc_cog" title="COG assumption"><span class="muted" style="font-size:11px;">COST OF GAIN, PER LB</span><br>
+                    <div class="co-drill" data-drill="input:calc_cog" title="COG assumption"><span class="muted" style="font-size:11px;">OPERATING COST PER LB GAINED</span><br>
                         <strong style="font-size:16px;">${costOfGainPerLb != null
                             ? '$' + costOfGainPerLb.toFixed(4) + '/lb'
-                            : '<span class="muted" style="font-size:13px;">needs real weights</span>'}</strong></div>
+                            : '<span class="muted" style="font-size:13px;">needs real weights</span>'}</strong>${assumedCogShare != null
+                            ? `<div class="muted" style="font-size:11px;">of which assumed COG $${assumedCogShare.toFixed(4)}/lb</div>` : ''}</div>
                     <div class="co-drill" data-drill="input:calc_adg" title="Target ADG"><span class="muted" style="font-size:11px;">ADG ASSUMED</span><br>
                         <strong style="font-size:16px;">${rates.adg != null ? Number(rates.adg).toFixed(2) : '—'}</strong></div>
                     <div class="co-drill" data-drill="sales" title="Realized on sale weights"><span class="muted" style="font-size:11px;">ADG REALIZED</span><br>
@@ -8158,8 +8185,8 @@ window.addEventListener('unhandledrejection', function(e) {
                 </div>
                 <div class="muted" style="font-size:11px; margin-top:6px; line-height:1.5;">
                     ${costOfGainPerLb != null
-                        ? 'Operating cost to date divided by gain to date, using the <b>realized</b> ADG. '
-                        : 'Cost per pound of gain needs two real weigh events — dividing cost by an estimated gain on a young lot turns a 10% weight error into a 10% cost error. '}
+                        ? `Doctoring, feed, labor and the cost-of-gain charge to date over ${fmtNum(Math.round(gainToDateLb))} lb gained — the same pounds the Cost of gain row uses: real pay weight on the head shipped, the assumed ADG on the rest. Processing is left out; it is spent per head at the chute, not per pound. `
+                        : 'Cost per pound of gain needs real weigh-outs — dividing cost by an estimated gain on a young lot turns a 10% weight error into a 10% cost error. '}
                     Assumed ADG drives weight and revenue; realized ADG drives anything touching cost.
                     ${(realizedAdg != null && rates.adg != null && realizedAdg > Number(rates.adg))
                         ? 'These cattle are running ahead of the assumption — that gap is the margin the projection is carrying.' : ''}
@@ -8260,6 +8287,9 @@ window.addEventListener('unhandledrejection', function(e) {
         const netColor = proj.net >= 0 ? 'var(--success)' : 'var(--danger)';
         const varianceVsBudget = budget ? proj.net - budget.net : null;
 
+        // COG and Labor are RATES applied to real head-days, not money that
+        // left the bank (2026-09-11). Say so on the row until the ledger posts.
+        const rateTag = '<span title="An assumed rate applied to the real head-days this lot has run. Becomes an actual cost month by month once the ledger posts." style="font-size:10px; padding:0 4px; border:1px solid var(--border); border-radius:3px; color:var(--text-muted);">rate &times; head-days</span> ';
         const viewToggle = `
             <div class="co-view" style="display:flex; justify-content:flex-end; margin-bottom:6px;">
                 <div class="lot-header-subtabs" style="display:inline-flex;">
@@ -8343,7 +8373,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     ${actual.feedInsideCog
                         ? (actual.feedLedger > 0 ? row('Feed (memo)', null, split ? null : actual.feedLedger, null, {muted:true, note:'inside cost of gain — not added', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}, split ? actual.feedLedger : undefined) : '')
                         : (actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, sp(actual.feed, proj.feedFwd).a, sp(actual.feed, proj.feedFwd).p, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day' + (actual.boundaryActive ? ' since '+fmtDate(feedDirectFrom) : '') : 'from the feed ledger', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}, sp(actual.feed, proj.feedFwd).l) : ''}
-                    ${row('Cost of gain', b('cog'), sp(actual.cog, proj.cogFwd).a, sp(actual.cog, proj.cogFwd).p, {note:
+                    ${row('Cost of gain', b('cog'), sp(actual.cog, proj.cogFwd).a, sp(actual.cog, proj.cogFwd).p, {note: rateTag + (
                         actual.nonFeedMissing ? '<span style="color:#b58900;">no non-feed rate set</span>'
                         : actual.boundaryActive && actual.hdBefore > 0
                             ? `split at ${fmtDate(feedDirectFrom)} · non-feed after`
@@ -8351,8 +8381,8 @@ window.addEventListener('unhandledrejection', function(e) {
                         : rates.cogMode === 'per_lb' ? 'feed included · ' + `$${Number(rates.cog||0).toFixed(4)}/lb × ${fmtNum(Math.round(actual.gainToDateLb))} lb`
                             + (actual.soldGainLb > 0 ? ` · ${fmtNum(Math.round(actual.soldGainLb))} lb trued up` : '')
                             + (proj.gainFwdLb > 0 ? ` · +${fmtNum(Math.round(proj.gainFwdLb))} lb to come` : '')
-                        : 'feed included', drill:'input:calc_cog', drillTitle:'COG $/lb of gain assumption'}, sp(actual.cog, proj.cogFwd).l)}
-                    ${row('Labor', b('labor'), sp(actual.labor, proj.laborFwd).a, sp(actual.labor, proj.laborFwd).p, {drill:'input:calc_labor', drillTitle:'Labor assumption'}, sp(actual.labor, proj.laborFwd).l)}
+                        : 'feed included'), drill:'input:calc_cog', drillTitle:'COG $/lb of gain assumption'}, sp(actual.cog, proj.cogFwd).l)}
+                    ${row('Labor', b('labor'), sp(actual.labor, proj.laborFwd).a, sp(actual.labor, proj.laborFwd).p, {note: rateTag.trim(), drill:'input:calc_labor', drillTitle:'Labor assumption'}, sp(actual.labor, proj.laborFwd).l)}
                     ${row('Interest', b('interest'), sp(actual.interest + actual.transferInterest, proj.interestFwd).a, sp(actual.interest + actual.transferInterest, proj.interestFwd).p, {drill:'input:calc_int', drillTitle:'Interest assumption'}, sp(actual.interest + actual.transferInterest, proj.interestFwd).l)}
                     ${row('Total cost', b('totalCost'), split ? actual.totalCost * shSold : actual.totalCost, split ? proj.leftCost : proj.totalCost, {strong:true, rule:true}, proj.totalCost)}
                     ${row('Revenue', b('revenue'), actual.revenue, split ? proj.revenueFwd : proj.totalRevenue, {note: split ? 'checks banked / at target price' : '', drill:'sales', drillTitle:'Sales'}, proj.totalRevenue)}
