@@ -5385,7 +5385,8 @@ window.addEventListener('unhandledrejection', function(e) {
        is refused by default rather than quietly permitted. Fail closed. */
     const READ_ONLY_ROLES = new Set(['accountant']);
     const READ_ONLY_RPC_ALLOW = new Set([
-        'admin_list_users', 'get_doctoring_analytics', 'get_lot_deaths_with_arrival'
+        'admin_list_users', 'get_doctoring_analytics', 'get_lot_deaths_with_arrival',
+        'lot_projected_weight_detail'
     ]);
     function isReadOnlyRole(){
         return !!(currentProfile && READ_ONLY_ROLES.has(currentProfile.role));
@@ -5446,6 +5447,8 @@ window.addEventListener('unhandledrejection', function(e) {
     // Phase 15: cached metrics for the current lot detail view
     let currentRealizedAdg = null;
     let currentLotAnchor = null;   // lot_weight_anchor row: newest whole-lot weighing, else the purchase
+    let currentLotProjWt = null;   // lot_projected_weight_detail() walked to today: the one weight projection
+    let closeoutFinishTouched = false;   // the finish-weight box was typed in; stop re-suggesting
     let currentFeedAfterBoundary = null;   // feed $ on/after feed_direct_from, null = not loaded
     let currentHeadDays = null;
     // Cost ledger phase 1: head-days from the real head curve, and the lot's
@@ -6193,7 +6196,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
         $('closeoutContent').innerHTML='<div class="empty">Loading…</div>';
 
-        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes,xferCostRes,xferListRes,procCoverRes,anchorRes]=await Promise.all([
+        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes,xferCostRes,xferListRes,procCoverRes,anchorRes,projWtRes]=await Promise.all([
             supabase.from('lots').select('*').eq('id',lotId).single(),
             supabase.from('lot_status').select('*').eq('lot_id',lotId).single(),
             supabase.from('invoices').select('*, delivery_receipts(id, receipt_date, head_count, tag_start, tag_end, missing_tags, notes, receiving_protocol_id, load_out_destinations(*, pastures(name, ranches(name))))').eq('lot_id',lotId).order('invoice_date',{ascending:true}),
@@ -6248,7 +6251,12 @@ window.addEventListener('unhandledrejection', function(e) {
             supabase.from('lot_weight_anchor')
                 .select('*')
                 .eq('lot_id', lotId)
-                .maybeSingle()
+                .maybeSingle(),
+            // The app's ONE weight projection (anchor + phases), walked to
+            // today. The closeout's finish weight starts here and walks
+            // forward at the same ADG the cost estimate uses (2026-09-11),
+            // so the lot tile and the closeout can never disagree.
+            supabase.rpc('lot_projected_weight_detail', { p_lot_id: lotId, p_on_date: ranchToday() })
         ]);
 
         if(lotRes.error||statusRes.error){
@@ -6261,6 +6269,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // Phase 15: realized ADG + head-days
         currentRealizedAdg = realizedAdgRes && realizedAdgRes.data ? realizedAdgRes.data : null;
         currentLotAnchor = (anchorRes && !anchorRes.error && anchorRes.data) ? anchorRes.data : null;
+        currentLotProjWt = (projWtRes && !projWtRes.error && Array.isArray(projWtRes.data) && projWtRes.data.length) ? projWtRes.data[0] : null;
         // A read that fails must not look like a lot with no head-days: null
         // means "unknown" and the closeout says so, 0 would silently drop the
         // cost of gain.
@@ -7905,7 +7914,16 @@ window.addEventListener('unhandledrejection', function(e) {
         const avgWtIn=headIn?totalWeightIn/headIn:0;
         const targetDays=lot.target_days_on_feed||90;
         const targetAdg=Number(lot.target_adg)||2.5;
-        const defaultFinishWt=avgWtIn?Math.round(avgWtIn+targetDays*targetAdg):'';
+        // Prefill from the anchored projection walked to today plus the
+        // days to ship at the lot's target ADG; recalculate() refines the
+        // forward slice to the same ADG the cost estimate uses. The old
+        // weight-in + days x ADG is the fallback when the projection could
+        // not be read.
+        closeoutFinishTouched = false;
+        const projToday = currentLotProjWt && currentLotProjWt.projected_weight_lb != null ? Number(currentLotProjWt.projected_weight_lb) : null;
+        const daysToShip0 = lot.target_ship_date ? Math.max(0, daysBetween(ranchToday(), lot.target_ship_date)) : 0;
+        const defaultFinishWt = projToday != null ? Math.round(projToday + daysToShip0 * targetAdg)
+                              : avgWtIn ? Math.round(avgWtIn+targetDays*targetAdg) : '';
 
         let initialShipDate = lot.target_ship_date || '';
         if (!initialShipDate && lot.target_days_on_feed && lot.arrival_date) {
@@ -7931,7 +7949,7 @@ window.addEventListener('unhandledrejection', function(e) {
                         <div><label>Target sale $/lb</label><input type="number" step="0.0001" id="calc_cwt" value="${lot.target_sale_cwt??''}" placeholder="e.g. 4.95"></div>
                         <div><label>Target ADG (lb/day)</label><input type="number" step="0.01" id="calc_adg" value="${lot.target_adg??''}" placeholder="e.g. 2.50"></div>
                         <div><label>Target ship date</label><input type="date" id="calc_shipdate" value="${initialShipDate}"></div>
-                        <div><label>Projected finish wt</label><input type="number" step="1" id="calc_finishwt" value="${defaultFinishWt}" placeholder="auto"></div>
+                        <div><label>Projected finish wt</label><input type="number" step="1" id="calc_finishwt" value="${defaultFinishWt}" placeholder="auto"><div class="muted" style="font-size:11px; margin-top:2px;" id="calc_finishwt_hint"></div></div>
                         <div style="grid-column: span 2;">
                             <label>COG $/lb of gain <span class="muted" style="font-weight:400; font-size:11px;">(feed and non-feed together)</span></label>
                             <input type="number" step="0.0001" id="calc_cog" value="${cogInitial}" placeholder="e.g. 0.55">
@@ -7972,22 +7990,10 @@ window.addEventListener('unhandledrejection', function(e) {
         $('calc_shipdate').addEventListener('input', () => {
             const d = daysFromDate($('calc_shipdate').value);
             $('calc_days').value = d != null ? d : '';
-            if (!userTouchedFinish) {
-                const days = parseFloat($('calc_days').value)||0;
-                const adg = parseFloat($('calc_adg').value)||0;
-                if (days>0 && adg>0 && avgWtIn>0) $('calc_finishwt').value=Math.round(avgWtIn+days*adg);
-            }
-            recalculate();
+            recalculate();   // re-suggests the finish weight unless it was typed by hand
         });
 
-        let userTouchedFinish = false;
-        $('calc_finishwt').addEventListener('input', () => { userTouchedFinish = true; });
-        $('calc_adg').addEventListener('input', () => {
-            if (userTouchedFinish) return;
-            const d = parseFloat($('calc_days').value)||0;
-            const a = parseFloat($('calc_adg').value)||0;
-            if (d>0 && a>0 && avgWtIn>0) $('calc_finishwt').value=Math.round(avgWtIn+d*a);
-        });
+        $('calc_finishwt').addEventListener('input', () => { closeoutFinishTouched = true; });
 
         $('calc_labor_mode').addEventListener('change', () => {
             const mode = $('calc_labor_mode').value;
@@ -8027,6 +8033,29 @@ window.addEventListener('unhandledrejection', function(e) {
         }
 
         const actual = closeoutActual(rates);
+        // Finish weight = the anchored projection today, walked to the ship
+        // date at the ADG the cost estimate uses (realized / whole-lot
+        // weighing / target). A ship date already past leaves the head at
+        // today's weight - they are not lighter for having missed it. Typed
+        // by hand, the box stands until Reset.
+        const projToday = currentLotProjWt && currentLotProjWt.projected_weight_lb != null ? Number(currentLotProjWt.projected_weight_lb) : null;
+        const daysToShip = rates.shipDate ? Math.max(0, daysBetween(ranchToday(), rates.shipDate)) : 0;
+        const suggestedFinish = projToday != null ? Math.round(projToday + daysToShip * (actual.estAdg || 0)) : null;
+        if (suggestedFinish != null && !closeoutFinishTouched && $('calc_finishwt') && Number($('calc_finishwt').value) !== suggestedFinish) {
+            $('calc_finishwt').value = suggestedFinish;
+            rates.finishWt = suggestedFinish;
+        }
+        if ($('calc_finishwt_hint')) {
+            const pw = currentLotProjWt;
+            const src = pw ? (pw.anchor_type === 'purchase' ? 'from the purchase weight' : `from the whole-lot weighing of ${fmtDate(pw.anchor_date)}`) : '';
+            $('calc_finishwt_hint').innerHTML = projToday == null
+                ? 'weight in + days × target ADG (the projection could not be read)'
+                : `${fmtNum(Math.round(projToday))} lb today ${src} at ${Number(pw.adg_used).toFixed(2)} lb/day (${pw.adg_source})`
+                  + (daysToShip > 0 ? ` + ${fmtNum(daysToShip)} days × ${Number(actual.estAdg || 0).toFixed(2)}` : rates.shipDate ? ' · ship date passed, held at today' : '')
+                  + (closeoutFinishTouched ? ` · <a href="#" id="calc_finishwt_reset">typed by hand — reset to ${fmtNum(suggestedFinish)}</a>` : '');
+            const rs = $('calc_finishwt_reset');
+            if (rs) rs.addEventListener('click', (e) => { e.preventDefault(); closeoutFinishTouched = false; recalculate(); });
+        }
         const proj   = closeoutProjection(rates, actual);
         const budget = closeoutBudget(currentLotBudget);
         const realizedAdgForWarn = (currentRealizedAdg && currentRealizedAdg.realized_adg != null)

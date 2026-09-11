@@ -184,6 +184,17 @@ The Closeout tab shows one set of economics in three columns. It is
   $/head-day, beside `cogLbRate`). The old `assumed_cog_per_day` /
   `_per_head` columns stay as audit and are no longer copied to a new lot.
   Labor keeps its selector, per head-day.
+- **Finish weight comes off the anchored projection** (2026-09-11,
+  `docs/cog-design-decisions.md` §5): `lot_projected_weight_detail()`
+  walked to today, plus days-to-ship × the same ADG the cost estimate uses
+  (`actual.estAdg`: realized / whole-lot weighing / target). A ship date
+  already past holds the head at today's weight — the function walks
+  BACKWARD to a past date (37X read 747 lb at its July ship date against
+  835 today), which is not what the head still standing weigh. Typed by
+  hand the box stands (`closeoutFinishTouched`) with a reset link in the
+  hint. Weight in + days × target ADG survives only as the fallback when
+  the RPC cannot be read; it used to be the only formula and disagreed
+  with the lot tile the first time a lot was weighed.
 - **Interest** accrues on the cattle for the whole period and on operating
   cost at half the period, the usual convention for a cost that builds
   linearly. The old screen charged interest on the purchase price only.
