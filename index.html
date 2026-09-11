@@ -15241,7 +15241,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         // Pull everything we need in parallel
         const [statusRes, lotsRes, assignmentsRes, receiptsRes,
-               bayRes, premixRes, settingsRes, transferRes, penRes, headEvRes] = await Promise.all([
+               bayRes, premixRes, settingsRes, transferRes, penRes, headEvRes,
+               salesRes] = await Promise.all([
             supabase.from('lot_status').select('lot_id, lot_number, head_in, head_in_invoiced, head_in_received, head_pending_invoice, head_dead, head_sold, head_current, closed_at'),
             supabase.from('lots').select('id, is_test, closed_at, lot_number, assumed_nonfeed_cog_per_day'),
             // pasture_id and names come along for the stranded-head checks:
@@ -15270,7 +15271,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             // the reason the first exists at all.
             supabase.from('lot_events')
                 .select('lot_id, event_date, event_type, head_count, cause, notes')
-                .in('event_type', ['death', 'adjustment'])
+                .in('event_type', ['death', 'adjustment']),
+            // Sales, for the pay-weight check below. Crew cannot read this
+            // table at all; RLS returns zero rows and no error, so the check
+            // simply does not appear for them, like the feed checks above.
+            supabase.from('sales')
+                .select('id, lot_id, sale_date, head_count, gross_weight_lb, net_weight_lb, buyer')
         ]);
 
         // Active tags MUST be paginated: PostgREST caps responses at 1000 rows and
@@ -15603,6 +15609,50 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                             `entered, so it is light on both lots. An owner can recompute it.`
                 });
             }
+        });
+
+        // ---- SALES WITHOUT A PAY WEIGHT -----------------------------
+        // `net_weight_lb` is the pay weight and the ONLY weight anything
+        // downstream reads: lot_realized_adg_internal() filters on it with
+        // no fallback to gross, and the per_lb cost of gain trues up
+        // against what it returns. The lot's Sales table meanwhile prints
+        // `net || gross`, so a sale entered with a gross and no net looks
+        // complete on the screen a person reads and weighs nothing to
+        // every number built on the scale ticket.
+        //
+        // That is exactly how 47-26 came to show "no sale weight" over a
+        // sale carrying 151,805 lb (2026-09-11). No fallback to gross was
+        // added to fix it: gross is heavier than pay weight by the shrink,
+        // so a fallback would book the shrink as gain on every lot,
+        // silently and in the flattering direction. The number has to be
+        // recorded, which is what this finding asks for.
+        (salesRes && !salesRes.error ? (salesRes.data || []) : []).forEach(sa => {
+            if (Number(sa.net_weight_lb) > 0) return;
+            if (!sa.lot_id || isTestById[sa.lot_id]) return;
+            const st = (statusRes.data || []).find(x => x.lot_id === sa.lot_id);
+            if (!st) return;
+            const isClosed = !!closedAtById[sa.lot_id];
+            const gross = Number(sa.gross_weight_lb) || 0;
+            findings.push({
+                lot_id: sa.lot_id,
+                lot_number: st.lot_number,
+                severity: isClosed ? 'low' : 'medium',
+                type: 'sale_no_pay_weight',
+                title: gross > 0 ? 'Sale weight entered, but not as a pay weight'
+                                 : 'Sale recorded with no weight',
+                detail: `${fmtNum(sa.head_count)} head to ${escapeHtml(sa.buyer || 'an unnamed buyer')} on ` +
+                        `${fmtDate(sa.sale_date)}` +
+                        (gross > 0
+                            ? ` carries ${fmtNum(gross)} lb gross and no net. `
+                            : ` carries no weight at all. `) +
+                        `Realized ADG and cost of gain read the NET weight, so these head are counted ` +
+                        `as never weighed out and the lot's gain stays an assumption` +
+                        (isClosed ? ' — this lot is closed, so its closeout is reading that assumption as final' : '') +
+                        `. ` +
+                        (gross > 0
+                            ? `A buyer settles on pay weight: if the money ties on that figure it IS the pay weight, and belongs in Net as well.`
+                            : `Enter the pay weight off the settlement sheet on the sale.`)
+            });
         });
 
         // Declared here rather than beside the lot sections: the pasture
@@ -26515,13 +26565,13 @@ ${ranchBlocks}
             const adgNet = avgNet != null && dof > 0 ? (avgNet - avgIn) / dof : null;
 
             const wtParts = [];
-            if (avgGross != null) wtParts.push(`${fmtNum(Math.round(avgGross))} gross`);
             if (avgNet != null) wtParts.push(`${fmtNum(Math.round(avgNet))} net`);
+            if (avgGross != null) wtParts.push(`${fmtNum(Math.round(avgGross))} gross`);
             const wtDisplay = wtParts.join(' / ') || '—';
 
             const adgParts = [];
-            if (adgGross != null) adgParts.push(`<strong>${fmt2(adgGross)}</strong> gross`);
-            if (adgNet != null) adgParts.push(`${fmt2(adgNet)} net`);
+            if (adgNet != null) adgParts.push(`<strong>${fmt2(adgNet)}</strong> net`);
+            if (adgGross != null) adgParts.push(`${fmt2(adgGross)} gross`);
             const adgDisplay = adgParts.join(' · ') || '—';
 
             return `<tr>
@@ -26534,11 +26584,17 @@ ${ranchBlocks}
             </tr>`;
         }).join('');
 
-        // Weighted-average across all sales (use gross when available, fall back to net)
-        let totalGain = 0, totalHeadDays = 0, totalHead = 0;
+        // Weighted-average across all sales, on the PAY weight, falling back
+        // to gross only so a sale is not dropped from a card that is about to
+        // say how many head it covered. lot_realized_adg is net-only, so a
+        // gross here reads heavier than the books by the shrink -- which is
+        // why noNetHead below says so out loud rather than letting the two
+        // numbers disagree in silence.
+        let totalGain = 0, totalHeadDays = 0, totalHead = 0, noNetHead = 0;
         salesData.forEach(s => {
             const head = Number(s.head_count) || 0;
-            const wt = Number(s.gross_weight_lb) || Number(s.net_weight_lb) || null;
+            if (!(Number(s.net_weight_lb) > 0)) noNetHead += head;
+            const wt = Number(s.net_weight_lb) || Number(s.gross_weight_lb) || null;
             if (head > 0 && wt) {
                 const avgWt = wt / head;
                 const dof = Math.round((new Date(s.sale_date) - arrivalDate) / (1000 * 60 * 60 * 24));
@@ -26550,6 +26606,15 @@ ${ranchBlocks}
             }
         });
         const weightedAdg = totalHeadDays > 0 ? totalGain / totalHeadDays : null;
+        // The books count a head as weighed out only when it has a PAY weight.
+        // Without this line a card showing an ADG sits beside a lot tile
+        // showing a dash, and nothing on either says why.
+        const noNetNote = noNetHead > 0 ? `
+            <div class="muted" style="font-size: 11px; margin-top: 6px; color: var(--warn, #b58900);">
+                \u26a0 ${fmtNum(noNetHead)} sold head carry no pay weight (net). Realized ADG and cost of
+                gain read the net weight only, so those head count as never weighed out in the books —
+                any figure above for them is off the gross and reads heavy by the shrink.
+            </div>` : '';
         const summaryRow = (totalHead > 0 && weightedAdg != null) ? `
             <tr style="font-weight: 500; background: #fafaf6; border-top: 2px solid var(--border);">
                 <td colspan="2">Weighted avg across ${fmtNum(totalHead)} sold head</td>
@@ -26568,8 +26633,8 @@ ${ranchBlocks}
                         <th class="num">ADG (lb/day)</th>
                     </tr></thead>
                     <tbody>${rows}${summaryRow}</tbody>
-                </table>
-                <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">DOF measured from lot arrival date. For multi-batch lots, late-batch cattle were on feed for fewer days, so this slightly understates ADG. ADG shown gross when available; net otherwise.</p>
+                </table>${noNetNote}
+                <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">DOF measured from lot arrival date. For multi-batch lots, late-batch cattle were on feed for fewer days, so this slightly understates ADG. ADG shown on the pay weight (net) when there is one, gross otherwise — the books count only the pay weight.</p>
             </div>
         `;
     }
@@ -26839,10 +26904,23 @@ ${ranchBlocks}
         renderSaleSources();
     });
 
-    // Live shrink preview
+    // Live shrink preview -- and the first warning that a sale is about to
+    // be saved with NO PAY WEIGHT. `net_weight_lb` is the only weight
+    // realized ADG and cost of gain read; the sales table falls back to
+    // gross, so once saved the hole is invisible on the screen a person
+    // looks at. That is how eight live rows came to carry a weight nothing
+    // could see, 47-26's only sale among them (2026-09-11).
     function updateSaleShrinkPreview() {
         const gross = parseFloat($('saleGrossWt').value);
         const net = parseFloat($('saleNetWt').value);
+        if (isNaN(net) && !isNaN(gross) && gross > 0) {
+            $('saleShrinkPreview').style.color = 'var(--warn, #b58900)';
+            $('saleShrinkPreview').textContent =
+                '\u26a0 No pay weight. Realized ADG and cost of gain read the NET weight only, so with it '
+                + 'blank this sale weighs nothing to either. If the buyer settled on ' + fmtNum(gross)
+                + ' lb, that is the pay weight \u2014 put it in Net as well.';
+            return;
+        }
         if (!isNaN(gross) && !isNaN(net) && gross > 0) {
             const shrink = ((gross - net) / gross) * 100;
             $('saleShrinkPreview').textContent = `Shrink: ${shrink.toFixed(2)}%`;
@@ -26856,6 +26934,7 @@ ${ranchBlocks}
                 $('saleShrinkPreview').style.color = '';
             }
         } else {
+            $('saleShrinkPreview').style.color = '';
             $('saleShrinkPreview').textContent = '';
         }
     }
@@ -27026,6 +27105,50 @@ ${ranchBlocks}
                 if (reason.trim()) {
                     const cur = $('saleNotes').value.trim();
                     $('saleNotes').value = (cur ? cur + ' | ' : '') + `Price override: ${reason.trim()}`;
+                }
+            }
+
+            // A weight with no PAY WEIGHT is a weight nothing downstream can
+            // read. `lot_realized_adg_internal()` filters on net_weight_lb > 0
+            // with no fallback, and the per_lb cost of gain trues up against
+            // it, while this screen's own table prints `net || gross` -- so
+            // the sale looks complete and is weightless to every number built
+            // on the scale ticket. Do not let it save unremarked.
+            //
+            // When the money TIES on the gross (total / weight x 100 lands on
+            // the $/cwt), that figure IS the pay weight: a buyer settles on
+            // pay weight, never on the scale gross. Offer to book it as both.
+            // Otherwise it may genuinely be a gross with the settlement sheet
+            // still to come, so warn and let it save -- Anomalies will carry
+            // it until somebody types the number.
+            const grossWt = parseFloat($('saleGrossWt').value);
+            if (!$('saleNetWt').value && !isNaN(grossWt) && grossWt > 0) {
+                const tiesOnGross = !isNaN(cwt) && !isNaN(total) && total > 0
+                    && Math.abs(cwt - (total / grossWt * 100)) < 0.02;
+                if (tiesOnGross) {
+                    const ok = confirm(
+                        `No pay weight (net) entered, but the money ties on the ${fmtNum(grossWt)} lb gross ` +
+                        `($${cwt.toFixed(2)}/cwt) \u2014 so that figure is the buyer's pay weight.\n\n` +
+                        `OK: book ${fmtNum(grossWt)} lb as the pay weight too.\n` +
+                        `Cancel: go back and type the net.\n\n` +
+                        `Left blank, this sale is invisible to realized ADG and cost of gain.`);
+                    if (!ok) {
+                        $('saleSaveBtn').disabled = false;
+                        $('saleNetWt').focus();
+                        return;
+                    }
+                    $('saleNetWt').value = grossWt;
+                    updateSaleShrinkPreview();
+                } else if (!confirm(
+                        `No pay weight (net) entered.\n\n` +
+                        `Realized ADG and cost of gain read the net weight only, so this sale will ` +
+                        `count as no weight at all \u2014 the sales table will still show the gross, ` +
+                        `which is what hides it.\n\n` +
+                        `OK: save without a pay weight (it will show on the Anomalies report).\n` +
+                        `Cancel: go back and type the net.`)) {
+                    $('saleSaveBtn').disabled = false;
+                    $('saleNetWt').focus();
+                    return;
                 }
             }
 

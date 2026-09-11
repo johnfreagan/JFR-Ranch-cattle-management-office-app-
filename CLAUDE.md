@@ -371,6 +371,37 @@ shipments ──┬── shipment_weight_groups ── shipment_loads ── sh
   revoking `medications` outright breaks doctoring entry in the field app.
   Closing them needs dollar-free views for crew to read instead, plus a
   field-app test pass.
+- **`net_weight_lb` is the PAY WEIGHT and the only weight anything reads**
+  (2026-09-11, from John: *"47-26 has a sale with weights entered but office
+  app and Claude review says no sales weight entered? Where is missing
+  link"*). `lot_realized_adg_internal()` filters `WHERE s.net_weight_lb > 0`
+  with **no fallback to gross**, and the `per_lb` cost-of-gain true-up reads
+  what it returns. The lot's Sales table meanwhile prints `net || gross`. So a
+  sale typed with a gross and no net looks complete on the screen a person
+  reads and weighs NOTHING to every number built on the scale ticket. Eight
+  live rows were in that state — 47-26's only sale among them, which is why
+  that lot alone read as total absence (`head_sold_with_weight = 0`).
+  **No gross fallback was added**: gross is heavier than pay weight by the
+  shrink, so a fallback books the shrink as gain on every lot, silently and in
+  the flattering direction. Migration
+  `docs/sql/2026-09-11_sale_pay_weight_backfill.sql` copies gross → net **only
+  where the money proves the figure is a pay weight** —
+  `round(total_price / gross_weight_lb * 100, 2) = price_per_cwt`, because a
+  buyer settles on pay weight and never on the scale gross. Applied
+  2026-09-11: 8 sales rows, 8 `sale_sources.pay_weight_lb`, no dollars moved
+  (`total_price` untouched). 47-26 went from no realized ADG to 178 hd @ 1.541
+  lb/day; 31-26 1.879 → 1.904, 37X 1.473 → 1.515, 37X-1 1.652 → 1.793.
+  The one row with NO weight at all (37X-1, 2026-06-04, 2 hd, priced per head)
+  is left alone — there is nothing to recover — and shows on Anomalies.
+- **Three guards now stop it recurring.** The sale form warns live under the
+  weight boxes while Net is blank; on save it offers to book the gross as the
+  pay weight when the money ties on it, and otherwise makes you confirm past a
+  sentence saying the sale will count as no weight. The Anomalies report
+  carries `sale_no_pay_weight` (medium open / low closed). And the Sales tab's
+  Realized ADG card now leads with NET and says how many sold head carry no
+  pay weight — it used to average on `gross || net`, so it could print a
+  healthy ADG beside a lot tile showing a dash with nothing explaining why.
+  **That contradiction is what the original question was.**
 - Test lots (`TEST_` / `TEST-`) are excluded from the shipment entry
   inventory.
 - The buyer's own lines are TRUCKLOADS. Mapping loads to lots and pastures is
