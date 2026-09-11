@@ -1536,6 +1536,19 @@ rules:
   usage whose period holds no head-days for its lot cannot spread; rather than
   vanish, it surfaces there and on `lot_feed_costs.unallocated_usd`, and the
   Closeout warns.
+- **Since 2026-09-11 there is a RANCH DEFAULT non-feed rate**
+  (`ranch_settings.nonfeed_cog_per_day`, `docs/sql/2026-09-11_nonfeed_default.sql`,
+  decision in `docs/cog-design-decisions.md` §4). Resolution on the
+  closeout: typed in the box → stored on the lot → ranch default; a blank
+  box means inherit. So the feed boundary is ON for every lot with
+  head-days since 2026-09-01: actual feed charged beside $0.50/head-day on
+  those days, the assumed $/lb before. **$0.50 is a placeholder** (John,
+  2026-09-11: no hard number yet; excludes labor, which has its own line,
+  and feed); `nonfeed_cog_note` says so and the closeout hint shows it in
+  amber with a `set` link that updates the ranch row (office/owner UPDATE
+  policy). The paragraph below describes the per-lot override, which still
+  works exactly as written; only the "NULL means one number" part now
+  means "NULL on the lot AND no ranch default".
 - **`lots.assumed_nonfeed_cog_per_day` is the COG split, per lot, NULL until
   known — and NULL means COG IS ONE NUMBER.** John, 2026-09-04: "I consider
   COG to be feed and non-feed cost of gain … for now I think in terms of one

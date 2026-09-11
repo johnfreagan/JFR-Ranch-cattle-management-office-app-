@@ -5473,6 +5473,8 @@ window.addEventListener('unhandledrejection', function(e) {
     // no date rewrites a lot's whole life - setting it on 36-27 would
     // re-price August at the non-feed rate with no actual feed to replace it.
     let feedDirectFrom = null;         // 'YYYY-MM-DD' or null
+    let ranchNonFeedDefault = null;    // ranch_settings.nonfeed_cog_per_day, $/head-day after the boundary; a lot can override
+    let ranchNonFeedNote = null;       // 'placeholder ...' until the ledger gives a real number
     let currentHeadDaysAfterBoundary = null;   // head-days on/after feedDirectFrom
     const $ = id => document.getElementById(id);
 
@@ -7441,12 +7443,14 @@ window.addEventListener('unhandledrejection', function(e) {
 
     // One row. Read once per session; a failure leaves it null and the
     // closeout then behaves exactly as it did before the boundary existed.
-    async function loadRanchSettings(){
-        if (feedDirectFrom !== null) return;
+    async function loadRanchSettings(force){
+        if (feedDirectFrom !== null && !force) return;
         const { data, error } = await supabase
-            .from('ranch_settings').select('feed_direct_from').maybeSingle();
+            .from('ranch_settings').select('feed_direct_from, nonfeed_cog_per_day, nonfeed_cog_note').maybeSingle();
         if (error || !data) return;
         feedDirectFrom = data.feed_direct_from || null;
+        ranchNonFeedDefault = data.nonfeed_cog_per_day != null ? Number(data.nonfeed_cog_per_day) : null;
+        ranchNonFeedNote = data.nonfeed_cog_note || null;
     }
 
     // ---- ACTUAL TO DATE -------------------------------------------------
@@ -7484,11 +7488,20 @@ window.addEventListener('unhandledrejection', function(e) {
         // the rate already contains it. Set a non-feed rate on a lot and
         // that lot switches to actual feed plus the non-feed rate from the
         // ranch cut-over date. Nothing is recomputed retroactively.
-        const nonFeedCog = rates.nonFeedCog !== undefined ? rates.nonFeedCog
-            : (lot && lot.assumed_nonfeed_cog_per_day != null)
-                ? Number(lot.assumed_nonfeed_cog_per_day) : null;
+        // The non-feed rate (2026-09-11): typed on this closeout, else stored
+        // on the lot, else the RANCH DEFAULT. A blank box means inherit. The
+        // default is what switches the feed boundary on for every lot fed
+        // since the cut-over; before it every lot's own rate was NULL and
+        // the boundary code had never run on data.
+        const nonFeedTyped  = rates.nonFeedCog != null ? Number(rates.nonFeedCog) : null;
+        const nonFeedLot    = (lot && lot.assumed_nonfeed_cog_per_day != null) ? Number(lot.assumed_nonfeed_cog_per_day) : null;
+        const nonFeedCog    = nonFeedTyped != null ? nonFeedTyped
+                            : (rates.nonFeedCog === undefined && nonFeedLot != null) ? nonFeedLot
+                            : (rates.nonFeedCog !== undefined && nonFeedLot != null && nonFeedTyped == null) ? ranchNonFeedDefault
+                            : nonFeedLot != null ? nonFeedLot
+                            : ranchNonFeedDefault;
+        const nonFeedSource = nonFeedTyped != null ? 'typed' : (nonFeedCog != null && nonFeedCog === nonFeedLot && (rates.nonFeedCog === undefined)) ? 'lot' : nonFeedCog != null ? 'ranch' : 'none';
         const feedInsideCog = nonFeedCog == null;
-        const feed = feedInsideCog ? 0 : feedLedger;
 
         // The boundary. Before feedDirectFrom, feed lives INSIDE the assumed
         // cost of gain and on the cost allocation, so the full assumed rate
@@ -7504,6 +7517,16 @@ window.addEventListener('unhandledrejection', function(e) {
         // period that says anything about feeding: dollars since the
         // cut-over over head-days since the cut-over when both are known,
         // else the view's whole-life figure.
+        // Feed charged beside the non-feed rate is the feed ON OR AFTER the
+        // boundary only. Days before it carry the assumed $/lb with feed
+        // inside, so ledger feed dated before the cut-over (the 8/31 mineral
+        // on the X lots) would be counted twice if the whole ledger were
+        // charged. Whole-life is the fallback only when the split is not
+        // loaded, and the split-unavailable branch below then charges the
+        // assumed rate throughout with no feed beside it.
+        const feed = feedInsideCog ? 0
+                   : boundaryActive ? (currentFeedAfterBoundary != null ? currentFeedAfterBoundary : 0)
+                   : feedLedger;
         const feedPerHeadDay = feedInsideCog ? 0
             : (boundaryActive && hdAfter > 0 && currentFeedAfterBoundary != null)
                 ? currentFeedAfterBoundary / hdAfter
@@ -7678,7 +7701,7 @@ window.addEventListener('unhandledrejection', function(e) {
             // already inside operating, so it belongs here or the rows do
             // not sum to Total cost.
             medicine: processing + treatment + otherMed,
-            feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, nonFeedRate, cogLbRate,
+            feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, nonFeedRate, cogLbRate, nonFeedCog, nonFeedSource,
             soldGainLb, soldHeadDays, unsettledHeadDays, estGainLb, gainToDateLb, gainClamped, rawSoldGainLb, unweighedSoldHead,
             estAdg, estAdgSource, weighingAdg, soldWithWt,
             boundaryActive, splitUnavailable, hdBefore, hdAfter, nonFeedMissing, nonFeedCog,
@@ -7957,7 +7980,7 @@ window.addEventListener('unhandledrejection', function(e) {
                         </div>
                         <div style="grid-column: span 2;">
                             <label>Non-feed COG $/head/day <span class="muted" style="font-weight:400; font-size:11px;">(optional — blank keeps COG as one number that includes feed)</span></label>
-                            <input type="number" step="0.0001" id="calc_nonfeed" value="${lot.assumed_nonfeed_cog_per_day??''}" placeholder="e.g. 0.40">
+                            <input type="number" step="0.0001" id="calc_nonfeed" value="${lot.assumed_nonfeed_cog_per_day??''}" placeholder="${ranchNonFeedDefault != null ? 'ranch default ' + Number(ranchNonFeedDefault).toFixed(2) : 'e.g. 0.50'}">
                             <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_nonfeed_hint"></div>
                         </div>
                         <div style="grid-column: span 2;">
@@ -8076,14 +8099,35 @@ window.addEventListener('unhandledrejection', function(e) {
             }
         }
         if ($('calc_nonfeed_hint')) {
-            $('calc_nonfeed_hint').textContent = actual.feedInsideCog
+            const defaultBit = ranchNonFeedDefault != null
+                ? ` · ranch default $${Number(ranchNonFeedDefault).toFixed(2)}/hd/day${ranchNonFeedNote && /placeholder/i.test(ranchNonFeedNote) ? ' <span style="color:#b58900;">(placeholder until the ledger)</span>' : ''}` +
+                  ` <a href="#" id="calc_nonfeed_setdefault" data-perm="office">set</a>`
+                : ' · <span style="color:#b58900;">no ranch default set</span> <a href="#" id="calc_nonfeed_setdefault" data-perm="office">set</a>';
+            const usingBit = actual.nonFeedSource === 'ranch' ? 'Using the ranch default (blank = inherit). ' : actual.nonFeedSource === 'lot' ? 'This lot\'s own rate. ' : actual.nonFeedSource === 'typed' ? '' : '';
+            $('calc_nonfeed_hint').innerHTML = usingBit + (actual.feedInsideCog
                 ? (actual.feedLedger > 0 ? `COG is one number. ${fmtMoney(actual.feedLedger)} of actual feed is on the ledger and shown as a memo, not added.` : 'COG is one number, feed included.')
                 : actual.boundaryActive
                 ? (actual.hdAfter > 0
                     ? `${fmtNum(Math.round(actual.hdAfter))} head-days since ${fmtDate(feedDirectFrom)}`
                       + (rates.nonFeedCog != null ? ` × $${Number(rates.nonFeedCog).toFixed(4)} = ${fmtMoney(rates.nonFeedCog * actual.hdAfter)}` : ' — nothing charged on them yet')
                     : 'No head-days after the cut-over yet.')
-                : 'Replaces the assumed COG rate on this lot (no cut-over date set); actual feed is charged beside it.';
+                : 'Replaces the assumed COG rate on this lot (no cut-over date set); actual feed is charged beside it.') + defaultBit;
+            const sd = $('calc_nonfeed_setdefault');
+            if (sd) sd.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const v = prompt('Ranch default non-feed cost of gain, $/head-day after ' + (feedDirectFrom ? fmtDate(feedDirectFrom) : 'the cut-over') + '.\nExcludes labor (its own line) and feed (charged beside it).', ranchNonFeedDefault != null ? String(ranchNonFeedDefault) : '0.50');
+                if (v == null) return;
+                const n = parseFloat(v);
+                if (isNaN(n) || n < 0) { showAlert('globalAlert', 'Enter a number, $/head-day.'); return; }
+                const note = confirm('Is this a real figure from the books?\n\nOK = real figure. Cancel = still a placeholder.')
+                    ? 'set ' + ranchToday() + ' from the books' : 'placeholder set ' + ranchToday() + ': replace with the ledger figure';
+                const { data, error } = await supabase.from('ranch_settings').update({ nonfeed_cog_per_day: n, nonfeed_cog_note: note, updated_at: new Date().toISOString() }).eq('id', true).select();
+                if (error) { showAlert('globalAlert', 'Could not save the ranch default: ' + friendlyDbError(error.message)); return; }
+                if (!data || !data.length) { showAlert('globalAlert', 'The ranch default was not saved — that is office and owner only.'); return; }
+                await loadRanchSettings(true);
+                showAlert('globalAlert', 'Ranch default non-feed rate saved: $' + n.toFixed(2) + '/hd/day.', 'success');
+                renderCloseoutCalculator();
+            });
         }
         if ($('calc_labor_hint')) {
             $('calc_labor_hint').textContent = (rates.laborMode==='per_day' && rates.labor)
