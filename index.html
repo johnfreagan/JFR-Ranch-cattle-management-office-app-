@@ -5445,6 +5445,7 @@ window.addEventListener('unhandledrejection', function(e) {
     let currentUser = null, currentProfile = null, currentLot = null, currentStatus = null;
     // Phase 15: cached metrics for the current lot detail view
     let currentRealizedAdg = null;
+    let currentLotAnchor = null;   // lot_weight_anchor row: newest whole-lot weighing, else the purchase
     let currentFeedAfterBoundary = null;   // feed $ on/after feed_direct_from, null = not loaded
     let currentHeadDays = null;
     // Cost ledger phase 1: head-days from the real head curve, and the lot's
@@ -6192,7 +6193,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
         $('closeoutContent').innerHTML='<div class="empty">Loading…</div>';
 
-        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes,xferCostRes,xferListRes,procCoverRes]=await Promise.all([
+        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes,xferCostRes,xferListRes,procCoverRes,anchorRes]=await Promise.all([
             supabase.from('lots').select('*').eq('id',lotId).single(),
             supabase.from('lot_status').select('*').eq('lot_id',lotId).single(),
             supabase.from('invoices').select('*, delivery_receipts(id, receipt_date, head_count, tag_start, tag_end, missing_tags, notes, receiving_protocol_id, load_out_destinations(*, pastures(name, ranches(name))))').eq('lot_id',lotId).order('invoice_date',{ascending:true}),
@@ -6240,7 +6241,14 @@ window.addEventListener('unhandledrejection', function(e) {
             // (2026-09-04). The tile has to say so.
             supabase.from('delivery_receipts')
                 .select('head_count, receiving_protocol_id')
+                .eq('lot_id', lotId),
+            // The newest whole-lot weighing, or the purchase. A whole-lot
+            // weighing is allowed to true up the ADG the closeout estimates
+            // gain with (2026-09-11); a sample never is.
+            supabase.from('lot_weight_anchor')
+                .select('*')
                 .eq('lot_id', lotId)
+                .maybeSingle()
         ]);
 
         if(lotRes.error||statusRes.error){
@@ -6252,6 +6260,7 @@ window.addEventListener('unhandledrejection', function(e) {
         currentStatus=statusRes.data;
         // Phase 15: realized ADG + head-days
         currentRealizedAdg = realizedAdgRes && realizedAdgRes.data ? realizedAdgRes.data : null;
+        currentLotAnchor = (anchorRes && !anchorRes.error && anchorRes.data) ? anchorRes.data : null;
         // A read that fails must not look like a lot with no head-days: null
         // means "unknown" and the closeout says so, 0 would silently drop the
         // cost of gain.
@@ -7445,6 +7454,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
         const start = st.weighted_arrival_date || lot.arrival_date || null;
         const daysToDate = start ? Math.max(0, daysBetween(start, ranchToday())) : 0;
+        const soldHeadPre = (currentLotSalesCache || []).reduce((t, x) => t + (Number(x.head_count) || 0), 0);
 
         const processing = currentActualMedCost ? (currentActualMedCost.processing || 0) : 0;
         const treatment  = currentActualMedCost ? (currentActualMedCost.treatment  || 0) : 0;
@@ -7530,7 +7540,31 @@ window.addEventListener('unhandledrejection', function(e) {
         const soldHeadDays = (currentRealizedAdg && currentRealizedAdg.sold_head_days != null)
             ? Math.min(headDays, Number(currentRealizedAdg.sold_head_days)) : 0;
         const unsettledHeadDays = Math.max(0, headDays - soldHeadDays);
-        const estGainLb    = Math.max(0, rates.adg || 0) * unsettledHeadDays;
+        // Which ADG prices the head-days not yet weighed out (2026-09-11,
+        // docs/cog-design-decisions.md section 2). The lot's own number beats
+        // the assumption once there is history - the rule doctoring and feed
+        // already follow. In order:
+        //   1. realized ADG off sale pay weights, once 25% of the head sold
+        //      carry one (a 6-head cull sale must not re-base a 369-head lot);
+        //   2. the newest WHOLE-LOT weighing (lot_weight_anchor, never a
+        //      sample): its average over the days since weighted arrival;
+        //   3. the target ADG typed on the closeout.
+        const soldWithWt = (currentRealizedAdg && currentRealizedAdg.head_sold_with_weight != null)
+            ? Number(currentRealizedAdg.head_sold_with_weight) : 0;
+        const realizedAdgRate = (currentRealizedAdg && currentRealizedAdg.realized_adg != null)
+            ? Number(currentRealizedAdg.realized_adg) : null;
+        const anchor = currentLotAnchor;
+        const anchorDays = (anchor && anchor.anchor_type && anchor.anchor_type !== 'purchase' && start)
+            ? daysBetween(start, anchor.anchor_date) : null;
+        const avgWtIn = headIn > 0 ? (Number(st.total_weight_in) || 0) / headIn : 0;
+        const weighingAdg = (anchorDays != null && anchorDays > 0 && avgWtIn > 0 && anchor.anchor_avg_weight_lb != null)
+            ? (Number(anchor.anchor_avg_weight_lb) - avgWtIn) / anchorDays : null;
+        let estAdg, estAdgSource;
+        if (realizedAdgRate != null && soldHeadPre > 0 && soldWithWt / soldHeadPre >= 0.25) { estAdg = realizedAdgRate; estAdgSource = 'realized'; }
+        else if (weighingAdg != null) { estAdg = weighingAdg; estAdgSource = 'weighing'; }
+        else { estAdg = rates.adg || 0; estAdgSource = 'target'; }
+        estAdg = Math.max(0, estAdg);
+        const estGainLb    = estAdg * unsettledHeadDays;
         const gainToDateLb = soldGainLb + estGainLb;
 
         // A per-head rate is a flat charge taken at receiving; a per-day rate
@@ -7637,6 +7671,7 @@ window.addEventListener('unhandledrejection', function(e) {
             medicine: processing + treatment + otherMed,
             feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, cogRate, cogMode,
             soldGainLb, soldHeadDays, unsettledHeadDays, estGainLb, gainToDateLb, gainClamped, rawSoldGainLb, unweighedSoldHead,
+            estAdg, estAdgSource, weighingAdg, soldWithWt,
             boundaryActive, splitUnavailable, hdBefore, hdAfter, nonFeedMissing, nonFeedCog,
             operating, totalCost,
             transferInUsd, transferOutUsd, transferInHead, transferOutHead, transferInterest,
@@ -7692,7 +7727,10 @@ window.addEventListener('unhandledrejection', function(e) {
 
         // Forward gain is the expected ADG on the head-days still to run;
         // the real weights replace it once the cattle ship.
-        const gainFwdLb = (rates.adg || 0) * forwardHeadDays;
+        // Same ADG the to-date estimate uses (realized, whole-lot weighing,
+        // or target), so cost to come and cost to date agree on how fast
+        // these cattle gain.
+        const gainFwdLb = (actual.estAdg != null ? actual.estAdg : (rates.adg || 0)) * forwardHeadDays;
         const cogFwd = actual.cogMode === 'per_day' ? actual.cogRate * forwardHeadDays
                      : actual.cogMode === 'per_lb'  ? actual.cogRate * gainFwdLb
                      : 0;   // a flat per-head charge was already taken in full at receiving
@@ -8010,7 +8048,7 @@ window.addEventListener('unhandledrejection', function(e) {
             if (rates.cogMode === 'per_lb' && rates.cog) {
                 const parts = [];
                 if (actual.soldGainLb > 0) parts.push(`${fmtNum(Math.round(actual.soldGainLb))} lb weighed out`);
-                if (actual.unsettledHeadDays > 0) parts.push(`${fmtNum(Math.round(actual.estGainLb))} lb est. at ${rates.adg != null ? Number(rates.adg).toFixed(2) : '—'} ADG on ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days`);
+                if (actual.unsettledHeadDays > 0) parts.push(`${fmtNum(Math.round(actual.estGainLb))} lb est. at ${Number(actual.estAdg).toFixed(2)} ADG (${actual.estAdgSource === 'realized' ? 'realized on the head shipped' : actual.estAdgSource === 'weighing' ? 'whole-lot weighing' : 'target'}) on ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days`);
                 const conv = $('calc_cog') && $('calc_cog').dataset.converted;
                 $('calc_cog_hint').textContent = (parts.length
                     ? `${parts.join(' + ')} = ${fmtNum(Math.round(actual.gainToDateLb))} lb gain → ${fmtMoney(actual.cog)}`
@@ -8084,13 +8122,17 @@ window.addEventListener('unhandledrejection', function(e) {
         // ran AHEAD of the assumption - the error that flatters the lot.
         // 37X sat 18% below its assumed ADG, charging gain it never made,
         // and got silence.
-        if (rates.cogMode === 'per_lb' && rates.cog && rates.adg > 0 && realizedAdgForWarn != null
+        if (rates.cogMode === 'per_lb' && rates.cog && rates.adg > 0 && realizedAdgForWarn != null && actual.estAdgSource === 'target'
             && actual.unsettledHeadDays > 0 && Math.abs(realizedAdgForWarn - Number(rates.adg)) > Number(rates.adg) * 0.05) {
             const est = actual.estGainLb, alt = Math.max(0, realizedAdgForWarn) * actual.unsettledHeadDays;
             const diff = rates.cog * (est - alt);
             warnings.push('Cattle already weighed out gained <b>' + realizedAdgForWarn.toFixed(2) + ' lb/day</b> against the ' +
                 Number(rates.adg).toFixed(2) + ' assumed. The ' + fmtNum(Math.round(actual.unsettledHeadDays)) + ' head-days not yet weighed out are charged at the assumption, so cost of gain to date is <b>' +
-                (diff > 0 ? 'overstated' : 'understated') + ' by about ' + fmtMoney(Math.abs(diff)) + '</b> (' + fmtMoney(rates.cog * est) + ' charged, ' + fmtMoney(rates.cog * alt) + ' at the realized rate). It trues up as the rest ship.');
+                (diff > 0 ? 'overstated' : 'understated') + ' by about ' + fmtMoney(Math.abs(diff)) + '</b> (' + fmtMoney(rates.cog * est) + ' charged, ' + fmtMoney(rates.cog * alt) + ' at the realized rate). The realized rate takes over once 25% of the head sold carry a pay weight.');
+        }
+        if (actual.estAdgSource !== 'target' && rates.adg > 0 && Math.abs(actual.estAdg - Number(rates.adg)) > Number(rates.adg) * 0.05) {
+            warnings.push('The head-days not yet weighed out are priced at <b>' + Number(actual.estAdg).toFixed(2) + ' lb/day</b> (' +
+                (actual.estAdgSource === 'realized' ? 'realized on the head shipped' : 'the newest whole-lot weighing') + '), not the ' + Number(rates.adg).toFixed(2) + ' assumed. The assumption still drives the finish weight.');
         }
         if (actual.gainClamped) {
             warnings.push('Realized gain on the head already shipped is <b>negative</b> (' + fmtNum(Math.round(actual.rawSoldGainLb)) + ' lb). Cost of gain is charged as zero on those pounds, never as a credit.');
@@ -8222,7 +8264,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <div style="display:flex; gap:22px; flex-wrap:wrap; align-items:baseline;">
                     ${tile('HEAD', fmtNum(actual.headCurrent), proj.deathsToCome > 0 ? `${fmtNum(Math.round(survivors))} after ${fmtNum(Math.round(proj.deathsToCome))} more assumed death${Math.round(proj.deathsToCome)===1?'':'s'}` : '', 'current', 'Where they are now')}
                     ${tile('DAYS TO SHIP', proj.remainingDays != null ? fmtNum(proj.remainingDays) : '—', proj.remainingDays != null ? `${fmtNum(Math.round(proj.forwardHeadDays))} head-days` : 'no ship date', 'input:calc_shipdate', 'Target ship date')}
-                    ${tile('GAIN TO COME', rates.adg > 0 && proj.remainingDays != null ? fmtNum(Math.round(proj.gainFwdLb)) + ' lb' : '—', rates.adg > 0 ? `at ${Number(rates.adg).toFixed(2)} lb/day` : 'no ADG', 'input:calc_adg', 'Target ADG')}
+                    ${tile('GAIN TO COME', actual.estAdg > 0 && proj.remainingDays != null ? fmtNum(Math.round(proj.gainFwdLb)) + ' lb' : '—', actual.estAdg > 0 ? `at ${Number(actual.estAdg).toFixed(2)} lb/day (${actual.estAdgSource})` : 'no ADG', 'input:calc_adg', 'Target ADG')}
                     ${tile('COST TO COME', fmtMoney(toCome), `COG ${fmtMoney(proj.cogFwd)} · labor ${fmtMoney(proj.laborFwd)}${proj.medicineFwd > 0 ? ' · medicine ' + fmtMoney(proj.medicineFwd) : ''}${proj.feedFwd > 0 ? ' · feed ' + fmtMoney(proj.feedFwd) : ''} · interest ${fmtMoney(proj.interestFwd)} · ${perHd(toCome)}`, 'input:calc_cog', 'COG assumption')}
                     ${share != null ? tile('COST OF THESE HEAD', fmtMoney(share), `${perHd(share)} · share of cost to date + cost to come`) : ''}
                     ${proj.leftBreakEvenPerLb != null ? tile('BREAK-EVEN', '$' + proj.leftBreakEvenPerLb.toFixed(4) + '/lb', `at ${fmtNum(Math.round(rates.finishWt || 0))} lb`, 'input:calc_finishwt', 'Projected finish weight') : ''}
@@ -8402,7 +8444,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 Death loss is the purchase cost of the animals that died, carved out of Cattle in — the two lines
                 add back to the invoices, so nothing is counted twice. Their processing, feed and doctoring stay in
                 those lines; the head that sell carry them. ${rates.cogMode === 'per_lb'
-                    ? `Cost of gain is charged per pound gained: ${fmtNum(Math.round(actual.soldGainLb))} lb is real pay weight less weight in on the head already shipped, and the rest is ${rates.adg != null ? Number(rates.adg).toFixed(2) : '—'} lb/day on the ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days not yet weighed out. Each truck that ships replaces its estimate with the scale ticket. Labor is charged on`
+                    ? `Cost of gain is charged per pound gained: ${fmtNum(Math.round(actual.soldGainLb))} lb is real pay weight less weight in on the head already shipped, and the rest is ${Number(actual.estAdg).toFixed(2)} lb/day (${actual.estAdgSource === 'realized' ? 'the realized rate on the head shipped, since ' + fmtNum(actual.soldWithWt) + ' carry pay weights' : actual.estAdgSource === 'weighing' ? 'the newest whole-lot weighing' : 'the target ADG, until 25% of the head sold carry a pay weight'}) on the ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days not yet weighed out. Each truck that ships replaces its estimate with the scale ticket. Labor is charged on`
                     : `Cost of gain and labor are charged on`} ${fmtNum(Math.round(actual.headDays))} real head-days,
                 so cattle that already shipped carry their share.
                 ${proj.deathsToCome > 0 ? `Projection assumes ${fmtNum(Math.round(proj.deathsToCome))} more death${Math.round(proj.deathsToCome)===1?'':'s'} on top of the ${fmtNum(actual.headDead)} so far.` : ''}
