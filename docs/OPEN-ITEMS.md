@@ -3,7 +3,7 @@
 Things known to need attention, and deliberately not done yet. Ordered by when
 they will bite, not by size.
 
-**Last reviewed:** 2026-08-28
+**Last reviewed:** 2026-09-11
 
 Anything finished moves to the bottom under *Closed* with the date, so the
 history of what was decided survives.
@@ -433,6 +433,24 @@ and a pass afterwards confirming the app and field app still work.
 
 Worth adding to `rls_verify` at the same time: it checks table grants to `anon`
 but does not check function `EXECUTE`, which is why this sat unseen.
+
+---
+
+## 21. Cost of gain: eleven decisions, build order set (2026-09-11)
+
+**Status:** decided with John 2026-09-11, build not started. Full record with
+the reasoning: `docs/cog-design-decisions.md`.
+
+Actuals replace the COG rate month by month once the Redwing ledger lands
+(October); until then the closeout labels COG and Labor as `rate × real
+head-days`. Realized ADG prices the unsettled gain once 25% of sold head
+carry pay weights; whole-lot weighings count, samples never. Unweighed sales
+flag the closeout and block Close Lot. Feed boundary switches on now with a
+$0.50/head-day placeholder non-feed rate (ranch default, excludes labor).
+Finish weight comes off the anchored projection. Modes collapse to per_lb.
+Assumptions log on Save only, with an unsaved what-if marker. Two drift
+checks on Anomalies. Ledger allocation rules deferred to the October deep
+dive.
 
 ---
 
