@@ -173,12 +173,17 @@ The Closeout tab shows one set of economics in three columns. It is
   default COG metric"). There is no COG mode selector; `closeoutRates()`
   always returns `per_lb` and Save writes `cog_mode='per_lb'` +
   `assumed_cog_per_lb`, leaving the old per-day / flat columns as audit.
-  A lot still stored `per_day` opens with per-day ÷ target ADG in the box
-  and a "converted … save to keep" hint; the books do not change until
-  saved, and the transfer basis keeps reading the stored mode until then.
-  `closeoutActual`/`closeoutBudget` still handle all three modes because
-  frozen budgets and unsaved lots carry them. Labor keeps its selector,
-  per head-day.
+  **Since 2026-09-11 per_lb is the ONLY mode anywhere**
+  (`docs/sql/2026-09-11_cog_per_lb_only.sql`): every lot and budget was
+  migrated (31-26 and 37X-1 from $1.00/hd/day at 1.80 ADG = $0.5556/lb,
+  with audit notes), both `cog_mode` CHECKs now accept only `'per_lb'`,
+  and the per_day / per_head branches are gone from `closeoutActual`,
+  `closeoutProjection`, `closeoutBudget`, `ltStoredRates` and the
+  conversion hint. The feed boundary's non-feed charge, which used to
+  borrow the per_day path, is its own explicit step (`nonFeedRate`,
+  $/head-day, beside `cogLbRate`). The old `assumed_cog_per_day` /
+  `_per_head` columns stay as audit and are no longer copied to a new lot.
+  Labor keeps its selector, per head-day.
 - **Interest** accrues on the cattle for the whole period and on operating
   cost at half the period, the usual convention for a cost that builds
   linearly. The old screen charged interest on the purchase price only.

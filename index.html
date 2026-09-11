@@ -7516,10 +7516,10 @@ window.addEventListener('unhandledrejection', function(e) {
         const nonFeedMissing = boundaryActive && hdAfter > 0 && nonFeedCog == null;
         const useNonFeedOnly = !boundaryActive && !splitUnavailable && nonFeedCog != null;
         const cogSplit = boundaryActive || useNonFeedOnly;
-        const cogRate  = boundaryActive ? (nonFeedCog != null ? nonFeedCog : 0)
-                       : useNonFeedOnly ? nonFeedCog
-                       : (rates.cog || 0);
-        const cogMode  = (boundaryActive || useNonFeedOnly) ? 'per_day' : rates.cogMode;
+        // The non-feed rate is $/head-day and is its OWN step, not a second
+        // "mode" of the COG rate (2026-09-11: per_day and per_head are gone,
+        // every lot and budget is per_lb, the CHECKs refuse anything else).
+        const nonFeedRate = cogSplit ? (nonFeedCog != null ? nonFeedCog : 0) : null;
 
         // ---- GAIN TO DATE, for the per-pound method (2026-09-04) -------
         // A $/lb rate is charged on pounds gained, not on days run. Until
@@ -7567,21 +7567,21 @@ window.addEventListener('unhandledrejection', function(e) {
         const estGainLb    = estAdg * unsettledHeadDays;
         const gainToDateLb = soldGainLb + estGainLb;
 
-        // A per-head rate is a flat charge taken at receiving; a per-day rate
-        // is charged against head-days actually run; a per-pound rate is
-        // charged against the gain those head-days produced.
-        const cogAt = (mode, rate, hd) => mode === 'per_day' ? rate * hd
-                                        : mode === 'per_lb'  ? rate * gainToDateLb * (headDays > 0 ? hd / headDays : 0)
-                                        : rate * headIn;   // a flat charge was taken once, at receiving
+        // The COG rate is $/lb of gain, charged on the pounds those head-days
+        // produced; gain is pro-rated onto a slice of days by head-days.
+        const cogLbRate  = rates.cog || 0;
+        const gainOnDays = hd => headDays > 0 ? gainToDateLb * hd / headDays : 0;
         let cog;
         if (boundaryActive) {
-            // days before the boundary keep the ORIGINAL assumed rate, in its
-            // original mode; days after charge the non-feed rate. Gain is
-            // pro-rated onto the before-days by head-days.
-            const beforeCog = cogAt(rates.cogMode, rates.cog || 0, hdBefore);
-            cog = beforeCog + cogRate * hdAfter;
+            // days before the boundary carry the assumed $/lb (feed inside
+            // it); days after carry actual feed beside the non-feed $/head-day
+            cog = cogLbRate * gainOnDays(hdBefore) + nonFeedRate * hdAfter;
+        } else if (useNonFeedOnly) {
+            // a non-feed rate typed but no boundary date to split on: the
+            // whole life at the per-day rate, actual feed beside it
+            cog = nonFeedRate * headDays;
         } else {
-            cog = cogAt(cogMode, cogRate, headDays);
+            cog = cogLbRate * gainToDateLb;
         }
         const labor = rates.laborMode === 'per_day'
             ? (rates.labor || 0) * headDays
@@ -7669,7 +7669,7 @@ window.addEventListener('unhandledrejection', function(e) {
             // already inside operating, so it belongs here or the rows do
             // not sum to Total cost.
             medicine: processing + treatment + otherMed,
-            feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, cogRate, cogMode,
+            feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, nonFeedRate, cogLbRate,
             soldGainLb, soldHeadDays, unsettledHeadDays, estGainLb, gainToDateLb, gainClamped, rawSoldGainLb, unweighedSoldHead,
             estAdg, estAdgSource, weighingAdg, soldWithWt,
             boundaryActive, splitUnavailable, hdBefore, hdAfter, nonFeedMissing, nonFeedCog,
@@ -7731,9 +7731,11 @@ window.addEventListener('unhandledrejection', function(e) {
         // or target), so cost to come and cost to date agree on how fast
         // these cattle gain.
         const gainFwdLb = (actual.estAdg != null ? actual.estAdg : (rates.adg || 0)) * forwardHeadDays;
-        const cogFwd = actual.cogMode === 'per_day' ? actual.cogRate * forwardHeadDays
-                     : actual.cogMode === 'per_lb'  ? actual.cogRate * gainFwdLb
-                     : 0;   // a flat per-head charge was already taken in full at receiving
+        // Forward days are all after the boundary once it is active, so they
+        // carry the non-feed $/head-day (actual feed rides beside it in
+        // feedFwd); otherwise the $/lb rate on the gain still to come.
+        const cogFwd = actual.cogSplit ? (actual.nonFeedRate || 0) * forwardHeadDays
+                                       : actual.cogLbRate * gainFwdLb;
         const laborFwd = rates.laborMode === 'per_day'
             ? (rates.labor || 0) * forwardHeadDays
             : 0;
@@ -7862,9 +7864,9 @@ window.addEventListener('unhandledrejection', function(e) {
         const cattleLive = cattleCost - deathLoss;
         const headDays   = days * (head + surviving) / 2;
 
-        const cog = b.cog_mode === 'per_day' ? (Number(b.cog_value) || 0) * headDays
-                  : b.cog_mode === 'per_lb'  ? (Number(b.cog_value) || 0) * adg * headDays
-                  : (Number(b.cog_value) || 0) * head;
+        // per_lb only since 2026-09-11 (lot_budgets_cog_mode_check): $/lb on
+        // the budgeted gain, target ADG across the budgeted head-days.
+        const cog = (Number(b.cog_value) || 0) * adg * headDays;
         const labor = b.labor_mode === 'per_day'
             ? (Number(b.labor_value) || 0) * headDays
             : (Number(b.labor_value) || 0) * head;
@@ -7912,23 +7914,11 @@ window.addEventListener('unhandledrejection', function(e) {
             initialShipDate = d.toISOString().slice(0, 10);
         }
 
-        // COG is LOCKED to $/lb of gain on this screen (John, 2026-09-04).
-        // A lot still carrying an older per-day or flat rate gets it
-        // converted through its target ADG as the starting value, and the
-        // hint says so until it is saved. Labor keeps its selector.
+        // COG is $/lb of gain, the only mode there is (locked on this screen
+        // 2026-09-04; every stored lot and budget migrated 2026-09-11, the
+        // CHECKs refuse anything else). Labor keeps its selector.
         const laborMode = lot.labor_mode || 'per_day';
-        let cogInitial = lot.assumed_cog_per_lb ?? '';
-        let cogConvertedFrom = '';
-        const lotAdg = Number(lot.target_adg) || 0;   // the lot's OWN ADG, not the 2.5 display fallback
-        if (cogInitial === '' && lotAdg > 0) {
-            if (lot.cog_mode === 'per_day' && lot.assumed_cog_per_day != null) {
-                cogInitial = (Number(lot.assumed_cog_per_day) / lotAdg).toFixed(4);
-                cogConvertedFrom = `converted from $${Number(lot.assumed_cog_per_day).toFixed(2)}/hd/day at ${lotAdg.toFixed(2)} ADG — save to keep`;
-            } else if (lot.cog_mode === 'per_head' && lot.assumed_cog_per_head != null && lot.target_days_on_feed > 0) {
-                cogInitial = (Number(lot.assumed_cog_per_head) / (lotAdg * lot.target_days_on_feed)).toFixed(4);
-                cogConvertedFrom = `converted from $${Number(lot.assumed_cog_per_head).toFixed(2)}/hd flat over ${lot.target_days_on_feed} days at ${lotAdg.toFixed(2)} ADG — save to keep`;
-            }
-        }
+        const cogInitial = lot.assumed_cog_per_lb ?? '';
         const laborInitial = laborMode === 'per_day'
             ? (lot.assumed_labor_per_day ?? '')
             : (lot.assumed_labor_per_head ?? '');
@@ -7944,7 +7934,7 @@ window.addEventListener('unhandledrejection', function(e) {
                         <div><label>Projected finish wt</label><input type="number" step="1" id="calc_finishwt" value="${defaultFinishWt}" placeholder="auto"></div>
                         <div style="grid-column: span 2;">
                             <label>COG $/lb of gain <span class="muted" style="font-weight:400; font-size:11px;">(feed and non-feed together)</span></label>
-                            <input type="number" step="0.0001" id="calc_cog" value="${cogInitial}" placeholder="e.g. 1.00" data-converted="${cogConvertedFrom}">
+                            <input type="number" step="0.0001" id="calc_cog" value="${cogInitial}" placeholder="e.g. 0.55">
                             <div class="muted" style="font-size:11px; margin-top:2px;" id="calc_cog_hint"></div>
                         </div>
                         <div style="grid-column: span 2;">
@@ -8045,18 +8035,15 @@ window.addEventListener('unhandledrejection', function(e) {
         // ---- input hints ----
         const intDays = parseFloat($('calc_days') ? $('calc_days').value : '') || 0;
         if ($('calc_cog_hint')) {
-            if (rates.cogMode === 'per_lb' && rates.cog) {
+            if (rates.cog) {
                 const parts = [];
                 if (actual.soldGainLb > 0) parts.push(`${fmtNum(Math.round(actual.soldGainLb))} lb weighed out`);
                 if (actual.unsettledHeadDays > 0) parts.push(`${fmtNum(Math.round(actual.estGainLb))} lb est. at ${Number(actual.estAdg).toFixed(2)} ADG (${actual.estAdgSource === 'realized' ? 'realized on the head shipped' : actual.estAdgSource === 'weighing' ? 'whole-lot weighing' : 'target'}) on ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days`);
-                const conv = $('calc_cog') && $('calc_cog').dataset.converted;
-                $('calc_cog_hint').textContent = (parts.length
+                $('calc_cog_hint').textContent = parts.length
                     ? `${parts.join(' + ')} = ${fmtNum(Math.round(actual.gainToDateLb))} lb gain → ${fmtMoney(actual.cog)}`
-                    : '') + (conv && lot.cog_mode !== 'per_lb' ? ` · ${conv}` : '');
-            } else {
-                $('calc_cog_hint').textContent = (rates.cogMode==='per_day' && rates.cog)
-                    ? `${fmtNum(Math.round(actual.headDays))} head-days run so far = ${fmtMoney(actual.cog)}`
                     : '';
+            } else {
+                $('calc_cog_hint').textContent = '';
             }
         }
         if ($('calc_nonfeed_hint')) {
@@ -8115,14 +8102,14 @@ window.addEventListener('unhandledrejection', function(e) {
         if (currentHeadDaysToDate == null) {
             warnings.push('Head-days could not be loaded, so cost of gain to date is not being charged.');
         }
-        if (rates.cogMode === 'per_lb' && rates.cog && !(rates.adg > 0) && actual.unsettledHeadDays > 0) {
+        if (rates.cog && !(rates.adg > 0) && actual.unsettledHeadDays > 0) {
             warnings.push('Cost of gain is per pound, but there is <b>no target ADG</b> — the head not yet weighed out are charged for zero gain.');
         }
         // Both directions (2026-09-11). It used to warn only when the cattle
         // ran AHEAD of the assumption - the error that flatters the lot.
         // 37X sat 18% below its assumed ADG, charging gain it never made,
         // and got silence.
-        if (rates.cogMode === 'per_lb' && rates.cog && rates.adg > 0 && realizedAdgForWarn != null && actual.estAdgSource === 'target'
+        if (rates.cog && rates.adg > 0 && realizedAdgForWarn != null && actual.estAdgSource === 'target'
             && actual.unsettledHeadDays > 0 && Math.abs(realizedAdgForWarn - Number(rates.adg)) > Number(rates.adg) * 0.05) {
             const est = actual.estGainLb, alt = Math.max(0, realizedAdgForWarn) * actual.unsettledHeadDays;
             const diff = rates.cog * (est - alt);
@@ -8420,10 +8407,10 @@ window.addEventListener('unhandledrejection', function(e) {
                         : actual.boundaryActive && actual.hdBefore > 0
                             ? `split at ${fmtDate(feedDirectFrom)} · non-feed after`
                         : actual.cogSplit ? 'non-feed only'
-                        : rates.cogMode === 'per_lb' ? 'feed included · ' + `$${Number(rates.cog||0).toFixed(4)}/lb × ${fmtNum(Math.round(actual.gainToDateLb))} lb`
+                        : 'feed included · ' + `$${Number(rates.cog||0).toFixed(4)}/lb × ${fmtNum(Math.round(actual.gainToDateLb))} lb`
                             + (actual.soldGainLb > 0 ? ` · ${fmtNum(Math.round(actual.soldGainLb))} lb trued up` : '')
                             + (proj.gainFwdLb > 0 ? ` · +${fmtNum(Math.round(proj.gainFwdLb))} lb to come` : '')
-                        : 'feed included'), drill:'input:calc_cog', drillTitle:'COG $/lb of gain assumption'}, sp(actual.cog, proj.cogFwd).l)}
+                        ), drill:'input:calc_cog', drillTitle:'COG $/lb of gain assumption'}, sp(actual.cog, proj.cogFwd).l)}
                     ${row('Labor', b('labor'), sp(actual.labor, proj.laborFwd).a, sp(actual.labor, proj.laborFwd).p, {note: rateTag.trim(), drill:'input:calc_labor', drillTitle:'Labor assumption'}, sp(actual.labor, proj.laborFwd).l)}
                     ${row('Interest', b('interest'), sp(actual.interest + actual.transferInterest, proj.interestFwd).a, sp(actual.interest + actual.transferInterest, proj.interestFwd).p, {drill:'input:calc_int', drillTitle:'Interest assumption'}, sp(actual.interest + actual.transferInterest, proj.interestFwd).l)}
                     ${row('Total cost', b('totalCost'), split ? actual.totalCost * shSold : actual.totalCost, split ? proj.leftCost : proj.totalCost, {strong:true, rule:true}, proj.totalCost)}
@@ -8443,9 +8430,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     : 'Actual has no Net until cattle ship — revenue only lands as they sell. Projection Net is on the whole lot, since every head is still here.'}
                 Death loss is the purchase cost of the animals that died, carved out of Cattle in — the two lines
                 add back to the invoices, so nothing is counted twice. Their processing, feed and doctoring stay in
-                those lines; the head that sell carry them. ${rates.cogMode === 'per_lb'
-                    ? `Cost of gain is charged per pound gained: ${fmtNum(Math.round(actual.soldGainLb))} lb is real pay weight less weight in on the head already shipped, and the rest is ${Number(actual.estAdg).toFixed(2)} lb/day (${actual.estAdgSource === 'realized' ? 'the realized rate on the head shipped, since ' + fmtNum(actual.soldWithWt) + ' carry pay weights' : actual.estAdgSource === 'weighing' ? 'the newest whole-lot weighing' : 'the target ADG, until 25% of the head sold carry a pay weight'}) on the ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days not yet weighed out. Each truck that ships replaces its estimate with the scale ticket. Labor is charged on`
-                    : `Cost of gain and labor are charged on`} ${fmtNum(Math.round(actual.headDays))} real head-days,
+                those lines; the head that sell carry them. ${`Cost of gain is charged per pound gained: ${fmtNum(Math.round(actual.soldGainLb))} lb is real pay weight less weight in on the head already shipped, and the rest is ${Number(actual.estAdg).toFixed(2)} lb/day (${actual.estAdgSource === 'realized' ? 'the realized rate on the head shipped, since ' + fmtNum(actual.soldWithWt) + ' carry pay weights' : actual.estAdgSource === 'weighing' ? 'the newest whole-lot weighing' : 'the target ADG, until 25% of the head sold carry a pay weight'}) on the ${fmtNum(Math.round(actual.unsettledHeadDays))} head-days not yet weighed out. Each truck that ships replaces its estimate with the scale ticket. Labor is charged on`} real head-days,
                 so cattle that already shipped carry their share.
                 ${proj.deathsToCome > 0 ? `Projection assumes ${fmtNum(Math.round(proj.deathsToCome))} more death${Math.round(proj.deathsToCome)===1?'':'s'} on top of the ${fmtNum(actual.headDead)} so far.` : ''}
                 ${proj.remainingDays != null && proj.deathExposure < 1 && assumedTotalDeathsLeft(actual, rates) > 0 ? `The assumed death loss is a whole-life rate, so the ${fmtNum(actual.headCurrent)} head left carry only the ${Math.round(proj.deathExposure * 100)}% of it that matches the ${fmtNum(proj.remainingDays)} day${proj.remainingDays===1?'':'s'} still ahead of them${proj.remainingDays === 0 ? ' — past the ship date, nothing more is assumed' : ''}.` : ''}
@@ -8493,7 +8478,6 @@ window.addEventListener('unhandledrejection', function(e) {
             deadPct: lot.assumed_death_loss_pct!=null?Number(lot.assumed_death_loss_pct):null,
             intPct: lot.assumed_interest_pct!=null?Number(lot.assumed_interest_pct):null,
             nonFeed: lot.assumed_nonfeed_cog_per_day!=null?Number(lot.assumed_nonfeed_cog_per_day):null,
-            cogMode: lot.cog_mode || 'per_lb',   // a lot still on per_day reads dirty until saved as per_lb
             laborMode: lot.labor_mode || 'per_day',
             shipDate: lot.target_ship_date || null
         };
@@ -8502,7 +8486,7 @@ window.addEventListener('unhandledrejection', function(e) {
             && eq(rates.cog,stored.cog) && eq(rates.labor,stored.labor)
             && eq(rates.procPerHead,stored.proc) && eq(rates.docPerHead,stored.doc) && eq(rates.deathPct,stored.deadPct)
             && eq(rates.intPct,stored.intPct) && eq(rates.nonFeedCog,stored.nonFeed)
-            && rates.cogMode===stored.cogMode && rates.laborMode===stored.laborMode
+            && rates.laborMode===stored.laborMode
             && (rates.shipDate||null)===stored.shipDate);
         $('saveAssumptionsBtn').classList.toggle('hidden',!dirty);
     }
@@ -8721,11 +8705,9 @@ window.addEventListener('unhandledrejection', function(e) {
             if(seed){
                 payload.target_sale_cwt=seed.target_sale_cwt;
                 payload.target_days_on_feed=seed.target_days_on_feed;
-                payload.cog_mode=seed.cog_mode;
+                payload.cog_mode='per_lb';   // the only mode (2026-09-11); the old per-day / flat columns are audit and are not copied
                 payload.labor_mode=seed.labor_mode;
-                payload.assumed_cog_per_day=seed.assumed_cog_per_day;
                 payload.assumed_cog_per_lb=seed.assumed_cog_per_lb;
-                payload.assumed_cog_per_head=seed.assumed_cog_per_head;
                 payload.assumed_nonfeed_cog_per_day=seed.assumed_nonfeed_cog_per_day;
                 payload.assumed_labor_per_day=seed.assumed_labor_per_day;
                 payload.assumed_labor_per_head=seed.assumed_labor_per_head;
@@ -13749,20 +13731,16 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     function ltStoredRates() {
         const l = currentLot || {};
         const n = v => (v == null || v === '' || isNaN(Number(v))) ? null : Number(v);
-        const cogMode   = l.cog_mode   || 'per_lb';
         const laborMode = l.labor_mode || 'per_day';
         return {
             salePerLb: null, finishWt: null,
             procPerHead: null, docPerHead: null, deathPct: null, shipDate: null,
-            // A per-pound rate is charged on gain, and gain not yet weighed
-            // out is the lot's stored target ADG times head-days - so ADG
-            // reaches the basis in that one mode only.
-            adg: cogMode === 'per_lb' ? n(l.target_adg) : null,
+            // One COG mode (2026-09-11): $/lb on gain, and gain not yet
+            // weighed out is the lot's stored target ADG times head-days.
+            adg: n(l.target_adg),
             nonFeedCog: n(l.assumed_nonfeed_cog_per_day),
-            cogMode, laborMode,
-            cog:   cogMode   === 'per_day' ? n(l.assumed_cog_per_day)
-                 : cogMode   === 'per_lb'  ? n(l.assumed_cog_per_lb)
-                 : n(l.assumed_cog_per_head),
+            cogMode: 'per_lb', laborMode,
+            cog:   n(l.assumed_cog_per_lb),
             labor: laborMode === 'per_day' ? n(l.assumed_labor_per_day) : n(l.assumed_labor_per_head),
             // Already a fraction on the lot. The closeout input shows it x100
             // and divides on the way back, which is why this does not.
@@ -13959,9 +13937,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             // where the number is, rather than let it freeze onto two lots.
             const missing = [];
             const l = currentLot;
-            const cogSet = (l.cog_mode === 'per_head' ? l.assumed_cog_per_head
-                          : l.cog_mode === 'per_lb'   ? l.assumed_cog_per_lb
-                          : l.assumed_cog_per_day) != null;
+            const cogSet = l.assumed_cog_per_lb != null;
             const laborSet = (l.labor_mode === 'per_head' ? l.assumed_labor_per_head : l.assumed_labor_per_day) != null;
             if (!cogSet)   missing.push('cost of gain');
             if (!laborSet) missing.push('labor');
