@@ -1395,6 +1395,12 @@ Three checks, all in `loadAnomaliesReport()`:
 3. **Last head scattered across pastures** (low, on the lot) — a lot at ≤ 30
    head spread over 2+ pastures.
 
+4. **Assumption drift** (low, 2026-09-11, `docs/cog-design-decisions.md`
+   §8) — COG $/lb or target ADG more than 25% off the median of the open
+   lots (needs 3+ open lots), and a frozen budget more than 25% off the
+   lot's working COG or ADG. Test lots, the feed pen and closed lots are
+   excluded. Quiet as soon as the number is deliberate.
+
 `severityBadge` is declared ABOVE the pasture block on purpose: the block
 renders first, and a `const` used before its declaration throws at runtime with
 nothing in a parse check to catch it.

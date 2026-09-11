@@ -15383,9 +15383,9 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         // Pull everything we need in parallel
         const [statusRes, lotsRes, assignmentsRes, receiptsRes,
                bayRes, premixRes, settingsRes, transferRes, penRes, headEvRes,
-               salesRes] = await Promise.all([
+               salesRes, budgetsRes] = await Promise.all([
             supabase.from('lot_status').select('lot_id, lot_number, head_in, head_in_invoiced, head_in_received, head_pending_invoice, head_dead, head_sold, head_current, closed_at'),
-            supabase.from('lots').select('id, is_test, closed_at, lot_number, assumed_nonfeed_cog_per_day'),
+            supabase.from('lots').select('id, is_test, is_feed_pen, closed_at, lot_number, assumed_nonfeed_cog_per_day, assumed_cog_per_lb, target_adg'),
             // pasture_id and names come along for the stranded-head checks:
             // those findings belong to a PASTURE, not to a lot.
             supabase.from('lot_pasture_assignments')
@@ -15417,7 +15417,9 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             // table at all; RLS returns zero rows and no error, so the check
             // simply does not appear for them, like the feed checks above.
             supabase.from('sales')
-                .select('id, lot_id, sale_date, head_count, gross_weight_lb, net_weight_lb, buyer')
+                .select('id, lot_id, sale_date, head_count, gross_weight_lb, net_weight_lb, buyer'),
+            // Frozen budgets, for the budget-vs-working drift check (2026-09-11).
+            supabase.from('lot_budgets').select('lot_id, cog_value, target_adg')
         ]);
 
         // Active tags MUST be paginated: PostgREST caps responses at 1000 rows and
@@ -15590,7 +15592,55 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             const evs = (headEvRes && !headEvRes.error) ? (headEvRes.data || []) : [];
             if (!evs.length) return;
             const today = ranchToday();
-            const byLot = {};
+            // ---- ASSUMPTION DRIFT (2026-09-11, docs/cog-design-decisions.md §8) --
+        // Two low findings. COG $/lb or target ADG more than 25% off the
+        // median of the OPEN lots (47-26 and 60X sat at $0.70 against $0.50
+        // to $0.56 on the rest, same class of cattle, and nothing said so),
+        // and a frozen budget more than 25% off the lot's working rate (60X's
+        // budget says $1.00/lb against a working $0.70 - a typo nobody saw).
+        // Both go quiet as soon as the number is deliberate.
+        {
+            const openLots = (lotsRes.data || []).filter(l => !l.is_test && !l.is_feed_pen && !l.closed_at);
+            const median = arr => { const a = arr.filter(v => v != null && isFinite(v)).sort((x, y) => x - y); if (!a.length) return null; const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+            const medCog = openLots.length >= 3 ? median(openLots.map(l => l.assumed_cog_per_lb != null ? Number(l.assumed_cog_per_lb) : null)) : null;
+            const medAdg = openLots.length >= 3 ? median(openLots.map(l => l.target_adg != null ? Number(l.target_adg) : null)) : null;
+            const off = (v, m) => v != null && m > 0 && Math.abs(v - m) / m > 0.25;
+            openLots.forEach(l => {
+                const cog = l.assumed_cog_per_lb != null ? Number(l.assumed_cog_per_lb) : null;
+                const adg = l.target_adg != null ? Number(l.target_adg) : null;
+                if (off(cog, medCog)) findings.push({
+                    lot_id: l.id, lot_number: l.lot_number, severity: 'low', type: 'assumption_drift',
+                    title: 'Cost of gain assumption is off the other open lots',
+                    detail: `$${cog.toFixed(4)}/lb against a median of $${medCog.toFixed(4)} on the ${openLots.length} open lots. ` +
+                            `Cost of gain is the second-largest line on the closeout and, until the ledger posts, a typed rate on real head-days. ` +
+                            `If this lot really runs different, leave it; if not, set it on the Closeout tab.`
+                });
+                if (off(adg, medAdg)) findings.push({
+                    lot_id: l.id, lot_number: l.lot_number, severity: 'low', type: 'assumption_drift',
+                    title: 'Target ADG is off the other open lots',
+                    detail: `${adg.toFixed(2)} lb/day against a median of ${medAdg.toFixed(2)} on the ${openLots.length} open lots. ` +
+                            `Target ADG prices the gain not yet weighed out and the finish weight.`
+                });
+            });
+            (budgetsRes && !budgetsRes.error ? (budgetsRes.data || []) : []).forEach(b => {
+                const l = (lotsRes.data || []).find(x => x.id === b.lot_id);
+                if (!l || l.is_test || l.closed_at) return;
+                const wCog = l.assumed_cog_per_lb != null ? Number(l.assumed_cog_per_lb) : null;
+                const bCog = b.cog_value != null ? Number(b.cog_value) : null;
+                const wAdg = l.target_adg != null ? Number(l.target_adg) : null;
+                const bAdg = b.target_adg != null ? Number(b.target_adg) : null;
+                const parts = [];
+                if (wCog != null && bCog != null && wCog > 0 && Math.abs(bCog - wCog) / wCog > 0.25) parts.push(`COG $${bCog.toFixed(4)}/lb frozen against $${wCog.toFixed(4)} working`);
+                if (wAdg != null && bAdg != null && wAdg > 0 && Math.abs(bAdg - wAdg) / wAdg > 0.25) parts.push(`ADG ${bAdg.toFixed(2)} frozen against ${wAdg.toFixed(2)} working`);
+                if (parts.length) findings.push({
+                    lot_id: l.id, lot_number: l.lot_number, severity: 'low', type: 'budget_vs_working',
+                    title: 'Frozen budget is far from the working assumption',
+                    detail: parts.join('; ') + '. A budget cannot be edited; if it was typed wrong an owner can delete it on the Closeout tab and freeze a new one. If the working rate is the one that moved, the variance is real.'
+                });
+            });
+        }
+
+        const byLot = {};
             const MISFILED = /missing|unaccounted|not found|never found|lost|stray/i;
 
             evs.forEach(e => {
