@@ -1,8 +1,7 @@
 # Cost of gain on the closeout — decisions of 2026-09-11
 
 The critique that started this is summarised at the foot. Everything here
-was settled with John in one sitting, one branch at a time. Built 2026-09-11 in the order at the end; the §7 history trigger is the one
-migration still waiting on John's go.
+was settled with John in one sitting, one branch at a time. All eight items built and applied 2026-09-11, in the order at the end.
 
 The frame for every decision: the Redwing cost ledger (roadmap item 4,
 "will happen in October") is the only thing that turns cost of gain from a

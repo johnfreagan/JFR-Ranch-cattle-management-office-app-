@@ -438,8 +438,9 @@ but does not check function `EXECUTE`, which is why this sat unseen.
 
 ## 21. Cost of gain: eleven decisions, build order set (2026-09-11)
 
-**Status:** decided with John 2026-09-11, build not started. Full record with
-the reasoning: `docs/cog-design-decisions.md`.
+**Status:** built and applied 2026-09-11, all eight items. Full record with
+the reasoning: `docs/cog-design-decisions.md`. Still open from it: the
+$0.50 non-feed placeholder, and the ledger allocation rules (October).
 
 Actuals replace the COG rate month by month once the Redwing ledger lands
 (October); until then the closeout labels COG and Labor as `rate × real

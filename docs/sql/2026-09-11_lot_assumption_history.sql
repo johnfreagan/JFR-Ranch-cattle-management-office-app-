@@ -11,6 +11,9 @@
 -- allowed to the roles that can UPDATE lots, because the trigger runs as
 -- the invoking user; no UPDATE, no DELETE - it is an audit trail.
 -- Idempotent. Paste WITHOUT the begin/commit lines.
+-- Applied through the connector 2026-09-11; smoke-tested in a rolled-back
+-- DO block (a target_adg change wrote one row carrying target_adg, then
+-- raised so nothing persisted).
 begin;
 
 create table if not exists public.lot_assumption_history (

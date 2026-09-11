@@ -269,6 +269,16 @@ The Closeout tab shows one set of economics in three columns. It is
   survivors, head sold (or surviving head before any sale), head left (or
   head sold at close), head sold at close. Rows marked `unit:'count'` or
   `unit:'ratio'` are never divided.
+- **Assumption changes are logged on SAVE only** (2026-09-11,
+  `lot_assumption_history`, `docs/sql/2026-09-11_lot_assumption_history.sql`,
+  decision in `docs/cog-design-decisions.md` §7). The inputs are John's
+  scratch pad: typing recalculates live and is a what-if — the screen says
+  so in amber and offers **Reset to saved** — and nothing lands until Save.
+  An AFTER UPDATE trigger on `lots` writes `{column: [old, new]}` for each
+  assumption that moved, nothing on a no-op; RLS read through
+  `can_read_books()`, insert for owner/office (the trigger runs as the
+  invoker), no update or delete. Shown as "Assumption changes" on the
+  lot's Audit log tab.
 - **No locks or edit buttons on the closeout inputs.** Every assumption
   is prefilled from the lot; click and type. (A readonly lock with an
   "edit" button was built and removed the same day at John's request.)
