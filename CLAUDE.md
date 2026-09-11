@@ -130,6 +130,14 @@ The Closeout tab shows one set of economics in three columns. It is
   11%. In total dollars death loss needs no line; it falls out of the
   division. The projection estimates only **deaths still to come**:
   `clamp(0, head_current, head_in × pct − head_dead)`.
+  **Since 2026-09-10 the deaths still to come are weighted by exposure**:
+  `deathsToCome = clamp(0, head_current, (head_in × pct − head_dead) ×
+  remainingDays / (daysToDate + remainingDays))`. The assumed % is a
+  whole-life rate; the head still here have survived most of that life.
+  Before this the whole unspent allowance dropped on the remnant — 60X
+  projected 2 of its last 6 head dying ($852/hd) after its ship date.
+  Past the ship date nothing more is assumed. With NO ship date the
+  exposure is unknown and the whole allowance stands, as before.
   **Since 2026-09-04 death loss IS shown as its own line** (John: "very
   important line item") — but CARVED OUT of Cattle in, never added on
   top: `deathLossUsd = head_dead × avgCostIn`, `cattleLive = cattleCost −

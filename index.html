@@ -7643,6 +7643,12 @@ window.addEventListener('unhandledrejection', function(e) {
         };
     }
 
+    // Deaths the assumption still allows for, before the exposure weighting.
+    // The notes say "n% of the period left" only when there is something left.
+    function assumedTotalDeathsLeft(actual, rates){
+        return rates.deathPct != null ? Math.max(0, actual.headIn * rates.deathPct - actual.headDead) : 0;
+    }
+
     // ---- PROJECTION AT CLOSE --------------------------------------------
     function closeoutProjection(rates, actual){
         const today = ranchToday();
@@ -7652,7 +7658,18 @@ window.addEventListener('unhandledrejection', function(e) {
         // has already happened. Never negative, never more than are alive.
         // This is the double count the old screen had.
         const assumedTotalDeaths = (rates.deathPct != null) ? actual.headIn * rates.deathPct : 0;
-        const deathsToCome = Math.max(0, Math.min(actual.headCurrent, assumedTotalDeaths - actual.headDead));
+        // The assumed % is a WHOLE-LIFE risk, so the unspent allowance is
+        // weighted by the share of the life still ahead (John, 2026-09-10:
+        // "death loss on remaining cattle is high because they still carry
+        // the assumed death loss on few cattle"). Before this, every death
+        // not yet buried landed on whatever head were left: 60X projected 2
+        // of its last 6 head dying, $852 a head, after its ship date. With
+        // no ship date the exposure is unknown and the whole allowance
+        // stands, as before.
+        const lifeDays      = (remainingDays != null) ? actual.daysToDate + remainingDays : 0;
+        const deathExposure = (remainingDays == null) ? 1
+                            : lifeDays > 0 ? Math.max(0, Math.min(1, remainingDays / lifeDays)) : 0;
+        const deathsToCome = Math.max(0, Math.min(actual.headCurrent, (assumedTotalDeaths - actual.headDead) * deathExposure));
         const survivingAtClose = Math.max(0, actual.headCurrent - deathsToCome);
         // Deaths still to come, at cost in. Comes OUT of cattle in, same as
         // the deaths that already happened.
@@ -7765,7 +7782,7 @@ window.addEventListener('unhandledrejection', function(e) {
             ? leftCost / (survivingAtClose * finishWt) : null;
 
         return {
-            remainingDays, deathsToCome, survivingAtClose, forwardHeadDays, gainFwdLb, deathLossFwd,
+            remainingDays, deathsToCome, deathExposure, survivingAtClose, forwardHeadDays, gainFwdLb, deathLossFwd,
             processingProj, processingFwd, headNoProtocol,
             treatmentProj, treatmentBurnFwd, doctoringFloor, doctoringOnFloor,
             medicineFwd: processingFwd + treatmentFwd,
@@ -8012,7 +8029,7 @@ window.addEventListener('unhandledrejection', function(e) {
         }
         if ($('calc_dead_hint')) {
             $('calc_dead_hint').textContent = rates.deathPct != null
-                ? `${fmtNum(actual.headDead)} dead so far · ${fmtNum(Math.round(proj.deathsToCome))} more assumed`
+                ? `${fmtNum(actual.headDead)} dead so far · ${fmtNum(Math.round(proj.deathsToCome))} more assumed` + (proj.remainingDays != null ? ` · ${Math.round(proj.deathExposure * 100)}% of the feeding period still ahead` : ' · no ship date, whole allowance carried')
                 : '';
         }
         if ($('calc_proc_hint')) {
@@ -8274,7 +8291,7 @@ window.addEventListener('unhandledrejection', function(e) {
                         {rule:true, note: `head that sell, at ${fmtMoney(actual.avgCostIn)}/hd in`, drill:'purchases', drillTitle:'Invoices'},
                         proj.headSoldAtClose * actual.avgCostIn)}
                     ${row('Death loss', b('deathLoss'), sp(actual.deathLossUsd, proj.deathLossFwd).a, sp(actual.deathLossUsd, proj.deathLossFwd).p, {
-                        note: `${fmtNum(actual.headDead)} dead at cost in` + (proj.deathsToCome > 0 ? ` · ${fmtNum(Math.round(proj.deathsToCome))} more assumed` : '') + (rates.deathPct != null ? ` · ${(rates.deathPct*100).toFixed(1)}% assumed` : ''),
+                        note: `${fmtNum(actual.headDead)} dead at cost in` + (proj.deathsToCome > 0 ? ` · ${fmtNum(Math.round(proj.deathsToCome))} more assumed` : '') + (rates.deathPct != null ? ` · ${(rates.deathPct*100).toFixed(1)}% assumed` : '') + (proj.remainingDays != null && proj.deathExposure < 1 && (assumedTotalDeathsLeft(actual, rates) > 0) ? ` · ${Math.round(proj.deathExposure * 100)}% of the period left` : ''),
                         drill:'deaths', drillTitle:'Death log'}, sp(actual.deathLossUsd, proj.deathLossFwd).l)}
                     ${actual.netMissing !== 0 ? row(
                         actual.netMissing > 0 ? 'Missing' : 'Strays back',
@@ -8359,6 +8376,7 @@ window.addEventListener('unhandledrejection', function(e) {
                     : `Cost of gain and labor are charged on`} ${fmtNum(Math.round(actual.headDays))} real head-days,
                 so cattle that already shipped carry their share.
                 ${proj.deathsToCome > 0 ? `Projection assumes ${fmtNum(Math.round(proj.deathsToCome))} more death${Math.round(proj.deathsToCome)===1?'':'s'} on top of the ${fmtNum(actual.headDead)} so far.` : ''}
+                ${proj.remainingDays != null && proj.deathExposure < 1 && assumedTotalDeathsLeft(actual, rates) > 0 ? `The assumed death loss is a whole-life rate, so the ${fmtNum(actual.headCurrent)} head left carry only the ${Math.round(proj.deathExposure * 100)}% of it that matches the ${fmtNum(proj.remainingDays)} day${proj.remainingDays===1?'':'s'} still ahead of them${proj.remainingDays === 0 ? ' — past the ship date, nothing more is assumed' : ''}.` : ''}
                 ${(actual.transferInHead > 0 || actual.transferOutHead > 0) ? `
                     <div style="margin-top:6px;">
                         ${proj.penOutHead > 0 ? `<div style="margin-bottom:6px;">
