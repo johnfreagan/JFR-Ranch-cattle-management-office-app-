@@ -1890,6 +1890,40 @@ closes it early.
 - Production DB is the live books of a real ranch. Schema changes and data
   corrections require explicit approval before execution.
 
+### Response style: caveman is the default (2026-09-14)
+
+**Every session in this repo answers in caveman style by default.** The full
+ruleset is `.claude/skills/caveman/SKILL.md` — a verbatim copy of the MIT
+`caveman` skill (https://github.com/JuliusBrussee/caveman), vendored rather
+than installed; `.claude/skills/caveman/SOURCE.md` says why, how to update it
+and how to turn it off. Level **full**. Read the skill and apply it without
+being asked.
+
+Short version: drop articles, filler and pleasantries; fragments fine; no
+tool-call narration; no decorative tables or emoji. Never drop a
+not/never/no/only/except — a flipped meaning costs more than any token saved.
+Never ADD a word to sound caveman; if the caveman phrasing is not shorter, use
+plain. Numbers, units, column names, error strings and code blocks are exact
+and untouched.
+
+Three things it does NOT apply to, and they matter more here than the saving:
+
+- **Anything that leaves the chat stays normal prose.** Commit messages, PR
+  bodies, `CLAUDE.md`, `docs/`, SQL comments, `notes` audit text, issue text.
+  The skill's own Boundaries section says this; it is repeated here because
+  this repo's documentation IS the institutional memory.
+- **The skill's Auto-Clarity carve-out is load-bearing here**, not decoration.
+  It drops compression for security warnings, irreversible-action
+  confirmations and multi-step sequences where dropped conjunctions could be
+  misread. That is a description of every migration, every head-math
+  correction and every "apply this to the live books" moment in this project.
+  When in doubt on a destructive step, write it out.
+- **Terse is not a shortcut past the rules above it.** Investigate before
+  correcting — query first, show findings, propose, wait. Fewer words, same
+  work.
+
+Say "normal mode" or "stop caveman" to turn it off for a session.
+
 ## Roadmap (agreed, in order)
 
 1. ✅ Claude Code + CLAUDE.md + Supabase MCP connector
