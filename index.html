@@ -32333,11 +32333,32 @@ ${ranchBlocks}
         // Usage inside the period, and EVERY receipt and usage row ever, because
         // the roll-forward's opening balance is arithmetic over all history:
         // a FIFO layer records what is left now, not what was there in June.
+        //
+        // A row is in the period when its usage_date is. A weekly hand entry
+        // carries usage_date = period_end (the Sunday), so the whole week posts
+        // in the range that holds its Sunday and a range cutting through the
+        // week is not pro-rated. PB email rows are one-day periods dated the
+        // feeding day, so the same rule places them exactly. No source filter:
+        // manual, count, pb_import and truck all post alike.
+        //
+        // Paged: PB adds ~15 usage rows a feeding day, so the all-history
+        // read passes PostgREST's 1000-row cap within a couple of months, and a
+        // silent cut there invents an opening balance. A builder FUNCTION per
+        // page because a query builder is single-use.
+        const pageAll = async (build, key = 'id') => {
+            const PAGE = 1000, out = [];
+            for (let at = 0; ; at += PAGE) {
+                const { data, error } = await build().order(key).range(at, at + PAGE - 1);
+                if (error) return { error };
+                out.push(...(data || []));
+                if (!data || data.length < PAGE) return { data: out };
+            }
+        };
         const [usg, rec, allU] = await Promise.all([
-            supabase.from('feed_usage_detail').select('*')
-                .gte('usage_date', from).lte('usage_date', to),
-            supabase.from('feed_receipts').select('id,item_id,receipt_date,qty_lb,product_cost,freight_cost,other_cost,cost_pending,source'),
-            supabase.from('feed_usage').select('id,item_id,usage_date,qty_lb,destination_type,is_short')
+            pageAll(() => supabase.from('feed_usage_detail').select('*')
+                .gte('usage_date', from).lte('usage_date', to), 'usage_id'),
+            pageAll(() => supabase.from('feed_receipts').select('id,item_id,receipt_date,qty_lb,product_cost,freight_cost,other_cost,cost_pending,source')),
+            pageAll(() => supabase.from('feed_usage').select('id,item_id,usage_date,qty_lb,destination_type,is_short'))
         ]);
         const err = usg.error || rec.error || allU.error;
         if (err) {
@@ -32479,6 +32500,10 @@ ${ranchBlocks}
         const boxes = which === 'feed' ? FD_RW_FEED_BOXES : FD_RW_MIN_BOXES;
         const names = Object.keys(lots).filter(n => Object.keys(lots[n][which]).length).sort();
         if (!names.length) return '<div class="empty">Nothing to post for this period.</div>';
+        let gLb = 0, gUsd = 0, gPending = 0;
+        names.forEach(n => Object.values(lots[n][which]).forEach(v => {
+            gLb += v.lb; gUsd += v.usd; gPending += v.pending;
+        }));
         return names.map(lotNo => {
             const bucket = lots[lotNo][which];
             let tLb = 0, tUsd = 0, pending = 0;
@@ -32488,8 +32513,7 @@ ${ranchBlocks}
                 return `<tr>
                     <td>${escapeHtml(b)}${v.items.size > 1 || !v.items.has(b)
                         ? `<div class="muted" style="font-size:11px;">${escapeHtml([...v.items].join(' + '))}</div>` : ''}</td>
-                    <td class="num">${fdRwUsd(v.usd)}${v.pending > 0
-                        ? ' <span style="color:#b58900;" title="an unpriced load is in here">⚠</span>' : ''}</td>
+                    <td class="num">${fdRwUsd(v.usd)}${fdRwPendingFlag(v.pending)}</td>
                     <td class="num">${fdRwLb(v.lb)}</td>
                 </tr>`;
             }).join('');
@@ -32499,13 +32523,57 @@ ${ranchBlocks}
                 <tbody>${rows}
                 <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
                     <td>${which === 'feed' ? 'Total $ Fed / Total lbs Fed' : 'Total $ Min Out / Total lbs Min Out'}</td>
-                    <td class="num">${fdRwUsd(tUsd)}</td><td class="num">${fdRwLb(tLb)}</td></tr>
+                    <td class="num">${fdRwUsd(tUsd)}${fdRwPendingFlag(pending)}</td><td class="num">${fdRwLb(tLb)}</td></tr>
                 </tbody></table>
                 ${pending > 0 ? `<div class="muted" style="font-size:11px; color:#b58900;">
                     ⚠ An unpriced load is inside these dollars. Price it before posting, or Redwing takes a
                     number that will change underneath it.</div>` : ''}
             </div>`;
-        }).join('');
+        }).join('') + `<div style="margin-bottom:16px;">
+                <div style="font-weight:600; margin-bottom:4px;">All lots</div>
+                <table><thead><tr><th>Lots</th><th class="num">$</th><th class="num">lbs</th></tr></thead>
+                <tbody><tr style="font-weight:700;">
+                    <td>${names.length} lot${names.length === 1 ? '' : 's'}</td>
+                    <td class="num">${fdRwUsd(gUsd)}${fdRwPendingFlag(gPending)}</td><td class="num">${fdRwLb(gLb)}</td></tr>
+                </tbody></table></div>`;
+    }
+
+    // An unpriced cost line reads as $0 in feed_usage_detail.cost_usd
+    // (COALESCE), so the dollars beside it are SHORT, not final. The flag is
+    // text, not an icon with a tooltip, so it survives Copy rows and the PDF:
+    // whoever types the number into Redwing has to see it.
+    function fdRwPendingFlag(n) {
+        return n > 0
+            ? ` <span style="color:#b58900; font-weight:600;">⚠ ${n} line${n === 1 ? '' : 's'} unpriced</span>`
+            : '';
+    }
+
+    // Lot x box must add back to every lot feed-out in feed_usage_detail for
+    // the range. The only rows that may fall out are the unmapped ones, and
+    // those are listed above. Anything else is a grouping bug, and the
+    // posting must not look clean while it has one.
+    function fdRwTieHtml() {
+        const d = fdRwData;
+        const { lots, unmapped } = fdRwBuild();
+        const src = d.usage.filter(u => u.destination_type === 'lot');
+        const sum = (rows, f) => rows.reduce((t, u) => t + (Number(u[f]) || 0), 0);
+        const vLb = sum(src, 'qty_lb'), vUsd = sum(src, 'cost_usd'), vPend = sum(src, 'pending_cost_lines');
+        let pLb = 0, pUsd = 0;
+        Object.values(lots).forEach(L => ['feed', 'mineral'].forEach(t =>
+            Object.values(L[t]).forEach(v => { pLb += v.lb; pUsd += v.usd; })));
+        const uLb = sum(unmapped, 'qty_lb'), uUsd = sum(unmapped, 'cost_usd');
+        const ties = Math.abs(pLb + uLb - vLb) < 0.005 && Math.abs(pUsd + uUsd - vUsd) < 0.005;
+        const pend = vPend > 0 ? ` <span style="color:#b58900;">${vPend} cost line${vPend === 1 ? ' is' : 's are'}
+            unpriced &mdash; those dollars read $0 until the load is priced.</span>` : '';
+        if (!src.length) return '';
+        return ties
+            ? `<div class="muted" style="font-size:12px; margin-bottom:8px;">Ties to feed_usage_detail:
+                ${fdRwLb(vLb)} lb, ${fdRwUsd(vUsd)} fed to lots in this period${uLb
+                ? ` (${fdRwLb(pLb)} lb on the postings + ${fdRwLb(uLb)} lb with no Redwing box)` : ''}.${pend}</div>`
+            : `<div class="alert error" style="margin-bottom:12px;"><b>Postings do not tie.</b>
+                feed_usage_detail has ${fdRwLb(vLb)} lb / ${fdRwUsd(vUsd)} fed to lots in this period; the
+                Feed + Mineral postings carry ${fdRwLb(pLb)} lb / ${fdRwUsd(pUsd)}${uLb
+                ? ` plus ${fdRwLb(uLb)} lb / ${fdRwUsd(uUsd)} unmapped` : ''}. Do not post from this.${pend}</div>`;
     }
 
     // A journal entry, not a production-centre posting: these pounds were
@@ -32527,8 +32595,7 @@ ${ranchBlocks}
                     const r = C.rows[k];
                     return `<tr><td>${escapeHtml(k)}${r.box
                         ? `<div class="muted" style="font-size:11px;">${escapeHtml(r.box)}</div>` : ''}</td>
-                        <td class="num">${fdRwUsd(r.usd)}${r.pending > 0
-                            ? ' <span style="color:#b58900;" title="an unpriced load is in here">⚠</span>' : ''}</td>
+                        <td class="num">${fdRwUsd(r.usd)}${fdRwPendingFlag(r.pending)}</td>
                         <td class="num">${fdRwLb(r.lb)}</td></tr>`;
                 }).join('')}
                 <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
@@ -32643,7 +32710,7 @@ ${ranchBlocks}
             these pounds left inventory and appear on none of the reports below. Tell me about this rather
             than posting around it.</div>` : '';
 
-        $('fdRwContent').innerHTML = warn + orphanWarn +
+        $('fdRwContent').innerHTML = warn + orphanWarn + fdRwTieHtml() +
             `<div class="muted" style="font-size:12px;">Period ${period}</div>` +
             (want('feed') ? fdRwSection('feed', 'Feed Application — bulk commodities',
                 'One block per lot, in the order of the Redwing Feed Application screen. Type the $ box and the lbs box from the same row.',
