@@ -1751,7 +1751,7 @@ Performance Beef emails a "Delivery Daily Report" every feeding day. A
 `stage_pb_report(message_id, text)`; the office reviews it on **Approvals →
 Feed**; `approve_pb_report` posts it. Migrations, in order:
 `docs/sql/2026-09-25_pb_email_import.sql`, `..._pb_report_list.sql`,
-`..._25b_pb_split_drop.sql`. The first two were applied from a Cowork session
+`..._25b_pb_split_drop.sql`, `..._25c_pb_revoke_anon.sql`. The first two were applied from a Cowork session
 and pulled into the repo verbatim (file md5 = the stored migration's md5).
 
 ```
@@ -1812,11 +1812,14 @@ Approvals → Feed: Move · Split by weight · Reject     │
   headless Chromium with a fake supabase client and checks the Feed pane
   end to end (badges, split arithmetic and RPC args, blocked approve, the
   error text, reason-required reject, owner-only Unpost, crew locked out).
-- **Open:** EXECUTE on the 12 functions from `pb_email_import` is still
-  granted to `anon` (Postgres' PUBLIC default — rule 4). All are INVOKER and
-  the tables' policies are `TO authenticated`, so `anon` reads and writes
-  nothing, but the grant should be revoked. `pb_split_drop` is revoked
-  correctly.
+- **anon holds EXECUTE on none of the 13 PB functions** (2026-09-25c,
+  `docs/sql/2026-09-25c_pb_revoke_anon.sql`). The first two migrations had
+  left Postgres' PUBLIC default in place — rule 4 — and the revoke was
+  applied the same day; its verify block raises if anon can execute any PB
+  function or authenticated has lost one. Consequence: **the Cowork morning
+  read must stage as a signed-in owner/office user or through the Supabase
+  connector.** Calling `stage_pb_report` with only the publishable key is
+  now refused.
 
 ## Tally Book (built 2026-08-28, ported the same day)
 
