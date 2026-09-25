@@ -1744,6 +1744,80 @@ bookkeeping marker became a vendor.
   Blocked on John: a Resend account with a verified domain, and `pg_cron` +
   `pg_net` enabled. 7:00am pinned to `America/Chicago`.
 
+## PB daily feed report: email → Approvals → books (built 2026-09-25)
+
+Performance Beef emails a "Delivery Daily Report" every feeding day. A
+**Cowork scheduled task reads it each morning** and calls
+`stage_pb_report(message_id, text)`; the office reviews it on **Approvals →
+Feed**; `approve_pb_report` posts it. Migrations, in order:
+`docs/sql/2026-09-25_pb_email_import.sql`, `..._pb_report_list.sql`,
+`..._25b_pb_split_drop.sql`. The first two were applied from a Cowork session
+and pulled into the repo verbatim (file md5 = the stored migration's md5).
+
+```
+PB email ─(Cowork, mornings)─▶ stage_pb_report ─▶ pb_daily_reports + pb_report_lines
+                                                      │  pb_refresh_report → problems[] (block) / notes[] (don't)
+Approvals → Feed: Move · Split by weight · Reject     │
+                  Approve ─▶ approve_pb_report ─▶ feed_usage (source 'pb_import', one-day period, FIFO)
+                  Unpost (owner) ─▶ unpost_pb_report ─▶ delete_feed_usage per row
+```
+
+- **Nothing is in the books until Approve.** Staging only parses and
+  resolves names. `problems` block approval (unmatched pen or ingredient, no
+  default bay, no lot standing in the pasture, a load whose drops and
+  ingredients disagree, before the cut-over, on/after the truck cut-over,
+  a lot already hand-entered for that day). `notes` do not block (PB manual
+  delivery changes, PB head movements — neither is imported).
+- **`ranch_settings.pb_email_post_from` is the cut-over** (2026-09-28).
+  Earlier days are entered by hand; NULL means stage only, never post. It
+  must stop before `feed_truck_post_from` once the truck takes over.
+- **The browser does no arithmetic.** It lists `pb_report_list()` and calls
+  the RPCs; every split is largest-remainder in SQL. An approve error lists
+  every blocking problem and is shown exactly as the database wrote it.
+- **Move vs Split by weight.** `pb_move_drop` sends a pen's whole drop to
+  another pasture for that day (`pasture_override`). `pb_split_drop` takes
+  `[{ranch, pasture, lb}]` that must add EXACTLY to PB's fed pounds for the
+  pen — nothing is absorbed, a gap is PB's to fix — and rewrites that pen's
+  drop lines. A pen fed on several loads splits load by load with the last
+  load taking the exact remainder, so every pasture total is what was typed
+  and every load still adds to PB's load TOTAL. Approve needed no change: a
+  split pen is just more drop lines, and each line's pounds go to the lots
+  in its pasture by head. PB's original figures stay in `parsed`/`raw_text`.
+- **Re-staging the SAME gmail message is a no-op** (2026-09-25b). Staging
+  deletes and rebuilds the lines, so the morning read seeing yesterday's
+  email again would silently wipe every Move and Split. A DIFFERENT message
+  for a pending day (PB resent a correction) still replaces it; an approved
+  day is never re-staged.
+- **Unpost is owner-only in fact, not just on screen**: it deletes
+  `feed_usage` rows and RLS lets only owner delete them. The button carries
+  `data-perm="owner"`.
+- The Feed pane is office+owner (accountant reads it, `data-write` hides the
+  buttons); crew never sees Approvals. The nav badge is field entries + PB
+  pending, counted at sign-in by `apprRefreshCounts()`, not only when the
+  tab opens.
+- **A missing day shows after 9 AM Central** — the last 7 days since the
+  cut-over with no report in any status. Before 9 the morning read may not
+  have run. The link on each card opens the source email in Gmail by
+  `gmail_message_id`.
+- **The Redwing Feed/Mineral export picks rows by `usage_date`, with no
+  `source` filter.** PB rows are one-day periods dated the feeding day.
+  Weekly hand entries carry `usage_date = period_end` (the Sunday), so a
+  whole hand-entered week posts in the range holding its Sunday; a range
+  cutting through a week does not pro-rate it. The export pages all three
+  reads (PB adds ~15 usage rows a day, and the all-history read feeds the
+  roll-forward's opening balance), prints a tie-out against
+  `feed_usage_detail`, and writes "N lines unpriced" as text beside any $
+  that includes a NULL cost, so the flag survives Copy rows and the PDF.
+- Harness: `scripts/pb-feed-harness/run.js` loads the real `index.html` in
+  headless Chromium with a fake supabase client and checks the Feed pane
+  end to end (badges, split arithmetic and RPC args, blocked approve, the
+  error text, reason-required reject, owner-only Unpost, crew locked out).
+- **Open:** EXECUTE on the 12 functions from `pb_email_import` is still
+  granted to `anon` (Postgres' PUBLIC default — rule 4). All are INVOKER and
+  the tables' policies are `TO authenticated`, so `anon` reads and writes
+  nothing, but the grant should be revoked. `pb_split_drop` is revoked
+  correctly.
+
 ## Tally Book (built 2026-08-28, ported the same day)
 
 A second PWA in this repo at `tally-book/`, alongside `field-app/`. A daily

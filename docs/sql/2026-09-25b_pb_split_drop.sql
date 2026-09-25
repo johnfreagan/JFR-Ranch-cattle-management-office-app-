@@ -1,6 +1,8 @@
 -- PB feed approvals: split one PB pen's drop across several pastures by weight.
 --
--- PROPOSED 2026-09-25, NOT APPLIED. Needs John's approval before it runs.
+-- APPLIED 2026-09-25 on John's approval, via apply_migration (begin/commit stripped).
+-- Verified: md5(prosrc) of pb_split_drop, pb_report_summary and stage_pb_report
+-- on the live database equals a scratch PostgreSQL build of this file.
 --
 -- Why: the feed cart can drop one PB pen's ration in more than one pasture.
 -- pb_move_drop moves a pen's whole drop to ONE pasture; this lets the office

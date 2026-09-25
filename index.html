@@ -703,6 +703,33 @@
             background: #eef0f2; color: #3a3a3c;
         }
         .approvals-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        /* ---- Approvals > Feed (PB daily report) ---- */
+        .pb-card { border: 1px solid var(--border, #e5e5ea); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+        .pb-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; font-size: 15px; }
+        .pb-head .pb-stats { font-weight: 400; font-size: 13px; color: var(--text-muted, #6e6e73); }
+        .pb-head a { margin-left: auto; font-size: 12px; font-weight: 500; }
+        .pb-sec { font-size: 11px; font-weight: 700; margin: 12px 0 2px; color: var(--text-muted, #6e6e73);
+                  text-transform: uppercase; letter-spacing: .04em; }
+        .pb-card table { width: 100%; font-size: 13px; }
+        .pb-nomatch { color: #b3121f; font-weight: 600; }
+        .pb-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; margin-left: 4px;
+                  background: #fff4e5; color: #8a4b00; text-transform: uppercase; }
+        .pb-problems { background: #ffe5e7; color: #b3121f; border-radius: 8px; padding: 8px 10px; margin-top: 10px; font-size: 13px; }
+        .pb-notes { background: #fff4e5; color: #8a4b00; border-radius: 8px; padding: 8px 10px; margin-top: 8px; font-size: 13px; }
+        .pb-problems ul, .pb-notes ul { margin: 4px 0 0 18px; padding: 0; }
+        .pb-zero { background: #eef0f2; color: #3a3a3c; border-radius: 8px; padding: 8px 10px; margin-top: 10px; font-size: 13px; }
+        .pb-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+        .pb-acts input { flex: 1; min-width: 160px; max-width: 320px; padding: 5px 8px; font-size: 13px; }
+        .pb-why { font-size: 12px; color: #b3121f; }
+        .pb-card button.pb-link { border: 0; background: none; color: var(--accent, #5a3a1a); padding: 0 4px;
+                                  font-size: 12px; font-weight: 600; text-decoration: underline; cursor: pointer; }
+        .pb-split { background: #f4f4f1; border-radius: 8px; padding: 10px; margin: 4px 0; }
+        .pb-split-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+        .pb-split-row input { width: 110px; padding: 4px 6px; font-size: 13px; text-align: right; }
+        .pb-left { font-size: 12px; font-weight: 600; }
+        .pb-left.ok { color: #1c7c31; } .pb-left.bad { color: #b3121f; }
+        .pb-review { font-size: 12px; color: var(--text-muted, #6e6e73); margin-top: 8px; }
+        .pb-err { margin-top: 10px; }
         .appr-day-all {
             margin-left: auto; font-size: 11px; font-weight: 600; padding: 3px 9px;
             border: 1px solid var(--border, #d1d1d6); border-radius: 6px; background: none;
@@ -1755,9 +1782,17 @@
         <div id="approvalsView" class="hidden">
             <div class="card">
                 <div class="card-header">
-                    <h2>Field approvals</h2>
+                    <h2>Approvals</h2>
                     <button id="approvalsRefreshBtn">Refresh</button>
                 </div>
+                <!-- Two queues, one screen. Field entries is the original tab,
+                     unchanged inside its pane. Feed is the PB Delivery Daily
+                     Report, staged each morning by the Cowork read. -->
+                <div class="sub-tabs" id="apprPaneTabs">
+                    <button class="sub-tab active" data-appr-pane="field">Field entries <span id="apprFieldCount" class="approvals-badge hidden">0</span></button>
+                    <button class="sub-tab" data-appr-pane="feed" data-perm="office">Feed <span id="apprFeedCount" class="approvals-badge hidden">0</span></button>
+                </div>
+                <div id="apprFieldPane">
                 <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
                     Entries submitted from the field app, grouped by lot, pasture and tag.
                     Nothing here is in the books until it is approved.
@@ -1768,6 +1803,19 @@
                     <span id="approvalsSelCount" class="muted" style="font-size:12px;"></span>
                 </div>
                 <div id="approvalsContent"><div class="empty">Loading…</div></div>
+                </div>
+                <div id="apprFeedPane" class="hidden" data-perm="office">
+                    <div id="pbReadBar"></div>
+                    <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
+                        PB Delivery Daily Reports, read off the PB email each morning. Nothing here is in the
+                        books until it is approved. Approving posts each ingredient&rsquo;s pounds to the lots
+                        standing in each pen, FIFO costed, as a one-day feed-out. The database does all the
+                        arithmetic; this screen only shows it.
+                    </p>
+                    <div id="pbSummary" class="approvals-summary"></div>
+                    <div id="pbAlert"></div>
+                    <div id="pbContent"><div class="empty">Loading…</div></div>
+                </div>
             </div>
         </div>
 
@@ -5758,6 +5806,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('appShell').classList.remove('hidden');
         showLotsTab();
         invRefreshBadge();
+        apprRefreshCounts();
     }
     function showLoginScreen(){
         currentUser=null;currentProfile=null;
@@ -9685,11 +9734,29 @@ window.addEventListener('unhandledrejection', function(e) {
         }
     }
 
+    // The nav badge is the sum of the two queues; each pane carries its own.
+    let apprFieldN = 0, apprFeedN = 0;
     function updateApprovalsBadge(n) {
-        const badge = $('navApprovalsCount');
-        if (!badge) return;
-        badge.textContent = n;
-        badge.classList.toggle('hidden', !n);
+        if (n != null) apprFieldN = n;
+        const set = (id, v) => { const b = $(id); if (b) { b.textContent = v; b.classList.toggle('hidden', !v); } };
+        set('apprFieldCount', apprFieldN);
+        set('apprFeedCount', apprFeedN);
+        set('navApprovalsCount', apprFieldN + apprFeedN);
+    }
+    function updatePbBadge(n) { apprFeedN = n; updateApprovalsBadge(null); }
+
+    // Counts only, on sign-in, so the badge is right before anyone opens the
+    // tab. A failure leaves the badge as it was; the tab's own load reports
+    // errors properly.
+    async function apprRefreshCounts() {
+        if (!['owner', 'office', 'accountant'].includes(currentProfile && currentProfile.role)) return;
+        const [f, pb] = await Promise.all([
+            supabase.from('pending_field_entries').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+            supabase.from('pb_daily_reports').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+        ]);
+        if (!f.error) apprFieldN = f.count || 0;
+        if (!pb.error) apprFeedN = pb.count || 0;
+        updateApprovalsBadge(null);
     }
 
     function renderApprovals(resolved) {
@@ -10891,7 +10958,328 @@ window.addEventListener('unhandledrejection', function(e) {
         clearAllNavActive();
         $('navApprovals').classList.add('active');
         $('approvalsView').classList.remove('hidden');
+        showApprovalsPane(apprPane);
         loadApprovals();
+        if (apprCanFeed()) loadPbReports();
+    }
+
+    // ==========================================================
+    // APPROVALS > FEED: the PB Delivery Daily Report
+    //
+    // A Cowork task reads the PB email each morning and calls
+    // stage_pb_report(). Nothing is in the books until approve_pb_report
+    // posts it. Every pound is computed in the database - this screen
+    // lists pb_report_list() and calls the RPCs, and never re-splits a
+    // number itself. Migrations: docs/sql/2026-09-25_pb_email_import.sql,
+    // ..._pb_report_list.sql, ..._25b_pb_split_drop.sql.
+    // ==========================================================
+    let apprPane = 'field';
+    try { if (localStorage.getItem('apprPane') === 'feed') apprPane = 'feed'; } catch (e) {}
+    let pbList = [];
+    let pbMeta = {};            // report_date -> { gmail_message_id, staged_at }
+    let pbPostFrom = null;      // ranch_settings.pb_email_post_from
+    let pbPastures = null;      // [{ ranch, pasture }], active, sorted
+    let pbOpen = null;          // { kind: 'move'|'split'|'reject'|'unpost', date, pen }
+    let pbSplitRows = [];       // [{ ix: pasture index or '', lb: string }]
+    let pbErr = {};             // report_date -> error text from the last action
+    let pbBusy = false;
+
+    function apprCanFeed() {
+        return ['owner', 'office', 'accountant'].includes(currentProfile && currentProfile.role);
+    }
+
+    function showApprovalsPane(pane) {
+        if (pane === 'feed' && !apprCanFeed()) pane = 'field';
+        apprPane = pane;
+        try { localStorage.setItem('apprPane', pane); } catch (e) {}
+        document.querySelectorAll('#apprPaneTabs [data-appr-pane]').forEach(b =>
+            b.classList.toggle('active', b.dataset.apprPane === pane));
+        $('apprFieldPane').classList.toggle('hidden', pane !== 'field');
+        $('apprFeedPane').classList.toggle('hidden', pane !== 'feed');
+    }
+
+    async function loadPbReports() {
+        clearAlert('pbAlert');
+        if (!pbList.length) $('pbContent').innerHTML = '<div class="empty">Loading…</div>';
+        const since = new Date(ranchToday() + 'T12:00:00');
+        since.setDate(since.getDate() - 45);
+        const [list, meta, rs, pas] = await Promise.all([
+            supabase.rpc('pb_report_list', { p_days: 30 }),
+            supabase.from('pb_daily_reports').select('report_date, gmail_message_id, staged_at, status')
+                .gte('report_date', since.toISOString().slice(0, 10)),
+            supabase.from('ranch_settings').select('pb_email_post_from').limit(1),
+            pbPastures ? Promise.resolve({ data: null })
+                       : supabase.from('pastures').select('name, ranches(name)').eq('is_active', true)
+        ]);
+        const err = list.error || meta.error || rs.error || pas.error;
+        if (err) {
+            $('pbContent').innerHTML = `<div class="alert error">Could not load PB reports: ${escapeHtml(err.message)}</div>`;
+            return;
+        }
+        pbList = Array.isArray(list.data) ? list.data : [];
+        pbMeta = {};
+        (meta.data || []).forEach(m => { pbMeta[m.report_date] = m; });
+        pbPostFrom = rs.data && rs.data[0] ? rs.data[0].pb_email_post_from : null;
+        if (pas.data) {
+            pbPastures = pas.data
+                .map(p => ({ ranch: p.ranches ? p.ranches.name : '', pasture: p.name }))
+                .filter(p => p.ranch)
+                .sort((a, b) => a.ranch.localeCompare(b.ranch) ||
+                                a.pasture.localeCompare(b.pasture, undefined, { numeric: true }));
+        }
+        updatePbBadge(pbList.filter(r => r.status === 'pending').length);
+        renderPbReports();
+    }
+
+    const pbLb = n => { const v = Number(n) || 0; return fmtNum(v, Math.round(v) === v ? 0 : 2); };
+
+    // Days since the cut-over (at most the last 7) with no report in any
+    // status. Yesterday only counts once 9 AM Central has passed, so the
+    // screen does not cry wolf before the morning read has run.
+    function pbMissingDays() {
+        if (!pbPostFrom) return [];
+        const today = ranchToday();
+        const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago',
+                                                              hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
+        const iso = d => d.toISOString().slice(0, 10);
+        const out = [];
+        const d = new Date(today + 'T12:00:00');
+        d.setDate(d.getDate() - (hour >= 9 ? 1 : 2));
+        for (let i = 0; i < 7; i++, d.setDate(d.getDate() - 1)) {
+            const day = iso(d);
+            if (day < pbPostFrom) break;
+            if (!pbMeta[day]) out.push(day);
+        }
+        return out.reverse();
+    }
+
+    function pbReadBarHtml() {
+        const staged = Object.values(pbMeta).map(m => m.staged_at).filter(Boolean).sort().pop();
+        const when = staged ? new Date(staged) : null;
+        const stamp = when ? when.toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric',
+                                                             hour: 'numeric', minute: '2-digit' }) : null;
+        const missing = pbMissingDays();
+        return `<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:12px; margin-bottom:10px;">
+                <span class="appr-chip ${stamp ? 'ok' : ''}">${stamp ? 'Last report staged ' + escapeHtml(stamp) : 'No PB report staged yet'}</span>
+                <span class="muted">Cowork reads the PB email each morning and stages it here. It never posts.
+                PB posting starts ${pbPostFrom ? fmtDate(pbPostFrom) : '<b>— no cut-over date set</b>'}.</span></div>` +
+            (missing.length ? `<div class="pb-notes" style="margin:0 0 12px;"><b>No PB report for
+                ${missing.map(fmtDate).join(', ')}.</b> The morning read has not staged ${missing.length === 1
+                ? 'that day' : 'those days'}. Check PB, or ask Claude to re-read the email.</div>` : '');
+    }
+
+    function pbPastureSelect(sel) {
+        const byRanch = {};
+        (pbPastures || []).forEach((p, i) => (byRanch[p.ranch] = byRanch[p.ranch] || []).push(i));
+        return `<select class="pb-pas"><option value="">Pick a pasture…</option>${Object.keys(byRanch).map(r =>
+            `<optgroup label="${escapeHtml(r)}">${byRanch[r].map(i =>
+                `<option value="${i}"${String(sel) === String(i) ? ' selected' : ''}>${escapeHtml(r)} / ${escapeHtml(pbPastures[i].pasture)}</option>`
+            ).join('')}</optgroup>`).join('')}</select>`;
+    }
+
+    function pbIsOpen(kind, date, pen) {
+        return pbOpen && pbOpen.kind === kind && pbOpen.date === date && (pen == null || pbOpen.pen === pen);
+    }
+
+    function pbCardHtml(r) {
+        const d = r.report_date;
+        const pend = r.status === 'pending';
+        const problems = r.problems || [], notes = r.notes || [];
+        const chip = r.status === 'approved' ? 'ok' : r.status === 'rejected' ? '' : problems.length ? 'blocked' : 'warn';
+        const chipTxt = pend && problems.length ? 'pending · blocked' : r.status;
+        const zero = !Number(r.drop_fed_lb) && !Number(r.ingredient_fed_lb);
+        const msg = pbMeta[d] && pbMeta[d].gmail_message_id;
+        const penTot = {};
+        (r.by_pen || []).forEach(p => { penTot[p.pen] = (penTot[p.pen] || 0) + (Number(p.fed_lb) || 0); });
+        const seen = new Set();
+        const pens = (r.by_pen || []).map((p, ix, all) => {
+            const first = !seen.has(p.pen); seen.add(p.pen);
+            const last = !all.slice(ix + 1).some(q => q.pen === p.pen);
+            const penAttr = escapeHtml(p.pen);
+            let act = '';
+            if (pend && first) {
+                act = pbIsOpen('move', d, p.pen)
+                    ? `${pbPastureSelect('')} <button class="primary" data-pb="move-save" data-date="${d}" data-pen="${penAttr}" data-write>Move</button>
+                       <button class="pb-link" data-pb="cancel">cancel</button>`
+                    : `<button class="pb-link" data-pb="move" data-date="${d}" data-pen="${penAttr}" data-write>Move</button><button
+                        class="pb-link" data-pb="split" data-date="${d}" data-pen="${penAttr}" data-write>Split by weight</button>`;
+            }
+            let row = `<tr><td>${first ? penAttr : ''}</td>
+                <td>${p.pasture ? escapeHtml(p.pasture) : '<span class="pb-nomatch">no match</span>'}${p.split
+                    ? '<span class="pb-tag">split</span>' : p.moved ? '<span class="pb-tag">moved</span>' : ''}</td>
+                <td class="num">${pbLb(p.target_lb)}</td><td class="num">${pbLb(p.fed_lb)}</td>
+                <td style="text-align:right; white-space:nowrap;">${act}</td></tr>`;
+            if (last && pbIsOpen('split', d, p.pen)) {
+                const tot = penTot[p.pen];
+                row += `<tr><td colspan="5"><div class="pb-split" data-total="${tot}">
+                    <div style="font-size:12px; margin-bottom:8px;"><b>Split ${penAttr}</b> &mdash; PB fed
+                        <b>${pbLb(tot)} lb</b>. Type the pounds that went to each pasture; they must add to
+                        ${pbLb(tot)} exactly. This day only. Each lot in a pasture gets its share by head.</div>
+                    ${pbSplitRows.map((sr, i) => `<div class="pb-split-row" data-i="${i}">${pbPastureSelect(sr.ix)}
+                        <input class="pb-lb" inputmode="decimal" value="${escapeHtml(sr.lb)}"> lb
+                        ${pbSplitRows.length > 1 ? `<button class="pb-link" data-pb="split-del" data-i="${i}">remove</button>` : ''}</div>`).join('')}
+                    <div class="pb-split-row"><button class="pb-link" data-pb="split-add">+ pasture</button>
+                        <span class="pb-left" id="pbSplitLeft"></span></div>
+                    <div class="pb-split-row"><button class="primary" id="pbSplitSave" data-pb="split-save"
+                        data-date="${d}" data-pen="${penAttr}" data-write disabled>Save split</button>
+                        <button class="pb-link" data-pb="cancel">cancel</button></div>
+                </div></td></tr>`;
+            }
+            return row;
+        }).join('');
+        const ings = (r.by_ingredient || []).map(i => `<tr><td>${escapeHtml(i.pb_name)}</td>
+            <td>${i.item ? escapeHtml(i.item) : '<span class="pb-nomatch">no match</span>'}</td>
+            <td class="num">${pbLb(i.target_lb)}</td><td class="num">${pbLb(i.fed_lb)}</td></tr>`).join('');
+
+        let acts = '';
+        if (pend) {
+            acts = pbIsOpen('reject', d)
+                ? `<input id="pbReason" placeholder="Reason for rejecting (required)">
+                   <button class="danger" data-pb="reject-save" data-date="${d}" data-write>Reject</button>
+                   <button class="pb-link" data-pb="cancel">cancel</button>`
+                : `<button class="primary" data-pb="approve" data-date="${d}" data-write ${problems.length ? 'disabled' : ''}>Approve</button>
+                   <button class="danger" data-pb="reject" data-date="${d}" data-write>Reject</button>
+                   <input id="pbNote-${d}" placeholder="Note (optional)" data-write>
+                   ${problems.length ? `<span class="pb-why">Fix the ${problems.length} problem${problems.length === 1 ? '' : 's'}
+                        above to approve.</span>` : ''}`;
+        } else if (r.status === 'approved') {
+            acts = pbIsOpen('unpost', d)
+                ? `<input id="pbReason" placeholder="Reason for unposting (required)">
+                   <button class="danger" data-pb="unpost-save" data-date="${d}" data-perm="owner" data-write>Unpost</button>
+                   <button class="pb-link" data-pb="cancel">cancel</button>`
+                : `<button class="danger" data-pb="unpost" data-date="${d}" data-perm="owner" data-write>Unpost…</button>
+                   <span class="muted" style="font-size:12px;" data-perm="owner">Removes the ${r.usage_rows} feed-out
+                   row${r.usage_rows === 1 ? '' : 's'} and puts the pounds back on their layers.</span>`;
+        }
+        const reviewed = r.reviewed_at ? `<div class="pb-review">${r.status === 'approved' ? 'Approved' : r.status === 'rejected'
+            ? 'Rejected' : 'Reviewed'} by ${escapeHtml(r.reviewed_by || '—')}, ${new Date(r.reviewed_at).toLocaleString('en-US',
+            { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>` : '';
+        const reviewNotes = r.review_notes ? `<div class="pb-review">${escapeHtml(r.review_notes)}</div>` : '';
+
+        return `<div class="pb-card">
+            <div class="pb-head">${fmtDate(d)} <span class="appr-chip ${chip}">${escapeHtml(chipTxt)}</span>
+                <span class="pb-stats">${pbLb(r.drop_fed_lb)} lb fed · ${r.loads} load${r.loads === 1 ? '' : 's'}${r.usage_rows
+                    ? ` · ${r.usage_rows} row${r.usage_rows === 1 ? '' : 's'} posted` : ''}</span>
+                ${msg ? `<a href="https://mail.google.com/mail/u/0/#all/${encodeURIComponent(msg)}" target="_blank" rel="noopener"
+                    title="Opens the PB email this report was read from">Open PB email ↗</a>` : ''}</div>
+            ${zero ? '<div class="pb-zero">PB shows targets only — nothing fed recorded.</div>' : ''}
+            <div class="pb-sec">By pen</div>
+            <table><thead><tr><th>PB pen</th><th>Pasture</th><th class="num">Target lb</th><th class="num">Fed lb</th><th></th></tr></thead>
+                <tbody>${pens || '<tr><td colspan="5" class="muted">No drops.</td></tr>'}</tbody></table>
+            <div class="pb-sec">By ingredient</div>
+            <table><thead><tr><th>PB name</th><th>Our item</th><th class="num">Target lb</th><th class="num">Fed lb</th></tr></thead>
+                <tbody>${ings || '<tr><td colspan="4" class="muted">No ingredients.</td></tr>'}</tbody></table>
+            ${problems.length ? `<div class="pb-problems"><b>${pend ? 'Blocks approval' : 'Problems'}</b><ul>${problems.map(x =>
+                `<li>${escapeHtml(x)}</li>`).join('')}</ul></div>` : ''}
+            ${notes.length ? `<div class="pb-notes"><ul>${notes.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul></div>` : ''}
+            ${pbErr[d] ? `<div class="alert error pb-err">${escapeHtml(pbErr[d])}</div>` : ''}
+            ${reviewed}${reviewNotes}
+            ${acts ? `<div class="pb-acts">${acts}</div>` : ''}
+        </div>`;
+    }
+
+    function renderPbReports() {
+        $('pbReadBar').innerHTML = pbReadBarHtml();
+        const n = s => pbList.filter(r => r.status === s).length;
+        const blocked = pbList.filter(r => r.status === 'pending' && (r.problems || []).length).length;
+        $('pbSummary').innerHTML = pbList.length ? [
+            n('pending') ? `<span class="appr-chip warn">${n('pending')} pending</span>` : '',
+            blocked ? `<span class="appr-chip blocked">${blocked} blocked</span>` : '',
+            n('approved') ? `<span class="appr-chip ok">${n('approved')} approved</span>` : '',
+            n('rejected') ? `<span class="appr-chip">${n('rejected')} rejected</span>` : ''
+        ].join('') : '';
+        $('pbContent').innerHTML = pbList.length
+            ? pbList.map(pbCardHtml).join('')
+            : '<div class="empty">No PB reports in the last 30 days.</div>';
+        pbSplitRefresh();
+    }
+
+    // Live "left to place" under the split rows. The database checks the
+    // same sum on save and refuses a mismatch; this only saves a round trip.
+    function pbSplitRefresh() {
+        const box = document.querySelector('#pbContent .pb-split');
+        if (!box) return;
+        const tot = Number(box.dataset.total) || 0;
+        let sum = 0;
+        box.querySelectorAll('.pb-split-row[data-i]').forEach(row => {
+            const i = Number(row.dataset.i);
+            const lb = row.querySelector('.pb-lb').value;
+            pbSplitRows[i] = { ix: row.querySelector('.pb-pas').value, lb };
+            const v = Number(String(lb).replace(/,/g, ''));
+            if (v > 0) sum += v;
+        });
+        const left = Math.round((tot - sum) * 100) / 100;
+        const allPicked = pbSplitRows.every(r => r.ix !== '' && Number(String(r.lb).replace(/,/g, '')) > 0);
+        const el = $('pbSplitLeft');
+        el.className = 'pb-left ' + (left === 0 ? 'ok' : 'bad');
+        el.textContent = left === 0 ? `✓ adds to ${pbLb(tot)} lb`
+                       : left > 0 ? `${pbLb(left)} lb still to place` : `${pbLb(-left)} lb over`;
+        $('pbSplitSave').disabled = !(left === 0 && allPicked);
+    }
+
+    async function pbRun(date, rpc, args) {
+        if (pbBusy) return;
+        pbBusy = true;
+        delete pbErr[date];
+        const { error } = await supabase.rpc(rpc, args);
+        pbBusy = false;
+        if (error) {
+            // approve_pb_report lists every blocking problem in its message;
+            // shown exactly as the database wrote it.
+            pbErr[date] = error.message || String(error);
+            renderPbReports();
+            return;
+        }
+        pbOpen = null;
+        await loadPbReports();
+    }
+
+    function pbOnClick(e) {
+        const b = e.target.closest('[data-pb]');
+        if (!b || b.disabled) return;
+        const a = b.dataset.pb, date = b.dataset.date, pen = b.dataset.pen;
+        const card = b.closest('.pb-card');
+        const reason = () => { const i = card && card.querySelector('#pbReason'); return i ? i.value.trim() : ''; };
+        switch (a) {
+            case 'move':   pbOpen = { kind: 'move', date, pen }; break;
+            case 'split':  pbOpen = { kind: 'split', date, pen }; pbSplitRows = [{ ix: '', lb: '' }, { ix: '', lb: '' }]; break;
+            case 'reject': pbOpen = { kind: 'reject', date }; break;
+            case 'unpost': pbOpen = { kind: 'unpost', date }; break;
+            case 'cancel': pbOpen = null; break;
+            case 'split-add': pbSplitRows.push({ ix: '', lb: '' }); break;
+            case 'split-del': pbSplitRows.splice(Number(b.dataset.i), 1); break;
+            case 'approve': {
+                const note = ($('pbNote-' + date) || {}).value;
+                pbRun(date, 'approve_pb_report', { p_report_date: date, p_notes: (note || '').trim() || null });
+                return;
+            }
+            case 'reject-save':
+                if (!reason()) { pbErr[date] = 'Give a reason for rejecting.'; break; }
+                pbRun(date, 'reject_pb_report', { p_report_date: date, p_reason: reason() });
+                return;
+            case 'unpost-save':
+                if (!reason()) { pbErr[date] = 'Give a reason for unposting.'; break; }
+                pbRun(date, 'unpost_pb_report', { p_report_date: date, p_reason: reason() });
+                return;
+            case 'move-save': {
+                const sel = b.parentElement.querySelector('.pb-pas');
+                const p = sel && sel.value !== '' ? pbPastures[Number(sel.value)] : null;
+                if (!p) { pbErr[date] = 'Pick the pasture the cart went to.'; break; }
+                pbRun(date, 'pb_move_drop', { p_report_date: date, p_pb_pen: pen, p_ranch: p.ranch, p_pasture: p.pasture });
+                return;
+            }
+            case 'split-save': {
+                pbSplitRefresh();
+                const parts = pbSplitRows.map(r => {
+                    const p = pbPastures[Number(r.ix)];
+                    return { ranch: p.ranch, pasture: p.pasture, lb: String(r.lb).replace(/,/g, '').trim() };
+                });
+                pbRun(date, 'pb_split_drop', { p_report_date: date, p_pb_pen: pen, p_parts: parts });
+                return;
+            }
+            default: return;
+        }
+        renderPbReports();
     }
 
     function showReportsTab(subtab = 'active-lots') {
@@ -13685,7 +14073,14 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('navSettings').addEventListener('click', () => showSettingsTab('protocols'));
     $('navReports').addEventListener('click', () => showReportsTab('active-lots'));
     $('navApprovals').addEventListener('click', showApprovalsTab);
-    $('approvalsRefreshBtn').addEventListener('click', loadApprovals);
+    $('approvalsRefreshBtn').addEventListener('click', () => apprPane === 'feed' ? loadPbReports() : loadApprovals());
+    $('apprPaneTabs').addEventListener('click', e => {
+        const b = e.target.closest('[data-appr-pane]');
+        if (b) showApprovalsPane(b.dataset.apprPane);
+    });
+    $('pbContent').addEventListener('click', pbOnClick);
+    $('pbContent').addEventListener('input', e => { if (e.target.closest('.pb-split')) pbSplitRefresh(); });
+    $('pbContent').addEventListener('change', e => { if (e.target.closest('.pb-split')) pbSplitRefresh(); });
     $('apprEditSaveBtn').addEventListener('click', saveApprovalEdit);
     $('settlePastureSaveBtn').addEventListener('click', saveSettlePasture);
     $('settleAddLotBtn').addEventListener('click', () => {
