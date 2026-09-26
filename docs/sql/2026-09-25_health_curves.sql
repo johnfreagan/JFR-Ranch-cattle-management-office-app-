@@ -952,6 +952,9 @@ begin
     loop
         execute format('revoke all on public.%I from public, anon', t);
         execute format('grant select on public.%I to authenticated', t);
+        -- Supabase's default privileges hand authenticated ALL on a new
+        -- relation; these views are read-only
+        execute format('revoke insert, update, delete, truncate, references, trigger on public.%I from authenticated', t);
     end loop;
 end $$;
 

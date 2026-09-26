@@ -556,6 +556,14 @@
         .tr-value.tr-danger { color: var(--danger); }
         .tr-value.tr-warning { color: #b58900; }
         .tr-value.tr-success { color: var(--success); }
+        /* Health vs baseline card */
+        .hc-table { width: 100%; max-width: 560px; }
+        .hc-table td.num, .hc-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .hc-delta-flag { color: var(--danger); font-weight: 600; }
+        .hc-line { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
+        .hc-line strong { color: var(--text); font-weight: 600; }
+        .hc-review { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 3px;
+                     background: #fdf3d7; color: #7a5c00; margin-left: 6px; }
         /* Every tile value is a drill-down (2026-09-04). */
         .tile-row[data-drill] { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 0 4px; }
         .tile-row[data-drill]:hover { background: #f3f1ea; }
@@ -1053,6 +1061,17 @@
 
             <!-- Animal Health: doctoring and deaths -->
             <div id="lotTabHealth" class="hidden">
+                <!-- Health vs baseline (2026-09-25, docs/health-curves.md).
+                     Every number is SQL: lot_health_status and
+                     lot_death_capture. The card only lays them out. -->
+                <div class="card" id="lotHealthCard">
+                    <div class="card-header">
+                        <h3>Health vs baseline</h3>
+                        <span id="lotHealthMeta" class="card-note" style="font-size: 13px;"></span>
+                    </div>
+                    <div id="lotHealthContent"><div class="empty">Loading…</div></div>
+                </div>
+
                 <!-- Doctoring card -->
                 <div class="card" id="doctoringCard">
                     <div class="card-header">
@@ -6868,6 +6887,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // Load lot pasture assignments, move history, death log, and receipts
         await loadLotLocations(lotId);
         await loadDeathLog(lotId);
+        loadLotHealth(lotId);   // not awaited: the baseline view takes ~0.5 s and blocks nothing else
         // Before renderCloseoutCalculator(): the closeout's Missing line reads
         // headAdjTotals, and rendering first would price a lot's write-offs off
         // the PREVIOUS lot's numbers — the same ordering trap loadSales carries.
@@ -23139,6 +23159,91 @@ ${ranchBlocks}
                 if (ev) openDeathsModalForEdit(ev);
             });
         });
+    }
+
+    // ==========================================================
+    // HEALTH VS BASELINE — the lot against its class x season cell
+    // ==========================================================
+    // Migration: docs/sql/2026-09-25_health_curves.sql
+    // Design and rules: docs/health-curves.md
+    //
+    // Every figure comes from SQL - lot_health_status does the curves, the
+    // self-exclusion and the deltas; lot_death_capture does the death line.
+    // Nothing here does arithmetic beyond formatting.
+    const HEALTH_METRICS = [
+        { key: 'pull1_pct_head',  label: '1st pull, % of head' },
+        { key: 'pull2_pct_pull1', label: '2nd pull, % of 1st' },
+        { key: 'dead_pct_pull1',  label: 'Deaths, % of 1st pull' },
+        { key: 'dead_pct_head',   label: 'Deaths, % of head' },
+        { key: 'loss_pct_head',   label: 'Loss incl. shorts, % of head', closeOnly: true }
+    ];
+
+    async function loadLotHealth(lotId) {
+        const [stRes, capRes, exRes] = await Promise.all([
+            supabase.from('lot_health_status').select('*').eq('lot_id', lotId).maybeSingle(),
+            supabase.from('lot_death_capture').select('*').eq('lot_id', lotId).eq('is_total', true).maybeSingle(),
+            supabase.from('health_excluded_lots').select('*').eq('lot_id', lotId).maybeSingle()
+        ]);
+        if (lastDetailLotId !== lotId) return;      // another lot opened while this loaded
+        const err = stRes.error || capRes.error || exRes.error;
+        if (err) {
+            $('lotHealthMeta').textContent = '';
+            $('lotHealthContent').innerHTML = `<div class="empty">Health baseline could not be read: ${escapeHtml(err.message)}</div>`;
+            return;
+        }
+        const r = renderLotHealthCard(stRes.data, capRes.data, exRes.data);
+        $('lotHealthMeta').innerHTML = r.meta;
+        $('lotHealthContent').innerHTML = r.body;
+    }
+
+    // Pure: data in, HTML out. Kept separate so it can be rendered and
+    // checked without the database.
+    function renderLotHealthCard(st, cap, ex) {
+        const pct = v => (v == null ? '—' : Number(v).toFixed(1) + '%');
+        const delta = (v, flagged) => {
+            if (v == null) return '—';
+            const n = Number(v);
+            const txt = (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n).toFixed(1);
+            return flagged ? `<span class="hc-delta-flag" title="Over the flag threshold">${txt} ⚑</span>` : txt;
+        };
+        const deathLine = cap
+            ? `<div class="hc-line">Deaths: <strong>${fmtNum(cap.dead)}</strong> dead · `
+              + `<strong>${fmtNum(cap.tagged)}</strong> tagged (${cap.tag_capture_pct == null ? '—' : Number(cap.tag_capture_pct).toFixed(0) + '%'}) · `
+              + `<strong>${fmtNum(cap.tagged_pulled_before)}</strong> pulled first · `
+              + `<strong>${fmtNum(cap.tagged_never_pulled)}</strong> never pulled · `
+              + `<strong>${fmtNum(cap.shorts)}</strong> shorts</div>`
+            : `<div class="hc-line">Deaths: none recorded.</div>`;
+
+        if (!st) {
+            const why = ex ? escapeHtml(ex.reason) : 'no head received on record';
+            return { meta: '', body: `<div class="empty">Not on the health curves: ${why}.</div>${deathLine}` };
+        }
+
+        const reviewChip = st.needs_review
+            ? `<span class="hc-review" title="Loads straddle a weight band or a season; the rule picked this cell. Set it on the Health page.">by rule — review</span>`
+            : (st.override_applied ? `<span class="hc-review" style="background:#eef3ea;color:#3d5a2a;">set by hand</span>` : '');
+        const dayTxt = st.is_closed ? 'closed' : `day ${fmtNum(st.current_day)}${st.past_180 ? ' (baseline held at 180)' : ''}`;
+        const meta = `${escapeHtml(st.class_label || '—')} · ${escapeHtml(st.season_label || '—')} · ${dayTxt}${reviewChip}`;
+
+        const rows = HEALTH_METRICS
+            .filter(m => !m.closeOnly || st.is_closed)
+            .map(m => `<tr>
+                <td>${m.label}</td>
+                <td class="num">${pct(st[m.key])}</td>
+                <td class="num">${pct(st['base_' + m.key])}</td>
+                <td class="num">${delta(st['delta_' + m.key], st['flag_' + m.key])}</td>
+            </tr>`).join('');
+
+        const thresholdNote = st.thresholds_set ? '' : ' · no flag threshold set';
+        const body = `
+            <table class="hc-table">
+                <thead><tr><th>Metric</th><th class="num">Lot</th><th class="num">Baseline</th><th class="num">Δ pts</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+            <div class="hc-line">Baseline: ${escapeHtml(st.provenance || 'none')}${thresholdNote}</div>
+            <div class="hc-line">${fmtNum(st.head)} hd received · ${fmtNum(st.pull1)} pulled · ${fmtNum(st.pull2)} of them pulled again</div>
+            ${deathLine}`;
+        return { meta, body };
     }
 
     // ==========================================================
