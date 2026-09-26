@@ -686,22 +686,24 @@ with lc as materialized (
       left join cell_close cc     on cc.class_code = lc.class_code and cc.season_code = lc.season_code
       left join est_close ec      on ec.class_code = lc.class_code and ec.season_code = lc.season_code
 )
+-- Deltas and flags subtract the ROUNDED figures, so each row adds up as
+-- printed (16.7 - 15.1 reads 1.6, not the 1.5 of the unrounded numbers).
 select b.lot_id, b.lot_number, b.order_buyer, b.is_closed, b.class_code, b.class_label, b.season_code, b.season_label,
        b.current_day, b.past_180, b.needs_review, b.override_applied,
        b.head, b.pull1, b.pull2, b.dead, b.shorts,
-       round(b.act_p1, 1)  as pull1_pct_head,   round(b.base_p1, 1)  as base_pull1_pct_head,   round(b.act_p1  - b.base_p1, 1)  as delta_pull1_pct_head,
-       round(b.act_p2r, 1) as pull2_pct_pull1,  round(b.base_p2r, 1) as base_pull2_pct_pull1,  round(b.act_p2r - b.base_p2r, 1) as delta_pull2_pct_pull1,
-       round(b.act_dr, 1)  as dead_pct_pull1,   round(b.base_dr, 1)  as base_dead_pct_pull1,   round(b.act_dr  - b.base_dr, 1)  as delta_dead_pct_pull1,
-       round(b.act_dh, 1)  as dead_pct_head,    round(b.base_dh, 1)  as base_dead_pct_head,    round(b.act_dh  - b.base_dh, 1)  as delta_dead_pct_head,
-       round(b.act_lh, 1)  as loss_pct_head,    round(b.base_lh, 1)  as base_loss_pct_head,    round(b.act_lh  - b.base_lh, 1)  as delta_loss_pct_head,
-       coalesce(b.act_p1  - b.base_p1  > t1.threshold_pp, false) as flag_pull1_pct_head,
-       coalesce(b.act_p2r - b.base_p2r > t2.threshold_pp, false) as flag_pull2_pct_pull1,
-       coalesce(b.act_dr  - b.base_dr  > t3.threshold_pp, false) as flag_dead_pct_pull1,
-       coalesce(b.act_dh  - b.base_dh  > t4.threshold_pp, false) as flag_dead_pct_head,
-       coalesce(b.act_lh  - b.base_lh  > t5.threshold_pp, false) as flag_loss_pct_head,
-       (coalesce(b.act_p1  - b.base_p1  > t1.threshold_pp, false) or coalesce(b.act_p2r - b.base_p2r > t2.threshold_pp, false)
-        or coalesce(b.act_dr - b.base_dr > t3.threshold_pp, false) or coalesce(b.act_dh  - b.base_dh  > t4.threshold_pp, false)
-        or coalesce(b.act_lh - b.base_lh > t5.threshold_pp, false)) as any_flag,
+       round(b.act_p1, 1)  as pull1_pct_head,   round(b.base_p1, 1)  as base_pull1_pct_head,   round(b.act_p1, 1) - round(b.base_p1, 1) as delta_pull1_pct_head,
+       round(b.act_p2r, 1) as pull2_pct_pull1,  round(b.base_p2r, 1) as base_pull2_pct_pull1,  round(b.act_p2r, 1) - round(b.base_p2r, 1) as delta_pull2_pct_pull1,
+       round(b.act_dr, 1)  as dead_pct_pull1,   round(b.base_dr, 1)  as base_dead_pct_pull1,   round(b.act_dr, 1) - round(b.base_dr, 1) as delta_dead_pct_pull1,
+       round(b.act_dh, 1)  as dead_pct_head,    round(b.base_dh, 1)  as base_dead_pct_head,    round(b.act_dh, 1) - round(b.base_dh, 1) as delta_dead_pct_head,
+       round(b.act_lh, 1)  as loss_pct_head,    round(b.base_lh, 1)  as base_loss_pct_head,    round(b.act_lh, 1) - round(b.base_lh, 1) as delta_loss_pct_head,
+       coalesce(round(b.act_p1, 1) - round(b.base_p1, 1) > t1.threshold_pp, false) as flag_pull1_pct_head,
+       coalesce(round(b.act_p2r, 1) - round(b.base_p2r, 1) > t2.threshold_pp, false) as flag_pull2_pct_pull1,
+       coalesce(round(b.act_dr, 1) - round(b.base_dr, 1) > t3.threshold_pp, false) as flag_dead_pct_pull1,
+       coalesce(round(b.act_dh, 1) - round(b.base_dh, 1) > t4.threshold_pp, false) as flag_dead_pct_head,
+       coalesce(round(b.act_lh, 1) - round(b.base_lh, 1) > t5.threshold_pp, false) as flag_loss_pct_head,
+       (coalesce(round(b.act_p1, 1) - round(b.base_p1, 1) > t1.threshold_pp, false) or coalesce(round(b.act_p2r, 1) - round(b.base_p2r, 1) > t2.threshold_pp, false)
+        or coalesce(round(b.act_dr, 1) - round(b.base_dr, 1) > t3.threshold_pp, false) or coalesce(round(b.act_dh, 1) - round(b.base_dh, 1) > t4.threshold_pp, false)
+        or coalesce(round(b.act_lh, 1) - round(b.base_lh, 1) > t5.threshold_pp, false)) as any_flag,
        (t1.threshold_pp is not null or t2.threshold_pp is not null or t3.threshold_pp is not null
         or t4.threshold_pp is not null or t5.threshold_pp is not null) as thresholds_set,
        b.provenance, b.baseline_kind, b.measured_through_day

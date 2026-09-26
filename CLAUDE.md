@@ -557,6 +557,46 @@ both are DROP + CREATE rather than CREATE OR REPLACE.
   that need them explain what to run, the two filters that need them warn
   that they were not applied, and everything else works.
 
+## Health curves: pull / re-pull / death baselines (live 2026-09-25)
+
+Migration `docs/sql/2026-09-25_health_curves.sql`; every rule and the
+verification in `docs/health-curves.md`. Reports → Health ▾ → **Health
+Curves** and **Death Capture**; lot page → Animal Health → **Health vs
+baseline** card. All arithmetic is in the views; the screens only lay out.
+
+- **Class and season are per LOT** (head-weighted invoice weight, head-weighted
+  arrival). Bands are half-open `[min_lb, max_lb)` — 650.73 lb is 551–650. A
+  lot whose loads straddle a band or a season is flagged and sits where the
+  rule puts it until John sets `lot_health_overrides` (owner, reason
+  required). 60X and 36-27 were flagged on day one.
+- **Day on ranch is per head** (event date in Chicago − that head's receipt
+  date); an untagged death takes the lot's weighted arrival. First pull = a
+  tag's first doctoring DAY; same-day repeats count once. Pulls join on
+  `lot_id` + tag — tags recycle.
+- **Incidence per head received**: a head counts toward day d once it has
+  reached d; dead and sold head stay in the denominator.
+- **A lot is never part of its own baseline.** `lot_health_status` subtracts
+  the lot's own counts from its cell, and scores each head at the day IT has
+  reached (a lot still receiving is not read at one average day). Deltas and
+  flags subtract the ROUNDED figures so a row adds up as printed.
+- **Estimates are stored at the checkpoints and interpolated.** Seeded from
+  the nearest OTHER measured cell (never the cell itself), edited by John
+  through `set_health_estimate()`, which supersedes rather than overwrites.
+  **Estimate rows are never deleted** — no DELETE policy, no grant. Measured
+  data replaces an estimate day by day.
+- **Shorts are not deaths.** Cause `missing from shipping` or a `missing`
+  adjustment: on no curve, counted on the capture line and in loss % of head
+  at close only.
+- **37X is on ESTIMATED loads** (`health_estimated_loads`, 361 hd assigned by
+  tag order to its three invoices). Delete those rows and it drops out with
+  its reason on `health_excluded_lots`. The general rule excludes a lot whose
+  receipt head is under 80% of invoice head.
+- Flag thresholds (`health_flag_thresholds`, points above baseline) are
+  blank until John sets them; `health_exceptions` is the Position Desk hook
+  and is empty until then.
+- Reads go through `can_read_operational()` (crew included — no dollars);
+  every write is owner only.
+
 ## The feed pen (built 2026-09-07)
 
 Cripples, chronics and anything else with little value left. Migration
@@ -881,7 +921,10 @@ is unrecoverable in a way an accidental insert is not.
    pinned `search_path`): `current_user_role` (it is the gate),
    `admin_list_users`, `guard_last_owner`, `handle_new_user`,
    `cleanup_attachment_storage`, `lot_projected_weight`,
-   `lot_projected_weight_detail`, `lot_weighted_arrival_date`. The eighth
+   `lot_projected_weight_detail`, `lot_weighted_arrival_date`, and since
+   2026-09-25 `health_receipt_weights` (a ninth: crew cannot read invoices,
+   and the health weight class is built from invoice weight — it returns
+   weight per receipt and nothing else). The eighth
    was added 2026-09-10 and inherits its reason from the function it backs:
    `lot_projected_weight` has been DEFINER since it was written, which is
    the only reason crew — who cannot read `invoices` — see a projected
