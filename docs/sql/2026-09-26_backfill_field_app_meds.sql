@@ -74,3 +74,51 @@ from doctoring_events d
 where d.legacy_source = 'field_app' and d.event_datetime >= '2026-09-01'
   and not exists (select 1 from doctoring_event_meds m where m.doctoring_event_id = d.id)
 order by 1, 2;
+
+-- ---------------------------------------------------------------------------
+-- APPLIED 2026-09-26 via the Supabase connector: 154 events, 279 lines,
+-- $2,759.57. The verify returned exactly the 13 blank-dose events.
+--
+-- Part 2, APPLIED 2026-09-26 on John's instruction ("add 13 as proposed"):
+-- Excede 5 cc, Enroflox(Baytril) by projected lot weight using the app's
+-- computeDoseSimple(): lot_projected_weight / 100 * 5.5, rounded UP to 1 cc.
+--   9/5  410.4 lb -> 22.57 -> 23 cc (4 hd)
+--   9/6  412.6 lb -> 22.69 -> 23 cc (6 hd)
+--   9/10 421.6 lb -> 23.19 -> 24 cc (3 hd)
+-- Excede: 65 cc * $2.07112 = $134.62. Enroflox: 302 cc * $0.26436 = $79.84.
+-- Total $214.46, 26 lines. Grand total restored: 305 lines, $2,974.03.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_lot uuid; v_exc uuid; v_enr uuid; p_exc numeric; p_enr numeric;
+  n_events int; v_cost numeric;
+begin
+  select id into strict v_lot from lots where lot_number = '36-27';
+  select id, cost_per_unit into strict v_exc, p_exc from medications where name = 'Excede';
+  select id, cost_per_unit into strict v_enr, p_enr from medications where name = 'Enroflox(Baytril)';
+
+  create temp table bf13 on commit drop as
+  select d.id as ev_id,
+         ceil(lot_projected_weight(v_lot, (d.event_datetime at time zone 'America/Chicago')::date) / 100 * 5.5) as enro_cc
+  from doctoring_events d
+  where d.lot_id = v_lot and d.legacy_source = 'field_app'
+    and (d.event_datetime at time zone 'America/Chicago')::date in ('2026-09-05','2026-09-06','2026-09-10')
+    and d.tag_number in ('8266','8420','8463','8610','8275','8307','8432','8468','8530','8737','8302','8440','8694')
+    and not exists (select 1 from doctoring_event_meds m where m.doctoring_event_id = d.id);
+
+  select count(*), round(sum(5 * p_exc + enro_cc * p_enr), 2) into n_events, v_cost from bf13;
+  if n_events <> 13 or v_cost <> 214.46 or (select sum(enro_cc) from bf13) <> 302 then
+    raise exception 'Expected 13 events / 302 cc Enroflox / $214.46, found % / % / $%. Nothing written.',
+      n_events, (select sum(enro_cc) from bf13), v_cost;
+  end if;
+
+  insert into doctoring_event_meds (doctoring_event_id, position, medication_id, medication_name_freetext, dose_cc, cost)
+  select ev_id, 1, v_exc, null, 5, 5 * p_exc from bf13
+  union all
+  select ev_id, 2, v_enr, null, enro_cc, enro_cc * p_enr from bf13;
+
+  update doctoring_events d
+     set notes = concat_ws(' ', nullif(d.notes, ''),
+       '[2026-09-26 meds restored: field app sent no doses; John set Excede 5 cc + Enroflox by projected lot weight (5.5 cc/100 lb, rounded up)]')
+   where d.id in (select ev_id from bf13);
+end $$;

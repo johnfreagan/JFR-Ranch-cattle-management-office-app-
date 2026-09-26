@@ -989,6 +989,20 @@ field PWA → pending_field_entries → office Approvals tab → RPC → books
   approving anything that uses it; an unpriced med writes a NULL cost line that
   `SUM()` then ignores. The approvals screen flags unpriced meds — do not
   approve past that flag.
+- **`resolved_meds` is NEVER null: it is `NOT NULL DEFAULT '[]'`.** An
+  untouched entry carries an EMPTY array, so "is it an array" is always true.
+  Commit e0530ba (2026-08-31) tested exactly that, and every doctoring entry
+  approved without an office edit posted with NO meds: 167 events,
+  2026-09-01 to 2026-09-26, found because the office app showed doctorings
+  with no meds attached. The edit form pre-fills from the same list, so
+  edited entries lost them too. Now a med list overrides the cowboy's only
+  when it is non-empty or the row was office-edited (every edit writes
+  `lot_id`). Repaired 2026-09-26 from `raw`:
+  `docs/sql/2026-09-26_backfill_field_app_meds.sql`, 305 lines, $2,974.03.
+  **A field entry with a med name and a blank dose would have been blocked
+  before the bug and must be blocked again** — 13 such entries slipped
+  through only because the med list was empty. Check the approvals screen
+  shows "dose ... is not a number" for one.
 - **Correcting a date** is done on the approvals row, which shifts
   `event_datetime` by whole days and rewrites only the date half of
   `raw.dateTime`, preserving time of day. It is guarded `.eq('status','pending')`
