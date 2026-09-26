@@ -1806,7 +1806,9 @@ Performance Beef emails a "Delivery Daily Report" every feeding day. A
 `stage_pb_report(message_id, text)`; the office reviews it on **Approvals →
 Feed**; `approve_pb_report` posts it. Migrations, in order:
 `docs/sql/2026-09-25_pb_email_import.sql`, `..._pb_report_list.sql`,
-`..._25b_pb_split_drop.sql`, `..._25c_pb_revoke_anon.sql`. The first two were applied from a Cowork session
+`..._25b_pb_split_drop.sql`, `..._25c_pb_revoke_anon.sql`,
+`2026-09-26_pb_parse_2026_format.sql`, `..._26b_pb_norm_revoke_anon.sql`.
+The first two and `pb_parse_2026_format` were applied from other sessions
 and pulled into the repo verbatim (file md5 = the stored migration's md5).
 
 ```
@@ -1867,7 +1869,26 @@ Approvals → Feed: Move · Split by weight · Reject     │
   headless Chromium with a fake supabase client and checks the Feed pane
   end to end (badges, split arithmetic and RPC args, blocked approve, the
   error text, reason-required reject, owner-only Unpost, crew locked out).
-- **anon holds EXECUTE on none of the 13 PB functions** (2026-09-25c,
+- **PB changed the email layout in Sept 2026** (first seen on the 09-25
+  report): "Your daily delivery report for <ranch> on MM-DD-YYYY", "Load 1
+  1 Starter Deccox" with no parentheses, "Total a b - - -", and a Head
+  Movement table. `pb_parse_2026_format` reads both layouts; tested end to
+  end on the real 09-25 email 2026-09-26 (staged inside a transaction that
+  raised, zero residue): 3 loads, pens Corner 7 / 4 / 1 resolved, every
+  ingredient resolved, no problems but the cut-over. **A day with every Fed
+  at 0 is normal**, not a parse failure: PB fills in fed pounds only on days
+  the truck actually feeds, and in Sept 2026 only bulk feeders were being
+  filled (John, 2026-09-26).
+- **Names are matched, never mapped** (John, 2026-09-26: "I want no name
+  mapping, I want to change anything to match"). `pb_name_aliases` stays
+  empty; a PB name that does not match is fixed at the source, in PB or in
+  our item/pasture name. `pb_norm()` (lower case, a-z0-9 only) is the one
+  tolerance and John chose to keep it: it forgives spacing, punctuation and
+  case, which cannot turn one name into a different item. The 09-25 email
+  matched only through it on `CornFeed` / `Corrid Crumbles 2.5`; John fixed
+  those names on the PB side the same day.
+- **anon holds EXECUTE on none of the 14 PB functions** (2026-09-25c,
+  2026-09-26b for `pb_norm`,
   `docs/sql/2026-09-25c_pb_revoke_anon.sql`). The first two migrations had
   left Postgres' PUBLIC default in place — rule 4 — and the revoke was
   applied the same day; its verify block raises if anon can execute any PB
