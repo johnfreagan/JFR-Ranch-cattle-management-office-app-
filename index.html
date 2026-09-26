@@ -9504,7 +9504,17 @@ window.addEventListener('unhandledrejection', function(e) {
         o.toPasture = pick(entry.to_pasture_id, lk.pasturesById, 'to-pasture');
         if (entry.head_count != null) o.head = entry.head_count;
         if (entry.tag_number != null && String(entry.tag_number) !== '') o.tag = String(entry.tag_number);
-        if (Array.isArray(entry.resolved_meds)) o.meds = entry.resolved_meds;
+        // resolved_meds is NOT NULL DEFAULT '[]', so an untouched row carries
+        // an EMPTY array, not null. Only an office edit writes it, and every
+        // edit also writes lot_id (required on the edit form), so a list only
+        // overrides the cowboy's meds when the office actually edited the row.
+        // Before 2026-09-26 this read Array.isArray() alone: every untouched
+        // entry resolved to an empty med list and posted with no meds
+        // (167 events, 2026-09-01 to 2026-09-26).
+        const officeEdited = !!(entry.lot_id || entry.field_action_id ||
+                                entry.pasture_id || entry.to_pasture_id);
+        const hasMedList = Array.isArray(entry.resolved_meds) && entry.resolved_meds.length > 0;
+        if (hasMedList || (officeEdited && Array.isArray(entry.resolved_meds))) o.meds = entry.resolved_meds;
 
         // "Edited" must mean THE OFFICE changed something, not merely that a
         // column is populated: the field app itself writes tag_number,
@@ -9513,8 +9523,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // resolved_meds are only ever written here, so their presence is the
         // edit; tag and head have to be compared against what the cowboy sent.
         const rawHead = parseInt(raw.headCount, 10);
-        o.edited = !!(entry.lot_id || entry.field_action_id || entry.pasture_id ||
-                      entry.to_pasture_id || Array.isArray(entry.resolved_meds))
+        o.edited = (officeEdited || hasMedList)
             || (o.head != null && !isNaN(rawHead) && o.head !== rawHead)
             || (o.tag != null && String(raw.tagNumber || '') !== o.tag);
         return o;
