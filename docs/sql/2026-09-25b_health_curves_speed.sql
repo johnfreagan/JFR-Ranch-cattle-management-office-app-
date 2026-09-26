@@ -34,6 +34,9 @@
 -- change session_user. search_path is pinned; EXECUTE is revoked from public
 -- and anon.
 --
+-- APPLIED 2026-09-25 through the connector; all 20 health objects match a
+-- scratch build by md5. Owner through the API: lot card ~0.7 s (was 21 s).
+--
 -- Idempotent. Paste WITHOUT begin/commit into the SQL editor; strip them for
 -- apply_migration.
 begin;

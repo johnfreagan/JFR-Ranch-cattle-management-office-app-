@@ -596,6 +596,16 @@ baseline** card. All arithmetic is in the views; the screens only lay out.
   and is empty until then.
 - Reads go through `can_read_operational()` (crew included — no dollars);
   every write is owner only.
+- **Time a new view as a real login, not as postgres.** The curves ran in
+  0.4 s in the SQL editor and 21 s through the app, because every base
+  table's SELECT policy calls its role check per row and the curves read the
+  same tables several times. The base sets now come through four DEFINER
+  functions that gate once per call (`docs/sql/2026-09-25b_health_curves_speed.sql`);
+  a per-row LATERAL or sub-select into an RLS table is the same trap.
+  Test with `set_config('request.jwt.claims', …)` + `set local role
+  authenticated` — but the MCP session is `postgres`, so a gate that trusts a
+  non-API `session_user` will pass there; check the gate itself on scratch
+  as `authenticator`.
 
 ## The feed pen (built 2026-09-07)
 
@@ -922,9 +932,11 @@ is unrecoverable in a way an accidental insert is not.
    `admin_list_users`, `guard_last_owner`, `handle_new_user`,
    `cleanup_attachment_storage`, `lot_projected_weight`,
    `lot_projected_weight_detail`, `lot_weighted_arrival_date`, and since
-   2026-09-25 `health_receipt_weights` (a ninth: crew cannot read invoices,
-   and the health weight class is built from invoice weight — it returns
-   weight per receipt and nothing else). The eighth
+   2026-09-25 the four health-curve readers `health_lot_basis_rows`,
+   `health_head_rows`, `health_pull_rows`, `health_death_rows` (they check
+   the role gate ONCE per call instead of once per row — under a real login
+   the per-row policies pushed the lot card past PostgREST's 8 s timeout —
+   and return no dollar column; see docs/health-curves.md). The eighth
    was added 2026-09-10 and inherits its reason from the function it backs:
    `lot_projected_weight` has been DEFINER since it was written, which is
    the only reason crew — who cannot read `invoices` — see a projected

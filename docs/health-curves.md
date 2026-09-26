@@ -188,13 +188,29 @@ John asked whether tags and invoice dates could estimate it. They can:
   `health_baseline_estimates` has no DELETE policy and no DELETE grant.
 - **Every view** is `security_invoker = true` and read-only, with
   insert/update/delete revoked from `authenticated`.
-- **`health_receipt_weights()` is SECURITY DEFINER** (pinned
-  `search_path`), and it is the 9th DEFINER function. The weight class
-  comes from invoice weight, and crew cannot read `invoices`; this is the
-  same reason `lot_projected_weight` is DEFINER. It returns weight per
-  receipt and nothing else. It returns nothing to an inactive or unknown
-  user, except when `session_user` is not an API role (a migration or the
-  SQL editor), and a client cannot change `session_user`.
+- **The base sets come through four SECURITY DEFINER functions**
+  (`health_lot_basis_rows`, `health_head_rows`, `health_pull_rows`,
+  `health_death_rows`; pinned `search_path`, EXECUTE revoked from public
+  and anon). They replaced `health_receipt_weights()` the same day
+  (`docs/sql/2026-09-25b_health_curves_speed.sql`). Two reasons:
+  - crew cannot read `invoices`, and the weight class comes from invoice
+    weight — `lot_projected_weight`'s reason;
+  - speed. Under a real login every base-table policy runs its role check
+    once per ROW, and the curves read the same tables several times. As an
+    owner through the API the lot card took 21 s against PostgREST's 8 s
+    limit ("canceling statement due to statement timeout"); as postgres in
+    the SQL editor it took 0.4 s, which is why it was missed. With the gate
+    checked once per call the owner reads the lot card in ~0.7 s, the whole
+    Health Curves page in about 2 s.
+
+  They return operational rows every active role can already read, plus
+  invoice weight and head — no dollar column. They return nothing to an
+  inactive or unknown user (verified on scratch as `authenticator`: owner and
+  crew 4,109 head, inactive 0, anon permission denied), except when
+  `session_user` is not an API role (a migration or the SQL editor); a
+  client cannot change `session_user`. The same fix removed two per-row
+  lookups: the death-to-tag LATERAL in `health_death_days` and the
+  "pulled before death" sub-select in `lot_death_capture`.
 
 ## Screens
 
