@@ -557,6 +557,56 @@ both are DROP + CREATE rather than CREATE OR REPLACE.
   that need them explain what to run, the two filters that need them warn
   that they were not applied, and everything else works.
 
+## Health curves: pull / re-pull / death baselines (live 2026-09-25)
+
+Migration `docs/sql/2026-09-25_health_curves.sql`; every rule and the
+verification in `docs/health-curves.md`. Reports → Health ▾ → **Health
+Curves** and **Death Capture**; lot page → Animal Health → **Health vs
+baseline** card. All arithmetic is in the views; the screens only lay out.
+
+- **Class and season are per LOT** (head-weighted invoice weight, head-weighted
+  arrival). Bands are half-open `[min_lb, max_lb)` — 650.73 lb is 551–650. A
+  lot whose loads straddle a band or a season is flagged and sits where the
+  rule puts it until John sets `lot_health_overrides` (owner, reason
+  required). 60X and 36-27 were flagged on day one.
+- **Day on ranch is per head** (event date in Chicago − that head's receipt
+  date); an untagged death takes the lot's weighted arrival. First pull = a
+  tag's first doctoring DAY; same-day repeats count once. Pulls join on
+  `lot_id` + tag — tags recycle.
+- **Incidence per head received**: a head counts toward day d once it has
+  reached d; dead and sold head stay in the denominator.
+- **A lot is never part of its own baseline.** `lot_health_status` subtracts
+  the lot's own counts from its cell, and scores each head at the day IT has
+  reached (a lot still receiving is not read at one average day). Deltas and
+  flags subtract the ROUNDED figures so a row adds up as printed.
+- **Estimates are stored at the checkpoints and interpolated.** Seeded from
+  the nearest OTHER measured cell (never the cell itself), edited by John
+  through `set_health_estimate()`, which supersedes rather than overwrites.
+  **Estimate rows are never deleted** — no DELETE policy, no grant. Measured
+  data replaces an estimate day by day.
+- **Shorts are not deaths.** Cause `missing from shipping` or a `missing`
+  adjustment: on no curve, counted on the capture line and in loss % of head
+  at close only.
+- **37X is on ESTIMATED loads** (`health_estimated_loads`, 361 hd assigned by
+  tag order to its three invoices). Delete those rows and it drops out with
+  its reason on `health_excluded_lots`. The general rule excludes a lot whose
+  receipt head is under 80% of invoice head.
+- Flag thresholds (`health_flag_thresholds`, points above baseline) are
+  blank until John sets them; `health_exceptions` is the Position Desk hook
+  and is empty until then.
+- Reads go through `can_read_operational()` (crew included — no dollars);
+  every write is owner only.
+- **Time a new view as a real login, not as postgres.** The curves ran in
+  0.4 s in the SQL editor and 21 s through the app, because every base
+  table's SELECT policy calls its role check per row and the curves read the
+  same tables several times. The base sets now come through four DEFINER
+  functions that gate once per call (`docs/sql/2026-09-25b_health_curves_speed.sql`);
+  a per-row LATERAL or sub-select into an RLS table is the same trap.
+  Test with `set_config('request.jwt.claims', …)` + `set local role
+  authenticated` — but the MCP session is `postgres`, so a gate that trusts a
+  non-API `session_user` will pass there; check the gate itself on scratch
+  as `authenticator`.
+
 ## The feed pen (built 2026-09-07)
 
 Cripples, chronics and anything else with little value left. Migration
@@ -881,7 +931,12 @@ is unrecoverable in a way an accidental insert is not.
    pinned `search_path`): `current_user_role` (it is the gate),
    `admin_list_users`, `guard_last_owner`, `handle_new_user`,
    `cleanup_attachment_storage`, `lot_projected_weight`,
-   `lot_projected_weight_detail`, `lot_weighted_arrival_date`. The eighth
+   `lot_projected_weight_detail`, `lot_weighted_arrival_date`, and since
+   2026-09-25 the four health-curve readers `health_lot_basis_rows`,
+   `health_head_rows`, `health_pull_rows`, `health_death_rows` (they check
+   the role gate ONCE per call instead of once per row — under a real login
+   the per-row policies pushed the lot card past PostgREST's 8 s timeout —
+   and return no dollar column; see docs/health-curves.md). The eighth
    was added 2026-09-10 and inherits its reason from the function it backs:
    `lot_projected_weight` has been DEFINER since it was written, which is
    the only reason crew — who cannot read `invoices` — see a projected

@@ -556,6 +556,17 @@
         .tr-value.tr-danger { color: var(--danger); }
         .tr-value.tr-warning { color: #b58900; }
         .tr-value.tr-success { color: var(--success); }
+        /* Health vs baseline card */
+        .hc-table { width: 100%; max-width: 560px; }
+        .hc-table td.num, .hc-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .hc-delta-flag { color: var(--danger); font-weight: 600; }
+        .hc-line { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
+        .hc-line strong { color: var(--text); font-weight: 600; }
+        .hc-wide th.hc-grp { text-align: center; border-bottom: 1px solid var(--border, #ddd); }
+        .hc-wide td, .hc-wide th { white-space: nowrap; }
+        .muted-num { color: var(--text-muted); }
+        .hc-review { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 3px;
+                     background: #fdf3d7; color: #7a5c00; margin-left: 6px; }
         /* Every tile value is a drill-down (2026-09-04). */
         .tile-row[data-drill] { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 0 4px; }
         .tile-row[data-drill]:hover { background: #f3f1ea; }
@@ -955,6 +966,8 @@
                     <button class="sub-tab" data-subtab="processing-costs">Receiving</button>
                     <button class="sub-tab" data-subtab="doctoring">Doctoring &amp; Deaths</button>
                     <button class="sub-tab" data-subtab="death-analysis">Death Analysis</button>
+                    <button class="sub-tab" data-subtab="health-curves">Health Curves</button>
+                    <button class="sub-tab" data-subtab="death-capture">Death Capture</button>
                 </div>
             </div>
         </div>
@@ -1080,6 +1093,17 @@
 
             <!-- Animal Health: doctoring and deaths -->
             <div id="lotTabHealth" class="hidden">
+                <!-- Health vs baseline (2026-09-25, docs/health-curves.md).
+                     Every number is SQL: lot_health_status and
+                     lot_death_capture. The card only lays them out. -->
+                <div class="card" id="lotHealthCard">
+                    <div class="card-header">
+                        <h3>Health vs baseline</h3>
+                        <span id="lotHealthMeta" class="card-note" style="font-size: 13px;"></span>
+                    </div>
+                    <div id="lotHealthContent"><div class="empty">Loading…</div></div>
+                </div>
+
                 <!-- Doctoring card -->
                 <div class="card" id="doctoringCard">
                     <div class="card-header">
@@ -1873,6 +1897,84 @@
                 </div>
                 <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Receipts within 17 days of receiving on open lots, by in-date, tag range, and pasture. Loads drop off automatically after day 17. "OK to pull" = in-date + 8 days (Draxxin post-metaphylaxis window; day 9 in parentheses).</p>
                 <div id="reportFreshContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Health curves (2026-09-25, docs/health-curves.md). Pull,
+             re-pull and death curves by weight class x season; each lot
+             against its cell with itself left out. Every number is SQL. -->
+        <div id="reportHealthCurvesView" class="hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Health Curves — lots vs baseline</h2>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <label style="font-size: 13px; display: flex; align-items: center; gap: 4px;">
+                            <input type="checkbox" id="hcShowClosed" style="width: auto;"> Include closed lots
+                        </label>
+                        <button id="hcRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 12px;">Each lot against its weight class × season, with the lot itself left out of its own baseline. Open lots are scored head by head at the day each has reached; closed lots compare close to close. Δ is percentage points; a flag needs a threshold (below).</p>
+                <div id="hcLotsContent"><div class="empty">Loading…</div></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>Class &amp; season to confirm</h3></div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 12px;">A lot whose loads straddle a weight band or a season is placed by rule. Set it here and the override wins everywhere. Owner only.</p>
+                <div id="hcReviewContent"><div class="empty">Loading…</div></div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h3>Baseline by class × season</h3>
+                    <select id="hcMetric" style="width: auto;">
+                        <option value="pull1_pct_head">1st pull, % of head</option>
+                        <option value="pull2_pct_pull1">2nd pull, % of 1st</option>
+                        <option value="dead_pct_pull1">Deaths, % of 1st pull</option>
+                        <option value="dead_pct_head">Deaths, % of head</option>
+                        <option value="loss_pct_head">Loss incl. shorts, % of head (close)</option>
+                    </select>
+                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 12px;">Every lot in (no self-exclusion). <strong>Bold</strong> = measured; <em>italic</em> = assumed. Hover a figure for where it came from.</p>
+                <div id="hcBaselineContent"><div class="empty">Loading…</div></div>
+            </div>
+            <div class="card" data-perm="owner">
+                <div class="card-header">
+                    <h3>Estimates</h3>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <select id="hcEstClass" style="width: auto;"></select>
+                        <select id="hcEstSeason" style="width: auto;"></select>
+                    </div>
+                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 12px;">Stand-in values for days no other lot has reached. Type over a figure and Save; it is tagged "Assumed — John" and the old one is kept. Measured data replaces an estimate day by day as it arrives.</p>
+                <div id="hcEstContent"><div class="empty">Loading…</div></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>Flag thresholds</h3></div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 12px;">Percentage points ABOVE baseline before a lot is flagged. Blank = never flag. Owner sets them.</p>
+                <div id="hcThresholdContent"><div class="empty">Loading…</div></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>Left out, estimated, and things to check</h3></div>
+                <div id="hcExcludedContent"><div class="empty">Loading…</div></div>
+                <div id="hcAnomaliesContent" style="margin-top: 14px;"></div>
+            </div>
+        </div>
+
+        <!-- Death capture for the crew: per lot, by month. -->
+        <div id="reportDeathCaptureView" class="hidden">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Death Capture</h2>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <label style="font-size: 13px; display: flex; align-items: center; gap: 4px;">
+                            <input type="checkbox" id="dcShowClosed" style="width: auto;"> Include closed lots
+                        </label>
+                        <button id="dcPrintBtn">Print</button>
+                        <button id="dcShareBtn">Text / share PDF</button>
+                        <button id="dcRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 14px;">Every dead animal should carry its tag. Tagged deaths are checked against the doctoring record: pulled first, or never pulled. Shorts (head missing at shipping) are counted on their own, never as deaths.</p>
+                <div id="dcContent"><div class="empty">Loading…</div></div>
             </div>
         </div>
 
@@ -6917,6 +7019,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // Load lot pasture assignments, move history, death log, and receipts
         await loadLotLocations(lotId);
         await loadDeathLog(lotId);
+        loadLotHealth(lotId);   // not awaited: the baseline view takes ~0.5 s and blocks nothing else
         // Before renderCloseoutCalculator(): the closeout's Missing line reads
         // headAdjTotals, and rendering first would price a lot's write-offs off
         // the PREVIOUS lot's numbers — the same ordering trap loadSales carries.
@@ -9194,7 +9297,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'fieldActionsView', 'fieldProtocolsView',
          'dataToolsView', 'usersView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
-         'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportFeedPenView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportFreshView', 'reportDoctoringView',
+         'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportFeedPenView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportFreshView', 'reportDoctoringView', 'reportHealthCurvesView', 'reportDeathCaptureView',
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView', 'positionsView',
          'feedInventoryView', 'feedReceiptsView', 'feedUsageView', 'feedCountsView',
          'feedBatchesView', 'feedCostView', 'feedRedwingView', 'invPurchasesView',
@@ -11322,6 +11425,12 @@ window.addEventListener('unhandledrejection', function(e) {
         } else if (subtab === 'doctoring') {
             $('reportDoctoringView').classList.remove('hidden');
             initDoctoringReport();
+        } else if (subtab === 'health-curves') {
+            $('reportHealthCurvesView').classList.remove('hidden');
+            initHealthCurvesReport();
+        } else if (subtab === 'death-capture') {
+            $('reportDeathCaptureView').classList.remove('hidden');
+            initDeathCaptureReport();
         }
     }
 
@@ -17511,6 +17620,382 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         loadProcessingReport();
     }
 
+    // ==========================================================
+    // HEALTH CURVES REPORT (2026-09-25) — docs/health-curves.md
+    // ==========================================================
+    // The page lays out what the views compute. No rate, delta or baseline
+    // is worked out here: lot_health_status, health_baseline and
+    // health_estimate_points carry them. Writes are owner only and go
+    // through RLS (overrides, thresholds) or set_health_estimate().
+    const HC_CHECKPOINTS = ['7', '14', '21', '30', '45', '60', '90', '120', '180', 'close'];
+    let hcInit = false;
+    let hcData = null;
+
+    function initHealthCurvesReport() {
+        if (!hcInit) {
+            hcInit = true;
+            $('hcRefreshBtn').addEventListener('click', loadHealthCurvesReport);
+            $('hcShowClosed').addEventListener('change', renderHcLots);
+            $('hcMetric').addEventListener('change', renderHcBaseline);
+            $('hcEstClass').addEventListener('change', renderHcEstimates);
+            $('hcEstSeason').addEventListener('change', renderHcEstimates);
+        }
+        loadHealthCurvesReport();
+    }
+
+    async function loadHealthCurvesReport() {
+        ['hcLotsContent', 'hcReviewContent', 'hcBaselineContent', 'hcEstContent', 'hcThresholdContent', 'hcExcludedContent']
+            .forEach(id => { $(id).innerHTML = '<div class="empty">Loading…</div>'; });
+        $('hcAnomaliesContent').innerHTML = '';
+        const cps = '(7,14,21,30,45,60,90,120,180)';
+        const res = await Promise.all([
+            supabase.from('lot_health_status').select('*').order('lot_number'),
+            supabase.from('lot_health_class').select('*').order('lot_number'),
+            supabase.from('lot_health_overrides').select('*'),
+            supabase.from('health_baseline').select('class_code, class_label, season_code, season_label, day, is_close, metric, value_pct, kind, provenance, sort_order, cycle_order')
+                .or(`day.in.${cps},is_close.eq.true`),
+            supabase.from('health_estimate_points').select('*'),
+            supabase.from('health_flag_thresholds').select('*'),
+            supabase.from('health_excluded_lots').select('*').order('lot_number'),
+            supabase.from('health_anomalies').select('*').order('kind').order('lot_number'),
+            supabase.from('health_class_bands').select('*').order('sort_order'),
+            supabase.from('health_season_defs').select('*').order('cycle_order')
+        ]);
+        const err = res.find(r => r.error);
+        if (err) {
+            $('hcLotsContent').innerHTML = `<div class="alert error">Health curves could not be read: ${escapeHtml(err.error.message)}</div>`;
+            return;
+        }
+        const [status, cls, ovr, base, est, thr, excl, anom, bands, seasons] = res.map(r => r.data || []);
+        hcData = { status, cls, ovr, base, est, thr, excl, anom, bands, seasons };
+        if (!$('hcEstClass').options.length) {
+            $('hcEstClass').innerHTML = bands.map(b => `<option value="${escapeHtml(b.class_code)}">${escapeHtml(b.label)}</option>`).join('');
+            $('hcEstSeason').innerHTML = seasons.map(x => `<option value="${escapeHtml(x.season_code)}">${escapeHtml(x.label)}</option>`).join('');
+        }
+        renderHcLots();
+        renderHcReview();
+        renderHcBaseline();
+        renderHcEstimates();
+        renderHcThresholds();
+        renderHcExcluded();
+    }
+
+    function hcPct(v) { return v == null ? '—' : Number(v).toFixed(1); }
+    function hcDelta(v, flagged) {
+        if (v == null) return '—';
+        const n = Number(v);
+        const txt = (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n).toFixed(1);
+        return flagged ? `<span class="hc-delta-flag" title="Over the flag threshold">${txt} ⚑</span>` : txt;
+    }
+
+    function renderHcLots() {
+        const showClosed = $('hcShowClosed').checked;
+        const rows = hcData.status.filter(r => showClosed || !r.is_closed);
+        if (!rows.length) { $('hcLotsContent').innerHTML = '<div class="empty">No lots on the curves.</div>'; return; }
+        const trio = (r, k) => `<td class="num">${hcPct(r[k])}</td><td class="num muted-num">${hcPct(r['base_' + k])}</td><td class="num">${hcDelta(r['delta_' + k], r['flag_' + k])}</td>`;
+        const body = rows.map(r => `<tr class="clickable" data-lot-id="${r.lot_id}" title="Open lot ${escapeHtml(r.lot_number)}">
+                <td><strong>${escapeHtml(r.lot_number)}</strong>${r.is_closed ? ' <span class="muted">closed</span>' : ''}</td>
+                <td>${escapeHtml(r.class_label || '—')} · ${escapeHtml(r.season_label || '—')}${r.needs_review ? '<span class="hc-review">review</span>' : ''}</td>
+                <td class="num">${r.is_closed ? '—' : fmtNum(r.current_day)}</td>
+                <td class="num">${fmtNum(r.head)}</td>
+                ${trio(r, 'pull1_pct_head')}${trio(r, 'pull2_pct_pull1')}${trio(r, 'dead_pct_pull1')}${trio(r, 'dead_pct_head')}
+                <td style="font-size: 12px;">${escapeHtml(r.provenance || '—')}</td>
+            </tr>`).join('');
+        $('hcLotsContent').innerHTML = `<div style="overflow-x: auto;"><table class="hc-wide">
+            <thead>
+                <tr><th rowspan="2">Lot</th><th rowspan="2">Class · season</th><th rowspan="2" class="num">Day</th><th rowspan="2" class="num">Head</th>
+                    <th colspan="3" class="hc-grp">1st pull % hd</th><th colspan="3" class="hc-grp">2nd % of 1st</th>
+                    <th colspan="3" class="hc-grp">Deaths % of 1st</th><th colspan="3" class="hc-grp">Deaths % hd</th><th rowspan="2">Baseline from</th></tr>
+                <tr>${'<th class="num">Lot</th><th class="num">Base</th><th class="num">Δ</th>'.repeat(4)}</tr>
+            </thead><tbody>${body}</tbody></table></div>`;
+        $('hcLotsContent').querySelectorAll('tr[data-lot-id]').forEach(tr =>
+            tr.addEventListener('click', () => showLotDetail(tr.dataset.lotId)));
+    }
+
+    function renderHcReview() {
+        const isOwner = currentProfile && currentProfile.role === 'owner';
+        const ovrBy = Object.fromEntries(hcData.ovr.map(o => [o.lot_id, o]));
+        const rows = hcData.cls.filter(c => c.class_span_flag || c.season_span_flag || ovrBy[c.lot_id]);
+        if (!rows.length) { $('hcReviewContent').innerHTML = '<div class="empty">Nothing straddles; every lot sits cleanly in one cell.</div>'; return; }
+        const bandOpts = sel => hcData.bands.map(b => `<option value="${escapeHtml(b.class_code)}"${b.class_code === sel ? ' selected' : ''}>${escapeHtml(b.label)}</option>`).join('');
+        const seaOpts = sel => hcData.seasons.map(x => `<option value="${escapeHtml(x.season_code)}"${x.season_code === sel ? ' selected' : ''}>${escapeHtml(x.label)}</option>`).join('');
+        const body = rows.map(c => {
+            const o = ovrBy[c.lot_id];
+            const why = [c.class_span_flag ? 'loads straddle a weight band' : null,
+                         c.season_span_flag ? `receipts ${fmtDate(c.first_arrival)} – ${fmtDate(c.last_arrival)} cross a season` : null]
+                        .filter(Boolean).join('; ');
+            const ruleTxt = `${escapeHtml(hcData.bands.find(b => b.class_code === c.rule_class)?.label || c.rule_class || '—')} · ${escapeHtml(hcData.seasons.find(x => x.season_code === c.rule_season)?.label || c.rule_season || '—')}`;
+            const controls = isOwner ? `
+                <td><select class="hc-ov-class" style="width:auto;">${bandOpts(o ? (o.class_override || c.rule_class) : c.rule_class)}</select></td>
+                <td><select class="hc-ov-season" style="width:auto;">${seaOpts(o ? (o.season_override || c.rule_season) : c.rule_season)}</select></td>
+                <td><input class="hc-ov-reason" type="text" placeholder="Why" value="${escapeHtml(o ? o.reason : '')}" style="min-width: 160px;"></td>
+                <td style="white-space: nowrap;"><button class="primary hc-ov-save" data-write>Set</button>${o ? ' <button class="hc-ov-clear" data-write>Back to rule</button>' : ''}</td>`
+                : `<td colspan="4">${o ? `Set: ${escapeHtml(c.class_label)} · ${escapeHtml(c.season_label)} — ${escapeHtml(o.reason)}` : '<span class="muted">by rule — owner to confirm</span>'}</td>`;
+            return `<tr data-lot-id="${c.lot_id}">
+                <td><strong>${escapeHtml(c.lot_number)}</strong></td>
+                <td class="num">${fmtNum(c.weighted_weight_lb, 1)} lb</td>
+                <td>${fmtDate(c.weighted_arrival)}</td>
+                <td style="font-size: 12px;">${escapeHtml(why || 'set by hand')}</td>
+                <td>${ruleTxt}</td>${controls}</tr>`;
+        }).join('');
+        $('hcReviewContent').innerHTML = `<div style="overflow-x: auto;"><table>
+            <thead><tr><th>Lot</th><th class="num">Avg in</th><th>Wtd arrival</th><th>Why flagged</th><th>By rule</th>
+            ${isOwner ? '<th>Class</th><th>Season</th><th>Reason</th><th></th>' : '<th colspan="4">Decision</th>'}</tr></thead>
+            <tbody>${body}</tbody></table></div>`;
+        if (!isOwner) return;
+        $('hcReviewContent').querySelectorAll('tr[data-lot-id]').forEach(tr => {
+            const lotId = tr.dataset.lotId;
+            const c = hcData.cls.find(x => x.lot_id === lotId);
+            tr.querySelector('.hc-ov-save')?.addEventListener('click', async () => {
+                const reason = tr.querySelector('.hc-ov-reason').value.trim();
+                if (!reason) { alert('Say why — the reason is kept with the override.'); return; }
+                const cl = tr.querySelector('.hc-ov-class').value;
+                const se = tr.querySelector('.hc-ov-season').value;
+                const { error } = await supabase.from('lot_health_overrides').upsert({
+                    lot_id: lotId,
+                    class_override: cl,
+                    season_override: se,
+                    reason, set_at: new Date().toISOString(), set_by: currentUser?.id || null
+                }, { onConflict: 'lot_id' });
+                if (error) { alert('Not saved: ' + error.message); return; }
+                showAlert('globalAlert', `${c.lot_number} set to ${cl} · ${se}.`, 'success');
+                loadHealthCurvesReport();
+            });
+            tr.querySelector('.hc-ov-clear')?.addEventListener('click', async () => {
+                if (!confirm(`Put ${c.lot_number} back on the rule (${c.rule_class} · ${c.rule_season})?`)) return;
+                const { error } = await supabase.from('lot_health_overrides').delete().eq('lot_id', lotId);
+                if (error) { alert('Not cleared: ' + error.message); return; }
+                loadHealthCurvesReport();
+            });
+        });
+    }
+
+    function renderHcBaseline() {
+        const metric = $('hcMetric').value;
+        const rows = hcData.base.filter(b => b.metric === metric);
+        const cells = {};
+        rows.forEach(b => {
+            const key = b.class_code + '|' + b.season_code;
+            (cells[key] = cells[key] || { b, pts: {} }).pts[b.is_close ? 'close' : String(b.day)] = b;
+        });
+        const cps = metric === 'loss_pct_head' ? ['close'] : HC_CHECKPOINTS;
+        const body = Object.values(cells)
+            .sort((x, y) => x.b.sort_order - y.b.sort_order || x.b.cycle_order - y.b.cycle_order)
+            .map(({ b, pts }) => `<tr>
+                <td>${escapeHtml(b.class_label)}</td><td>${escapeHtml(b.season_label)}</td>
+                ${cps.map(cp => {
+                    const p = pts[cp];
+                    if (!p || p.value_pct == null) return '<td class="num muted">—</td>';
+                    const v = Number(p.value_pct).toFixed(1);
+                    return `<td class="num" title="${escapeHtml(p.provenance || '')}">${p.kind === 'measured' ? `<strong>${v}</strong>` : `<em class="muted-num">${v}</em>`}</td>`;
+                }).join('')}
+            </tr>`).join('');
+        $('hcBaselineContent').innerHTML = `<div style="overflow-x: auto;"><table>
+            <thead><tr><th>Class</th><th>Season</th>${cps.map(cp => `<th class="num">${cp === 'close' ? 'Close' : 'd' + cp}</th>`).join('')}</tr></thead>
+            <tbody>${body}</tbody></table></div>`;
+    }
+
+    const HC_EST_METRICS = [
+        ['pull1_pct_head', '1st pull, % of head'],
+        ['pull2_pct_pull1', '2nd pull, % of 1st'],
+        ['dead_pct_pull1', 'Deaths, % of 1st pull'],
+        ['dead_pct_head', 'Deaths, % of head'],
+        ['loss_pct_head', 'Loss incl. shorts, % hd']
+    ];
+    function renderHcEstimates() {
+        if (!(currentProfile && currentProfile.role === 'owner')) return;
+        const cl = $('hcEstClass').value, se = $('hcEstSeason').value;
+        const pts = hcData.est.filter(e => e.class_code === cl && e.season_code === se);
+        const at = (m, cp) => pts.find(e => e.metric === m && e.checkpoint === cp);
+        const body = HC_EST_METRICS.map(([m, label]) => `<tr><td>${label}</td>${HC_CHECKPOINTS.map(cp => {
+                if (m === 'loss_pct_head' && cp !== 'close') return '<td></td>';
+                const e = at(m, cp);
+                const tip = e ? e.provenance : 'no estimate';
+                return `<td class="num"><input type="number" step="0.1" min="0" class="hc-est-in" data-metric="${m}" data-cp="${cp}"
+                    data-orig="${e ? Number(e.value_pct) : ''}" value="${e ? Number(e.value_pct).toFixed(2) : ''}"
+                    title="${escapeHtml(tip)}" style="width: 64px; text-align: right;${e && e.source === 'john' ? ' font-weight: 600;' : ''}"></td>`;
+            }).join('')}</tr>`).join('');
+        // A cell can borrow from different cells at different checkpoints
+        // (the nearest one that has reached that day), so list them all.
+        const srcs = [...new Set(pts.filter(e => e.source === 'borrowed').map(e => e.provenance))];
+        $('hcEstContent').innerHTML = `<div style="overflow-x: auto;"><table>
+            <thead><tr><th>Metric</th>${HC_CHECKPOINTS.map(cp => `<th class="num">${cp === 'close' ? 'Close' : 'd' + cp}</th>`).join('')}</tr></thead>
+            <tbody>${body}</tbody></table></div>
+            <div class="hc-line">${srcs.length ? srcs.map(escapeHtml).join('<br>') + '<br>Hover a box for its own source.' : 'No borrowed values for this cell.'} <strong>Bold</strong> = set by John.</div>
+            <div style="margin-top: 10px;"><button class="primary" id="hcEstSaveBtn" data-write>Save changes</button></div>`;
+        $('hcEstSaveBtn').addEventListener('click', async () => {
+            const changed = [...$('hcEstContent').querySelectorAll('.hc-est-in')].filter(i =>
+                i.value !== '' && (i.dataset.orig === '' || Math.abs(Number(i.value) - Number(i.dataset.orig)) > 1e-9));
+            if (!changed.length) { alert('Nothing changed.'); return; }
+            for (const i of changed) {
+                const { error } = await supabase.rpc('set_health_estimate', {
+                    p_class_code: cl, p_season_code: se, p_metric: i.dataset.metric,
+                    p_checkpoint: i.dataset.cp, p_value_pct: Number(i.value)
+                });
+                if (error) { alert(`Stopped at ${i.dataset.metric} ${i.dataset.cp}: ${error.message}`); break; }
+            }
+            showAlert('globalAlert', `${changed.length} estimate(s) saved.`, 'success');
+            loadHealthCurvesReport();
+        });
+    }
+
+    function renderHcThresholds() {
+        const isOwner = currentProfile && currentProfile.role === 'owner';
+        const by = Object.fromEntries(hcData.thr.map(t => [t.metric, t]));
+        const body = HC_EST_METRICS.map(([m, label]) => {
+            const t = by[m];
+            const v = t && t.threshold_pp != null ? Number(t.threshold_pp) : '';
+            return `<tr><td>${label}</td><td class="num">${isOwner
+                ? `<input type="number" step="0.1" min="0" class="hc-thr-in" data-metric="${m}" data-orig="${v}" value="${v}" style="width: 72px; text-align: right;" placeholder="none">`
+                : (v === '' ? '<span class="muted">none</span>' : v.toFixed(1))} pts</td></tr>`;
+        }).join('');
+        $('hcThresholdContent').innerHTML = `<table style="max-width: 420px;"><tbody>${body}</tbody></table>
+            ${isOwner ? '<div style="margin-top: 10px;"><button class="primary" id="hcThrSaveBtn" data-write>Save thresholds</button></div>' : ''}`;
+        if (!isOwner) return;
+        $('hcThrSaveBtn').addEventListener('click', async () => {
+            const changed = [...$('hcThresholdContent').querySelectorAll('.hc-thr-in')].filter(i => i.value !== i.dataset.orig);
+            for (const i of changed) {
+                const val = i.value === '' ? null : Number(i.value);
+                if (val != null && !(val > 0)) { alert('A threshold must be above zero, or blank for none.'); return; }
+                const { data, error } = await supabase.from('health_flag_thresholds')
+                    .update({ threshold_pp: val, set_at: new Date().toISOString(), set_by: currentUser?.id || null })
+                    .eq('metric', i.dataset.metric).select();
+                if (error) { alert('Not saved: ' + error.message); return; }
+                if (!data || !data.length) { alert('Not saved: your role cannot change thresholds.'); return; }
+            }
+            showAlert('globalAlert', changed.length ? 'Thresholds saved.' : 'Nothing changed.', 'success');
+            loadHealthCurvesReport();
+        });
+    }
+
+    function renderHcExcluded() {
+        const ex = hcData.excl.map(e => `<tr><td><strong>${escapeHtml(e.lot_number)}</strong></td><td>${escapeHtml(e.status)}</td><td>${escapeHtml(e.reason)}</td></tr>`).join('');
+        $('hcExcludedContent').innerHTML = ex
+            ? `<table><thead><tr><th>Lot</th><th>Status</th><th>Why</th></tr></thead><tbody>${ex}</tbody></table>`
+            : '<div class="empty">No lot left out.</div>';
+        const an = hcData.anom.filter(a => a.kind !== 'class_season_review');
+        $('hcAnomaliesContent').innerHTML = an.length
+            ? `<h4 style="margin: 0 0 6px 0;">Data to check (${an.length})</h4><table>
+                <thead><tr><th>What</th><th>Lot</th><th>Tag</th><th>Date</th><th>Detail</th></tr></thead>
+                <tbody>${an.map(a => `<tr><td>${escapeHtml(a.kind.replace(/_/g, ' '))}</td><td>${escapeHtml(a.lot_number)}</td>
+                    <td>${escapeHtml(a.tag_number || '—')}</td><td>${a.event_date ? fmtDate(a.event_date) : '—'}</td>
+                    <td style="font-size: 12px;">${escapeHtml(a.detail)}</td></tr>`).join('')}</tbody></table>`
+            : '';
+    }
+
+    // ==========================================================
+    // DEATH CAPTURE REPORT — for the crew, printable
+    // ==========================================================
+    let dcInit = false;
+    let dcRows = [];
+    function initDeathCaptureReport() {
+        if (!dcInit) {
+            dcInit = true;
+            $('dcRefreshBtn').addEventListener('click', loadDeathCaptureReport);
+            $('dcShowClosed').addEventListener('change', renderDeathCapture);
+            $('dcPrintBtn').addEventListener('click', printDeathCapture);
+            $('dcShareBtn').addEventListener('click', shareDeathCapturePdf);
+        }
+        loadDeathCaptureReport();
+    }
+
+    async function loadDeathCaptureReport() {
+        $('dcContent').innerHTML = '<div class="empty">Loading…</div>';
+        const { data, error } = await supabase.from('lot_death_capture').select('*')
+            .order('lot_number').order('is_total').order('month');
+        if (error) { $('dcContent').innerHTML = `<div class="alert error">Error: ${escapeHtml(error.message)}</div>`; return; }
+        dcRows = data || [];
+        renderDeathCapture();
+    }
+
+    function dcVisible() {
+        const showClosed = $('dcShowClosed').checked;
+        return dcRows.filter(r => showClosed || !r.is_closed);
+    }
+    function dcMonth(r) { return r.is_total ? 'Total' : new Date(r.month + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }); }
+    function dcCells(r) {
+        return [r.is_total ? '' : r.lot_number, dcMonth(r), fmtNum(r.dead), fmtNum(r.tagged),
+                r.tag_capture_pct == null ? '—' : Number(r.tag_capture_pct).toFixed(0) + '%',
+                fmtNum(r.tagged_pulled_before), fmtNum(r.tagged_never_pulled), fmtNum(r.shorts)];
+    }
+
+    function renderDeathCapture() {
+        const rows = dcVisible();
+        if (!rows.length) { $('dcContent').innerHTML = '<div class="empty">No deaths recorded on these lots.</div>'; return; }
+        const body = rows.map(r => {
+            const c = dcCells(r);
+            const low = r.tag_capture_pct != null && Number(r.tag_capture_pct) < 90 && r.dead > 0;
+            return `<tr${r.is_total ? ' style="font-weight: 600; background: #fafaf6;"' : ''}>
+                <td>${escapeHtml(r.is_total ? r.lot_number + ' total' : r.lot_number)}</td><td>${c[1]}</td>
+                <td class="num">${c[2]}</td><td class="num">${c[3]}</td>
+                <td class="num"${low ? ' style="color: var(--danger);"' : ''}>${c[4]}</td>
+                <td class="num">${c[5]}</td><td class="num">${c[6]}</td><td class="num">${c[7]}</td></tr>`;
+        }).join('');
+        $('dcContent').innerHTML = `<table>
+            <thead><tr><th>Lot</th><th>Month</th><th class="num">Dead</th><th class="num">Tagged</th><th class="num">Tag capture</th>
+                <th class="num">Pulled first</th><th class="num">Never pulled</th><th class="num">Shorts</th></tr></thead>
+            <tbody>${body}</tbody></table>
+            <div class="hc-line">Tag capture under 90% shows in red. "Pulled first" means the tag was doctored on or before the day it died.</div>`;
+    }
+
+    function printDeathCapture() {
+        const rows = dcVisible();
+        if (!rows.length) { alert('Nothing to print.'); return; }
+        const w = window.open('', '_blank');
+        if (!w) { alert('Popup blocked — allow popups for this site to print.'); return; }
+        const body = rows.map(r => {
+            const c = dcCells(r);
+            return `<tr${r.is_total ? ' class="t"' : ''}><td>${escapeHtml(r.is_total ? r.lot_number + ' total' : r.lot_number)}</td><td>${c[1]}</td>${c.slice(2).map(v => `<td class="c">${v}</td>`).join('')}</tr>`;
+        }).join('');
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Death Capture</title>
+<style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 32px; color: #1a1a1a; }
+    h1 { font-size: 20px; margin: 0 0 2px 0; }
+    .sub { color: #555; font-size: 13px; margin-bottom: 18px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid #888; padding: 6px 8px; text-align: left; }
+    th { background: #f0f0ea; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+    td.c, th.c { text-align: center; }
+    tr.t td { font-weight: 700; background: #f6f6f0; }
+    .footer { margin-top: 22px; font-size: 12px; color: #666; }
+    @media print { body { margin: 12mm; } }
+${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
+<h1>Death Capture</h1>
+<div class="sub">${$('dcShowClosed').checked ? 'All lots' : 'Open lots'} · printed ${new Date().toLocaleDateString()}</div>
+<table><thead><tr><th>Lot</th><th>Month</th><th class="c">Dead</th><th class="c">Tagged</th><th class="c">Tag capture</th><th class="c">Pulled first</th><th class="c">Never pulled</th><th class="c">Shorts</th></tr></thead>
+<tbody>${body}</tbody></table>
+<div class="footer">Every dead animal should carry its tag. Pulled first = doctored on or before the day it died. Shorts = head missing at shipping, not counted as deaths.</div>
+</body></html>`);
+        w.document.close();
+    }
+
+    async function shareDeathCapturePdf() {
+        const rows = dcVisible();
+        if (!rows.length) { alert('Nothing to share.'); return; }
+        if (!pdfReady()) return;
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        doc.setFontSize(17);
+        doc.text('Death Capture', 14, 16);
+        doc.setFontSize(10.5);
+        doc.setTextColor(100);
+        doc.text(`${$('dcShowClosed').checked ? 'All lots' : 'Open lots'}  ·  ${new Date().toLocaleDateString()}`, 14, 23);
+        doc.autoTable({
+            startY: 28,
+            head: [['Lot', 'Month', 'Dead', 'Tagged', 'Capture', 'Pulled first', 'Never pulled', 'Shorts']],
+            body: rows.map(r => { const c = dcCells(r); c[0] = r.is_total ? r.lot_number + ' total' : r.lot_number; return c; }),
+            styles: { fontSize: 10.5, cellPadding: 2.5 },
+            headStyles: { fillColor: [240, 240, 234], textColor: 30, fontStyle: 'bold', fontSize: 9.5 },
+            columnStyles: { 2: { halign: 'center' }, 3: { halign: 'center' }, 4: { halign: 'center' }, 5: { halign: 'center' }, 6: { halign: 'center' }, 7: { halign: 'center' } },
+            didParseCell: (d) => { if (d.section === 'body' && rows[d.row.index].is_total) d.cell.styles.fontStyle = 'bold'; },
+            theme: 'grid'
+        });
+        doc.setFontSize(9);
+        doc.setTextColor(120);
+        doc.text('Pulled first = doctored on or before the day it died. Shorts = missing at shipping, not deaths.', 14, doc.lastAutoTable.finalY + 8);
+        await sharePdfFile(doc, `death-capture-${new Date().toISOString().slice(0, 10)}.pdf`, 'Death Capture');
+    }
+
     let freshCattleReportInit = false;
     function initFreshCattleReport() {
         if (!freshCattleReportInit) {
@@ -23534,6 +24019,91 @@ ${ranchBlocks}
                 if (ev) openDeathsModalForEdit(ev);
             });
         });
+    }
+
+    // ==========================================================
+    // HEALTH VS BASELINE — the lot against its class x season cell
+    // ==========================================================
+    // Migration: docs/sql/2026-09-25_health_curves.sql
+    // Design and rules: docs/health-curves.md
+    //
+    // Every figure comes from SQL - lot_health_status does the curves, the
+    // self-exclusion and the deltas; lot_death_capture does the death line.
+    // Nothing here does arithmetic beyond formatting.
+    const HEALTH_METRICS = [
+        { key: 'pull1_pct_head',  label: '1st pull, % of head' },
+        { key: 'pull2_pct_pull1', label: '2nd pull, % of 1st' },
+        { key: 'dead_pct_pull1',  label: 'Deaths, % of 1st pull' },
+        { key: 'dead_pct_head',   label: 'Deaths, % of head' },
+        { key: 'loss_pct_head',   label: 'Loss incl. shorts, % of head', closeOnly: true }
+    ];
+
+    async function loadLotHealth(lotId) {
+        const [stRes, capRes, exRes] = await Promise.all([
+            supabase.from('lot_health_status').select('*').eq('lot_id', lotId).maybeSingle(),
+            supabase.from('lot_death_capture').select('*').eq('lot_id', lotId).eq('is_total', true).maybeSingle(),
+            supabase.from('health_excluded_lots').select('*').eq('lot_id', lotId).maybeSingle()
+        ]);
+        if (lastDetailLotId !== lotId) return;      // another lot opened while this loaded
+        const err = stRes.error || capRes.error || exRes.error;
+        if (err) {
+            $('lotHealthMeta').textContent = '';
+            $('lotHealthContent').innerHTML = `<div class="empty">Health baseline could not be read: ${escapeHtml(err.message)}</div>`;
+            return;
+        }
+        const r = renderLotHealthCard(stRes.data, capRes.data, exRes.data);
+        $('lotHealthMeta').innerHTML = r.meta;
+        $('lotHealthContent').innerHTML = r.body;
+    }
+
+    // Pure: data in, HTML out. Kept separate so it can be rendered and
+    // checked without the database.
+    function renderLotHealthCard(st, cap, ex) {
+        const pct = v => (v == null ? '—' : Number(v).toFixed(1) + '%');
+        const delta = (v, flagged) => {
+            if (v == null) return '—';
+            const n = Number(v);
+            const txt = (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n).toFixed(1);
+            return flagged ? `<span class="hc-delta-flag" title="Over the flag threshold">${txt} ⚑</span>` : txt;
+        };
+        const deathLine = cap
+            ? `<div class="hc-line">Deaths: <strong>${fmtNum(cap.dead)}</strong> dead · `
+              + `<strong>${fmtNum(cap.tagged)}</strong> tagged (${cap.tag_capture_pct == null ? '—' : Number(cap.tag_capture_pct).toFixed(0) + '%'}) · `
+              + `<strong>${fmtNum(cap.tagged_pulled_before)}</strong> pulled first · `
+              + `<strong>${fmtNum(cap.tagged_never_pulled)}</strong> never pulled · `
+              + `<strong>${fmtNum(cap.shorts)}</strong> shorts</div>`
+            : `<div class="hc-line">Deaths: none recorded.</div>`;
+
+        if (!st) {
+            const why = ex ? escapeHtml(ex.reason) : 'no head received on record';
+            return { meta: '', body: `<div class="empty">Not on the health curves: ${why}.</div>${deathLine}` };
+        }
+
+        const reviewChip = st.needs_review
+            ? `<span class="hc-review" title="Loads straddle a weight band or a season; the rule picked this cell. Set it on the Health page.">by rule — review</span>`
+            : (st.override_applied ? `<span class="hc-review" style="background:#eef3ea;color:#3d5a2a;">set by hand</span>` : '');
+        const dayTxt = st.is_closed ? 'closed' : `day ${fmtNum(st.current_day)}${st.past_180 ? ' (baseline held at 180)' : ''}`;
+        const meta = `${escapeHtml(st.class_label || '—')} · ${escapeHtml(st.season_label || '—')} · ${dayTxt}${reviewChip}`;
+
+        const rows = HEALTH_METRICS
+            .filter(m => !m.closeOnly || st.is_closed)
+            .map(m => `<tr>
+                <td>${m.label}</td>
+                <td class="num">${pct(st[m.key])}</td>
+                <td class="num">${pct(st['base_' + m.key])}</td>
+                <td class="num">${delta(st['delta_' + m.key], st['flag_' + m.key])}</td>
+            </tr>`).join('');
+
+        const thresholdNote = st.thresholds_set ? '' : ' · no flag threshold set';
+        const body = `
+            <table class="hc-table">
+                <thead><tr><th>Metric</th><th class="num">Lot</th><th class="num">Baseline</th><th class="num">Δ pts</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+            <div class="hc-line">Baseline: ${escapeHtml(st.provenance || 'none')}${thresholdNote}</div>
+            <div class="hc-line">${fmtNum(st.head)} hd received · ${fmtNum(st.pull1)} pulled · ${fmtNum(st.pull2)} of them pulled again</div>
+            ${deathLine}`;
+        return { meta, body };
     }
 
     // ==========================================================
