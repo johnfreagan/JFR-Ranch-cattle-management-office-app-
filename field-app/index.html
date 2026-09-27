@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <title>Beta Cattle Tracker</title>
-    <link rel="stylesheet" href="styles.css?v=v20">
+    <link rel="stylesheet" href="styles.css?v=v23">
     <style>
         @media (max-width: 600px) {
             .mobile-row { flex-direction: row !important; gap: 8px !important; }
@@ -174,6 +174,8 @@
     // Self-contained reset. Same work as the in-app one, but owned by this
     // inline block so a dead app.js cannot disarm it.
     function hardReset() {
+        // betaCattleFailed (the Failed list) is deliberately NOT here: a reset
+        // must never destroy an entry the office has not received.
         var keys = ['betaCattleRecords','betaCattleMoves','betaCattleMeds','betaCattleLocs',
                     'betaCattleLots','betaCattleProtocols','betaCattleLocks','betaCattleSyncQueue',
                     'betaCattleTombstones','betaCattleRejected','betaLastSyncDate',
@@ -258,6 +260,7 @@
     <div class="sync-row">
         <button type="button" id="syncCloudBtn" class="sync-btn" title="Download the latest entries, locations, lots, meds, and protocols from the ranch database. Merges with anything you've saved offline.">🔄 Pull Cloud History</button>
         <span id="syncBadge" class="sync-badge" style="display:none;"></span>
+        <button type="button" id="failedBadge" class="sync-badge failed" style="display:none;" onclick="openFailed()" title="Entries the office database refused. Tap to see why, retry or copy them."></button>
     </div>
 
     <div class="tab-container">
@@ -686,6 +689,22 @@
 </div>
 
 <!-- Troubleshooting Modal -->
+<!-- Failed list (dead letters, v22). Entries the server refused for good -
+     not authorized, bad data, a failed check - kept whole on the phone with
+     the error. Retry re-queues; Copy puts the entry and error on the
+     clipboard; Mark handled takes it off the badge but keeps it. Nothing
+     here deletes an entry. -->
+<div id="failedModal" class="modal">
+    <div class="modal-content help-modal-content">
+        <span class="close-modal" onclick="closeFailed()">&times;</span>
+        <h2 style="margin-top: 0;">&#9940; Not sent</h2>
+        <p class="failed-intro">The office database refused these. They are kept on this phone and have not been lost. Fix the cause, then Retry, or Copy one and send it to the office.</p>
+        <div id="failedList"></div>
+        <p id="failedOtherUsers" class="failed-intro" style="display:none;"></p>
+        <label class="failed-toggle"><input type="checkbox" id="failedShowHandled" onchange="renderFailedList()"> Show handled</label>
+    </div>
+</div>
+
 <div id="troubleModal" class="modal">
     <div class="modal-content help-modal-content">
         <span class="close-modal" onclick="closeTrouble()">&times;</span>
@@ -698,6 +717,7 @@
                 <li><b>⚠ Offline</b> → Get back to signal. Records auto-sync.</li>
                 <li><b>⏳ N pending</b> → Queued. Retries every minute.</li>
                 <li><b>No badge</b> → Sent. It is now waiting for the office to approve it.</li>
+                <li><b>⛔ N failed</b> (red) → The office database refused it for good (account switched off, a bad tag, bad data). It is kept on this phone. Tap the badge to see why, then Retry or Copy it to the office.</li>
             </ul>
             <p><b>Don't</b> tap Pull Cloud History to fix this — that downloads, not uploads. (Pulling is safe though.)</p>
         </div>
@@ -817,6 +837,6 @@
      same-origin assets, so a CDN copy would leave the app dead offline on a
      cold start - which is exactly when a phone in a pasture needs it. -->
 <script src="supabase.min.js?v=2.46.1"></script>
-<script src="app.js?v=v22"></script>
+<script src="app.js?v=v23"></script>
 </body>
 </html>

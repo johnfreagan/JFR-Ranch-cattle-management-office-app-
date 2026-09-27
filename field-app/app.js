@@ -191,8 +191,13 @@ let deleteTimers = {};
 // --- SYNC QUEUE & TOMBSTONES (offline resilience) ---
 const SYNC_QUEUE_KEY = 'betaCattleSyncQueue';
 const TOMBSTONES_KEY = 'betaCattleTombstones';
-const REJECTED_KEY = 'betaCattleRejected';
+const REJECTED_KEY = 'betaCattleRejected';   // pre-v22 summaries; folded into FAILED_KEY
+// Dead letters: entries the server refused for good, kept WHOLE. Never
+// pruned, never on the reset lists - a failed entry is animal health data
+// the office has not seen, and the phone may be the only copy.
+const FAILED_KEY = 'betaCattleFailed';
 let syncQueue = loadJSON(SYNC_QUEUE_KEY, []);
+let failedEntries = loadJSON(FAILED_KEY, []);
 let tombstones = loadJSON(TOMBSTONES_KEY, {});
 let isSyncingQueue = false;
 const MAX_SYNC_ATTEMPTS = 25;   // ~25 min of retries before we call it dead
@@ -330,19 +335,37 @@ function enqueueForSync(payload) {
     }
 }
 
-// Anything that is not a transport failure is the database refusing the
-// row on its merits (RLS, a check constraint, a bad FK). Retrying that
-// forever just burns battery on a phone in a pasture, so those are
-// dropped from the queue and surfaced instead. Only genuine network
-// failures stay queued.
-const PERMANENT_PG_CODES = [
-    '42501',  // RLS / insufficient privilege
-    '23514',  // check constraint (bad entry_type, bad status, negative head)
-    '23503',  // FK violation
-    '23502',  // not-null violation
-    '22P02',  // malformed input (bad uuid/timestamp)
-    'P0001'   // our own guard triggers (pfe_settled / pfe_status)
-];
+// A PERMANENT error is the database refusing the row on its merits; it
+// will fail the same way every time, so retrying only burns battery on a
+// phone in a pasture. Those leave the queue for the Failed list, whole,
+// with the error - never dropped. Everything else (no signal, timeouts,
+// 5xx, an expired session) stays queued and retries as before.
+//   42501  not authorized (RLS) - e.g. a user deactivated after queuing
+//   23xxx  integrity: check, not-null, foreign key, unique
+//   22xxx  bad data: malformed number, date, uuid
+//   P0001  our own guard triggers (an entry the office already settled)
+function isPermanentError(error) {
+    const code = String((error && error.code) || '');
+    return code === '42501' || code === 'P0001' || /^2[23]/.test(code);
+}
+
+// The error in words a cowboy can act on. The code and the server's own
+// message are kept beside it for whoever gets the Copy.
+function plainError(error) {
+    const code = String((error && error.code) || '');
+    const msg = String((error && error.message) || '');
+    if (code === '42501') return 'Not authorized. Your account can no longer send entries (it may have been deactivated or its role changed). Ask the office to check your account, then tap Retry.';
+    if (code === '23505') return 'Duplicate. The office already has an entry with this id.';
+    if (code === '23514' && /tag_number/.test(msg)) return 'Tag not accepted. A tag must be plain digits with no leading zero, or NT and a number for an untagged animal. Fix the record, then Retry.';
+    if (code === '23514') return 'A value was out of range or not allowed, so the office database refused it.';
+    if (code === '23502') return 'A required field was empty.';
+    if (code === '23503') return 'It points at something that no longer exists (a lot, pasture or user).';
+    if (/^23/.test(code)) return 'The office database refused it as inconsistent with what it already holds.';
+    if (/^22/.test(code)) return 'Bad data: a date, number or id is not in a valid format.';
+    if (code === 'P0001') return 'The office already settled this entry (approved or rejected), so the phone cannot change it.';
+    if (code === 'GAVE_UP') return msg;
+    return 'The server refused it.';
+}
 
 // "2026-08-24T14:32:01" carries no zone. new Date() reads that DATE-TIME
 // form as LOCAL time, which is what the cowboy meant, and toISOString()
@@ -455,9 +478,9 @@ async function sendOne(payload) {
 
         if (!error) return true;
 
-        if (PERMANENT_PG_CODES.includes(error.code)) {
-            recordRejection(record, error);
-            return true;    // stop retrying; it will never succeed
+        if (isPermanentError(error)) {
+            moveToFailed(payload, error);
+            return true;    // out of the queue; kept whole on the Failed list
         }
 
         console.warn('sendOne transient error:', error);
@@ -468,21 +491,214 @@ async function sendOne(payload) {
     }
 }
 
-// A rejected record must never disappear quietly — the cowboy needs to
-// know the save did not stick.
-function recordRejection(record, error) {
-    console.error('Record rejected by server:', record, error);
-    const rejects = loadJSON(REJECTED_KEY, []);
-    rejects.unshift({
-        id: String(record.id),
-        type: record.type || 'doctoring',
-        tag: record.tagNumber || record.fromPasture || '',
-        reason: error.message || String(error.code || 'unknown'),
-        at: new Date().toISOString()
-    });
-    safeSetItem(REJECTED_KEY, JSON.stringify(rejects.slice(0, 50)));
-    showToast(`\u26d4 Save rejected: ${error.message || error.code}`, 'error', 6000);
+// =========================================================
+// DEAD LETTERS - the Failed list
+// A refused entry must never disappear quietly, and must never be lost:
+// the WHOLE queued payload is kept, with the error, the user it was
+// queued under and when. Nothing here deletes an entry. Retry moves it
+// back to the queue (and a second refusal brings it back here); Mark
+// handled keeps it stored but takes it off the red badge.
+// =========================================================
+function saveFailed() {
+    // If this write fails the entry is still in memory and the toast from
+    // safeSetItem says storage is in trouble; it is not silently gone.
+    safeSetItem(FAILED_KEY, JSON.stringify(failedEntries));
 }
+
+function moveToFailed(payload, error) {
+    console.error('Entry refused by server, moved to Failed:', payload, error);
+    const { _attempts, _queuedAt, ...entry } = payload;
+    failedEntries.unshift({
+        key: String(entry.id) + ':' + Date.now(),
+        entry,                                   // the full record, verbatim
+        attempts: _attempts || 0,
+        queuedAt: _queuedAt || null,
+        userId: currentUserId || null,
+        code: String((error && error.code) || ''),
+        message: String((error && error.message) || ''),
+        details: (error && (error.details || error.hint)) || null,
+        plain: plainError(error),
+        failedAt: new Date().toISOString(),
+        handledAt: null
+    });
+    saveFailed();
+    updateFailedBadge();
+    showToast(`\u26d4 Not sent: ${plainError(error)}`, 'error', 6000);
+}
+
+// Pre-v22 phones kept only a summary of each rejection under REJECTED_KEY.
+// Fold those in once, marked summary-only, so they are visible too. The
+// old key is left in place: this migration deletes nothing.
+(function foldOldRejections() {
+    const old = loadJSON(REJECTED_KEY, []);
+    if (!Array.isArray(old) || !old.length) return;
+    const seen = new Set(failedEntries.map(f => f.key));
+    let added = 0;
+    old.forEach(r => {
+        const key = 'legacy:' + r.id + ':' + r.at;
+        if (seen.has(key)) return;
+        failedEntries.push({
+            key, entry: null, summaryOnly: true,
+            summary: { id: r.id, type: r.type, tag: r.tag },
+            attempts: null, queuedAt: null, userId: null,
+            code: '', message: r.reason || '', details: null,
+            plain: 'Refused before this version kept whole entries; only this summary survives.',
+            failedAt: r.at || null, handledAt: null
+        });
+        added++;
+    });
+    if (added) saveFailed();
+})();
+
+// Shown to the signed-in user only: a phone can be shared, and another
+// person's entries are theirs to retry. Entries from before sign-in was
+// recorded (userId null) show to whoever is signed in.
+function visibleFailed() {
+    return failedEntries.filter(f => !f.userId || !currentUserId || f.userId === currentUserId);
+}
+function openFailedCount() {
+    return visibleFailed().filter(f => !f.handledAt).length;
+}
+
+function updateFailedBadge() {
+    const b = document.getElementById('failedBadge');
+    if (!b) return;
+    const n = openFailedCount();
+    b.style.display = n > 0 ? 'inline-block' : 'none';
+    b.textContent = `\u26d4 ${n} failed`;
+}
+
+// Phone-local time for display; the stored value stays ISO.
+function localStamp(iso) {
+    const d = new Date(iso);
+    return isNaN(d) ? String(iso) : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function describeFailed(f) {
+    if (f.summaryOnly) {
+        const s = f.summary || {};
+        return { what: (s.type || 'entry') + (s.tag ? ' \u00b7 ' + s.tag : ''), when: '' };
+    }
+    const e = f.entry || {};
+    const type = e.action === 'delete' ? 'delete of ' + (e.type || 'doctoring')
+               : (e.type || 'doctoring');
+    const bits = [];
+    if (e.tagNumber) bits.push('tag ' + e.tagNumber);
+    if (e.treatmentType) bits.push(e.treatmentType);
+    if (e.fromPasture || e.toPasture) bits.push(`${e.fromRanch || ''} ${e.fromPasture || ''} \u2192 ${e.toRanch || ''} ${e.toPasture || ''}`.trim());
+    if (e.headCount || e.countedHead) bits.push((e.headCount || e.countedHead) + ' hd');
+    return { what: type + (bits.length ? ' \u00b7 ' + bits.join(' \u00b7 ') : ''),
+             when: String(e.dateTime || e.date || '').replace('T', ' ').slice(0, 16) };
+}
+
+function renderFailedList() {
+    const box = document.getElementById('failedList');
+    if (!box) return;
+    const showHandled = !!(document.getElementById('failedShowHandled') || {}).checked;
+    const list = visibleFailed().filter(f => showHandled || !f.handledAt);
+    const hidden = failedEntries.length - visibleFailed().length;
+    if (!list.length) {
+        box.innerHTML = '<p class="failed-empty">Nothing failed.</p>';
+    } else {
+        box.innerHTML = list.map(f => {
+            const d = describeFailed(f);
+            const k = escapeHtml(f.key);
+            return `<div class="failed-item${f.handledAt ? ' handled' : ''}">
+                <div class="failed-what">${escapeHtml(d.what)}</div>
+                ${d.when ? `<div class="failed-when">${escapeHtml(d.when)}</div>` : ''}
+                <div class="failed-why">${escapeHtml(f.plain)}</div>
+                <div class="failed-tech">${escapeHtml([f.code, f.message].filter(Boolean).join(' \u2014 '))}${f.failedAt ? ' \u00b7 failed ' + escapeHtml(localStamp(f.failedAt)) : ''}${f.handledAt ? ' \u00b7 marked handled' : ''}</div>
+                <div class="failed-actions">
+                    ${f.summaryOnly ? '' : `<button type="button" data-failed-act="retry" data-key="${k}">Retry</button>`}
+                    <button type="button" data-failed-act="copy" data-key="${k}">Copy</button>
+                    ${f.handledAt ? '' : `<button type="button" class="secondary" data-failed-act="handled" data-key="${k}">Mark handled</button>`}
+                </div>
+            </div>`;
+        }).join('');
+    }
+    const note = document.getElementById('failedOtherUsers');
+    if (note) {
+        note.style.display = hidden > 0 ? 'block' : 'none';
+        note.textContent = `${hidden} failed entr${hidden === 1 ? 'y' : 'ies'} from another sign-in on this phone ${hidden === 1 ? 'is' : 'are'} kept and not shown.`;
+    }
+}
+
+// One delegated listener: keys go through a data attribute, never through
+// a JS string inside an onclick.
+document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest && ev.target.closest('[data-failed-act]');
+    if (!btn) return;
+    const key = btn.getAttribute('data-key');
+    const act = btn.getAttribute('data-failed-act');
+    if (act === 'retry') window.retryFailed(key);
+    else if (act === 'copy') window.copyFailed(key);
+    else if (act === 'handled') window.markFailedHandled(key);
+});
+
+window.openFailed = () => {
+    renderFailedList();
+    document.getElementById('failedModal').style.display = 'block';
+    document.body.classList.add('modal-open');
+};
+window.closeFailed = () => {
+    document.getElementById('failedModal').style.display = 'none';
+    document.body.classList.remove('modal-open');
+};
+
+window.retryFailed = (key) => {
+    const i = failedEntries.findIndex(f => f.key === key);
+    if (i < 0) return;
+    const f = failedEntries[i];
+    if (f.summaryOnly || !f.entry) return;
+    if (f.userId && currentUserId && f.userId !== currentUserId) {
+        showToast('\u26d4 Queued under another sign-in; that person has to retry it.', 'error', 4000);
+        return;
+    }
+    // A newer version of the same record already waiting must not be
+    // superseded by this older one.
+    if (syncQueue.some(q => String(q.id) === String(f.entry.id))) {
+        showToast('A newer version of this record is already waiting to send.', 'error', 4000);
+        return;
+    }
+    // Moved, not deleted: out of Failed and back into the queue in the same
+    // step. A second refusal lands it here again with the new error.
+    failedEntries.splice(i, 1);
+    saveFailed();
+    syncQueue.push({ ...f.entry, _attempts: 0, _queuedAt: Date.now() });
+    saveQueue();
+    updateFailedBadge();
+    updateSyncBadge();
+    renderFailedList();
+    if (navigator.onLine) processSyncQueue().then(renderFailedList);
+    else showToast('Queued. It will send when there is signal.', 'success', 2000);
+};
+
+window.copyFailed = async (key) => {
+    const f = failedEntries.find(x => x.key === key);
+    if (!f) return;
+    const text = JSON.stringify({
+        failed: { code: f.code, message: f.message, details: f.details, plain: f.plain,
+                  failedAt: f.failedAt, attempts: f.attempts, userId: f.userId },
+        entry: f.entry || f.summary
+    }, null, 2);
+    try {
+        await navigator.clipboard.writeText(text);
+        showToast('Copied. Paste it into a text to the office.', 'success', 2000);
+    } catch (e) {
+        // No clipboard permission (older iOS, http): show it to select by hand.
+        window.prompt('Copy this and send it to the office:', text);
+    }
+};
+
+window.markFailedHandled = (key) => {
+    const f = failedEntries.find(x => x.key === key);
+    if (!f) return;
+    if (!confirm('Mark handled? It stays stored on this phone (tick "Show handled" to see it again); it just leaves the red badge.')) return;
+    f.handledAt = new Date().toISOString();
+    saveFailed();
+    updateFailedBadge();
+    renderFailedList();
+};
 
 async function processSyncQueue() {
     if (isSyncingQueue) return;
@@ -495,6 +711,7 @@ async function processSyncQueue() {
     // Snapshot & drain
     const pending = [...syncQueue];
     const stillFailed = [];
+    const failedBefore = failedEntries.length;
 
     for (const item of pending) {
         const ok = await sendOne(item);
@@ -505,7 +722,9 @@ async function processSyncQueue() {
             // record that keeps failing transiently would otherwise retry
             // every 60s forever.
             if (item._attempts >= MAX_SYNC_ATTEMPTS) {
-                recordRejection(item, { message: `gave up after ${item._attempts} attempts` });
+                // Kept whole on the Failed list, not dropped: Retry re-queues it.
+                moveToFailed(item, { code: 'GAVE_UP',
+                    message: `Could not reach the office after ${item._attempts} tries. Tap Retry when there is signal.` });
             } else {
                 stillFailed.push(item);
             }
@@ -517,7 +736,9 @@ async function processSyncQueue() {
     isSyncingQueue = false;
     updateSyncBadge();
 
-    if (stillFailed.length === 0 && pending.length > 0) {
+    // "All synced" only when nothing was refused on this pass - a refusal
+    // already said so in red, and a green toast after it would contradict it.
+    if (stillFailed.length === 0 && pending.length > 0 && failedEntries.length === failedBefore) {
         showToast('☁️ All records synced', 'success', 1500);
     }
 }
@@ -531,6 +752,7 @@ function updateSyncBadge() {
     const tm = document.getElementById('troubleModal');
     if (tm && tm.style.display === 'block') refreshResetState();
 
+    updateFailedBadge();
     const badge = document.getElementById('syncBadge');
     if (!badge) return;
     const n = syncQueue.length;
@@ -3336,6 +3558,8 @@ const RESET_KEYS = [
     'betaLastSyncDate', 'betaCattleDataVersion', 'betaCattleDayReport'
     // 'crewMemberName' is deliberately kept - it is a convenience, not state,
     // and retyping it is pure friction.
+    // 'betaCattleFailed' (the Failed list) is deliberately kept: those are
+    // entries the office never received, and a reset must not destroy them.
 ];
 
 function refreshResetState() {

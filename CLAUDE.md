@@ -1016,6 +1016,21 @@ is unrecoverable in a way an accidental insert is not.
 - Purge local stores on sign-out and on user change; IndexedDB knows nothing
   about RLS. Persist the write queue outside the auth session, keyed by user
   id — days offline can outlive the refresh token.
+- **The dead-letter path is built (field app v23, 2026-09-27).** The phone
+  queue lives in `field-app/app.js` (`syncQueue`, `enqueueForSync`,
+  `sendOne`, `processSyncQueue`; localStorage `betaCattleSyncQueue`). A
+  PERMANENT refusal — `42501`, any `23xxx`, any `22xxx`, or our `P0001`
+  guards — leaves the queue for the **Failed list** (`betaCattleFailed`):
+  the whole payload, the error, the user it was queued under, when. Red
+  "N failed" badge → list with the error in plain words, Retry, Copy, Mark
+  handled. **Nothing deletes a failed entry**: Retry moves it back to the
+  queue (a second refusal returns it), Mark handled keeps it stored off the
+  badge, and `betaCattleFailed` is on NEITHER reset list. Network errors
+  still retry every minute; the old 25-try backstop now lands in Failed
+  instead of vanishing (it used to keep a one-line summary only). A
+  deactivated user who reopens the app is signed out at bootstrap, so the
+  list is visible again once the office reactivates them. Harness:
+  `scripts/field-deadletter-harness/run.js`.
 
 ## Field → books approval path (live 2026-08-25)
 
