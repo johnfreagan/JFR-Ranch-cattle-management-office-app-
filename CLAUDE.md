@@ -569,6 +569,29 @@ tie" tile above the Lots list (the app's landing screen; there is no separate
 Home tab), green / red, opening a table with OFF first and tag-flagged lot
 numbers bold. SELECT to authenticated only.
 
+## Tag retirement on death and sale (live 2026-09-27)
+
+`docs/sql/2026-09-27b_tag_retirement_death_sale.sql`. John's rule: retire a
+tag when the animal dies or sells, if the tag is known. Two AFTER triggers,
+SECURITY INVOKER with a pinned `search_path`, so every entry path is covered
+(office app, approvals, RPCs, SQL):
+
+- `lot_events` death with a numeric `tag_number` → that lot's `lot_tags` row
+  goes `retired`, `retired_reason = 'Died <event_date>'`.
+- `sales` with BOTH `tag_start` and `tag_end` → every tag in the range for
+  the lot except `missing_tags`, `'Sold <sale_date>'`.
+- Only `status = 'active'` rows are retired. Delete, or a change to the
+  tag / lot / date / range, puts the old tags back to `active` — only those
+  whose reason starts `Died` / `Sold`, and not one another death or sale in
+  the same lot still accounts for. A lot-close or hand retirement is never
+  undone.
+- INVOKER is enough because only owner/office can write `lot_events` and
+  `sales`, the same roles `lot_tags_update` allows.
+- Backfill retired 27 active tags matching recorded deaths (marker
+  `[tag retirement backfill 2026-09-27]` in `lot_tags.notes`). No sale
+  carried a tag range. Two 37X deaths name tags with no `lot_tags` row
+  (2025-12-18 tag 4331, 2026-01-05 tag 4379) — reported, not fixed.
+
 ## Health curves: pull / re-pull / death baselines (live 2026-09-25)
 
 Migration `docs/sql/2026-09-25_health_curves.sql`; every rule and the
