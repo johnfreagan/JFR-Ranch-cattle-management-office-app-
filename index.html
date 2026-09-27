@@ -437,6 +437,13 @@
         }
         .lot-header-subtabs .sub-tab.active .tab-count:not(:empty) { background: #f3ead0; color: var(--accent); }
 
+        .head-tieout-tile {
+            display: block; width: 100%; text-align: left; margin-bottom: 14px;
+            padding: 12px 16px; font-size: 15px; font-weight: 600; cursor: pointer;
+            border-radius: var(--radius); border: 1px solid #ccc; background: #f4f4f4; color: #333;
+        }
+        .head-tieout-tile.ties { background: #eaf3e0; border-color: var(--success); color: var(--success); }
+        .head-tieout-tile.off  { background: #fbeaea; border-color: var(--danger);  color: var(--danger); }
         .test-badge {
             display: inline-block;
             padding: 2px 8px;
@@ -973,6 +980,9 @@
         </div>
 
         <div id="lotsView">
+            <!-- D8 head-count tie-out (lot_head_tieout view). Head only decides
+                 the colour; a tag gap is informational and never turns it red. -->
+            <button type="button" id="headTieoutTile" class="head-tieout-tile" title="Books head vs head in open pastures, per open lot">Head count: &hellip;</button>
             <div class="card">
                 <div class="card-header">
                     <h2>Lots</h2>
@@ -2926,6 +2936,21 @@
      they actually are, and head it is short come from there. Every leg goes
      through record_move_with_pasture, so nothing here reimplements head
      math and each lot's assignments keep summing to its head_current. -->
+<div class="modal-backdrop" id="headTieoutModal">
+    <div class="modal" style="max-width: 820px;">
+        <h2>Head count tie-out</h2>
+        <p class="muted" style="margin-bottom: 12px; font-size: 12px;">
+            Books head (lot_status) against the head standing in open pastures, per open lot.
+            A lot is OFF when the two differ. Tags are informational: a <strong>bold</strong>
+            lot number has a tag count that differs from head in, which does not make it OFF.
+        </p>
+        <div id="headTieoutContent"><div class="empty">Loading&hellip;</div></div>
+        <div class="modal-actions">
+            <button type="button" onclick="hideModal('headTieoutModal')">Close</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-backdrop" id="settlePastureModal">
     <div class="modal" style="max-width: 700px;">
         <h2 id="settlePastureTitle">Settle pasture</h2>
@@ -6105,6 +6130,7 @@ window.addEventListener('unhandledrejection', function(e) {
     }
     async function loadLots(){
         $('lotsContent').innerHTML='<div class="empty">Loading…</div>';
+        loadHeadTieout();
         const hideClosedToggle = document.getElementById('lotsHideClosed');
         const hideClosed = hideClosedToggle ? hideClosedToggle.checked : true;
         const showTestToggle = document.getElementById('lotsShowTest');
@@ -6164,6 +6190,73 @@ window.addEventListener('unhandledrejection', function(e) {
             </table>`;
         $('lotsContent').querySelectorAll('tr.clickable').forEach(r=>r.addEventListener('click',()=>showLotDetail(r.dataset.lotId)));
     }
+    // ---- D8 HEAD-COUNT TIE-OUT ----
+    // Reads lot_head_tieout, which does all the arithmetic. OFF lots sort
+    // first; tag_flag bolds the lot number and never changes the colour.
+    let headTieoutRows = null;
+    async function loadHeadTieout(){
+        const tile = $('headTieoutTile');
+        if (!tile) return;
+        const { data, error } = await supabase.from('lot_head_tieout').select('*');
+        tile.classList.remove('ties', 'off');
+        if (error) {
+            headTieoutRows = null;
+            tile.classList.add('off');
+            tile.textContent = 'Head count: could not load (' + error.message + ')';
+            return;
+        }
+        headTieoutRows = (data || []).slice().sort((a, b) =>
+            ((b.status === 'OFF') - (a.status === 'OFF')) ||
+            String(a.lot_number).localeCompare(String(b.lot_number), undefined, { numeric: true }));
+        const total = headTieoutRows.length;
+        const tie = headTieoutRows.filter(r => r.status === 'TIES').length;
+        // Zero rows is ambiguous under RLS (no access vs no open lots): say so.
+        if (total === 0) { tile.textContent = 'Head count: no open lots visible'; return; }
+        tile.classList.add(tie === total ? 'ties' : 'off');
+        tile.textContent = `Head count: ${tie} of ${total} lots tie`;
+    }
+    function renderHeadTieoutTable(){
+        const box = $('headTieoutContent');
+        if (!headTieoutRows) { box.innerHTML = '<div class="alert error">Tie-out not loaded.</div>'; return; }
+        if (headTieoutRows.length === 0) { box.innerHTML = '<div class="empty">No open lots.</div>'; return; }
+        const signed = n => n > 0 ? '+' + fmtNum(n) : fmtNum(n);
+        const rows = headTieoutRows.map(r => `
+            <tr class="clickable" data-lot-id="${r.lot_id}">
+                <td>${r.tag_flag ? '<strong>' + escapeHtml(r.lot_number) + '</strong>' : escapeHtml(r.lot_number)}</td>
+                <td class="num">${fmtNum(r.books_head)}</td>
+                <td class="num">${fmtNum(r.pasture_head)}</td>
+                <td class="num">${signed(r.head_gap)}</td>
+                <td class="num">${fmtNum(r.tags_registered)}</td>
+                <td class="num">${fmtNum(r.tags_expected)}</td>
+                <td class="num">${signed(r.tag_gap)}</td>
+                <td style="font-weight:600; color:${r.status === 'TIES' ? 'var(--success)' : 'var(--danger)'};">${r.status}</td>
+                <td>${r.tag_flag ? 'yes' : ''}</td>
+            </tr>`).join('');
+        box.innerHTML = `
+            <table style="font-size:13px;">
+                <thead><tr>
+                    <th>Lot #</th><th class="num">Books head</th><th class="num">Pasture head</th>
+                    <th class="num">Head gap</th><th class="num">Tags registered</th>
+                    <th class="num">Tags expected</th><th class="num">Tag gap</th>
+                    <th>Status</th><th>Tag flag</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+        box.querySelectorAll('tr.clickable').forEach(tr => tr.addEventListener('click', () => {
+            hideModal('headTieoutModal');
+            showLotDetail(tr.dataset.lotId);
+        }));
+    }
+    (function bindHeadTieoutTile() {
+        const tile = document.getElementById('headTieoutTile');
+        if (tile) tile.addEventListener('click', async () => {
+            $('headTieoutContent').innerHTML = '<div class="empty">Loading…</div>';
+            showModal('headTieoutModal');
+            await loadHeadTieout();
+            renderHeadTieoutTable();
+        });
+    })();
+
     // Wire toggles to refresh list
     (function bindLotListToggles() {
         const cb = document.getElementById('lotsHideClosed');

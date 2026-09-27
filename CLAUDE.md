@@ -557,6 +557,18 @@ both are DROP + CREATE rather than CREATE OR REPLACE.
   that need them explain what to run, the two filters that need them warn
   that they were not applied, and everything else works.
 
+## Head-count tie-out (D8, live 2026-09-27)
+
+`lot_head_tieout` (view, `docs/sql/2026-09-27_lot_head_tieout.sql`): one row
+per open non-test lot, feed pen included. `status` is TIES/OFF on
+`lot_status.head_current` vs the sum of open `lot_pasture_assignments`, which
+is the head-math invariant. `tag_flag` compares `count(lot_tags)` (any status)
+to `head_in` and is informational only: 37X (tags on 72 of 369) and 37X-F
+(+1) flag on day one and still TIE. Shown as the "Head count: X of Y lots
+tie" tile above the Lots list (the app's landing screen; there is no separate
+Home tab), green / red, opening a table with OFF first and tag-flagged lot
+numbers bold. SELECT to authenticated only.
+
 ## Health curves: pull / re-pull / death baselines (live 2026-09-25)
 
 Migration `docs/sql/2026-09-25_health_curves.sql`; every rule and the
