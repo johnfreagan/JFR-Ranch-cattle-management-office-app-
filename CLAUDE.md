@@ -592,6 +592,27 @@ SECURITY INVOKER with a pinned `search_path`, so every entry path is covered
   carried a tag range. Two 37X deaths name tags with no `lot_tags` row
   (2025-12-18 tag 4331, 2026-01-05 tag 4379) — reported, not fixed.
 
+## Withdrawal warning (live 2026-09-27)
+
+`withdrawal_holds` (view, `docs/sql/2026-09-27d_withdrawal_holds.sql`,
+security_invoker, no anon): one row per (lot, tag) still inside a slaughter
+withdrawal from DOCTORING — treat day (Chicago) + `medications.withdrawal_days`,
+kept while the clear date is after `ranch_today()`; several drugs → the latest
+clear date. Meds with 0/NULL days and free-text meds are skipped. Processing
+meds at receiving are NOT included (open question).
+
+- The single-lot sale form (new sales) and the shipment save call
+  `withdrawalConfirm()`: holds clearing AFTER the ship date are listed (tag,
+  drug, treated, clears) and **Confirm saves anyway — it warns, never
+  blocks.** A shipment lot is checked at its first load day. A failed read
+  asks rather than passing as clear.
+- **"Load out" in this app is the ARRIVAL receipt**, so the warning is on
+  the two screens cattle LEAVE through, not on the load-out form.
+- Approvals shows "clears <date>" beside every drug with a withdrawal.
+- `doctoring_events.drug_off` is carcass disposal, not withdrawal. Never
+  read it here.
+- Harness: `scripts/withdrawal-harness/run.js`.
+
 ## Health curves: pull / re-pull / death baselines (live 2026-09-25)
 
 Migration `docs/sql/2026-09-25_health_curves.sql`; every rule and the

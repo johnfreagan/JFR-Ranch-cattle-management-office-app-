@@ -5364,6 +5364,27 @@
     </div>
 </div>
 
+<!-- Withdrawal warning (2026-09-27). Opened by withdrawalConfirm() before a
+     sale or a shipment saves, when a lot shipping has tags still inside a
+     slaughter withdrawal period on the ship date (view withdrawal_holds).
+     It WARNS and lists the tags; Confirm saves anyway. It never blocks.
+     Placed after the sale modal so it stacks on top of it. -->
+<div class="modal-backdrop" id="withdrawalModal">
+    <div class="modal" style="max-width: 640px;">
+        <h2>Withdrawal warning</h2>
+        <p id="withdrawalIntro" style="margin-bottom: 10px; font-size: 13px;"></p>
+        <div id="withdrawalList" style="max-height: 50vh; overflow-y: auto;"></div>
+        <p class="muted" style="margin-top: 10px; font-size: 12px;">
+            Withdrawal is treatment date + the drug&rsquo;s slaughter withdrawal days
+            (doctoring only). This is a warning, not a block.
+        </p>
+        <div class="modal-actions">
+            <button type="button" id="withdrawalCancelBtn">Cancel</button>
+            <button type="button" class="primary" id="withdrawalConfirmBtn">Confirm &mdash; save anyway</button>
+        </div>
+    </div>
+</div>
+
 <!-- ============================================================
      POSITION ENTRY. Fields are shown per kind by posSyncFields(), which
      mirrors the per-type CHECK constraints on public.positions. The DB is
@@ -5892,6 +5913,89 @@ window.addEventListener('unhandledrejection', function(e) {
     function normalizeTag(tag) {
         const s = String(tag == null ? '' : tag).trim();
         return /^nt/i.test(s) ? s.toUpperCase() : s;
+    }
+
+    // ==========================================================
+    // WITHDRAWAL WARNING (2026-09-27)
+    // withdrawal_holds has one row per (lot, tag) still inside a slaughter
+    // withdrawal from doctoring. Before cattle leave, list the tags whose
+    // clear date falls AFTER the ship date and let the user Confirm. It
+    // warns; it never blocks. drug_off is not withdrawal (it records a dead
+    // animal dragged out) and is not read here.
+    // lotDates: [{ lot_id, date: 'YYYY-MM-DD' }] - the date each lot ships.
+    // ==========================================================
+    async function loadWithdrawalHolds(lotDates) {
+        const dateByLot = {};
+        (lotDates || []).forEach(x => {
+            if (!x.lot_id) return;
+            // A lot shipping over several days is checked at its FIRST day,
+            // which is the date that catches the most.
+            if (!dateByLot[x.lot_id] || (x.date && x.date < dateByLot[x.lot_id])) dateByLot[x.lot_id] = x.date;
+        });
+        const ids = Object.keys(dateByLot);
+        if (!ids.length) return { holds: [], error: null };
+        let rows = [];
+        for (let from = 0; ; from += 1000) {
+            const { data, error } = await supabase
+                .from('withdrawal_holds')
+                .select('lot_id, lot_number, tag_number, drug, treat_date, withdrawal_days, clear_date')
+                .in('lot_id', ids)
+                .order('lot_id').order('tag_number')
+                .range(from, from + 999);
+            if (error) return { holds: [], error };
+            rows = rows.concat(data || []);
+            if (!data || data.length < 1000) break;
+        }
+        const holds = rows
+            .filter(h => !dateByLot[h.lot_id] || h.clear_date > dateByLot[h.lot_id])
+            .map(h => Object.assign({ ship_date: dateByLot[h.lot_id] }, h));
+        holds.sort((a, b) => String(a.lot_number).localeCompare(String(b.lot_number))
+            || String(b.clear_date).localeCompare(String(a.clear_date))
+            || (tagToInt(a.tag_number) || 0) - (tagToInt(b.tag_number) || 0)
+            || String(a.tag_number).localeCompare(String(b.tag_number)));
+        return { holds, error: null };
+    }
+
+    // Resolves true to go ahead with the save, false to go back.
+    async function withdrawalConfirm(lotDates, what) {
+        const { holds, error } = await loadWithdrawalHolds(lotDates);
+        if (error) {
+            // Not checked is not the same as clear - say so, never swallow it.
+            return confirm(`Could not check withdrawal holds for ${what}:\n${error.message}\n\n` +
+                `OK: save anyway.\nCancel: go back.`);
+        }
+        if (!holds.length) return true;
+
+        const lots = [...new Set(holds.map(h => h.lot_number))];
+        const dates = [...new Set(holds.map(h => h.ship_date).filter(Boolean))];
+        $('withdrawalIntro').innerHTML =
+            `<strong>${fmtNum(holds.length)} tag${holds.length === 1 ? '' : 's'}</strong> on lot${lots.length === 1 ? '' : 's'} ` +
+            `<strong>${escapeHtml(lots.join(', '))}</strong> will still be in withdrawal ` +
+            (dates.length === 1 ? `on ${escapeHtml(fmtDate(dates[0]))}` : 'on the ship date') +
+            `. Make sure none of these head are on ${escapeHtml(what)}.`;
+        $('withdrawalList').innerHTML = `
+            <table class="data-table" style="width:100%;font-size:12px;">
+                <thead><tr>${lots.length > 1 ? '<th>Lot</th>' : ''}<th>Tag</th><th>Drug</th><th>Treated</th><th class="num">Days</th><th>Clears</th></tr></thead>
+                <tbody>${holds.map(h => `<tr>
+                    ${lots.length > 1 ? `<td>${escapeHtml(h.lot_number)}</td>` : ''}
+                    <td><strong>${escapeHtml(h.tag_number)}</strong></td>
+                    <td>${escapeHtml(h.drug)}</td>
+                    <td>${escapeHtml(fmtDate(h.treat_date))}</td>
+                    <td class="num">${escapeHtml(h.withdrawal_days)}</td>
+                    <td><strong>${escapeHtml(fmtDate(h.clear_date))}</strong></td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        showModal('withdrawalModal');
+        return new Promise(resolve => {
+            const done = (ok) => {
+                $('withdrawalConfirmBtn').onclick = null;
+                $('withdrawalCancelBtn').onclick = null;
+                hideModal('withdrawalModal');
+                resolve(ok);
+            };
+            $('withdrawalConfirmBtn').onclick = () => done(true);
+            $('withdrawalCancelBtn').onclick = () => done(false);
+        });
     }
     function fmtMoney(n){if(n==null||isNaN(n)) return '—';return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
     function fmtNum(n,d=0){if(n==null||isNaN(n)) return '—';return Number(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
@@ -7707,6 +7811,24 @@ window.addEventListener('unhandledrejection', function(e) {
     // head-days on the same boundary via ranch_today(), and the server runs
     // UTC, so a browser anywhere east of Central would otherwise label the
     // Actual column with a different day than the data behind it covers.
+    // The Chicago calendar day of a timestamp, as YYYY-MM-DD - the same day
+    // the database gets from (ts AT TIME ZONE 'America/Chicago')::date.
+    function chicagoDayOf(ts){
+        const d = new Date(ts);
+        if (isNaN(d)) return null;
+        return new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Chicago',
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(d);
+    }
+    // YYYY-MM-DD plus n calendar days, computed in UTC so no DST shift.
+    function addDaysIso(iso, n){
+        if (!iso) return null;
+        const d = new Date(iso + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+    }
+
     function ranchToday(){
         return new Intl.DateTimeFormat('en-CA', {
             timeZone: 'America/Chicago',
@@ -9549,7 +9671,7 @@ window.addEventListener('unhandledrejection', function(e) {
             supabase.from('pastures').select('id, name, ranch_id, is_active'),
             supabase.from('field_actions').select('id, name, is_dead, once_per_animal, is_active'),
             supabase.from('medications')
-                .select('id, name, is_active, cost_per_unit, cost_per_head, round_up_to, bottle_size_unit'),
+                .select('id, name, is_active, cost_per_unit, cost_per_head, round_up_to, bottle_size_unit, withdrawal_days'),
             // Which lots currently sit in which pasture - used to infer a
             // move's lot when the from-pasture holds exactly one.
             supabase.from('lot_pasture_assignments')
@@ -9889,8 +10011,14 @@ window.addEventListener('unhandledrejection', function(e) {
             // Cost is FROZEN at approval, so a null now stays null forever.
             // Flagged, not blocking - see the note above.
             if (unpriced) warnings.push(`${med.name} has no price — cost will post as $0`);
+            // Withdrawal: treat day (Chicago) + the drug's withdrawal days,
+            // the same rule as the withdrawal_holds view. Shown, not blocking.
+            const wd = med ? Number(med.withdrawal_days) || 0 : 0;
+            const clearDate = wd > 0 && entry.event_datetime
+                ? addDaysIso(chicagoDayOf(entry.event_datetime), wd) : null;
             meds.push({ position: src.position, name: name || '', med,
-                        dose: (dose != null && !isNaN(dose)) ? dose : null, unpriced });
+                        dose: (dose != null && !isNaN(dose)) ? dose : null, unpriced,
+                        withdrawalDays: wd, clearDate });
         });
 
         if (missingWhen) issues.push('no usable date on this entry');
@@ -10147,6 +10275,7 @@ window.addEventListener('unhandledrejection', function(e) {
               `${r.head != null ? r.head + ' hd' : '<span class="appr-flag">uncounted</span>'}` + lotBit
             : (r.meds.length
                 ? r.meds.map(m => `${escapeHtml(m.name)}${m.dose != null ? ' ' + m.dose + 'cc' : ''}` +
+                                  (m.clearDate ? ` <span class="muted" title="Slaughter withdrawal ${m.withdrawalDays} d from the treatment day">clears ${escapeHtml(fmtDate(m.clearDate))}</span>` : '') +
                                   (m.unpriced ? ' <span class="appr-flag">no price</span>' : '')).join(', ')
                 : '<span class="muted">—</span>');
 
@@ -12515,6 +12644,11 @@ window.addEventListener('unhandledrejection', function(e) {
             `over ${days.length} day${days.length === 1 ? '' : 's'}` +
             (days.length > 1 ? ` (${fmtDate(days[0])} – ${fmtDate(days[days.length - 1])})` : '') + `.`
         )) return;
+
+        // Withdrawal: each lot is checked at the first day it loads. Warns,
+        // lists the tags, saves on Confirm. Never blocks.
+        const shipDates = alloc.map(a => ({ lot_id: a.lot_id, date: a.load_date || $('shpDate').value }));
+        if (!(await withdrawalConfirm(shipDates, 'this shipment'))) return;
 
         const btn = $('shipmentSaveBtn');
         btn.disabled = true; btn.textContent = 'Saving…';
@@ -28534,6 +28668,13 @@ ${ranchBlocks}
                     $('saleNetWt').focus();
                     return;
                 }
+            }
+
+            // Withdrawal: warn, list the tags, save on Confirm. Never blocks.
+            if (isNew && !(await withdrawalConfirm(
+                    [{ lot_id: currentLot.id, date: $('saleDate').value }], 'this sale'))) {
+                $('saleSaveBtn').disabled = false;
+                return;
             }
 
             const payload = {
