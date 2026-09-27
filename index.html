@@ -5876,6 +5876,23 @@ window.addEventListener('unhandledrejection', function(e) {
         <span class="pc-hint" id="pcHint">This browser will not let the page close itself &mdash;
             use the tab&rsquo;s own close button.</span></div>`;
     function escapeHtml(s){if(s==null) return '';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+    // THE one way a text tag is matched to lot_tags.tag_number (an integer).
+    // Mirrors public.tag_to_int() in the database and tagToInt() in the field
+    // app: plain digits, no leading zero -> the number; NT<n> or anything else
+    // -> null, so an untagged animal never matches a registered tag. Do not
+    // parseInt a tag: parseInt('12abc') is 12 and parseInt('0123') is 123.
+    function tagToInt(tag) {
+        const s = String(tag == null ? '' : tag).trim();
+        return /^[1-9][0-9]{0,8}$/.test(s) ? Number(s) : null;
+    }
+    // What a typed tag is saved as: trimmed, and an NT tag upper-cased, so
+    // 'nt3' saves as 'NT3'. The database CHECK accepts only
+    // ^([1-9][0-9]*|NT[0-9]+)$ and refuses the rest.
+    function normalizeTag(tag) {
+        const s = String(tag == null ? '' : tag).trim();
+        return /^nt/i.test(s) ? s.toUpperCase() : s;
+    }
     function fmtMoney(n){if(n==null||isNaN(n)) return '—';return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
     function fmtNum(n,d=0){if(n==null||isNaN(n)) return '—';return Number(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
     // Format a date for display.
@@ -10177,10 +10194,15 @@ window.addEventListener('unhandledrejection', function(e) {
 
     async function postDoctoringEntry(r) {
         const raw = r.raw;
+        // A doctoring row always carries a tag (NOT NULL). An entry with no
+        // tag, a bare 'NT' or 'NT?' posts as the lot's next NT<n>; posting ''
+        // or the placeholder would be refused by the tag format CHECK.
+        let tag = normalizeTag(r.tag);
+        if (!tag || /^NT[^0-9]*$/.test(tag)) tag = await computeNextNTForLot(r.lot.id);
         const payload = {
             lot_id: r.lot.id,
-            tag_number: r.tag || '',
-            no_tag: !!r.entry.no_tag || /^NT\d*$/i.test(String(r.tag || '')),
+            tag_number: tag,
+            no_tag: !!r.entry.no_tag || /^NT\d*$/.test(tag),
             event_datetime: r.entry.event_datetime,
             field_action_id: r.action.id,
             pasture_id: r.pasture ? r.pasture.id : null,
@@ -11056,7 +11078,7 @@ window.addEventListener('unhandledrejection', function(e) {
             });
         } else {
             const lot = val('aeLot'), past = val('aeFromPasture'), action = val('aeAction');
-            const tag = val('aeTag');
+            const tag = normalizeTag(val('aeTag'));
             if (!lot)    { showAlert('apprEditAlert', 'A lot is required.', 'error'); return; }
             if (!past)   { showAlert('apprEditAlert', 'A pasture is required.', 'error'); return; }
             if (!action) { showAlert('apprEditAlert', 'An action is required.', 'error'); return; }
@@ -24773,6 +24795,12 @@ ${ranchBlocks}
                 if (!r.pastureId) {
                     throw new Error(`Row ${i + 1}: pasture is required.`);
                 }
+                // Same rule as the database CHECK, said in words before it
+                // turns into a constraint error.
+                r.tag = normalizeTag(r.tag) || null;
+                if (r.tag && !/^([1-9][0-9]*|NT[0-9]+)$/.test(r.tag)) {
+                    throw new Error(`Row ${i + 1}: tag "${r.tag}" must be plain digits with no leading zero, or NT<n> for an untagged animal.`);
+                }
             }
 
             // Pre-flight check: each row's head must fit in its pasture, AND the
@@ -26604,8 +26632,8 @@ ${ranchBlocks}
             return;
         }
 
-        const tagNum = parseInt(rawInput);
-        if (isNaN(tagNum)) {
+        const tagNum = tagToInt(rawInput);
+        if (tagNum == null) {
             showAlert('doctoringEntryAlert', `"${rawInput}" is not a valid tag number.`);
             return;
         }
@@ -26991,8 +27019,8 @@ ${ranchBlocks}
             showAlert('doctoringSingleAlert', 'For NT animals, check the "NT animal" box and pick the lot.');
             return;
         }
-        const tagNum = parseInt(rawTag);
-        if (isNaN(tagNum)) {
+        const tagNum = tagToInt(rawTag);
+        if (tagNum == null) {
             showAlert('doctoringSingleAlert', `"${rawTag}" is not a valid tag number.`);
             return;
         }
@@ -27037,11 +27065,14 @@ ${ranchBlocks}
 
     async function computeNextNTForLot(lotId) {
         // Find the highest "NT<n>" used on this lot in doctoring_events and increment
-        const { data } = await supabase
+        const { data, error } = await supabase
             .from('doctoring_events')
             .select('tag_number, no_tag, notes')
             .eq('lot_id', lotId)
             .eq('no_tag', true);
+        // A failed read would hand out NT1 again and give two untagged
+        // animals one identity; refuse instead.
+        if (error) throw new Error('Could not read the lot\'s NT numbers: ' + error.message);
         let maxN = 0;
         (data || []).forEach(d => {
             // NT identifier could be stored in tag_number column as text (e.g., "NT3")
@@ -27474,10 +27505,12 @@ ${ranchBlocks}
     $('doctoringActionId').addEventListener('change', toggleDoctoringDrugOffWrap);
     $('doctoringActionId').addEventListener('change', autoFillMedsFromAction);
 
-    // No-tag checkbox: when checked, prefix tag with NT and disable text edit
-    $('doctoringNoTag').addEventListener('change', () => {
-        if ($('doctoringNoTag').checked && !$('doctoringTagNumber').value.toUpperCase().startsWith('NT')) {
-            $('doctoringTagNumber').value = 'NT?';
+    // No-tag checkbox: when checked, fill in the lot's next NT<n>. It used to
+    // write the placeholder 'NT?', which saved as-is when nobody retyped it;
+    // the database refuses 'NT?' now (tag format CHECK, 2026-09-27).
+    $('doctoringNoTag').addEventListener('change', async () => {
+        if ($('doctoringNoTag').checked && !/^NT[0-9]+$/i.test($('doctoringTagNumber').value.trim()) && currentLot) {
+            $('doctoringTagNumber').value = await computeNextNTForLot(currentLot.id);
             $('doctoringTagNumber').focus();
         }
     });
@@ -27491,8 +27524,14 @@ ${ranchBlocks}
 
         try {
             const id = $('doctoringEventId').value || null;
-            const tagNumber = $('doctoringTagNumber').value.trim();
+            let tagNumber = normalizeTag($('doctoringTagNumber').value);
             const noTag = $('doctoringNoTag').checked;
+            // An untagged animal always saves as the lot's next NT<n>, never
+            // as a bare 'NT' or the old 'NT?' placeholder.
+            if (noTag && !/^NT[0-9]+$/.test(tagNumber)) {
+                tagNumber = await computeNextNTForLot(currentLot.id);
+                $('doctoringTagNumber').value = tagNumber;
+            }
             const dateStr = $('doctoringDate').value;
             const actionId = $('doctoringActionId').value;
             const drugOffStr = $('doctoringDrugOff').value;
@@ -27506,8 +27545,8 @@ ${ranchBlocks}
             // Skips when "no tag" mode is on (NT animals don't have registered numbers).
             // Soft warning with override (user provides reason).
             if (!noTag && !id) {
-                const tagInt = parseInt(tagNumber);
-                if (!isNaN(tagInt)) {
+                const tagInt = tagToInt(tagNumber);
+                if (tagInt != null) {
                     const { data: tagRows } = await supabase
                         .from('lot_tags')
                         .select('tag_number, lot_id, status')

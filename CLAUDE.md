@@ -1308,6 +1308,19 @@ and a form — no bulk import, no wizard, no inline-edit grid.
 ## Schema landmines (verified by painful trial and error — trust these)
 
 - `doctoring_events.tag_number` is TEXT. `lot_tags.tag_number` is INTEGER.
+  **Tag format (2026-09-27, `docs/sql/2026-09-27c_tag_format.sql`):** the four
+  TEXT tag columns (`doctoring_events`, `lot_events`, `pending_field_entries`,
+  `feed_pen_removals`) carry a CHECK: NULL, plain digits with no leading zero,
+  or `NT<n>` — `^([1-9][0-9]*|NT[0-9]+)$`. NT<n> numbers an untagged animal
+  per lot and `no_tag` is set with it. **Match a text tag to `lot_tags` only
+  through `public.tag_to_int()`** (SQL) or `tagToInt()` (both apps): digits →
+  integer, anything else → NULL, so an NT tag never matches — correct, they
+  are the untagged head. Never `parseInt` a tag (`'12abc'` → 12). The
+  office's NT checkbox used to write the placeholder `NT?`, which saved as-is;
+  it now fills the lot's next NT<n>, and approvals post an empty / bare `NT`
+  tag the same way. The one live `NT?` (37X, 2026-01-05) became NT1.
+  **Open:** the field app's NT button numbers from the phone's own records,
+  not per lot, so two phones can both hand out NT1 on one lot.
 - `doctoring_events` uses `recorded_by_user_id`; has NO updated_at.
 - `lot_events` uses `created_by`; has NO updated_at.
 - `lot_pasture_assignments` uses `recorded_by`.

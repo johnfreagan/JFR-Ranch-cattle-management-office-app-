@@ -146,13 +146,28 @@ function setSelectValue(select, value) {
     return ok;
 }
 
+// THE one way a text tag is matched to lot_tags.tag_number (an integer).
+// Mirrors public.tag_to_int() in the database and tagToInt() in the office
+// app: plain digits, no leading zero -> the number; NT<n> or anything else ->
+// null, so an untagged animal never matches a registered tag. Do not
+// parseInt a tag: parseInt('12abc') is 12 and parseInt('0123') is 123.
+function tagToInt(tag) {
+    const s = String(tag == null ? '' : tag).trim();
+    return /^[1-9][0-9]{0,8}$/.test(s) ? Number(s) : null;
+}
+// Key into the caches built from lot_tags (tagLotMap, tagLocationMap,
+// tagCandidateMap), which are keyed String(tag_number). '' never matches.
+function tagKey(tag) {
+    const n = tagToInt(tag);
+    return n == null ? '' : String(n);
+}
+
 function resolveLotForTag(tag) {
-    const key = String(tag).trim();
+    const key = tagKey(tag);
     if (!key) return '';
     // 1. Registered in lot_tags - authoritative.
     if (tagLotMap[key]) return tagLotMap[key];
-    const n = parseInt(key, 10);
-    if (isNaN(n)) return '';
+    const n = Number(key);
     // 2. Inside a delivery receipt's tag range.
     const hit = tagRanges.find(r => n >= r.start && n <= r.end);
     if (hit) return hit.lotNumber;
@@ -371,7 +386,10 @@ function toStagingRow(record) {
                : record.type === 'count' ? 'count'
                : record.type === 'weight' ? 'weight'
                : 'doctoring';
-    const tag = String(record.tagNumber || '').trim();
+    // Trimmed, and an NT tag upper-cased: the database CHECK accepts only
+    // ^([1-9][0-9]*|NT[0-9]+)$, so 'nt3' would be refused on sync.
+    const rawTag = String(record.tagNumber || '').trim();
+    const tag = /^nt/i.test(rawTag) ? rawTag.toUpperCase() : rawTag;
 
     // A count and a weight both carry a head figure and a plain date, and
     // neither has a tag. head_count is what the office lists them by.
@@ -2202,7 +2220,7 @@ async function pullCloudData() {
                 // rows have one today because the office doctoring form does
                 // not yet ask, but it is the most accurate source when set.
                 location: (d.pasture_id && pastureLabelById[d.pasture_id])
-                    || tagLocations[String(d.tag_number)]
+                    || tagLocations[tagKey(d.tag_number)]
                     || (pastureCountByLot[d.lot_id] === 1 ? (soleLocationByLot[d.lot_id] || '') : '')
             }));
         safeSetItem('betaCattleBooksHistory', JSON.stringify(booksHistory));
@@ -2315,7 +2333,7 @@ tagNumberInput.oninput = function(e) {
     // let the cowboy say, rather than filling in a guess.
     const recalledLocation = (hist && hist.location && hist.location.includes(" - "))
         ? hist.location
-        : (tagLocationMap[val] || '');
+        : (tagLocationMap[tagKey(val)] || '');
 
     if (recalledLocation && recalledLocation.includes(" - ") && !locks.ranch && !locks.pasture) {
         const parts = recalledLocation.split(" - ");
@@ -2366,7 +2384,7 @@ function updateAlertBox(staleLot) {
     // wrote down which half each tag went to - the answer does not exist to
     // look up. Naming the candidates turns a blank box into a two-way choice.
     if (tagVal !== '' && !pastureInput.value) {
-        const cand = tagCandidateMap[tagVal];
+        const cand = tagCandidateMap[tagKey(tagVal)];
         if (cand && cand.places && cand.places.length > 1) {
             const list = cand.places.map(p => `<b>${p}</b>`).join(' or ');
             const why = cand.why === 'split'
@@ -2508,7 +2526,7 @@ function validateActionSafety(tag, action) {
         if (hasSecondPull) {
             return { valid: false, msg: `Tag ${tag} already has a 2nd Pull on record.` };
         }
-        if (!isNaN(parseInt(tag))) {
+        if (tagToInt(tag) != null) {
             const resolved = resolveLotForTag(tag);
             const lot = resolved ? lotsDatabase.find(l => String(l.lotNumber) === String(resolved)) : null;
             if (lot && lot.arrivalDate && String(lot.arrivalDate).trim() !== "") {
