@@ -15,7 +15,7 @@ Caveman also ships as a Claude Code plugin
 Two reasons that path is not used here:
 
 1. **The plugin's auto-activation hook runs `node`.** There is no node on the
-   ranch Mac — see "App code conventions" in CLAUDE.md, which is why the
+   ranch Mac — see "App code conventions" in docs/conventions.md, which is why the
    `index.html` validator runs on JavaScriptCore via `osascript`. The hook
    would fail every session start.
 2. **Plugins install per machine.** Claude Code on the web runs in a fresh

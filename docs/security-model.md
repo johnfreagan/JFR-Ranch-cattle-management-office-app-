@@ -3,8 +3,8 @@
 How access control works in this database, what was wrong with it before
 2026-08-23, and how to verify it still holds.
 
-Operational rules live in `CLAUDE.md` at the repo root. This file is the
-reasoning behind them.
+Operational rules live in `docs/database.md` (indexed from `CLAUDE.md` at the
+repo root). This file is the reasoning behind them.
 
 ---
 
