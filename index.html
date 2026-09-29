@@ -721,33 +721,67 @@
             background: #eef0f2; color: #3a3a3c;
         }
         .approvals-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-        /* ---- Approvals > Feed (PB daily report) ---- */
-        .pb-card { border: 1px solid var(--border, #e5e5ea); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
-        .pb-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; font-size: 15px; }
-        .pb-head .pb-stats { font-weight: 400; font-size: 13px; color: var(--text-muted, #6e6e73); }
-        .pb-head a { margin-left: auto; font-size: 12px; font-weight: 500; }
-        .pb-sec { font-size: 11px; font-weight: 700; margin: 12px 0 2px; color: var(--text-muted, #6e6e73);
-                  text-transform: uppercase; letter-spacing: .04em; }
-        .pb-card table { width: 100%; font-size: 13px; }
-        .pb-nomatch { color: #b3121f; font-weight: 600; }
-        .pb-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; margin-left: 4px;
-                  background: #fff4e5; color: #8a4b00; text-transform: uppercase; }
-        .pb-problems { background: #ffe5e7; color: #b3121f; border-radius: 8px; padding: 8px 10px; margin-top: 10px; font-size: 13px; }
-        .pb-notes { background: #fff4e5; color: #8a4b00; border-radius: 8px; padding: 8px 10px; margin-top: 8px; font-size: 13px; }
-        .pb-problems ul, .pb-notes ul { margin: 4px 0 0 18px; padding: 0; }
-        .pb-zero { background: #eef0f2; color: #3a3a3c; border-radius: 8px; padding: 8px 10px; margin-top: 10px; font-size: 13px; }
-        .pb-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
-        .pb-acts input { flex: 1; min-width: 160px; max-width: 320px; padding: 5px 8px; font-size: 13px; }
-        .pb-why { font-size: 12px; color: #b3121f; }
-        .pb-card button.pb-link { border: 0; background: none; color: var(--accent, #5a3a1a); padding: 0 4px;
-                                  font-size: 12px; font-weight: 600; text-decoration: underline; cursor: pointer; }
-        .pb-split { background: #f4f4f1; border-radius: 8px; padding: 10px; margin: 4px 0; }
-        .pb-split-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
-        .pb-split-row input { width: 110px; padding: 4px 6px; font-size: 13px; text-align: right; }
-        .pb-left { font-size: 12px; font-weight: 600; }
+        /* ---- Approvals > Feed (PB daily report) ----
+           Laid out after the "Feed Approvals Mockup" artifact. Tables scroll in
+           their own box; every tap target is at least 40px for iPhone/iPad. */
+        .pb-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+                   margin-bottom: 14px; overflow: hidden; }
+        .pb-head { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 12px 14px;
+                   border-bottom: 1px solid var(--border); }
+        .pb-date { font-weight: 700; font-size: 18px; }
+        .pb-head .pb-stats { font-size: 14px; color: var(--text-muted); }
+        .pb-head a { margin-left: auto; font-size: 13px; font-weight: 500; min-height: 40px; display: inline-flex; align-items: center; }
+        .pb-head .pb-sm { margin-left: auto; }
+        .pb-head a + .pb-sm { margin-left: 0; }
+        .pb-sec { padding: 10px 14px; display: grid; gap: 8px; }
+        .pb-sec h4 { margin: 0; }
+        .pb-tbl { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .pb-tbl table { width: 100%; font-size: 14px; border-collapse: collapse; }
+        .pb-tbl td { vertical-align: top; }
+        .pb-tbl td.num, .pb-tbl th.num { white-space: nowrap; }
+        .pb-tbl tr:has(+ .pb-actrow) td { border-bottom: 0; }
+        .pb-tbl td.pb-btns { text-align: right; padding-top: 0; }
+        @media (max-width: 600px) {
+            .pb-tbl table { font-size: 13px; }
+            .pb-tbl th, .pb-tbl td { padding-left: 4px; padding-right: 4px; }
+        }
+        .pb-muted { color: var(--text-muted); font-size: 13px; }
+        .pb-bad { color: #b3121f; font-weight: 600; }
+        .pb-problem { background: #ffe5e7; color: #b3121f; border-radius: 6px; padding: 10px 12px; font-weight: 500; font-size: 14px; }
+        .pb-note { background: #fff4e5; color: #8a4b00; border-radius: 6px; padding: 10px 12px; font-size: 14px; }
+        .pb-zero { background: #eef0f2; color: #3a3a3c; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+        .pb-waiting { background: #fff4e5; color: #8a4b00; border: 1px solid #f0d3a6; border-radius: 6px;
+                      padding: 10px 12px; margin-bottom: 12px; font-size: 14px; display: grid; gap: 6px; }
+        .pb-tag { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 8px; white-space: nowrap;
+                  background: #eef0f2; color: #3a3a3c; text-transform: uppercase; }
+        .pb-tag.pre { background: #e3ebe4; color: #2f6b3a; text-transform: none; }
+        #apprFeedPane button, #apprFeedPane select, #apprFeedPane input { min-height: 40px; }
+        .pb-card button.pb-sm { padding: 6px 12px; font-size: 13px; font-weight: 600; margin-left: 6px; }
+        .pb-card button.pb-sm:first-child { margin-left: 0; }
+        .pb-card button.pb-sm.on { border-color: #2f6b3a; color: #2f6b3a; }
+        .pb-panel { background: #f4f4f1; border-radius: 6px; padding: 12px; display: grid; gap: 8px; font-size: 14px; }
+        .pb-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .pb-row button { margin-left: 0; }
+        .pb-row select { max-width: 100%; }
+        .pb-row input.pb-lb { width: 120px; text-align: right; }
+        .pb-left { font-size: 14px; font-weight: 600; }
         .pb-left.ok { color: #1c7c31; } .pb-left.bad { color: #b3121f; }
-        .pb-review { font-size: 12px; color: var(--text-muted, #6e6e73); margin-top: 8px; }
-        .pb-err { margin-top: 10px; }
+        .pb-lot { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+        .pb-lot b { font-size: 15px; }
+        .pb-lot .pb-items { grid-column: 1 / -1; font-size: 13px; color: var(--text-muted); }
+        .pb-lot .pb-items.pb-bad { color: #b3121f; }
+        .pb-prelot .pb-state { font-weight: 600; color: #2f6b3a; }
+        .pb-total { border-bottom: 0; }
+        .pb-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 14px;
+                   border-top: 1px solid var(--border); background: var(--bg); }
+        .pb-acts button { margin-left: 0; }
+        .pb-acts input { flex: 1; min-width: 0; max-width: 360px; padding: 6px 8px; }
+        .pb-full { flex-basis: 100%; }
+        .pb-full input { flex: 1; }
+        .pb-mini { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; width: 100%; text-align: left;
+                   margin: 0 0 8px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+                   background: var(--surface); font-size: 14px; }
+        .pb-mini .pb-date { font-size: 15px; }
         .appr-day-all {
             margin-left: auto; font-size: 11px; font-weight: 600; padding: 3px 9px;
             border: 1px solid var(--border, #d1d1d6); border-radius: 6px; background: none;
@@ -1840,11 +1874,13 @@
                 </div>
                 <div id="apprFeedPane" class="hidden" data-perm="office">
                     <div id="pbReadBar"></div>
+                    <div id="pbWaiting"></div>
                     <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
                         PB Delivery Daily Reports, read off the PB email each morning. Nothing here is in the
                         books until it is approved. Approving posts each ingredient&rsquo;s pounds to the lots
-                        standing in each pen, FIFO costed, as a one-day feed-out. The database does all the
-                        arithmetic; this screen only shows it.
+                        standing in each pen, FIFO costed, as a one-day feed-out. A pen marked Prefeed holds its
+                        pounds until the first real lot moves in, which then pays for them. The database does
+                        all the arithmetic; this screen only shows it.
                     </p>
                     <div id="pbSummary" class="approvals-summary"></div>
                     <div id="pbAlert"></div>
@@ -10099,7 +10135,12 @@ window.addEventListener('unhandledrejection', function(e) {
     // tab. A failure leaves the badge as it was; the tab's own load reports
     // errors properly.
     async function apprRefreshCounts() {
-        if (!['owner', 'office', 'accountant'].includes(currentProfile && currentProfile.role)) return;
+        // current_user_role() decides the Feed tab (crew never sees it).
+        try { await pbLoadRole(); } catch (e) {
+            showAlert('globalAlert', 'Could not read your role for Approvals > Feed: ' + (e.message || String(e)), 'error');
+            return;
+        }
+        if (!apprCanFeed()) return;
         const [f, pb] = await Promise.all([
             supabase.from('pending_field_entries').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
             supabase.from('pb_daily_reports').select('id', { count: 'exact', head: true }).eq('status', 'pending')
@@ -11325,23 +11366,43 @@ window.addEventListener('unhandledrejection', function(e) {
     // A Cowork task reads the PB email each morning and calls
     // stage_pb_report(). Nothing is in the books until approve_pb_report
     // posts it. Every pound is computed in the database - this screen
-    // lists pb_report_list() and calls the RPCs, and never re-splits a
-    // number itself. Migrations: docs/sql/2026-09-25_pb_email_import.sql,
-    // ..._pb_report_list.sql, ..._25b_pb_split_drop.sql.
+    // lists pb_report_list() and prefeed_waiting() and calls the RPCs; it
+    // never splits, sums or costs a pound itself. Migrations:
+    // docs/sql/2026-09-25_pb_email_import.sql, ..._pb_report_list.sql,
+    // ..._25b_pb_split_drop.sql, 2026-09-29*_pb_*.sql (test lots, prefeed
+    // "first lot in pays", charges, by_pen prefeed flag).
     // ==========================================================
     let apprPane = 'field';
     try { if (localStorage.getItem('apprPane') === 'feed') apprPane = 'feed'; } catch (e) {}
     let pbList = [];
+    let pbWaiting = [];         // prefeed_waiting(): [{ pasture, fed, lb, days_waiting, error }]
+    let pbRole = null;          // current_user_role(), read on load
     let pbMeta = {};            // report_date -> { gmail_message_id, staged_at }
     let pbPostFrom = null;      // ranch_settings.pb_email_post_from
     let pbPastures = null;      // [{ ranch, pasture }], active, sorted
     let pbOpen = null;          // { kind: 'move'|'split'|'reject'|'unpost', date, pen }
     let pbSplitRows = [];       // [{ ix: pasture index or '', lb: string }]
-    let pbErr = {};             // report_date -> error text from the last action
+    let pbExpanded = new Set(); // reviewed report_dates opened from their one-line row
+    let pbErr = {};             // report_date -> error text from the last action, exactly as returned
     let pbBusy = false;
 
-    function apprCanFeed() {
-        return ['owner', 'office', 'accountant'].includes(currentProfile && currentProfile.role);
+    // The database role, not the profile row, decides what this tab shows.
+    // Falls back to the profile role only until current_user_role() answers.
+    function pbRoleNow() { return pbRole || (currentProfile && currentProfile.role) || null; }
+    function apprCanFeed() { return ['owner', 'office', 'accountant'].includes(pbRoleNow()); }
+    function pbCanWrite()  { return ['owner', 'office'].includes(pbRoleNow()); }
+    function pbIsOwner()   { return pbRoleNow() === 'owner'; }
+
+    async function pbLoadRole() {
+        const { data, error } = await supabase.rpc('current_user_role');
+        if (error) throw error;
+        pbRole = data || null;
+        // Crew never sees the Feed tab (CSS hides data-perm="office" too;
+        // this also covers a profile row that disagrees with the database).
+        const tab = document.querySelector('#apprPaneTabs [data-appr-pane="feed"]');
+        if (tab) tab.classList.toggle('hidden', !apprCanFeed());
+        if (!apprCanFeed() && apprPane === 'feed') showApprovalsPane('field');
+        return pbRole;
     }
 
     function showApprovalsPane(pane) {
@@ -11357,22 +11418,29 @@ window.addEventListener('unhandledrejection', function(e) {
     async function loadPbReports() {
         clearAlert('pbAlert');
         if (!pbList.length) $('pbContent').innerHTML = '<div class="empty">Loading…</div>';
+        try { await pbLoadRole(); } catch (e) {
+            $('pbContent').innerHTML = `<div class="alert error">Could not read your role: ${escapeHtml(e.message || String(e))}</div>`;
+            return;
+        }
+        if (!apprCanFeed()) { $('pbContent').innerHTML = ''; return; }
         const since = new Date(ranchToday() + 'T12:00:00');
         since.setDate(since.getDate() - 45);
-        const [list, meta, rs, pas] = await Promise.all([
+        const [list, wait, meta, rs, pas] = await Promise.all([
             supabase.rpc('pb_report_list', { p_days: 30 }),
+            supabase.rpc('prefeed_waiting'),
             supabase.from('pb_daily_reports').select('report_date, gmail_message_id, staged_at, status')
                 .gte('report_date', since.toISOString().slice(0, 10)),
             supabase.from('ranch_settings').select('pb_email_post_from').limit(1),
             pbPastures ? Promise.resolve({ data: null })
                        : supabase.from('pastures').select('name, ranches(name)').eq('is_active', true)
         ]);
-        const err = list.error || meta.error || rs.error || pas.error;
+        const err = list.error || wait.error || meta.error || rs.error || pas.error;
         if (err) {
             $('pbContent').innerHTML = `<div class="alert error">Could not load PB reports: ${escapeHtml(err.message)}</div>`;
             return;
         }
         pbList = Array.isArray(list.data) ? list.data : [];
+        pbWaiting = Array.isArray(wait.data) ? wait.data : [];
         pbMeta = {};
         (meta.data || []).forEach(m => { pbMeta[m.report_date] = m; });
         pbPostFrom = rs.data && rs.data[0] ? rs.data[0].pb_email_post_from : null;
@@ -11387,7 +11455,14 @@ window.addEventListener('unhandledrejection', function(e) {
         renderPbReports();
     }
 
-    const pbLb = n => { const v = Number(n) || 0; return fmtNum(v, Math.round(v) === v ? 0 : 2); };
+    const pbLb = n => { const v = Number(n) || 0; return fmtNum(v, Math.round(v * 100) % 100 === 0 ? 0 : 2); };
+    // Fed as a share of target, for reading only; nothing is computed from it.
+    const pbPct = (fed, target) => Number(target) ? (Number(fed) / Number(target) * 100).toFixed(1) + '%' : '–';
+    const pbDay = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US',
+        { weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '');
+    const pbMd = d => { const [, m, dd] = String(d).split('-').map(Number); return `${m}/${dd}`; };
+    const pbWhen = t => new Date(t).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short',
+        day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
     // Days since the cut-over (at most the last 7) with no report in any
     // status. Yesterday only counts once 9 AM Central has passed, so the
@@ -11411,17 +11486,27 @@ window.addEventListener('unhandledrejection', function(e) {
 
     function pbReadBarHtml() {
         const staged = Object.values(pbMeta).map(m => m.staged_at).filter(Boolean).sort().pop();
-        const when = staged ? new Date(staged) : null;
-        const stamp = when ? when.toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric',
-                                                             hour: 'numeric', minute: '2-digit' }) : null;
+        const stamp = staged ? pbWhen(staged) : null;
         const missing = pbMissingDays();
         return `<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:12px; margin-bottom:10px;">
                 <span class="appr-chip ${stamp ? 'ok' : ''}">${stamp ? 'Last report staged ' + escapeHtml(stamp) : 'No PB report staged yet'}</span>
                 <span class="muted">Cowork reads the PB email each morning and stages it here. It never posts.
                 PB posting starts ${pbPostFrom ? fmtDate(pbPostFrom) : '<b>— no cut-over date set</b>'}.</span></div>` +
-            (missing.length ? `<div class="pb-notes" style="margin:0 0 12px;"><b>No PB report for
+            (missing.length ? `<div class="pb-note" style="margin:0 0 12px;"><b>No PB report for
                 ${missing.map(fmtDate).join(', ')}.</b> The morning read has not staged ${missing.length === 1
                 ? 'that day' : 'those days'}. Check PB, or ask Claude to re-read the email.</div>` : '');
+    }
+
+    // Prefeed held in a pasture with no real lot in it yet. The first lot
+    // moved in is charged automatically; this only says it is waiting.
+    function pbWaitingHtml() {
+        if (!pbWaiting.length) return '';
+        return `<div class="pb-waiting">${pbWaiting.map(w => {
+            const days = Number(w.days_waiting) || 0;
+            return `<div><b>Prefeed waiting:</b> ${escapeHtml(w.pasture)} · ${fmtNum(Number(w.lb) || 0, 0)} lb since
+                ${pbMd(w.fed)} (${days} day${days === 1 ? '' : 's'})${w.error
+                ? `<div class="pb-bad">${escapeHtml(w.error)}</div>` : ''}</div>`;
+        }).join('')}</div>`;
     }
 
     function pbPastureSelect(sel) {
@@ -11437,105 +11522,167 @@ window.addEventListener('unhandledrejection', function(e) {
         return pbOpen && pbOpen.kind === kind && pbOpen.date === date && (pen == null || pbOpen.pen === pen);
     }
 
-    function pbCardHtml(r) {
+    function pbChip(r) {
+        const blocked = r.status === 'pending' && (r.problems || []).length;
+        const cls = r.status === 'approved' ? 'ok' : r.status === 'rejected' ? '' : blocked ? 'blocked' : 'warn';
+        return `<span class="appr-chip ${cls}">${escapeHtml(blocked ? 'pending · blocked' : r.status)}</span>`;
+    }
+
+    function pbPensHtml(r, canAct) {
         const d = r.report_date;
-        const pend = r.status === 'pending';
-        const problems = r.problems || [], notes = r.notes || [];
-        const chip = r.status === 'approved' ? 'ok' : r.status === 'rejected' ? '' : problems.length ? 'blocked' : 'warn';
-        const chipTxt = pend && problems.length ? 'pending · blocked' : r.status;
-        const zero = !Number(r.drop_fed_lb) && !Number(r.ingredient_fed_lb);
-        const msg = pbMeta[d] && pbMeta[d].gmail_message_id;
         const penTot = {};
-        (r.by_pen || []).forEach(p => { penTot[p.pen] = (penTot[p.pen] || 0) + (Number(p.fed_lb) || 0); });
+        (r.by_pen || []).forEach(p => { penTot[p.pen] = p.fed_lb; });
+        const penRows = {};
+        (r.by_pen || []).forEach(p => { penRows[p.pen] = (penRows[p.pen] || 0) + 1; });
         const seen = new Set();
-        const pens = (r.by_pen || []).map((p, ix, all) => {
+        const rows = (r.by_pen || []).map((p, ix, all) => {
             const first = !seen.has(p.pen); seen.add(p.pen);
             const last = !all.slice(ix + 1).some(q => q.pen === p.pen);
             const penAttr = escapeHtml(p.pen);
+            const pre = all.some(q => q.pen === p.pen && q.prefeed);
             let act = '';
-            if (pend && first) {
-                act = pbIsOpen('move', d, p.pen)
-                    ? `${pbPastureSelect('')} <button class="primary" data-pb="move-save" data-date="${d}" data-pen="${penAttr}" data-write>Move</button>
-                       <button class="pb-link" data-pb="cancel">cancel</button>`
-                    : `<button class="pb-link" data-pb="move" data-date="${d}" data-pen="${penAttr}" data-write>Move</button><button
-                        class="pb-link" data-pb="split" data-date="${d}" data-pen="${penAttr}" data-write>Split by weight</button>`;
+            if (canAct && first) {
+                act = `<button class="pb-sm" data-pb="move" data-date="${d}" data-pen="${penAttr}" data-write>Move</button><button
+                    class="pb-sm" data-pb="split" data-date="${d}" data-pen="${penAttr}" data-write>Split</button><button
+                    class="pb-sm${pre ? ' on' : ''}" data-pb="prefeed" data-on="${pre ? '0' : '1'}" data-date="${d}" data-pen="${penAttr}"
+                    data-write>${pre ? 'Undo prefeed' : 'Prefeed'}</button>`;
             }
-            let row = `<tr><td>${first ? penAttr : ''}</td>
-                <td>${p.pasture ? escapeHtml(p.pasture) : '<span class="pb-nomatch">no match</span>'}${p.split
-                    ? '<span class="pb-tag">split</span>' : p.moved ? '<span class="pb-tag">moved</span>' : ''}</td>
+            const where = p.pasture ? (p.moved ? `<b>${escapeHtml(p.pasture)}</b> <span class="pb-muted">(moved for this day)</span>`
+                                               : escapeHtml(p.pasture))
+                                    : '<span class="pb-bad">no match</span>';
+            let row = `<tr><td>${penAttr}<br><span class="pb-muted">→</span> ${where}${p.split && penRows[p.pen] > 1
+                    ? ' <span class="pb-tag">split</span>' : ''}${p.prefeed
+                    ? ' <span class="pb-tag pre">Prefeed - first lot in pays</span>' : ''}</td>
                 <td class="num">${pbLb(p.target_lb)}</td><td class="num">${pbLb(p.fed_lb)}</td>
-                <td style="text-align:right; white-space:nowrap;">${act}</td></tr>`;
-            if (last && pbIsOpen('split', d, p.pen)) {
-                const tot = penTot[p.pen];
-                row += `<tr><td colspan="5"><div class="pb-split" data-total="${tot}">
-                    <div style="font-size:12px; margin-bottom:8px;"><b>Split ${penAttr}</b> &mdash; PB fed
-                        <b>${pbLb(tot)} lb</b>. Type the pounds that went to each pasture; they must add to
-                        ${pbLb(tot)} exactly. This day only. Each lot in a pasture gets its share by head.</div>
-                    ${pbSplitRows.map((sr, i) => `<div class="pb-split-row" data-i="${i}">${pbPastureSelect(sr.ix)}
-                        <input class="pb-lb" inputmode="decimal" value="${escapeHtml(sr.lb)}"> lb
-                        ${pbSplitRows.length > 1 ? `<button class="pb-link" data-pb="split-del" data-i="${i}">remove</button>` : ''}</div>`).join('')}
-                    <div class="pb-split-row"><button class="pb-link" data-pb="split-add">+ pasture</button>
-                        <span class="pb-left" id="pbSplitLeft"></span></div>
-                    <div class="pb-split-row"><button class="primary" id="pbSplitSave" data-pb="split-save"
+                <td class="num">${pbPct(p.fed_lb, p.target_lb)}</td></tr>${act
+                ? `<tr class="pb-actrow"><td colspan="4" class="pb-btns">${act}</td></tr>` : ''}`;
+            if (canAct && last && pbIsOpen('move', d, p.pen)) {
+                row += `<tr><td colspan="4"><div class="pb-panel"><b>Move ${penAttr} for ${pbMd(d)} only</b>
+                    <div class="pb-row">${pbPastureSelect('')}
+                        <button class="primary" data-pb="move-save" data-date="${d}" data-pen="${penAttr}" data-write>Move</button>
+                        <button data-pb="cancel">Cancel</button></div></div></td></tr>`;
+            }
+            if (canAct && last && pbIsOpen('split', d, p.pen)) {
+                const tot = all.filter(q => q.pen === p.pen).map(q => q.fed_lb);
+                row += `<tr><td colspan="4"><div class="pb-panel pb-split" data-pen="${penAttr}">
+                    <b>Split ${penAttr} across pastures for ${pbMd(d)}</b>
+                    <div class="pb-muted">Type the pounds that went to each pasture. They must add exactly to PB's fed
+                        pounds for this pen. This day only. Each lot in a pasture gets its share by head.</div>
+                    ${pbSplitRows.map((sr, i) => `<div class="pb-row" data-i="${i}">${pbPastureSelect(sr.ix)}
+                        <input class="pb-lb" inputmode="decimal" value="${escapeHtml(sr.lb)}" aria-label="Pounds"> lb
+                        ${pbSplitRows.length > 1 ? `<button data-pb="split-del" data-i="${i}">Remove</button>` : ''}</div>`).join('')}
+                    <div class="pb-row"><button data-pb="split-add">+ Pasture</button>
+                        <span class="pb-left" id="pbSplitLeft" data-parts="${escapeHtml(JSON.stringify(tot))}"></span></div>
+                    <div class="pb-row"><button class="primary" id="pbSplitSave" data-pb="split-save"
                         data-date="${d}" data-pen="${penAttr}" data-write disabled>Save split</button>
-                        <button class="pb-link" data-pb="cancel">cancel</button></div>
+                        <button data-pb="cancel">Cancel</button></div>
                 </div></td></tr>`;
             }
             return row;
         }).join('');
-        const ings = (r.by_ingredient || []).map(i => `<tr><td>${escapeHtml(i.pb_name)}</td>
-            <td>${i.item ? escapeHtml(i.item) : '<span class="pb-nomatch">no match</span>'}</td>
-            <td class="num">${pbLb(i.target_lb)}</td><td class="num">${pbLb(i.fed_lb)}</td></tr>`).join('');
+        return `<div class="pb-sec"><h4>Pens</h4><div class="pb-tbl"><table>
+            <thead><tr><th>PB pen → our pasture</th><th class="num">Target</th><th class="num">Fed</th><th class="num">Fed %</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4" class="muted">No drops.</td></tr>'}</tbody></table></div></div>`;
+    }
+
+    function pbIngredientsHtml(r) {
+        const rows = (r.by_ingredient || []).map(i => `<tr>
+            <td>${escapeHtml(i.pb_name)} <span class="pb-muted">→</span> ${i.item ? escapeHtml(i.item) : '<span class="pb-bad">no match</span>'}</td>
+            <td class="num">${pbLb(i.target_lb)}</td><td class="num">${pbLb(i.fed_lb)}</td>
+            <td class="num">${pbPct(i.fed_lb, i.target_lb)}</td></tr>`).join('');
+        return `<div class="pb-sec"><h4>Ingredients</h4><div class="pb-tbl"><table>
+            <thead><tr><th>PB name → our item</th><th class="num">Target</th><th class="num">Fed</th><th class="num">Fed %</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4" class="muted">No ingredients.</td></tr>'}</tbody></table></div></div>`;
+    }
+
+    const PB_PRE_STATE = { 'will hold': 'Will hold', 'held': 'Held - waiting for cattle', 'charged': 'Charged to first lot in' };
+
+    function pbChargesHtml(r) {
+        const c = r.charges || {};
+        const lots = c.lots || [], pre = c.prefeed || [];
+        const items = list => (list || []).map(i => `${escapeHtml(i.item)} ${pbLb(i.lb)}`).join(' · ');
+        const lotRows = lots.map(l => `<div class="pb-lot"><b>${escapeHtml(l.lot)}</b><span class="num">${pbLb(l.lb)} lb</span>
+            <div class="pb-items">${items(l.items)}</div></div>`).join('');
+        const preRows = pre.map(p => `<div class="pb-lot pb-prelot"><b>Prefeed · ${escapeHtml(p.pasture)}</b><span class="num">${pbLb(p.lb)} lb</span>
+            <div class="pb-items"><span class="pb-state">${escapeHtml(PB_PRE_STATE[p.state] || p.state)}${p.state === 'charged' && p.charged_on
+                ? ' on ' + escapeHtml(fmtDate(p.charged_on)) : ''}</span> · ${items(p.items)}</div>
+            ${p.error ? `<div class="pb-items pb-bad">${escapeHtml(p.error)}</div>` : ''}</div>`).join('');
+        // What has nowhere to go = ingredient pounds PB fed minus what the
+        // database says will post. Display only; both numbers are the RPC's.
+        const fed = Number(r.ingredient_fed_lb) || 0, tot = Number(c.total_lb) || 0;
+        const short = Math.round((fed - tot) * 100) / 100;
+        const tail = short > 0 ? `<div class="pb-items pb-bad">${pbLb(short)} lb has nowhere to go yet${(r.problems || []).length
+                        ? ' (see the problem above)' : ''}.</div>`
+                   : short === 0 ? '<div class="pb-items">Ties to ingredient pounds fed.</div>' : '';
+        return `<div class="pb-sec"><h4>Charges to</h4>
+            <div class="pb-muted">${c.basis === 'posted' ? 'What posted' : 'What will post on Approve'}, split by head standing in
+                each pasture. Test and closed lots are never charged.</div>
+            ${lotRows}${preRows}
+            ${!lotRows && !preRows ? '<div class="pb-muted">Nothing charged.</div>' : ''}
+            <div class="pb-lot pb-total"><b>Total</b><span class="num"><b>${pbLb(tot)} lb</b></span>${tail}</div></div>`;
+    }
+
+    function pbCardHtml(r) {
+        const d = r.report_date;
+        const pend = r.status === 'pending';
+        const canAct = pend && pbCanWrite();
+        const problems = r.problems || [], notes = r.notes || [];
+        const zero = !Number(r.drop_fed_lb) && !Number(r.ingredient_fed_lb);
+        const msg = pbMeta[d] && pbMeta[d].gmail_message_id;
+        const busy = pbBusy ? ' disabled' : '';
 
         let acts = '';
-        if (pend) {
-            acts = pbIsOpen('reject', d)
-                ? `<input id="pbReason" placeholder="Reason for rejecting (required)">
-                   <button class="danger" data-pb="reject-save" data-date="${d}" data-write>Reject</button>
-                   <button class="pb-link" data-pb="cancel">cancel</button>`
-                : `<button class="primary" data-pb="approve" data-date="${d}" data-write ${problems.length ? 'disabled' : ''}>Approve</button>
-                   <button class="danger" data-pb="reject" data-date="${d}" data-write>Reject</button>
-                   <input id="pbNote-${d}" placeholder="Note (optional)" data-write>
-                   ${problems.length ? `<span class="pb-why">Fix the ${problems.length} problem${problems.length === 1 ? '' : 's'}
-                        above to approve.</span>` : ''}`;
-        } else if (r.status === 'approved') {
-            acts = pbIsOpen('unpost', d)
-                ? `<input id="pbReason" placeholder="Reason for unposting (required)">
-                   <button class="danger" data-pb="unpost-save" data-date="${d}" data-perm="owner" data-write>Unpost</button>
-                   <button class="pb-link" data-pb="cancel">cancel</button>`
-                : `<button class="danger" data-pb="unpost" data-date="${d}" data-perm="owner" data-write>Unpost…</button>
-                   <span class="muted" style="font-size:12px;" data-perm="owner">Removes the ${r.usage_rows} feed-out
-                   row${r.usage_rows === 1 ? '' : 's'} and puts the pounds back on their layers.</span>`;
+        if (canAct) {
+            acts = `<button class="primary" data-pb="approve" data-date="${d}" data-write${problems.length ? ' disabled' : busy}>Approve &amp; post</button>
+                <button class="danger" data-pb="reject" data-date="${d}" data-write${busy}>Reject</button>
+                ${problems.length ? `<span class="pb-bad">Fix the problem${problems.length === 1 ? '' : 's'} above to approve.</span>`
+                    : `<input id="pbNote-${d}" class="pb-note-in" placeholder="Note (optional)" data-write>`}
+                ${pbIsOpen('reject', d) ? `<div class="pb-row pb-full"><input id="pbReason" placeholder="Why this day won't post (required)">
+                    <button class="danger" data-pb="reject-save" data-date="${d}" data-write${busy}>Reject day</button>
+                    <button data-pb="cancel">Cancel</button></div>` : ''}`;
+        } else if (r.status === 'approved' && pbIsOwner()) {
+            acts = `<button class="danger" data-pb="unpost" data-date="${d}" data-perm="owner" data-write${busy}>Unpost</button>
+                <span class="pb-muted">Takes back all ${r.usage_rows || 0} posted row${r.usage_rows === 1 ? '' : 's'} and any prefeed
+                    charges, and puts every pound back.</span>
+                ${pbIsOpen('unpost', d) ? `<div class="pb-row pb-full"><input id="pbReason" placeholder="Why you are unposting (required)">
+                    <button class="danger" data-pb="unpost-save" data-date="${d}" data-perm="owner" data-write${busy}>Unpost day</button>
+                    <button data-pb="cancel">Cancel</button></div>` : ''}`;
         }
-        const reviewed = r.reviewed_at ? `<div class="pb-review">${r.status === 'approved' ? 'Approved' : r.status === 'rejected'
-            ? 'Rejected' : 'Reviewed'} by ${escapeHtml(r.reviewed_by || '—')}, ${new Date(r.reviewed_at).toLocaleString('en-US',
-            { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>` : '';
-        const reviewNotes = r.review_notes ? `<div class="pb-review">${escapeHtml(r.review_notes)}</div>` : '';
+        const reviewed = r.reviewed_at ? `<span class="pb-muted">${r.status === 'approved' ? 'Approved' : r.status === 'rejected'
+            ? 'Rejected' : 'Reviewed'} by ${escapeHtml(r.reviewed_by || '—')}, ${escapeHtml(pbWhen(r.reviewed_at))}${r.review_notes
+            ? ': “' + escapeHtml(r.review_notes) + '”' : ''}</span>` : '';
 
-        return `<div class="pb-card">
-            <div class="pb-head">${fmtDate(d)} <span class="appr-chip ${chip}">${escapeHtml(chipTxt)}</span>
-                <span class="pb-stats">${pbLb(r.drop_fed_lb)} lb fed · ${r.loads} load${r.loads === 1 ? '' : 's'}${r.usage_rows
-                    ? ` · ${r.usage_rows} row${r.usage_rows === 1 ? '' : 's'} posted` : ''}</span>
+        return `<div class="pb-card" data-date="${d}">
+            <div class="pb-head"><span class="pb-date">${escapeHtml(pbDay(d))}</span> ${pbChip(r)}
+                <span class="pb-stats num">${r.loads} load${r.loads === 1 ? '' : 's'} · ${pbLb(r.ingredient_fed_lb)} lb fed</span>
                 ${msg ? `<a href="https://mail.google.com/mail/u/0/#all/${encodeURIComponent(msg)}" target="_blank" rel="noopener"
-                    title="Opens the PB email this report was read from">Open PB email ↗</a>` : ''}</div>
-            ${zero ? '<div class="pb-zero">PB shows targets only — nothing fed recorded.</div>' : ''}
-            <div class="pb-sec">By pen</div>
-            <table><thead><tr><th>PB pen</th><th>Pasture</th><th class="num">Target lb</th><th class="num">Fed lb</th><th></th></tr></thead>
-                <tbody>${pens || '<tr><td colspan="5" class="muted">No drops.</td></tr>'}</tbody></table>
-            <div class="pb-sec">By ingredient</div>
-            <table><thead><tr><th>PB name</th><th>Our item</th><th class="num">Target lb</th><th class="num">Fed lb</th></tr></thead>
-                <tbody>${ings || '<tr><td colspan="4" class="muted">No ingredients.</td></tr>'}</tbody></table>
-            ${problems.length ? `<div class="pb-problems"><b>${pend ? 'Blocks approval' : 'Problems'}</b><ul>${problems.map(x =>
-                `<li>${escapeHtml(x)}</li>`).join('')}</ul></div>` : ''}
-            ${notes.length ? `<div class="pb-notes"><ul>${notes.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul></div>` : ''}
-            ${pbErr[d] ? `<div class="alert error pb-err">${escapeHtml(pbErr[d])}</div>` : ''}
-            ${reviewed}${reviewNotes}
-            ${acts ? `<div class="pb-acts">${acts}</div>` : ''}
+                    title="Opens the PB email this report was read from">PB email ↗</a>` : ''}
+                ${!pend ? `<button class="pb-sm" data-pb="collapse" data-date="${d}">Close</button>` : ''}</div>
+            ${problems.length ? `<div class="pb-sec">${problems.map(x => `<div class="pb-problem">${escapeHtml(x)}</div>`).join('')}</div>` : ''}
+            ${zero ? '<div class="pb-sec"><div class="pb-zero">PB shows targets only — nothing fed recorded.</div></div>' : ''}
+            ${pbPensHtml(r, canAct)}
+            ${pbIngredientsHtml(r)}
+            ${pbChargesHtml(r)}
+            ${notes.length ? `<div class="pb-sec">${notes.map(x => `<div class="pb-note">${escapeHtml(x)}</div>`).join('')}</div>` : ''}
+            ${pbErr[d] ? `<div class="pb-sec pb-err"><div class="pb-problem">${escapeHtml(pbErr[d])}</div></div>` : ''}
+            ${acts || reviewed ? `<div class="pb-acts">${acts}${reviewed ? `<div class="pb-full">${reviewed}</div>` : ''}</div>` : ''}
         </div>`;
+    }
+
+    // A reviewed day on one line. Tapping it opens the same card, read-only.
+    function pbMiniHtml(r) {
+        const d = r.report_date;
+        return `<button class="pb-mini" data-pb="expand" data-date="${d}">
+            <span class="pb-date">${escapeHtml(pbDay(d))}</span> ${pbChip(r)}
+            <span class="num">${pbLb(r.ingredient_fed_lb)} lb</span>
+            <span class="pb-muted">${r.status === 'approved' ? 'Approved' : r.status === 'rejected' ? 'Rejected' : 'Reviewed'}
+                by ${escapeHtml(r.reviewed_by || '—')}${r.reviewed_at ? ', ' + escapeHtml(pbWhen(r.reviewed_at)) : ''}${r.review_notes
+                ? ': “' + escapeHtml(r.review_notes) + '”' : ''}</span></button>`;
     }
 
     function renderPbReports() {
         $('pbReadBar').innerHTML = pbReadBarHtml();
+        $('pbWaiting').innerHTML = pbWaitingHtml();
         const n = s => pbList.filter(r => r.status === s).length;
         const blocked = pbList.filter(r => r.status === 'pending' && (r.problems || []).length).length;
         $('pbSummary').innerHTML = pbList.length ? [
@@ -11545,43 +11692,47 @@ window.addEventListener('unhandledrejection', function(e) {
             n('rejected') ? `<span class="appr-chip">${n('rejected')} rejected</span>` : ''
         ].join('') : '';
         $('pbContent').innerHTML = pbList.length
-            ? pbList.map(pbCardHtml).join('')
+            ? pbList.map(r => r.status === 'pending' || pbExpanded.has(r.report_date) ? pbCardHtml(r) : pbMiniHtml(r)).join('')
             : '<div class="empty">No PB reports in the last 30 days.</div>';
         pbSplitRefresh();
     }
 
-    // Live "left to place" under the split rows. The database checks the
-    // same sum on save and refuses a mismatch; this only saves a round trip.
+    // Running sum under the split rows. The database checks the same sum on
+    // save and refuses a mismatch; this only keeps Save shut until it ties.
     function pbSplitRefresh() {
         const box = document.querySelector('#pbContent .pb-split');
         if (!box) return;
-        const tot = Number(box.dataset.total) || 0;
+        const el = $('pbSplitLeft');
+        const parts = JSON.parse(el.dataset.parts || '[]').map(Number);
+        const tot = Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100;
         let sum = 0;
-        box.querySelectorAll('.pb-split-row[data-i]').forEach(row => {
+        box.querySelectorAll('.pb-row[data-i]').forEach(row => {
             const i = Number(row.dataset.i);
             const lb = row.querySelector('.pb-lb').value;
             pbSplitRows[i] = { ix: row.querySelector('.pb-pas').value, lb };
             const v = Number(String(lb).replace(/,/g, ''));
             if (v > 0) sum += v;
         });
+        sum = Math.round(sum * 100) / 100;
         const left = Math.round((tot - sum) * 100) / 100;
         const allPicked = pbSplitRows.every(r => r.ix !== '' && Number(String(r.lb).replace(/,/g, '')) > 0);
-        const el = $('pbSplitLeft');
         el.className = 'pb-left ' + (left === 0 ? 'ok' : 'bad');
-        el.textContent = left === 0 ? `✓ adds to ${pbLb(tot)} lb`
-                       : left > 0 ? `${pbLb(left)} lb still to place` : `${pbLb(-left)} lb over`;
-        $('pbSplitSave').disabled = !(left === 0 && allPicked);
+        el.textContent = `${pbLb(sum)} of ${pbLb(tot)} lb` + (left === 0 ? ' ✓'
+                       : left > 0 ? ` · ${pbLb(left)} lb still to place` : ` · ${pbLb(-left)} lb over`);
+        $('pbSplitSave').disabled = !(left === 0 && allPicked) || pbBusy;
     }
 
+    // Every write: one RPC, then reload pb_report_list and prefeed_waiting.
+    // A refusal is shown exactly as the database wrote it.
     async function pbRun(date, rpc, args) {
         if (pbBusy) return;
         pbBusy = true;
         delete pbErr[date];
-        const { error } = await supabase.rpc(rpc, args);
+        renderPbReports();
+        let error;
+        try { ({ error } = await supabase.rpc(rpc, args)); } catch (e) { error = e; }
         pbBusy = false;
         if (error) {
-            // approve_pb_report lists every blocking problem in its message;
-            // shown exactly as the database wrote it.
             pbErr[date] = error.message || String(error);
             renderPbReports();
             return;
@@ -11592,18 +11743,25 @@ window.addEventListener('unhandledrejection', function(e) {
 
     function pbOnClick(e) {
         const b = e.target.closest('[data-pb]');
-        if (!b || b.disabled) return;
+        if (!b || b.disabled || pbBusy) return;
         const a = b.dataset.pb, date = b.dataset.date, pen = b.dataset.pen;
         const card = b.closest('.pb-card');
         const reason = () => { const i = card && card.querySelector('#pbReason'); return i ? i.value.trim() : ''; };
         switch (a) {
-            case 'move':   pbOpen = { kind: 'move', date, pen }; break;
-            case 'split':  pbOpen = { kind: 'split', date, pen }; pbSplitRows = [{ ix: '', lb: '' }, { ix: '', lb: '' }]; break;
-            case 'reject': pbOpen = { kind: 'reject', date }; break;
-            case 'unpost': pbOpen = { kind: 'unpost', date }; break;
+            case 'expand':   pbExpanded.add(date); break;
+            case 'collapse': pbExpanded.delete(date); if (pbOpen && pbOpen.date === date) pbOpen = null; break;
+            case 'move':   pbOpen = pbIsOpen('move', date, pen) ? null : { kind: 'move', date, pen }; break;
+            case 'split':
+                if (pbIsOpen('split', date, pen)) { pbOpen = null; break; }
+                pbOpen = { kind: 'split', date, pen }; pbSplitRows = [{ ix: '', lb: '' }, { ix: '', lb: '' }]; break;
+            case 'reject': pbOpen = pbIsOpen('reject', date) ? null : { kind: 'reject', date }; break;
+            case 'unpost': pbOpen = pbIsOpen('unpost', date) ? null : { kind: 'unpost', date }; break;
             case 'cancel': pbOpen = null; break;
             case 'split-add': pbSplitRows.push({ ix: '', lb: '' }); break;
             case 'split-del': pbSplitRows.splice(Number(b.dataset.i), 1); break;
+            case 'prefeed':
+                pbRun(date, 'pb_mark_prefeed', { p_report_date: date, p_pb_pen: pen, p_on: b.dataset.on === '1' });
+                return;
             case 'approve': {
                 const note = ($('pbNote-' + date) || {}).value;
                 pbRun(date, 'approve_pb_report', { p_report_date: date, p_notes: (note || '').trim() || null });
@@ -11614,6 +11772,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 pbRun(date, 'reject_pb_report', { p_report_date: date, p_reason: reason() });
                 return;
             case 'unpost-save':
+                if (!pbIsOwner()) return;
                 if (!reason()) { pbErr[date] = 'Give a reason for unposting.'; break; }
                 pbRun(date, 'unpost_pb_report', { p_report_date: date, p_reason: reason() });
                 return;
@@ -11636,6 +11795,8 @@ window.addEventListener('unhandledrejection', function(e) {
             default: return;
         }
         renderPbReports();
+        const focus = document.querySelector('#pbContent #pbReason');
+        if (focus && (a === 'reject' || a === 'unpost')) focus.focus();
     }
 
     function showReportsTab(subtab = 'active-lots') {
@@ -33692,9 +33853,13 @@ ${ranchBlocks}
             const q = Number(r.qty_lb) || 0;
             if (r.receipt_date < d.from) { R.begin += q; return; }
             if (r.receipt_date > d.to) return;
+            // feed_receipts.source is purchase | count_adjustment | transfer_in |
+            // batch_out | opening_balance. The layer a transfer lands on (a bay
+            // move, or a pasture's "Prefeed - ..." hold) is transfer_in, and it
+            // nets against the transfer usage below; it is not a purchase.
             if (r.source === 'count_adjustment') R.found += q;
-            else if (r.source === 'batch') R.batchIn += q;
-            else if (r.source === 'transfer') R.xfer += q;
+            else if (r.source === 'batch_out') R.batchIn += q;
+            else if (r.source === 'transfer_in') R.xfer += q;
             else R.purch += q;
         });
         d.allUsage.forEach(u => {

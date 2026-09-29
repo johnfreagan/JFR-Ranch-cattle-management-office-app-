@@ -371,10 +371,20 @@ Approvals → Feed: Move · Split by weight · Reject     │
   roll-forward's opening balance), prints a tie-out against
   `feed_usage_detail`, and writes "N lines unpriced" as text beside any $
   that includes a NULL cost, so the flag survives Copy rows and the PDF.
-- Harness: `scripts/pb-feed-harness/run.js` loads the real `index.html` in
-  headless Chromium with a fake supabase client and checks the Feed pane
-  end to end (badges, split arithmetic and RPC args, blocked approve, the
-  error text, reason-required reject, owner-only Unpost, crew locked out).
+  Lot sections take `destination_type = 'lot'` only, so a prefeed transfer
+  into "Prefeed - <ranch> <pasture>" never shows as lot feed; the later
+  `pbpre:%` rows that charge it to the first lot in are ordinary lot rows
+  and do. **Roll-forward fix 2026-09-29:** it tested receipt sources
+  `'transfer'` and `'batch'`, which `feed_receipts` never holds (the check
+  constraint allows `purchase`, `count_adjustment`, `transfer_in`,
+  `batch_out`, `opening_balance`), so every transfer-in layer (a bay move,
+  a prefeed hold) and every batch output was counted as a Purchase. End
+  balances were unaffected; the Purchases and Transfers columns were wrong.
+  It now reads `transfer_in` / `batch_out`. Checked on the scratch copy
+  after a 9/28 prefeed approve + 36-27 charge: Purchases 27,146.24 → 0,
+  Transfers −27,146.24 → 0, lot sections 34,440 lb over 5 lots.
+- Harness: see "Testing the Feed tab" below. The 09-25 canned-data harness
+  (`run.js`/`fake.js`) was retired 2026-09-29 with the card rebuild.
 - **PB changed the email layout in Sept 2026** (first seen on the 09-25
   report): "Your daily delivery report for <ranch> on MM-DD-YYYY", "Load 1
   1 Starter Deccox" with no parentheses, "Total a b - - -", and a Head
@@ -402,3 +412,69 @@ Approvals → Feed: Move · Split by weight · Reject     │
   read must stage as a signed-in owner/office user or through the Supabase
   connector.** Calling `stage_pb_report` with only the publishable key is
   now refused.
+
+### Prefeed ("first lot in pays") and the rebuilt Feed tab (2026-09-29)
+
+Migrations, all applied live and pulled into `docs/sql/` verbatim:
+`2026-09-29_pb_plan_exclude_test_lots.sql` (`pb_lots_standing` skips test
+lots and lots closed before the day; `pb_plan`; `pb_report_charges`;
+`pb_report_list` gains `charges`), `2026-09-29b_pb_prefeed_first_lot_in.sql`
+(`pb_report_lines.prefeed`, `feed_prefeed_holds`, `pb_mark_prefeed`,
+`pb_charge_prefeeds`, trigger `lpa_charge_prefeed`, `prefeed_waiting`, and
+the approve/unpost changes), `2026-09-29c_pb_report_charges_prefeed_items.sql`,
+and `2026-09-29d_pb_summary_prefeed_flag.sql` (approved by John 2026-09-29:
+`by_pen[].prefeed`, and `pb_split_drop` keeps a pen's prefeed mark on the
+lines it rewrites; before it, a split silently cleared the mark).
+
+- **Prefeed** is for feed dropped in a pasture before the cattle arrive.
+  Marking a pen Prefeed (`pb_mark_prefeed`) clears its "no lot standing"
+  problem. On approve its pounds move as a transfer to the location
+  "Prefeed - <ranch> <pasture>" and are recorded in `feed_prefeed_holds`
+  (status `held`). When the first real lot is assigned to that pasture,
+  trigger `lpa_charge_prefeed` charges the held pounds to it
+  (`pb_row_key 'pbpre:<hold>:<lot>'`, status `charged`). Unpost reverses
+  the charges, the transfer and the holds. A pen may not be marked Prefeed
+  where lots are already standing; that shows as a problem.
+- **The card** (laid out after the "Feed Approvals Mockup" artifact): date
+  header with status, loads and ingredient pounds fed; problems in red
+  (Approve disabled with "Fix the problem above to approve."); Pens (PB pen →
+  our pasture, target, fed, fed %, "(moved for this day)", a "Prefeed - first
+  lot in pays" chip, and a row of Move / Split / Prefeed-or-Undo prefeed
+  buttons); Ingredients (unmatched in red); "Charges to" from
+  `charges` (one row per lot with its items, then a Prefeed block per
+  pasture: Will hold / Held - waiting for cattle / Charged to first lot in
+  on <date>, then the total, and how many pounds have nowhere to go yet when
+  the total is short of ingredient pounds fed); PB notes in amber; an action
+  bar with Approve & post and Reject (reason inline, no pop-ups). Reviewed
+  days collapse to one line and open read-only; an approved day shows the
+  posted charges and, for the owner only, Unpost with a required reason.
+- A banner lists `prefeed_waiting()` (pasture, pounds, fed date, days
+  waiting, and any charge error in red).
+- **Roles come from `current_user_role()`**, called at sign-in
+  (`apprRefreshCounts`) and on every load of the tab: crew never gets the
+  Feed tab, owner and office act, accountant reads, only owner gets Unpost.
+- After every action the tab reloads `pb_report_list` and `prefeed_waiting`.
+  The browser computes only display numbers: fed %, the split's running sum
+  (Save stays shut until it ties; the database checks it again), and the
+  "nowhere to go" difference between two RPC totals.
+- On phones the tables wrap and scroll inside their own box, and every
+  button, select and input in the pane is at least 40px tall. The app's top
+  header (nav tabs and user badge) is wider than a phone on its own; that
+  predates this tab.
+
+### Testing the Feed tab
+
+`scripts/pb-feed-harness/run-local.js` loads the real `index.html` in
+headless Chromium and runs every RPC through psql against a **scratch local
+Postgres** that holds the live PB functions and a snapshot of the ranch
+(database `feed_base` with the real 9/28 email staged; `feed` is recreated
+from it on each run). It never points at Supabase, so it can approve,
+prefeed and unpost freely. It checks the 9/28 read path (2 pens, 7
+ingredients, 34,440 lb, the Goat Hill problem in red, charges 7,293.76 lb to
+37X / 37X-1 / 37X-F / 59X), roles (crew, office, owner), split's running sum,
+prefeed on/off, approve (front lots 7,293.76, Goat Hill held 27,146.24, sum
+34,440, the waiting banner), a stale office click showing the database's
+refusal word for word, a 36-27 move into Goat Hill the next day charging
+27,146.24 and clearing the banner, and Unpost putting every pound back
+(every layer equal to the snapshot). It also checks iPhone and iPad widths
+and saves screenshots.
