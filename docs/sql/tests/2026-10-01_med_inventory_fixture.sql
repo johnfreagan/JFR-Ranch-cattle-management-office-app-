@@ -102,7 +102,12 @@ CREATE TABLE public.medications (
     bottle_size numeric,
     bottle_size_unit text,
     bottle_cost numeric,
-    cost_per_unit numeric
+    -- GENERATED, exactly as production has it. A plain column here accepts
+    -- an UPDATE that the live database refuses outright, which is the wrong
+    -- way round for a test to be wrong.
+    cost_per_unit numeric GENERATED ALWAYS AS (
+        CASE WHEN bottle_size > 0 THEN bottle_cost / bottle_size ELSE NULL END
+    ) STORED
 );
 
 CREATE TABLE public.protocols (

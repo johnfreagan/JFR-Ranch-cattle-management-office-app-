@@ -16,15 +16,19 @@ INSERT INTO public.med_stock_locations (id, name, kind, source_key, is_test, usa
   ('00000000-0000-0000-0000-00000000c005','Rehearsal','ranch',NULL,true,'2026-07-01');
 
 -- Medications, with readable ids.
+-- bottle_cost, NOT cost_per_unit: the latter is GENERATED as
+-- bottle_cost / bottle_size, so writing to it is refused. The per-unit
+-- costs these derive are the ones the assertions below expect:
+-- $2.00, $1.50, none, $0.05, $3.00 and $0.40.
 INSERT INTO public.medications
-  (id, name, generic_category, bottle_size, bottle_size_unit, cost_per_unit, dose_mode, flat_dose_amount, round_up_to)
+  (id, name, generic_category, bottle_size, bottle_size_unit, bottle_cost, dose_mode, flat_dose_amount, round_up_to)
 VALUES
-  ('aaaaaaaa-0000-0000-0000-000000000001','Draxxin','antibiotic',  500,'mL', 2.00,'per_weight',NULL,1),
-  ('aaaaaaaa-0000-0000-0000-000000000002','Nuflor','antibiotic',   500,'mL', 1.50,'flat',6,1),
-  ('aaaaaaaa-0000-0000-0000-000000000003','Mystery','antibiotic',  NULL,NULL, NULL,'flat',5,1),
-  ('aaaaaaaa-0000-0000-0000-000000000004','Big Jug','dewormer',   3785,'mL', 0.05,'flat',10,1),
-  ('aaaaaaaa-0000-0000-0000-000000000005','Not Stocked','vaccine',  50,'mL', 3.00,'flat',2,1),
-  ('aaaaaaaa-0000-0000-0000-000000000006','Vision 7','vaccine',    250,'mL', 0.40,'flat',2,1);
+  ('aaaaaaaa-0000-0000-0000-000000000001','Draxxin','antibiotic',  500,'mL', 1000.00,'per_weight',NULL,1),
+  ('aaaaaaaa-0000-0000-0000-000000000002','Nuflor','antibiotic',   500,'mL',  750.00,'flat',6,1),
+  ('aaaaaaaa-0000-0000-0000-000000000003','Mystery','antibiotic',  NULL,NULL,   NULL,'flat',5,1),
+  ('aaaaaaaa-0000-0000-0000-000000000004','Big Jug','dewormer',   3785,'mL',  189.25,'flat',10,1),
+  ('aaaaaaaa-0000-0000-0000-000000000005','Not Stocked','vaccine',  50,'mL',  150.00,'flat',2,1),
+  ('aaaaaaaa-0000-0000-0000-000000000006','Vision 7','vaccine',    250,'mL',  100.00,'flat',2,1);
 
 UPDATE public.medications SET track_inventory = false
  WHERE id = 'aaaaaaaa-0000-0000-0000-000000000005';

@@ -44,6 +44,40 @@ just unrecorded doses.
 
 ---
 
+## 0b. A vendor rebate has nowhere to go once stock is costed
+
+**Status:** open, raised 2026-10-01 with the opening count.
+
+Enroflox's unit cost on the Redwing report runs 38.9% above this catalog's
+last purchase price — $0.367130/mL against $0.264360, $1,079.09 across the
+21 bottles on hand. John's explanation on 2026-10-01: **a rebate we might
+get later.** So Redwing's figure is what the cash actually went out at and
+is the right FIFO cost today; the catalog's lower figure is net of a rebate
+that has not arrived.
+
+**What this module cannot do about it.** A FIFO layer freezes its cost when
+it is created, deliberately — that is what makes a reversal exact. When a
+rebate lands months later, the stock it relates to has partly or wholly
+been drawn into lots that are already costed, and possibly already closed.
+There is no mechanism here to push a credit back through it.
+
+**Do not "fix" it by lowering the catalog price.** Costing stock at a rebate
+nobody has received yet understates the cost of every treatment until it
+arrives, and overstates it afterwards if it never does.
+
+**The options, when one actually lands:**
+
+- treat the rebate as other income in the period received, and leave the
+  layers alone — simplest, and what most operations do;
+- or, if a rebate is ever large enough to distort a lot's animal-health
+  cost, book a negative adjustment against the remaining stock only, and
+  accept that the part already used keeps its original cost.
+
+That is a wave-2 conversation and needs John's call. Nothing to do until a
+rebate is actually received.
+
+---
+
 ## 1. Custom SMTP — no email leaves the project today
 
 **Status:** deferred by decision, 2026-08-24.
