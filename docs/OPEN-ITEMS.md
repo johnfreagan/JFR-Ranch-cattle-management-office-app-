@@ -238,6 +238,41 @@ land in the same place there. Nothing to change.
 
 ---
 
+## 0f. Excede is on the place in two container sizes; the catalog holds one
+
+**Status:** open, cosmetic today. Raised 2026-10-01.
+
+The shelf has **24 x 100 mL and 1 x 250 mL**. `medications.bottle_size` can only
+hold one, and it holds 250 mL ($519.35).
+
+**Why it does not break anything.** `cost_per_unit` is per mL and is
+size-independent, so dosing, FIFO layer cost and every dollar figure are right
+whichever size the catalog carries. What moves is the word *bottles*: On hand
+divides units by the catalog size, so Excede reads 12.50 bottles at 250 and
+31.25 at 100, for the same 3,125 mL.
+
+**Why it mattered once.** The count line carries its own `bottle_size`
+snapshot, and at 250 the crew's 475 mL came to **1.9 bottles**. The count
+grid's open-bottle inputs are `step="0.25" max="0.75"` — quarters, capped at
+three quarters — so 0.9 could be written by an UPDATE but never typed by a
+person. A row only a migration can produce is a row nobody can recount next
+month. Fixed in `docs/sql/2026-10-01l_med_excede_bottle_size_100.sql` by
+carrying the line on 100 mL: barn 26 + 1/2, crew 4 + 3/4, same 3,125 mL, same
+$6,665.98. That file's verify block now also asserts **every open box on every
+line is a quarter at or under 0.75**, which the database CHECK (`< 1`) does not.
+
+**The options, when somebody wants it right rather than merely harmless:**
+
+- leave it, and read *bottles* as "250 mL equivalents" for Excede;
+- set the catalog to 100 mL, the size there are 24 of, and let the single
+  250 mL bottle read as 2.5;
+- or carry the two as separate medications, which is honest but doubles the
+  line on every screen and splits the FIFO pool for one drug.
+
+Nothing to do until John decides. No dollar figure moves either way.
+
+---
+
 ## 1. Custom SMTP — no email leaves the project today
 
 **Status:** deferred by decision, 2026-08-24.

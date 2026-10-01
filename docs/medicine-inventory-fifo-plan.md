@@ -1246,3 +1246,4 @@ the opening balance of a real set of books should show its working:
 | `2026-10-01i_med_crew_actuals.sql` | the crew's actual counts, $2,394.53 |
 | `2026-10-01j_med_jake_taylor_location.sql` | Jake Taylor's buyer shelf; Resflor confirmed |
 | `2026-10-01k_med_draxxin_kp_truck_and_protivity.sql` | the truck bottle is Draxxin KP; Protivity written off |
+| `2026-10-01l_med_excede_bottle_size_100.sql` | Excede on a 100 mL bottle so the count screen can take it |
