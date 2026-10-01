@@ -161,6 +161,16 @@ tab. Migrations: `docs/sql/2026-09-07_field_counts_and_test_weights.sql` and
   overloading `applies_to` would have made a gentle-cattle draft the
   lot's weight.
 
+- **A pasture weighing now sets that pasture's weight, and the weight goes
+  with the cattle** (2026-10-01, migration
+  `docs/sql/2026-10-01_pasture_weight_estimates.sql`, design in
+  `docs/weight-estimation-design.md`). It counts once it covers **25% of the
+  head on the books in that pasture** (John: "25 for now"); below that it is
+  kept and shown, marked *note only*. The field app's weigh form says how
+  many head that is and how many more are needed (v24), and Approvals warns
+  when a weighing is under it. **Display only** — see the design doc for
+  what does not read it.
+
 ### Pasture inventory in the field app (v19)
 
 A fourth tab: pick a ranch, then a pasture, and it shows the lots standing
