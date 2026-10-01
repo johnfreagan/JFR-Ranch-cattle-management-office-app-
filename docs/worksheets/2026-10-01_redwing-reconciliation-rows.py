@@ -4,8 +4,8 @@ M=lambda x:('&minus;$' if x<0 else '$')+f"{abs(x):,.2f}"
 
 # (medication, Redwing line(s) at 9/30, Redwing $ at 9/30, adjustment, who, count $, count detail)
 L=[
- ("Excede","Excede 100 ML + Excede 250 ML",D("7730.11"),D("-7210.76"),"done",
-  D("519.35"),"1 x 250 mL"),
+ ("Excede","Excede 100 ML + Excede 250 ML",D("7730.11"),D("-2077.36"),"done",
+  D("5652.75"),"24 x 100 mL + 1 x 250 mL"),
  ("Multi Min","Multi Min",D("919.03"),D("306.34"),"jayci",D("1225.37"),"4 x 500 mL"),
  ("One Grass","One Grass",D("1804.00"),D("-1804.00"),"jayci",D("0"),"none, expired"),
  ("Synovex S","Synovex S",D("165.00"),D("-165.00"),"jayci",D("0"),"none, expired"),
@@ -32,7 +32,7 @@ L=[
 ]
 rw0=sum(r[2] for r in L); adj=sum(r[3] for r in L); cnt=sum(r[5] or D(0) for r in L)
 assert rw0==D("21896.25"), rw0
-assert cnt==D("12528.68"), cnt
+assert cnt==D("17662.08"), cnt
 assert rw0+adj==cnt, (rw0,adj,cnt)
 EXP=D("1804.00")+D("165.00")+D("121.00"); MOVE=D("306.34")
 assert EXP-MOVE==D("1783.66")
