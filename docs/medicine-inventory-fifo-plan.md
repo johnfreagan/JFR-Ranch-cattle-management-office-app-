@@ -1121,6 +1121,39 @@ Redwing's own 100 mL rate, the only Excede figure corroborated twice.
 
 The worked memo and the medicine-room worksheet are in `docs/worksheets/`.
 
+### Where it landed, end of 2026-10-01
+
+The bridge closes in **both** directions, which it did not at the start of
+the day:
+
+| | |
+|---|---|
+| Redwing at 9/30/2026 | $21,896.25 |
+| less Excede over-valuation | $2,061.98 |
+| less Macrosyn 250 mL | $373.15 |
+| less One Grass, disposed | $1,804.00 |
+| less Synovex S, expired | $165.00 |
+| **plus Multi Min's fourth bottle** | **$306.34** |
+| | **$17,798.46** |
+| counted in the program | **$17,798.46** |
+
+**Three places Redwing was understated**, which nobody was looking for —
+every difference the exercise was designed to catch was expected to run the
+other way:
+
+- **Protivity**: eight 10-dose boxes on the shelf, Redwing zero. Not counted
+  in, because no cost is known anywhere and `med_post_count` refuses a
+  positive variance it cannot price rather than booking it at zero. Its
+  count line had to be *corrected* — it originally said a counted zero,
+  taken from Redwing, and a counted zero against 80 real doses is a false
+  statement, not a harmless one.
+- **Multi Min**: four bottles against Redwing's three, $306.34.
+- **Ivomec Long Range**: two bottles Redwing never carried at all. Going back
+  to the vendor, so neither side holds them — but they arrived and were never
+  booked, which is a receiving question rather than an inventory one.
+
+The Excede finding is the one John called the reason for the whole module.
+
 ### What the opening count still waits on
 
 Seven medications were added to the catalog on 2026-10-01 because Redwing
