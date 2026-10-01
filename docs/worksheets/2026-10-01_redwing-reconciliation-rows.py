@@ -5,12 +5,12 @@ def M(x,dash=True):
     return ('&minus;$' if x<0 else '$')+f"{abs(x):,.2f}"
 # med, redwing line, rw 9/30, done/acct adj, jayci adj, count, shelf, tag
 L=[
- ("Excede","Excede 100 ML + Excede 250 ML",D("7730.11"),D("-2077.36"),D("399.96"),D("6052.71"),
-  "barn 24 x 100 mL + 1 x 250 mL; trucks 1 unopened + 1 at 1/4 + 1/4 of a 250","mix"),
+ ("Excede","Excede 100 ML + Excede 250 ML",D("7730.11"),D("-2077.36"),D("1013.23"),D("6665.98"),
+  "barn 24 x 100 mL + 1 x 250 mL; trucks 1 x 100 + 1 x 250 + two at 1/4 of a 250","mix"),
  ("Resflor","Resflor 250 ML + Resflor 500 ML",D("4153.81"),D("0"),D("726.92"),D("4880.73"),
-  "barn 10 x 500 mL; trucks 2 at 1/2 full + 3/4 of a 500","crew"),
+  "barn 10 x 500 mL; trucks 2 at 1/2 full + 3/4 of a 500 (confirmed)","crew"),
  ("Enroflox(Baytril)","Enroflox 500 ML",D("3854.87"),D("0"),D("458.91"),D("4313.78"),
-  "barn 21 x 500 mL; trucks 3/4 + 1/2 + 3/4 + 1/2","crew"),
+  "barn 21 x 500 mL; trucks 3/4 + 1/2 + 3/4 + 1/2 (confirmed)","crew"),
  ("Macrosyn(Draxxin)","Macrosyn 250 ML",D("373.15"),D("-373.15"),D("195.47"),D("195.47"),
   "trucks 1/2 bottle","mix"),
  ("Multi Min","Multi Min",D("919.03"),D("0"),D("306.34"),D("1225.37"),"barn 4 x 500 mL","jayci"),
@@ -37,10 +37,10 @@ L=[
 rw=sum(r[2] for r in L); dn=sum(r[3] for r in L); jy=sum(r[4] for r in L); cn=sum(r[5] or D(0) for r in L)
 assert rw==D("21896.25"), rw
 assert dn==D("-2450.51"), dn
-assert jy==D("-2.40"), jy
-assert cn==D("19443.34"), cn
+assert jy==D("610.87"), jy
+assert cn==D("20056.61"), cn
 assert rw+dn+jy==cn, (rw,dn,jy,cn)
-CREW=D("726.92")+D("458.91")+D("399.96")+D("195.47"); assert CREW==D("1781.26")
+CREW=D("726.92")+D("458.91")+D("1013.23")+D("195.47"); assert CREW==D("2394.53")
 EXPIRED=D("1804.00")+D("165.00")+D("121.00"); assert EXPIRED-D("306.34")==D("1783.66")
 assert CREW-(EXPIRED-D("306.34"))==jy, (CREW, EXPIRED, jy)
 print(f"Redwing {rw}  done/acct {dn}  Jayci {jy}  count {cn}  TIES")

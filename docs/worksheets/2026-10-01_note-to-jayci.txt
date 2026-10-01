@@ -4,25 +4,25 @@ We're running medicine inventory in the ranch program now, so we finally
 have a physical count to hold Redwing against. Attached is the count,
 including what the cowboys are carrying in their trucks.
 
-The count is $19,443.34. Redwing is at $21,896.25. Here's the bridge:
+The count is $20,056.61. Redwing is at $21,896.25. Here's the bridge:
 
 - Excede, $2,077.36 out. Already done, that was the posting we corrected
   today. Nothing for you there.
 - Macrosyn, $373.15. Sits in the July close, accountants can treat that
   one how they want. See the note below though, it's not all error.
-- Crew-held stock, $1,781.26 back IN.
+- Crew-held stock, $2,394.53 back IN.
 - Expired product, $1,783.66 out.
 
-Your two entries almost exactly cancel - net $2.40. Don't let that talk
-you out of booking both, they're different accounts.
+Your two entries net to +$610.87. The account goes up - the crew is
+holding more than the expired stuff takes out.
 
 The crew stock is the part nobody had on the books. Four drugs charged
 out in September, still sitting in trucks and saddle bags unused, so
 Redwing is short by them:
 
+- Excede, 475 mL, $1,013.23
 - Resflor, 875 mL, $726.92
 - Enroflox, 1,250 mL, $458.91
-- Excede, 187.5 mL, $399.96
 - Macrosyn, 250 mL, $195.47
 
 On Macrosyn - of the $373.15 Redwing is carrying against no quantity,
@@ -43,9 +43,9 @@ The expired side:
 $2,090.00 of expired product off, $306.34 of it landing on Multi Min,
 so $1,783.66 is the expense.
 
-Three readings on the truck counts are still mine to confirm - they're
-listed in the attachment. Worst case they move the
-crew number by a few hundred. I'll tell you if any of them change.
+One more thing coming. Jake Taylor has processing medicine and gives me
+his count later today. It's not in any number here, so expect one more
+version before you post anything.
 
 One open item. Protivity - eight 10 dose boxes on the shelf and Redwing
 carries none. I don't have a cost on it. If you can find what a box ran

@@ -1126,22 +1126,21 @@ reconciliation is complete rather than merely plausible:
 | Redwing at 9/30/2026 | $21,896.25 |
 | less Excede, re-allocated in Redwing on 10/1 — *already done* | $2,077.36 |
 | less Macrosyn 250 mL, from the July close — *with the accountants* | $373.15 |
-| **plus medicine in the crew trucks, back into inventory** | **$1,781.26** |
+| **plus medicine in the crew trucks, back into inventory** | **$2,394.53** |
 | less expired product written off, net | $1,783.66 |
 | &nbsp;&nbsp;&nbsp;One Grass $1,804.00 + Synovex S $165.00 + Synovex C $121.00 | $2,090.00 |
 | &nbsp;&nbsp;&nbsp;less the $306.34 moved to Multi Min rather than written off | $306.34 |
-| **Redwing after all of it** | **$19,443.34** |
-| **The count — barn and trucks — valued** | **$19,443.34** |
+| **Redwing after all of it** | **$20,056.61** |
+| **The count — barn and trucks — valued** | **$20,056.61** |
 
 Eleven lines carry stock. Every one of them reconciles its four gathering
 boxes — barn full, barn open, crew full, crew open — against `counted_units`,
 and that assertion is in the migration's verify block because it caught a real
 error: the Excede crew boxes once implied 312.5 mL against a counted 2,775.
 
-**The two bookkeeping entries very nearly cancel.** $1,781.26 of crew stock
-coming in against $1,783.66 of expired product going out is a net of $2.40.
-That is a coincidence, not a reason to skip either — they are different
-accounts and, for Macrosyn, different months.
+**The account goes up, not down.** $2,394.53 of crew stock coming in against
+$1,783.66 of expired product going out is a net of **+$610.87**. The trucks
+are holding more than the shelf is throwing away.
 
 ### Counting what the crew carries, rather than waiting
 
@@ -1158,13 +1157,13 @@ windfall when that product gets used against nothing. John chose to count it.
 Four men reported, in two messages, in bottles and fractions rather than
 millilitres — which is the right precision to ask a man in a truck for, and is
 why `med_count_lines` stores `crew_open` as a **fraction of a bottle** and does
-the multiplication itself. $1,781.26 in four drugs:
+the multiplication itself. $2,394.53 in four drugs:
 
 | | in the trucks | |
 |---|---|---|
+| Excede | 475 mL | $1,013.23 |
 | Resflor | 875 mL | $726.92 |
 | Enroflox | 1,250 mL | $458.91 |
-| Excede | 187.5 mL | $399.96 |
 | Macrosyn | 250 mL | $195.47 |
 
 Three of the four were charged out in September and are still unused, so
@@ -1174,9 +1173,13 @@ from the July close, $195.47 is a real half bottle in a truck and only $177.68
 is the posting error — which makes the accountants' July fix smaller than it
 looked.
 
-Three of the crew's phrasings carry more than one meaning and are still to be
-confirmed; both readings of each are on the count line, on the PDF for Jayci,
-and in `docs/OPEN-ITEMS.md` item 0c.
+**Three of the crew's phrasings carried more than one meaning, and all three
+were put back to John rather than guessed at.** Two were confirmed as read.
+The third — Excede's truck bottles, taken as 100 mL because that is what the
+shelf is mostly made of — was wrong: the actual is four containers, 475 mL
+rather than 187.5 mL, **$613.27** more. It was the reading flagged as the
+weakest of the three, and the one that moved. The rule for the next count is
+to ask for the container size with the fraction, every time.
 
 **Three places Redwing was understated**, which nobody was looking for — every
 difference the exercise was designed to catch was expected to run the other
@@ -1200,13 +1203,21 @@ inventory.
 ### What the opening count still waits on
 
 It is deliberately still a **draft**: posting creates the opening FIFO layers
-and locks the period. Three things hold it there — the three crew readings,
-Protivity's cost, and seven medications whose `bottle_size` is still NULL
+and locks the period. Two things hold it there — Protivity's cost, and seven
+medications whose `bottle_size` is still NULL
 because the Redwing report gives a container count and a dollar amount and
 never says how big the container is. A guess there would misprice every future
 dose of that drug silently, so they stay flagged **needs a container size**
 until somebody reads a label. All seven count zero today, so none of them
 blocks the post. `docs/OPEN-ITEMS.md` item 0c has the detail.
+
+Jake Taylor's processing medicine is counted the same day and is in no figure
+above. And John has asked for **three stock locations** — Medicine Room,
+Cowboys, Jake Taylor — against a module built deliberately on one ranch pool
+with custody tracked per person. Jake Taylor fits the design as a buyer
+location; the room/truck split does not, and inserting a second `kind='ranch'`
+row without fixing `invLedgerReady()` first would draw doses off an
+arbitrary shelf, silently. Item 0d has the finding and the options.
 
 ### The day's corrections, in order
 
@@ -1221,4 +1232,5 @@ the opening balance of a real set of books should show its working:
 | `2026-10-01e_..._final_lines.sql` | the last two sizes, Protivity corrected off a false zero |
 | `2026-10-01f_..._excede_corrected_synovexc_expired.sql` | Synovex C expired; the Excede half of this file was wrong |
 | `2026-10-01g_med_excede_final.sql` | Excede is 2,650 mL — 1 × 250 mL and 24 × 100 mL |
-| `2026-10-01h_med_crew_held_stock.sql` | what the crew carries, $1,781.26 |
+| `2026-10-01h_med_crew_held_stock.sql` | what the crew carries, first pass |
+| `2026-10-01i_med_crew_actuals.sql` | the crew's actual counts, $2,394.53 |

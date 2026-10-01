@@ -78,44 +78,104 @@ rebate is actually received.
 
 ---
 
-## 0c. The opening count is a draft, and three things hold it there
+## 0c. The opening count is a draft, and two things hold it there
 
 **Status:** open, raised 2026-10-01 with the opening count.
 
-The count at 2026-09-30 stands at **$19,443.34** across 11 stocked lines and
+The count at 2026-09-30 stands at **$20,056.61** across 11 stocked lines and
 bridges to Redwing's own $21,896.25 exactly. It is deliberately still a
-**draft** — posting it creates the opening FIFO layers and locks the period,
-and three things want settling first.
+**draft** — posting it creates the opening FIFO layers and locks the period.
 
-**1. Three readings of the crew's truck counts.** The crew reported in words
-over two messages, and three of those words carry more than one meaning. Each
-is recorded on its own count line and on the PDF, with both numbers:
+**Settled 2026-10-01: the three crew readings.** All three phrasings that
+carried more than one meaning were put back to John and answered. Enroflox
+"1.2 of 500" is 1/2 of a 500 mL bottle; Resflor "2 bottles 1/2 full" is two
+half bottles, not one full and one half; and Excede's actual is four
+containers — 1 full 100 mL, 1 full 250 mL and two quarter-full 250 mL, 475 mL
+rather than the 187.5 mL estimated. **The weakest of the three readings was
+the one that was wrong**, and it was wrong by $613.27. The lesson for the next
+count: ask for the container size with the fraction, every time.
 
-| | taken as | the other reading |
-|---|---|---|
-| Enroflox, the fourth man's "1.2 of 500" | 1/2 bottle, crew 1,250 mL, $458.91 | 1.2 bottles, 1,600 mL, $587.41 |
-| Excede, the first three men's bottles | 100 mL, crew 187.5 mL, $399.96 | 250 mL, 375 mL, $799.92 |
-| Resflor, "2 bottles 1/2 full" | two half bottles, crew 875 mL, $726.92 | one full and one half, 1,125 mL, $934.61 |
-
-The Excede one is the weakest: the fourth man's quarter bottle **is** a 250 mL,
-which is evidence against the assumption the other three are 100 mL.
-
-**2. Protivity has no cost anywhere.** Eight 10-dose boxes on the shelf, 80
+**1. Protivity has no cost anywhere.** Eight 10-dose boxes on the shelf, 80
 doses, and Redwing carries none — the books are short, not long. The line is
 left *not counted* rather than counted at zero, because `med_post_count`
 refuses a positive variance it cannot price and a guessed cost would ride
 along on every head treated with it. Jayci is looking for what a box ran.
 
-**3. Seven medications still have a NULL `bottle_size`.** Added to the catalog
+**2. Seven medications still have a NULL `bottle_size`.** Added to the catalog
 on 2026-10-01 because Redwing carried them and this catalog did not. The
 Redwing report gives a container count and a dollar amount and never says how
 big the container is. They stay flagged **needs a container size** until
 somebody reads a label; all seven count zero today, so none of them blocks the
 post.
 
-**What to do:** confirm the three readings, then post the count and set
+**Also still to arrive:** Jake Taylor's processing medicine, counted the same
+day. It is in no figure above. See item 0d.
+
+**What to do:** take Jake Taylor's count, decide item 0d, then post and set
 `usage_from`. The Protivity cost can land afterwards as its own receipt; it
 does not have to hold the post.
+
+---
+
+## 0d. Three stock locations, against a design that deliberately has one
+
+**Status:** open, John's call. Raised 2026-10-01.
+
+John on 2026-10-01: *"we will have three locations as of now but could grow in
+future. Medicine Room, Cowboys, and Jake Taylor (will have processing meds)."*
+
+**Jake Taylor is not the problem** — he is already in the design. A buyer's
+shelf is a `med_stock_locations` row with `kind = 'buyer'` and `source_key`
+matching `lots.source`, which is what the buyer-reconciliation view keys off
+so a lot's processing draw knows whose account to pull from. That row can be
+added today with no code change.
+
+**Medicine Room and Cowboys are the problem,** because the module was built on
+the opposite decision and says so in two places:
+
+- `med_stock_locations.kind` allows only `'ranch'` and `'buyer'`, and the
+  Ranch row's own note reads *"Barn and crew boxes together — one pool.
+  Custody is tracked per person, not per location."*
+- `med_txns.direction` allows 0 for a checkout, with the comment *"a checkout
+  does not move stock — the bottle is still ranch stock."* Custody points at a
+  **crew member**, not at a location.
+
+So today the room/truck split already exists, but as the four gathering boxes
+on each count line — `barn_full`, `barn_open`, `crew_full`, `crew_open` — not
+as separate pools. That is what produced the $2,394.53 crew figure in the
+opening count.
+
+**Two real defects if a second `kind='ranch'` row is simply inserted:**
+
+1. `invLedgerReady()` in `index.html` resolves the location with
+   `.eq('kind','ranch').eq('is_active',true).limit(1).maybeSingle()` — **an
+   arbitrary row**. Every doctoring dose would draw from whichever one
+   PostgREST returned first.
+2. `med_consume()` orders layers `(location_id = p_location_id) DESC` and then
+   falls through to other locations, so a draw against the wrong shelf
+   **succeeds silently** off the right one. No error, wrong books.
+
+And a third thing that is not a defect but is the actual work: with Cowboys as
+a real pool, nothing ever moves stock into it, because a checkout is custody
+only. The trucks would fill at the opening count and never drain, and every
+subsequent count would read the whole truck as shrink. Making it work means a
+`transfer` txn type, a `med_transfer()` that moves units between locations
+layer by layer, and the screens for it.
+
+**The options:**
+
+- **Keep one ranch pool.** Medicine Room and Cowboys stay the two gathering
+  boxes they already are, Jake Taylor becomes a buyer location today. Nothing
+  to build, works this afternoon, and the reporting split John wants already
+  exists. It does not extend to a fourth place.
+- **Make them real locations.** Fix the two defects first, then build
+  transfers. That is the design that grows, and it is a wave-2 piece of work,
+  not an afternoon.
+
+Recommendation: take Jake Taylor as a buyer location now so today's count has
+somewhere to go, post the opening count against the one ranch pool, and put
+the real split in wave 2 — with the `invLedgerReady()` fix landing **before**
+any second ranch row exists, because that one is a silent wrong-shelf draw.
 
 ---
 
