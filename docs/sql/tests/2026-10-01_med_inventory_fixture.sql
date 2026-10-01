@@ -84,7 +84,10 @@ CREATE TABLE public.lots (
 
 CREATE TABLE public.medications (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    name text NOT NULL,
+    -- UNIQUE as the live table has it. Without it an ON CONFLICT (name)
+    -- upsert fails here while working in production, which is the wrong
+    -- way round for a test to be wrong.
+    name text NOT NULL UNIQUE,
     generic_category text NOT NULL,
     withdrawal_days integer NOT NULL DEFAULT 0,
     cost_per_head numeric,
