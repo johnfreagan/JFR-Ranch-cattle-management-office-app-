@@ -119,7 +119,9 @@ does not have to hold the post.
 
 ## 0d. Three stock locations, against a design that deliberately has one
 
-**Status:** open, John's call. Raised 2026-10-01.
+**Status:** DECIDED 2026-10-01 — Jake Taylor added now, the room/truck split
+deferred to wave 2. The `invLedgerReady()` fix below is the part that is still
+open, and it has to land **before** any second ranch row exists.
 
 John on 2026-10-01: *"we will have three locations as of now but could grow in
 future. Medicine Room, Cowboys, and Jake Taylor (will have processing meds)."*
@@ -127,8 +129,10 @@ future. Medicine Room, Cowboys, and Jake Taylor (will have processing meds)."*
 **Jake Taylor is not the problem** — he is already in the design. A buyer's
 shelf is a `med_stock_locations` row with `kind = 'buyer'` and `source_key`
 matching `lots.source`, which is what the buyer-reconciliation view keys off
-so a lot's processing draw knows whose account to pull from. That row can be
-added today with no code change.
+so a lot's processing draw knows whose account to pull from. **Done
+2026-10-01** in `docs/sql/2026-10-01j_med_jake_taylor_location.sql`: the row
+exists, keyed to the five lots carrying `source = 'Jake Taylor'`, with
+`usage_from` NULL so nothing accrues against it until his count is posted.
 
 **Medicine Room and Cowboys are the problem,** because the module was built on
 the opposite decision and says so in two places:
@@ -172,10 +176,15 @@ layer by layer, and the screens for it.
   transfers. That is the design that grows, and it is a wave-2 piece of work,
   not an afternoon.
 
-Recommendation: take Jake Taylor as a buyer location now so today's count has
-somewhere to go, post the opening count against the one ranch pool, and put
-the real split in wave 2 — with the `invLedgerReady()` fix landing **before**
-any second ranch row exists, because that one is a silent wrong-shelf draw.
+**John's decision, 2026-10-01:** Jake Taylor now, the real split in wave 2.
+The opening count posts against the one ranch pool.
+
+**What is left here, and it is not optional:** fix `invLedgerReady()` to
+resolve the ranch location deterministically rather than with
+`.limit(1).maybeSingle()`. Today there is exactly one ranch row so the bug is
+latent, and the verify block in `2026-10-01j` now asserts that — it fails if a
+second one appears. But the assertion only runs when somebody runs that file.
+The fix is small and should land on its own, ahead of wave 2.
 
 ---
 

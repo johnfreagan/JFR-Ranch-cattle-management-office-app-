@@ -1212,12 +1212,17 @@ until somebody reads a label. All seven count zero today, so none of them
 blocks the post. `docs/OPEN-ITEMS.md` item 0c has the detail.
 
 Jake Taylor's processing medicine is counted the same day and is in no figure
-above. And John has asked for **three stock locations** — Medicine Room,
-Cowboys, Jake Taylor — against a module built deliberately on one ranch pool
-with custody tracked per person. Jake Taylor fits the design as a buyer
-location; the room/truck split does not, and inserting a second `kind='ranch'`
-row without fixing `invLedgerReady()` first would draw doses off an
-arbitrary shelf, silently. Item 0d has the finding and the options.
+above. His **buyer location now exists** — `kind = 'buyer'`, `source_key =
+'Jake Taylor'` matching the five lots that carry it, `usage_from` NULL so
+nothing accrues until his count posts.
+
+John also asked for **three stock locations** — Medicine Room, Cowboys, Jake
+Taylor — against a module built deliberately on one ranch pool with custody
+tracked per person. Jake Taylor fits the design; the room/truck split does
+not, and inserting a second `kind='ranch'` row without fixing
+`invLedgerReady()` first would draw doses off an arbitrary shelf, silently.
+**Decided 2026-10-01: Jake Taylor now, the real split in wave 2.** Item 0d has
+the finding, the two defects and what is left to do.
 
 ### The day's corrections, in order
 
@@ -1234,3 +1239,4 @@ the opening balance of a real set of books should show its working:
 | `2026-10-01g_med_excede_final.sql` | Excede is 2,650 mL — 1 × 250 mL and 24 × 100 mL |
 | `2026-10-01h_med_crew_held_stock.sql` | what the crew carries, first pass |
 | `2026-10-01i_med_crew_actuals.sql` | the crew's actual counts, $2,394.53 |
+| `2026-10-01j_med_jake_taylor_location.sql` | Jake Taylor's buyer shelf; Resflor confirmed |
