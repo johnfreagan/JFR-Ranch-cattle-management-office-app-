@@ -9591,6 +9591,8 @@ window.addEventListener('unhandledrejection', function(e) {
             created_by:currentUser.id
         };
         if(mode==='new') payload.is_feed_pen=$('lotIsFeedPen').checked;
+        // Every insert names the mode: lots_cog_mode_check allows per_lb only, and a column default that says otherwise refuses the row.
+        if(!id) payload.cog_mode='per_lb';
 
         if(mode==='duplicate'&&seedId){
             const {data:seed}=await supabase.from('lots').select('*').eq('id',seedId).single();
