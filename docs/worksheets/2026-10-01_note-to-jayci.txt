@@ -1,61 +1,58 @@
+Subject: Medicine inventory count at 9/30 - don't post yet
+
 Jayci,
 
 We're running medicine inventory in the ranch program now, so we finally
-have a physical count to hold Redwing against. Attached is the count,
-including what the cowboys are carrying in their trucks.
+have a physical count to hold Redwing against. Attached.
 
-The count is $20,056.61. Redwing is at $21,896.25. Here's the bridge:
+The count is $20,056.61. Redwing is at $21,896.25. The bridge:
 
-- Excede, $2,077.36 out. Already done, that was the posting we corrected
-  today. Nothing for you there.
-- Macrosyn, $373.15. Sits in the July close, accountants can treat that
-  one how they want. See the note below though, it's not all error.
-- Crew-held stock, $2,394.53 back IN.
+- Excede, $2,077.36 out. Already done - that was the posting we corrected.
+  Nothing for you there.
+- Macrosyn, $373.15. Sits in the July close, accountants can handle it.
+  See below, it's not all error.
+- Crew-held stock, $2,394.53 back in.
 - Expired product, $1,783.66 out.
 
 Your two entries net to +$610.87. The account goes up - the crew is
 holding more than the expired stuff takes out.
 
-The crew stock is the part nobody had on the books. Four drugs charged
-out in September, still sitting in trucks and saddle bags unused, so
-Redwing is short by them:
+The crew stock is the part nobody had on the books. Four drugs charged out
+in September, still in trucks and saddle bags unused, so Redwing is short
+by them:
 
 - Excede, 475 mL, $1,013.23
 - Resflor, 875 mL, $726.92
 - Enroflox, 1,250 mL, $458.91
 - Macrosyn, 250 mL, $195.47
 
-On Macrosyn - of the $373.15 Redwing is carrying against no quantity,
-$195.47 of it is a real half bottle in a truck. Only $177.68 is the
-July posting error. Tell the accountants that before they write off the
-whole thing.
+On Macrosyn - of the $373.15 Redwing carries against no quantity, $195.47
+is a real half bottle in a truck. Only $177.68 is the July error. Tell the
+accountants that before they write off the whole thing.
 
 The expired side:
 
 - Multi Min - add one bottle, $306.34. Shelf has four, we carry three.
-  Take that out of the expired product instead of booking it as a
-  purchase.
-- One Grass - write off 400 units, $1,804.00. Out of date, already
-  disposed of.
-- Synovex S - write off 150 doses, $165.00. Out of date.
-- Synovex C - write off 110 doses, $121.00. Out of date.
+  Fund it from the expired product instead of booking a purchase.
+- One Grass - write off 400 units, $1,804.00. Already disposed of.
+- Synovex S - write off 150 doses, $165.00.
+- Synovex C - write off 110 doses, $121.00.
 
-$2,090.00 of expired product off, $306.34 of it landing on Multi Min,
-so $1,783.66 is the expense.
+$2,090.00 off, $306.34 of it landing on Multi Min, so $1,783.66 is the
+expense.
 
-One more thing coming. Jake Taylor has processing medicine and gives me
-his count later today. It's not in any number here, so expect one more
-version before you post anything.
+Don't post any of it yet. Jake Taylor has processing medicine and gives me
+his count later today. It's not in any number here and there will be one
+more version.
 
-One open item. Protivity - eight 10 dose boxes on the shelf and Redwing
-carries none. I don't have a cost on it. If you can find what a box ran
-we'll put it on both sides. I don't want to guess, that cost rides along
-on every head we treat.
+Protivity - eight 10 dose boxes on the shelf and Redwing carries none. I
+don't have a cost. If you can find what a box ran we'll put it on both
+sides. I don't want to guess, that cost rides on every head we treat.
 
 Last thing - two bottles of Ivomec Long Range that Redwing never had on
-any line. They're going back to the vendor so there's nothing to post,
-but that's the third thing today where product came in and didn't get
-booked. Worth a look at how deliveries are getting entered.
+any line. Going back to the vendor so there's nothing to post, but that's
+the third thing today where product came in and didn't get booked. Worth a
+look at how deliveries are getting entered.
 
 Thanks,
 John
