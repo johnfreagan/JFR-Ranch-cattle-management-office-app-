@@ -1,0 +1,358 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Office app vs Redwing</title>
+<style>
+ @page { size: letter; margin: 0.5in 0.45in; }
+ *{box-sizing:border-box}
+ body{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;color:#000;margin:0;font-size:9pt;line-height:1.28}
+ .hdr{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2.5px solid #000;padding-bottom:6px;margin-bottom:10px}
+ h1{font-size:16pt;margin:0 0 2px;letter-spacing:-.2px}
+ .sub{font-size:9.5pt;color:#333}
+ .meta{text-align:right;font-size:8.5pt;color:#333;white-space:nowrap}
+ .kpis{display:flex;gap:10px;margin-bottom:9px}
+ .kpi{flex:1;border:1px solid #999;padding:5px 9px}
+ .kpi .k{font-size:7.5pt;text-transform:uppercase;letter-spacing:.5px;color:#555}
+ .kpi .v{font-size:14pt;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums}
+ .kpi.big{background:#000;color:#fff;border-color:#000}
+ .kpi.big .k{color:#bbb}
+ table{width:100%;border-collapse:collapse}
+ th{font-size:7.5pt;text-transform:uppercase;letter-spacing:.5px;text-align:left;padding:0 5px 4px;border-bottom:1.3px solid #000;color:#333}
+ th.n{text-align:right}
+ td{padding:2.5px 5px;border-bottom:1px solid #e2e2e2;vertical-align:top}
+ td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+ .med{font-weight:600}
+ .rw{color:#333;font-size:9pt}
+ .rw .q{display:block;color:#777;font-size:8pt}
+ .u{font-size:9pt;white-space:nowrap}
+ .why{font-size:8.5pt;color:#444}
+ tr.zero td{color:#777}
+ tr.zero td.med{color:#333;font-weight:400}
+ tr.diff td{background:#f1f1f1}
+ tr.diff td.med,tr.diff td.v{font-weight:700}
+ tr.open td{background:#f1f1f1}
+ tr.open td.med{font-weight:700}
+ tfoot{display:table-row-group}
+ tfoot td{border-top:1.8px solid #000;border-bottom:none;font-weight:700;padding-top:6px}
+ h2{font-size:12pt;margin:16px 0 3px;padding-bottom:3px;border-bottom:1.5px solid #000}
+ .note{border-left:3px solid #000;background:#f4f4f4;padding:7px 10px;margin:8px 0;font-size:9pt}
+ ol.steps{margin:8px 0 0;padding-left:0;list-style:none;counter-reset:s}
+ ol.steps li{counter-increment:s;padding:7px 0 7px 34px;border-bottom:1px solid #ddd;position:relative;font-size:9.5pt}
+ ol.steps li:before{content:counter(s);position:absolute;left:0;top:7px;width:22px;height:22px;background:#000;color:#fff;border-radius:50%;text-align:center;line-height:22px;font-size:9pt;font-weight:700}
+ .amt{float:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:12px}
+ .tag{display:inline-block;font-size:7.5pt;text-transform:uppercase;letter-spacing:.5px;border:1px solid #666;border-radius:2px;padding:0 5px;margin-right:6px;vertical-align:1px}
+ .keep{page-break-inside:avoid}
+ .foot{margin-top:12px;font-size:8.5pt;color:#444;border-top:1px solid #999;padding-top:6px}
+</style></head><body>
+
+<div class="hdr">
+ <div><h1>Office app against Redwing, and what cleans up</h1>
+ <div class="sub">Opening count at 30 September 2026 &mdash; every line of the Medicine RM Inventory, account 117500</div></div>
+ <div class="meta">JFR Ranch Co. Ltd.<br>1 October 2026<br>Count status: DRAFT, not posted</div>
+</div>
+
+<div class="kpis">
+ <div class="kpi"><div class="k">Redwing carries</div><div class="v">$21,896.25</div></div>
+ <div class="kpi"><div class="k">The count found</div><div class="v">$17,798.46</div></div>
+ <div class="kpi big"><div class="k">Net variance</div><div class="v">&minus;$4,097.79</div></div>
+ <div class="kpi"><div class="k">Lines tying to the cent</div><div class="v">19 of 24</div></div>
+</div>
+
+<table>
+ <thead><tr>
+  <th style="width:17%">Medication</th>
+  <th style="width:19%">Redwing line</th>
+  <th class="n" style="width:9%">Redwing $</th>
+  <th style="width:12%">Count found</th>
+  <th class="n" style="width:9%">App $</th>
+  <th class="n" style="width:9%">Variance</th>
+  <th style="width:25%">Why</th>
+ </tr></thead>
+ <tbody>
+<tr class="zero">
+  <td class="med">Biomycin</td>
+  <td class="rw">Biomycin<span class="q">1.00</span></td>
+  <td class="n">$69.44</td>
+  <td class="u">500 mL</td>
+  <td class="n">$69.44</td>
+  <td class="n v">&mdash;</td>
+  <td class="why"></td>
+</tr>
+<tr class="zero">
+  <td class="med">Brute</td>
+  <td class="rw">Brute<span class="q">0</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">0</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">counted empty</td>
+</tr>
+<tr class="zero">
+  <td class="med">Cydectin</td>
+  <td class="rw">Cydectin<span class="q">2.00</span></td>
+  <td class="n">$1,511.96</td>
+  <td class="u">10,000 mL</td>
+  <td class="n">$1,511.96</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">2 x 5 L</td>
+</tr>
+<tr class="zero">
+  <td class="med">Dectomax</td>
+  <td class="rw">Dectomax<span class="q">5.00</span></td>
+  <td class="n">$609.50</td>
+  <td class="u">2,500 mL</td>
+  <td class="n">$609.50</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">5 x 500 mL</td>
+</tr>
+<tr class="zero">
+  <td class="med">Draxxin</td>
+  <td class="rw">Draxxin 250 ML<span class="q">0</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">0</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">counted empty</td>
+</tr>
+<tr class="zero">
+  <td class="med">Draxxin KP</td>
+  <td class="rw">Draxxin KP<span class="q">1.00</span></td>
+  <td class="n">$441.00</td>
+  <td class="u">250 mL</td>
+  <td class="n">$441.00</td>
+  <td class="n v">&mdash;</td>
+  <td class="why"></td>
+</tr>
+<tr class="zero">
+  <td class="med">Enroflox(Baytril)</td>
+  <td class="rw">Enroflox 500 ML<span class="q">21.00</span></td>
+  <td class="n">$3,854.87</td>
+  <td class="u">10,500 mL</td>
+  <td class="n">$3,854.87</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">21 x 500 mL</td>
+</tr>
+<tr class="zero">
+  <td class="med">Estrumate</td>
+  <td class="rw">Estrumate<span class="q">1.00</span></td>
+  <td class="n">$105.00</td>
+  <td class="u">100 mL</td>
+  <td class="n">$105.00</td>
+  <td class="n v">&mdash;</td>
+  <td class="why"></td>
+</tr>
+<tr class="diff">
+  <td class="med">Excede</td>
+  <td class="rw">Excede 100 ML / Excede 250 ML<span class="q">24.00 + 1.00</span></td>
+  <td class="n">$7,730.11</td>
+  <td class="u">2,650 mL</td>
+  <td class="n">$5,668.13</td>
+  <td class="n v">&minus;$2,061.98</td>
+  <td class="why">24 x 100 mL + 1 x 250 mL, all at the 100 mL line's own $2.138917/mL</td>
+</tr>
+<tr class="diff">
+  <td class="med">Macrosyn(Draxxin)</td>
+  <td class="rw">Macrosyn 250 ML<span class="q">0</span></td>
+  <td class="n">$373.15</td>
+  <td class="u">0</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&minus;$373.15</td>
+  <td class="why">counted empty</td>
+</tr>
+<tr class="diff">
+  <td class="med">Multi Min</td>
+  <td class="rw">Multi Min<span class="q">3.00</span></td>
+  <td class="n">$919.03</td>
+  <td class="u">2,000 mL</td>
+  <td class="n">$1,225.37</td>
+  <td class="n v">$306.34</td>
+  <td class="why">FOUR x 500 mL on the shelf</td>
+</tr>
+<tr class="open">
+  <td class="med">Protivity</td>
+  <td class="rw">Mycroplasm Vaccine 50 Dose / Mycroplasma Vaccine 10 Dose<span class="q">0 + 0</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">not counted</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">8 x 10-dose boxes on the shelf, no price known</td>
+</tr>
+<tr class="diff">
+  <td class="med">One Grass</td>
+  <td class="rw">One Grass<span class="q">400.00</span></td>
+  <td class="n">$1,804.00</td>
+  <td class="u">0</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&minus;$1,804.00</td>
+  <td class="why">expired, disposed 10/1</td>
+</tr>
+<tr class="zero">
+  <td class="med">Resflor</td>
+  <td class="rw">Resflor 250 ML / Resflor 500 ML<span class="q">0 + 10.00</span></td>
+  <td class="n">$4,153.81</td>
+  <td class="u">5,000 mL</td>
+  <td class="n">$4,153.81</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">10 x 500 mL</td>
+</tr>
+<tr class="zero">
+  <td class="med">Synovex C 100 Ds Prestige</td>
+  <td class="rw">Synovex C<span class="q">110.00</span></td>
+  <td class="n">$121.00</td>
+  <td class="u">110 doses</td>
+  <td class="n">$121.00</td>
+  <td class="n v">&mdash;</td>
+  <td class="why"></td>
+</tr>
+<tr class="diff">
+  <td class="med">Synovex S</td>
+  <td class="rw">Synovex S<span class="q">150.00</span></td>
+  <td class="n">$165.00</td>
+  <td class="u">0</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&minus;$165.00</td>
+  <td class="why">expired</td>
+</tr>
+<tr class="zero">
+  <td class="med">Thiamine</td>
+  <td class="rw">Thiamine<span class="q">2.00</span></td>
+  <td class="n">$38.38</td>
+  <td class="u">200 mL</td>
+  <td class="n">$38.38</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">2 x 100 mL</td>
+</tr>
+<tr class="zero">
+  <td class="med">Ultrachoice 8</td>
+  <td class="rw">Ultrachoice<span class="q">0</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">0</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">counted empty</td>
+</tr>
+<tr class="zero">
+  <td class="med">Vitamin K</td>
+  <td class="rw">Vitamin K<span class="q">0</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">0</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">counted empty</td>
+</tr>
+<tr class="zero">
+  <td class="med">Ivomec Long Range Wormer</td>
+  <td class="rw">—<span class="q">not carried</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">0</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">2 bottles here, Redwing never carried them - going back to the vendor</td>
+</tr>
+<tr class="zero">
+  <td class="med">Synovex Primer</td>
+  <td class="rw">—<span class="q">not carried</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">0</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">none on hand, Redwing does not carry it</td>
+</tr>
+<tr class="zero">
+  <td class="med">(not in the catalog)</td>
+  <td class="rw">Fly Spray<span class="q">0</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">—</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">zero on both sides, nothing to do</td>
+</tr>
+<tr class="zero">
+  <td class="med">(not in the catalog)</td>
+  <td class="rw">Valbazen<span class="q">0</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">—</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">zero on both sides, nothing to do</td>
+</tr>
+<tr class="zero">
+  <td class="med">(not in the catalog)</td>
+  <td class="rw">Vira Shield 50 Dose<span class="q">0</span></td>
+  <td class="n">$0.00</td>
+  <td class="u">—</td>
+  <td class="n">&mdash;</td>
+  <td class="n v">&mdash;</td>
+  <td class="why">zero on both sides, nothing to do</td>
+</tr>
+ </tbody>
+ <tfoot><tr>
+   <td colspan="2">Totals</td><td class="n">$21,896.25</td><td></td>
+   <td class="n">$17,798.46</td><td class="n">&minus;$4,097.79</td>
+   <td class="why" style="font-weight:400">Redwing + variance = the count, exactly. Protivity carries no dollar variance and is still an open item &mdash; 80 doses neither side has priced.</td>
+ </tr></tfoot>
+</table>
+
+<div class="keep">
+<h2>The clean-up in Redwing</h2>
+<div class="note">
+ <b>Four write-downs and one add.</b> The net is <b>&minus;$4,097.79</b>, which takes account 117500
+ from $21,896.25 to $17,798.46 and makes it agree with the count line for line. Only item 1 changes a
+ value without changing a quantity &mdash; the rest move product.
+</div>
+
+<ol class="steps">
+ <li><span class="tag">write down</span><span class="amt">&minus;$2,061.98</span>
+   <b>Excede</b> &mdash; leave the quantities alone. The 250 mL line carries $2,596.71 against one
+   bottle, which is $10.386840/mL, 4.86&times; what Redwing's own 100 mL line implies. $2,596.71 &divide; 5
+   = $519.34, within 0.3% of our last purchase price, so it reads as five bottles of money booked
+   against a quantity of one. John confirmed one bottle on the shelf. Re-value all 2,650 mL at
+   $2.138917/mL.</li>
+
+ <li><span class="tag">write off</span><span class="amt">&minus;$1,804.00</span>
+   <b>One Grass</b> &mdash; 400 units, out of date, disposed 1 October. Being adjusted out the same day.</li>
+
+ <li><span class="tag">write off</span><span class="amt">&minus;$373.15</span>
+   <b>Macrosyn 250 ML</b> &mdash; Redwing holds value against <i>no quantity at all</i>. Nothing on the
+   shelf, nothing to remove, so this is a pure value write-off.</li>
+
+ <li><span class="tag">write off</span><span class="amt">&minus;$165.00</span>
+   <b>Synovex S</b> &mdash; 150 doses, expired.</li>
+
+ <li><span class="tag">add</span><span class="amt">+$306.34</span>
+   <b>Multi Min</b> &mdash; the shelf has <b>four</b> bottles, Redwing carries three. Add one at the
+   same $306.34 the other three are carried at.</li>
+</ol>
+</div>
+
+<div class="keep">
+<h2>Open, and not part of the clean-up</h2>
+<ol class="steps">
+ <li><span class="tag">needs a price</span>
+   <b>Protivity</b> &mdash; eight 10-dose boxes on the shelf, 80 doses, and Redwing carries none. It is
+   <b>not counted</b> rather than counted at zero, because no cost is known anywhere and the count
+   refuses a positive variance it cannot price rather than booking it at nothing. Give it a cost and it
+   comes into October's count; Redwing gains the same amount.</li>
+
+ <li><span class="tag">receiving</span>
+   <b>Ivomec Long Range</b> &mdash; two bottles were on the shelf that Redwing never carried on any line.
+   They are going back to the vendor, so neither side holds them and there is nothing to adjust. But they
+   arrived and were never booked, which is the third thing today that points at receiving rather than at
+   inventory &mdash; the other two being Excede's case price against a single bottle, and Multi Min's
+   fourth.</li>
+
+ <li><span class="tag">later</span>
+   <b>Enroflox</b> &mdash; Redwing's $0.367130/mL runs 38.9% above the catalog's last purchase price,
+   $1,079.09 across the 21 bottles. That is a <b>rebate not yet received</b>, so Redwing's figure is what
+   the cash went out at and is the right cost to carry today. Do not lower it in anticipation. When a
+   rebate lands there is nowhere to put it &mdash; a FIFO layer freezes its cost on purpose &mdash; so it
+   is most likely other income in the period received.</li>
+</ol>
+</div>
+
+<div class="foot">
+ The count is a <b>draft</b>: no stock ledger entry, no cost layer, and no treatment drawing against
+ inventory until it is posted and a go-live date is set. Redwing prints no $/unit column, so every unit
+ cost here is amount &divide; quantity. The report's own control totals &mdash; 731.00 units and
+ $21,896.25 &mdash; were reproduced from the scan before any of this was entered, and the variance column
+ adds back to the difference between the two totals exactly.
+</div>
+</body></html>
