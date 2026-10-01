@@ -1084,81 +1084,141 @@ Two properties of that report shape everything downstream:
   bottle size, so reading one for the other puts the opening balance out by a
   factor of a hundred. Every count line records which it took.
 
-### The bridge
-
-It adds back to the report's own total exactly, which is the test that the
-reconciliation is complete rather than merely plausible.
-
-| | |
-|---|---|
-| Redwing at 9/30/2026 | $21,896.25 |
-| less Excede over-valuation | $2,061.98 |
-| less Macrosyn 250 mL, value with no quantity | $373.15 |
-| less One Grass, out of date, for disposal | $1,804.00 |
-| **Redwing after the write-offs** | **$17,657.12** |
-| of which counted at 2026-10-01 | $13,905.63 |
-| of which still to count, pending container sizes | $3,751.49 |
-
 ### Two cost gaps, and they are not the same problem
 
 **Enroflox is a genuine disagreement about price.** Redwing's derived
 $0.367130/mL against this catalog's $0.264360 — plus 38.9%, $1,079.09 across
 the 21 bottles on hand, $3.18 a head on a 31 mL dose. Both figures are
-internally consistent; they are simply not the same number. The likeliest
-cause is freight and handling, which Redwing's amount carries and the catalog
-price does not — in which case Redwing is right and the catalog should move,
-because landed cost is what FIFO is meant to carry. Settle it off the most
-recent Enroflox invoice.
+internally consistent; they are simply not the same number. John's answer on
+2026-10-01: **a rebate we might get later.** So Redwing's figure is what the
+cash went out at and is the right FIFO cost today. What to do when a rebate
+actually lands is `docs/OPEN-ITEMS.md` item 0b.
 
-**Excede is Redwing disagreeing with itself.** It carries the drug on two
-lines: 100 mL × 24 at $2.138917/mL, and 250 mL × 1 at $10.386840/mL — 4.86×
-the first. $2,596.71 ÷ 5 = $519.34 a bottle, within 0.3% of this catalog's
-$517.78, so the line reads like **five bottles of money booked against a
-quantity of one**, which is what a case price taken against a single unit at
-receiving looks like. John checked the shelf on 2026-10-01 and found one
-bottle: the quantity stands and the money does not. All 2,650 mL is counted at
-Redwing's own 100 mL rate, the only Excede figure corroborated twice.
+**Excede is Redwing disagreeing with itself,** and working out *why* took
+three passes. It carried the drug on two lines: 100 mL × 24 at $2.138917/mL,
+and 250 mL × 1 at $10.386840/mL — 4.86× the first. $2,596.71 ÷ 5 = $519.34 a
+bottle, within 0.3% of this catalog's $517.78, so the line read like **five
+bottles of money booked against a quantity of one**.
+
+The arithmetic was right and the first explanation for it was wrong. It was
+not a case price keyed against a single unit at receiving; it was **product
+charged out and mis-posted**, left sitting in inventory at the wrong value.
+John had it corrected in Redwing the same day, and corrected the line reads
+**1 bottle at $519.35** — which is what "$519.34 a bottle" had been pointing
+at all along.
+
+So Redwing's Excede is $5,133.40 (24 × 100 mL) + $519.35 (1 × 250 mL) =
+**$5,652.75**, and **$2,077.36** came out of inventory. The shelf holds both
+containers — 1 × 250 mL and 24 × 100 mL, 2,650 mL, confirmed by John — valued
+at $2.133113/mL, which back-multiplies to $5,652.75 exactly.
+
+This is the finding John called the reason for the whole module.
 
 The worked memo and the medicine-room worksheet are in `docs/worksheets/`.
 
 ### Where it landed, end of 2026-10-01
 
-The bridge closes in **both** directions, which it did not at the start of
-the day:
+The bridge closes in **both** directions, which is the test that the
+reconciliation is complete rather than merely plausible:
 
 | | |
 |---|---|
 | Redwing at 9/30/2026 | $21,896.25 |
-| less Excede over-valuation | $2,061.98 |
-| less Macrosyn 250 mL | $373.15 |
-| less One Grass, disposed | $1,804.00 |
-| less Synovex S, expired | $165.00 |
-| **plus Multi Min's fourth bottle** | **$306.34** |
-| | **$17,798.46** |
-| counted in the program | **$17,798.46** |
+| less Excede, re-allocated in Redwing on 10/1 — *already done* | $2,077.36 |
+| less Macrosyn 250 mL, from the July close — *with the accountants* | $373.15 |
+| **plus medicine in the crew trucks, back into inventory** | **$1,781.26** |
+| less expired product written off, net | $1,783.66 |
+| &nbsp;&nbsp;&nbsp;One Grass $1,804.00 + Synovex S $165.00 + Synovex C $121.00 | $2,090.00 |
+| &nbsp;&nbsp;&nbsp;less the $306.34 moved to Multi Min rather than written off | $306.34 |
+| **Redwing after all of it** | **$19,443.34** |
+| **The count — barn and trucks — valued** | **$19,443.34** |
 
-**Three places Redwing was understated**, which nobody was looking for —
-every difference the exercise was designed to catch was expected to run the
-other way:
+Eleven lines carry stock. Every one of them reconciles its four gathering
+boxes — barn full, barn open, crew full, crew open — against `counted_units`,
+and that assertion is in the migration's verify block because it caught a real
+error: the Excede crew boxes once implied 312.5 mL against a counted 2,775.
+
+**The two bookkeeping entries very nearly cancel.** $1,781.26 of crew stock
+coming in against $1,783.66 of expired product going out is a net of $2.40.
+That is a coincidence, not a reason to skip either — they are different
+accounts and, for Macrosyn, different months.
+
+### Counting what the crew carries, rather than waiting
+
+John's question on 2026-10-01: *"The cowboys have inventory in their trucks and
+saddle bags as of today. Do we ignore for now and start inventorying at 10/31?
+This med was charged out last month to cattle but not used yet. Will fix itself
+over the month but throws first month off?"*
+
+It does fix itself over a month, and it does throw the first month off, and
+those are not the same size of problem. Ignoring it means the opening count
+understates stock by whatever is in the trucks, and October then shows a
+windfall when that product gets used against nothing. John chose to count it.
+
+Four men reported, in two messages, in bottles and fractions rather than
+millilitres — which is the right precision to ask a man in a truck for, and is
+why `med_count_lines` stores `crew_open` as a **fraction of a bottle** and does
+the multiplication itself. $1,781.26 in four drugs:
+
+| | in the trucks | |
+|---|---|---|
+| Resflor | 875 mL | $726.92 |
+| Enroflox | 1,250 mL | $458.91 |
+| Excede | 187.5 mL | $399.96 |
+| Macrosyn | 250 mL | $195.47 |
+
+Three of the four were charged out in September and are still unused, so
+**Redwing is understated by them** and they go back in at the October close.
+Macrosyn is the odd one: of the $373.15 Redwing carries against no quantity
+from the July close, $195.47 is a real half bottle in a truck and only $177.68
+is the posting error — which makes the accountants' July fix smaller than it
+looked.
+
+Three of the crew's phrasings carry more than one meaning and are still to be
+confirmed; both readings of each are on the count line, on the PDF for Jayci,
+and in `docs/OPEN-ITEMS.md` item 0c.
+
+**Three places Redwing was understated**, which nobody was looking for — every
+difference the exercise was designed to catch was expected to run the other
+way:
 
 - **Protivity**: eight 10-dose boxes on the shelf, Redwing zero. Not counted
   in, because no cost is known anywhere and `med_post_count` refuses a
-  positive variance it cannot price rather than booking it at zero. Its
-  count line had to be *corrected* — it originally said a counted zero,
-  taken from Redwing, and a counted zero against 80 real doses is a false
-  statement, not a harmless one.
+  positive variance it cannot price rather than booking it at zero. Its count
+  line had to be *corrected* — it originally said a counted zero, taken from
+  Redwing, and a counted zero against 80 real doses is a false statement, not
+  a harmless one.
 - **Multi Min**: four bottles against Redwing's three, $306.34.
 - **Ivomec Long Range**: two bottles Redwing never carried at all. Going back
   to the vendor, so neither side holds them — but they arrived and were never
-  booked, which is a receiving question rather than an inventory one.
+  booked.
 
-The Excede finding is the one John called the reason for the whole module.
+With the Excede mis-posting, that is four things in one day where product moved
+and the books did not follow. All four point at receiving rather than at
+inventory.
 
 ### What the opening count still waits on
 
-Seven medications were added to the catalog on 2026-10-01 because Redwing
-carried them and this catalog did not — a quarter of the report's value. Their
-`bottle_size` is deliberately NULL: the report gives a container count and a
-dollar amount and never says how big the container is, and a guess would
-misprice every future dose of that drug silently. They stay flagged **needs a
-container size** until somebody reads a label.
+It is deliberately still a **draft**: posting creates the opening FIFO layers
+and locks the period. Three things hold it there — the three crew readings,
+Protivity's cost, and seven medications whose `bottle_size` is still NULL
+because the Redwing report gives a container count and a dollar amount and
+never says how big the container is. A guess there would misprice every future
+dose of that drug silently, so they stay flagged **needs a container size**
+until somebody reads a label. All seven count zero today, so none of them
+blocks the post. `docs/OPEN-ITEMS.md` item 0c has the detail.
+
+### The day's corrections, in order
+
+Each is its own file in `docs/sql/`, each with its own verify block, because
+the opening balance of a real set of books should show its working:
+
+| file | what it did |
+|---|---|
+| `2026-10-01_med_opening_count.sql` | the first pass off the scanned report |
+| `2026-10-01c_..._excede_macrosyn.sql` | Excede priced off Redwing's 100 mL line, Macrosyn counted empty |
+| `2026-10-01d_..._container_sizes_and_count.sql` | container sizes off the medicine-room sheet, seven more lines |
+| `2026-10-01e_..._final_lines.sql` | the last two sizes, Protivity corrected off a false zero |
+| `2026-10-01f_..._excede_corrected_synovexc_expired.sql` | Synovex C expired; the Excede half of this file was wrong |
+| `2026-10-01g_med_excede_final.sql` | Excede is 2,650 mL — 1 × 250 mL and 24 × 100 mL |
+| `2026-10-01h_med_crew_held_stock.sql` | what the crew carries, $1,781.26 |

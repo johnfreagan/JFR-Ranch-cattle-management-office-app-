@@ -1,300 +1,296 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8">
-<title>Medicine inventory reconciliation</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Medicine inventory reconciliation</title>
 <style>
  @page{size:letter;margin:.5in .45in}
  *{box-sizing:border-box}
- body{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;color:#000;margin:0;font-size:9pt;line-height:1.3}
- .hdr{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2.5px solid #000;padding-bottom:6px;margin-bottom:10px}
- h1{font-size:15.5pt;margin:0 0 2px;letter-spacing:-.2px}
+ body{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;color:#000;margin:0;font-size:8.8pt;line-height:1.3}
+ .hdr{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;border-bottom:2.5px solid #000;padding-bottom:6px;margin-bottom:9px}
+ h1{font-size:15pt;margin:0 0 2px;letter-spacing:-.2px}
  .sub{font-size:9.5pt;color:#333}
- .meta{text-align:right;font-size:8.5pt;color:#333;white-space:nowrap}
- h2{font-size:11.5pt;margin:15px 0 3px;padding-bottom:3px;border-bottom:1.5px solid #000}
- .intro{font-size:9.5pt;margin:0 0 10px}
+ .meta{text-align:right;flex:0 0 auto;font-size:8.5pt;color:#333;white-space:nowrap}
+ h2{font-size:11.5pt;margin:14px 0 3px;padding-bottom:3px;border-bottom:1.5px solid #000}
+ p{margin:0 0 8px;font-size:9.3pt}
  table{width:100%;border-collapse:collapse}
- th{font-size:7.5pt;text-transform:uppercase;letter-spacing:.5px;text-align:left;padding:0 5px 4px;border-bottom:1.3px solid #000;color:#333}
+ th{font-size:7.2pt;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:0 4px 4px;border-bottom:1.3px solid #000;color:#333}
  th.n{text-align:right}
- td{padding:3px 5px;border-bottom:1px solid #e2e2e2;vertical-align:top}
+ td{padding:2.5px 4px;border-bottom:1px solid #e2e2e2;vertical-align:top}
  td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
- .med{font-weight:600}
- .rw{color:#444;font-size:8.5pt}
- .d{font-size:8.5pt;color:#444}
- .a{font-weight:700}
+ .med{font-weight:600}.rw{color:#444;font-size:8.2pt}.d{font-size:8.2pt;color:#444}
+ .j{font-weight:700}
  tr.zero td{color:#888}tr.zero td.med{color:#444;font-weight:400}
- tr.act td{background:#eaeaea}
- tr.done td{background:#f6f6f6}
- tr.open td{background:#f6f6f6}
- .tag{display:inline-block;font-size:6.5pt;text-transform:uppercase;letter-spacing:.5px;padding:0 4px;margin-left:5px;border-radius:2px;vertical-align:1.5px;font-weight:700}
- .t-jayci{background:#000;color:#fff}
- .t-done{border:1px solid #777;color:#555}
- .t-acct,.t-open,.t-recv{border:1px solid #777;color:#555}
+ tr.act td{background:#ededed}tr.open td{background:#f6f6f6}
+ .tag{display:inline-block;font-size:6.3pt;text-transform:uppercase;letter-spacing:.4px;padding:0 4px;margin-left:5px;border-radius:2px;vertical-align:1.5px;font-weight:700;background:#000;color:#fff}
+ tr.open .tag,tr.zero .tag{background:none;border:1px solid #777;color:#555}
  tfoot{display:table-row-group}
  tfoot td{border-top:1.8px solid #000;border-bottom:none;font-weight:700;padding-top:6px}
- .bridge{width:100%;border-collapse:collapse;margin:6px 0}
- .bridge td{padding:5px 6px;border-bottom:1px solid #ddd;font-size:9.5pt}
+ .bridge{width:100%;border-collapse:collapse;margin:5px 0}
+ .bridge td{padding:4.5px 6px;border-bottom:1px solid #ddd;font-size:9.3pt}
  .bridge td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
  .bridge tr.sum td{border-top:1.5px solid #000;border-bottom:none;font-weight:700}
- .bridge tr.ind td:first-child{padding-left:26px;color:#555;font-size:9pt}
+ .bridge tr.ind td:first-child{padding-left:26px;color:#555;font-size:8.8pt}
  .note{border-left:3px solid #000;background:#f4f4f4;padding:7px 10px;margin:8px 0;font-size:9pt}
- ol.steps{margin:6px 0 0;padding-left:0;list-style:none;counter-reset:s}
- ol.steps li{counter-increment:s;padding:6px 0 6px 32px;border-bottom:1px solid #ddd;position:relative;font-size:9.5pt}
- ol.steps li:before{content:counter(s);position:absolute;left:0;top:6px;width:21px;height:21px;background:#000;color:#fff;border-radius:50%;text-align:center;line-height:21px;font-size:8.5pt;font-weight:700}
+ ol.steps{margin:5px 0 0;padding-left:0;list-style:none;counter-reset:s}
+ ol.steps li{counter-increment:s;padding:6px 0 6px 31px;border-bottom:1px solid #ddd;position:relative;font-size:9.3pt}
+ ol.steps li:before{content:counter(s);position:absolute;left:0;top:6px;width:21px;height:21px;background:#000;color:#fff;border-radius:50%;text-align:center;line-height:21px;font-size:8.3pt;font-weight:700}
  .amt{float:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:12px}
+ .confirm{border:1.5px solid #000;padding:8px 10px;margin:9px 0;font-size:9pt}
+ .confirm>b:first-child{display:block;margin-bottom:3px}
  .keep{page-break-inside:avoid}
- .foot{margin-top:12px;font-size:8.5pt;color:#444;border-top:1px solid #999;padding-top:6px}
+ .foot{margin-top:11px;font-size:8.3pt;color:#444;border-top:1px solid #999;padding-top:6px}
 </style></head><body>
 
 <div class="hdr">
  <div><h1>Medicine inventory &mdash; Redwing reconciled to the count</h1>
- <div class="sub">Account 117500 Animal Health RM at 30 September 2026, against a physical count of the medicine room</div></div>
- <div class="meta">JFR Ranch Co. Ltd.<br>1 October 2026<br>Prepared for Jayci</div>
+ <div class="sub">Account 117500 Animal Health RM at 30 September 2026, against a physical count of the barn <i>and the crew trucks</i></div></div>
+ <div class="meta">JFR Ranch Co. Ltd.<br>1 October 2026 &mdash; rev. 3<br>Prepared for Jayci</div>
 </div>
 
-<p class="intro">We have started running medicine inventory in the ranch program, so for the first time there is a
-physical count to hold the Redwing balance against. This is that comparison. <b>Twenty of twenty-two lines already
-agree.</b> The differences are four real ones and one that is already fixed, and they are set out below in the order
-they need handling.</p>
+<p>We have started running medicine inventory in the ranch program, so for the first time there is a physical count to
+hold the Redwing balance against. <b>This revision adds the medicine the cowboys are carrying</b>, all four men now reported in. That product was
+charged out to cattle in September and has not been used, so it sits in the trucks while Redwing shows it as expensed.
+It needs to come back into inventory, and that is the one new item below.</p>
 
 <h2>The bridge</h2>
 <table class="bridge">
  <tr><td>Redwing account 117500 as printed at 9/30/2026</td><td class="n">$21,896.25</td></tr>
  <tr><td>less&nbsp; Excede, re-allocated in Redwing on 10/1 &mdash; <i>already done</i></td><td class="n">&minus;$2,077.36</td></tr>
  <tr><td>less&nbsp; Macrosyn 250 mL, from the July close &mdash; <i>with the accountants</i></td><td class="n">&minus;$373.15</td></tr>
- <tr><td>less&nbsp; expired product written off, net &mdash; <i>for Jayci</i></td><td class="n">&minus;$1,783.66</td></tr>
+ <tr><td><b>plus&nbsp; medicine in the crew trucks, back into inventory &mdash; <i>new</i></b></td><td class="n"><b>+$1,781.26</b></td></tr>
+ <tr><td>less&nbsp; expired product written off, net</td><td class="n">&minus;$1,783.66</td></tr>
  <tr class="ind"><td>One Grass $1,804.00 + Synovex S $165.00 + Synovex C $121.00</td><td class="n">$2,090.00</td></tr>
  <tr class="ind"><td>less the $306.34 moved to Multi Min rather than written off</td><td class="n">&minus;$306.34</td></tr>
- <tr class="sum"><td>Redwing after all of it</td><td class="n">$17,662.08</td></tr>
- <tr class="sum"><td>The physical count, valued</td><td class="n">$17,662.08</td></tr>
+ <tr class="sum"><td>Redwing after all of it</td><td class="n">$19,443.34</td></tr>
+ <tr class="sum"><td>The physical count &mdash; barn and trucks &mdash; valued</td><td class="n">$19,443.34</td></tr>
 </table>
 
 <div class="note">
- <b>Only $1,783.66 of this is a write-off.</b> The Excede $2,077.36 is a re-allocation that has already been made &mdash;
- product that had been charged out was still sitting in inventory at the wrong value &mdash; and the Macrosyn $373.15 belongs to the July close
- and is for the accountants to treat as they see fit. The $306.34 is a reclass inside the account, not an expense:
- it moves from expired product to Multi Min, which is short a bottle on the books.
+ <b>Jayci's entries now very nearly cancel: a net of &minus;$2.40.</b> The crew stock coming back in
+ ($1,781.26) almost exactly offsets the expired product going out ($1,783.66). That is a coincidence and not a
+ reason to skip either one &mdash; they are different accounts. The Excede $2,077.36 is already done and the
+ Macrosyn $373.15 is with the accountants, so neither of those is hers.
 </div>
 
 <h2>What needs doing in Redwing</h2>
 <ol class="steps">
+ <li><span class="amt">+$1,781.26</span><b>Bring the crew-held medicine back into inventory.</b> Resflor $726.92,
+ Enroflox $458.91, Excede $399.96, Macrosyn $195.47. All of it was charged out to cattle in September and is still
+ in the trucks unused, so this credits that September charge-out rather than being a purchase.</li>
  <li><span class="amt">+$306.34</span><b>Multi Min &mdash; add one bottle.</b> The shelf has four, Redwing carries
- three, at $306.34 each. Take the $306.34 from the expired product being written off below rather than booking it
- as a purchase.</li>
- <li><span class="amt">&minus;$1,804.00</span><b>One Grass &mdash; write off 400 units.</b> Out of date and disposed of
- on 1 October.</li>
+ three, at $306.34 each. Fund it from the expired product below rather than booking a purchase.</li>
+ <li><span class="amt">&minus;$1,804.00</span><b>One Grass &mdash; write off 400 units.</b> Out of date, disposed of on 1 October.</li>
  <li><span class="amt">&minus;$165.00</span><b>Synovex S &mdash; write off 150 doses.</b> Out of date, for disposal.</li>
  <li><span class="amt">&minus;$121.00</span><b>Synovex C &mdash; write off 110 doses.</b> Out of date, for disposal.</li>
 </ol>
-<p class="intro" style="margin-top:8px">The four together take <b>$2,090.00</b> of expired product off the books. <b>$306.34</b> of
-that lands on Multi Min instead of being expensed, so the expense is <b>$1,783.66</b> and the account moves by the
-same.</p>
+<p style="margin-top:7px">$2,090.00 of expired product comes off, $306.34 of it landing on Multi Min instead of being
+expensed, and $1,781.26 of crew stock comes back on. <b>Net movement in the account: &minus;$2.40.</b></p>
+
+<div class="confirm">
+ <b>Three readings to confirm before posting</b>
+ <table style="width:100%;border-collapse:collapse;margin-top:4px">
+  <tr><td style="width:20%;padding:3px 6px 3px 0;border:none;vertical-align:top"><b>Enroflox in the trucks</b></td>
+      <td style="padding:3px 0;border:none">The fourth man&rsquo;s &ldquo;1.2 of 500&rdquo; is read as <b>1/2 of a 500 mL bottle</b>, to match
+      the fractions used everywhere else in the same message. Crew total 1,250 mL, <b>$458.91</b>. If he meant 1.2
+      bottles it is 1,600 mL and <b>$587.41</b>.</td></tr>
+  <tr><td style="padding:3px 6px 3px 0;border:none;vertical-align:top"><b>Excede in the trucks</b></td>
+      <td style="padding:3px 0;border:none">&ldquo;1 bottle unopened and 1 at 1/4&rdquo; is taken as <b>100 mL</b> bottles. With the
+      fourth man&rsquo;s quarter of a 250 mL on top, the crew total is 187.5 mL, <b>$399.96</b>. If the first three
+      men&rsquo;s bottles are 250 mL it is 375 mL and <b>$799.92</b>. That fourth man&rsquo;s bottle being a 250 makes
+      this one worth a second look.</td></tr>
+  <tr><td style="padding:3px 6px 3px 0;border:none;vertical-align:top"><b>Resflor in the trucks</b></td>
+      <td style="padding:3px 0;border:none">&ldquo;2 bottles 1/2 full&rdquo; is taken as two bottles each half full &mdash; 1.0 bottle,
+      plus the fourth man&rsquo;s 3/4 of a 500 mL, so 875 mL and <b>$726.92</b>. If the first reading is one full and
+      one half it is 1,125 mL and <b>$934.61</b>.</td></tr>
+ </table>
+</div>
 
 <h2>Line by line</h2>
 <table>
  <thead><tr>
-  <th style="width:20%">Medication</th><th style="width:21%">Redwing line at 9/30</th>
-  <th class="n" style="width:10%">Redwing $</th><th class="n" style="width:10%">Adjust</th>
-  <th class="n" style="width:10%">After</th><th class="n" style="width:10%">Count</th>
-  <th style="width:19%">What the shelf holds</th>
+  <th style="width:17%">Medication</th><th style="width:17%">Redwing line at 9/30</th>
+  <th class="n" style="width:9%">Redwing $</th><th class="n" style="width:10%">Done / acct</th>
+  <th class="n" style="width:9%">For Jayci</th><th class="n" style="width:9%">After</th>
+  <th class="n" style="width:9%">Count</th><th style="width:20%">What is on the shelf</th>
  </tr></thead>
  <tbody>
-<tr class="done">
- <td class="med">Excede<span class="tag t-done">done</span></td>
- <td class="rw">Excede 100 ML + Excede 250 ML</td>
- <td class="n">$7,730.11</td>
- <td class="n a">&minus;$2,077.36</td>
- <td class="n">$5,652.75</td>
- <td class="n">$5,652.75</td>
- <td class="d">24 x 100 mL + 1 x 250 mL</td></tr>
 <tr class="act">
- <td class="med">Multi Min<span class="tag t-jayci">do</span></td>
- <td class="rw">Multi Min</td>
- <td class="n">$919.03</td>
- <td class="n a">$306.34</td>
+ <td class="med">Excede<span class="tag">part do</span></td>
+ <td class="rw">Excede 100 ML + Excede 250 ML</td><td class="n">$7,730.11</td>
+ <td class="n">&minus;$2,077.36</td><td class="n j">$399.96</td>
+ <td class="n">$6,052.71</td>
+ <td class="n">$6,052.71</td>
+ <td class="d">barn 24 x 100 mL + 1 x 250 mL; trucks 1 unopened + 1 at 1/4 + 1/4 of a 250</td></tr>
+<tr class="act">
+ <td class="med">Resflor<span class="tag">crew</span></td>
+ <td class="rw">Resflor 250 ML + Resflor 500 ML</td><td class="n">$4,153.81</td>
+ <td class="n">&mdash;</td><td class="n j">$726.92</td>
+ <td class="n">$4,880.73</td>
+ <td class="n">$4,880.73</td>
+ <td class="d">barn 10 x 500 mL; trucks 2 at 1/2 full + 3/4 of a 500</td></tr>
+<tr class="act">
+ <td class="med">Enroflox(Baytril)<span class="tag">crew</span></td>
+ <td class="rw">Enroflox 500 ML</td><td class="n">$3,854.87</td>
+ <td class="n">&mdash;</td><td class="n j">$458.91</td>
+ <td class="n">$4,313.78</td>
+ <td class="n">$4,313.78</td>
+ <td class="d">barn 21 x 500 mL; trucks 3/4 + 1/2 + 3/4 + 1/2</td></tr>
+<tr class="act">
+ <td class="med">Macrosyn(Draxxin)<span class="tag">part do</span></td>
+ <td class="rw">Macrosyn 250 ML</td><td class="n">$373.15</td>
+ <td class="n">&minus;$373.15</td><td class="n j">$195.47</td>
+ <td class="n">$195.47</td>
+ <td class="n">$195.47</td>
+ <td class="d">trucks 1/2 bottle</td></tr>
+<tr class="act">
+ <td class="med">Multi Min<span class="tag">do</span></td>
+ <td class="rw">Multi Min</td><td class="n">$919.03</td>
+ <td class="n">&mdash;</td><td class="n j">$306.34</td>
  <td class="n">$1,225.37</td>
  <td class="n">$1,225.37</td>
- <td class="d">4 x 500 mL</td></tr>
+ <td class="d">barn 4 x 500 mL</td></tr>
 <tr class="act">
- <td class="med">One Grass<span class="tag t-jayci">do</span></td>
- <td class="rw">One Grass</td>
- <td class="n">$1,804.00</td>
- <td class="n a">&minus;$1,804.00</td>
+ <td class="med">One Grass<span class="tag">do</span></td>
+ <td class="rw">One Grass</td><td class="n">$1,804.00</td>
+ <td class="n">&mdash;</td><td class="n j">&minus;$1,804.00</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">none, expired</td></tr>
 <tr class="act">
- <td class="med">Synovex S<span class="tag t-jayci">do</span></td>
- <td class="rw">Synovex S</td>
- <td class="n">$165.00</td>
- <td class="n a">&minus;$165.00</td>
+ <td class="med">Synovex S<span class="tag">do</span></td>
+ <td class="rw">Synovex S</td><td class="n">$165.00</td>
+ <td class="n">&mdash;</td><td class="n j">&minus;$165.00</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">none, expired</td></tr>
 <tr class="act">
- <td class="med">Synovex C 100 Ds Prestige<span class="tag t-jayci">do</span></td>
- <td class="rw">Synovex C</td>
- <td class="n">$121.00</td>
- <td class="n a">&minus;$121.00</td>
+ <td class="med">Synovex C 100 Ds Prestige<span class="tag">do</span></td>
+ <td class="rw">Synovex C</td><td class="n">$121.00</td>
+ <td class="n">&mdash;</td><td class="n j">&minus;$121.00</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">none, expired</td></tr>
-<tr class="open">
- <td class="med">Macrosyn(Draxxin)<span class="tag t-acct">acct</span></td>
- <td class="rw">Macrosyn 250 ML</td>
- <td class="n">$373.15</td>
- <td class="n a">&minus;$373.15</td>
- <td class="n">$0.00</td>
- <td class="n">$0.00</td>
- <td class="d">none</td></tr>
-<tr class="zero">
- <td class="med">Enroflox(Baytril)</td>
- <td class="rw">Enroflox 500 ML</td>
- <td class="n">$3,854.87</td>
- <td class="n a">&mdash;</td>
- <td class="n">$3,854.87</td>
- <td class="n">$3,854.87</td>
- <td class="d">21 x 500 mL</td></tr>
-<tr class="zero">
- <td class="med">Resflor</td>
- <td class="rw">Resflor 250 ML + Resflor 500 ML</td>
- <td class="n">$4,153.81</td>
- <td class="n a">&mdash;</td>
- <td class="n">$4,153.81</td>
- <td class="n">$4,153.81</td>
- <td class="d">10 x 500 mL</td></tr>
 <tr class="zero">
  <td class="med">Cydectin</td>
- <td class="rw">Cydectin</td>
+ <td class="rw">Cydectin</td><td class="n">$1,511.96</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$1,511.96</td>
- <td class="n a">&mdash;</td>
  <td class="n">$1,511.96</td>
- <td class="n">$1,511.96</td>
- <td class="d">2 x 5 L</td></tr>
+ <td class="d">barn 2 x 5 L</td></tr>
 <tr class="zero">
  <td class="med">Dectomax</td>
- <td class="rw">Dectomax</td>
+ <td class="rw">Dectomax</td><td class="n">$609.50</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$609.50</td>
- <td class="n a">&mdash;</td>
  <td class="n">$609.50</td>
- <td class="n">$609.50</td>
- <td class="d">5 x 500 mL</td></tr>
+ <td class="d">barn 5 x 500 mL</td></tr>
 <tr class="zero">
  <td class="med">Draxxin KP</td>
- <td class="rw">Draxxin KP</td>
+ <td class="rw">Draxxin KP</td><td class="n">$441.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$441.00</td>
- <td class="n a">&mdash;</td>
  <td class="n">$441.00</td>
- <td class="n">$441.00</td>
- <td class="d">1 x 250 mL</td></tr>
+ <td class="d">barn 1 x 250 mL</td></tr>
 <tr class="zero">
  <td class="med">Estrumate</td>
- <td class="rw">Estrumate</td>
+ <td class="rw">Estrumate</td><td class="n">$105.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$105.00</td>
- <td class="n a">&mdash;</td>
  <td class="n">$105.00</td>
- <td class="n">$105.00</td>
- <td class="d">1 x 100 mL</td></tr>
+ <td class="d">barn 1 x 100 mL</td></tr>
 <tr class="zero">
  <td class="med">Biomycin</td>
- <td class="rw">Biomycin</td>
+ <td class="rw">Biomycin</td><td class="n">$69.44</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$69.44</td>
- <td class="n a">&mdash;</td>
  <td class="n">$69.44</td>
- <td class="n">$69.44</td>
- <td class="d">1 x 500 mL</td></tr>
+ <td class="d">barn 1 x 500 mL</td></tr>
 <tr class="zero">
  <td class="med">Thiamine</td>
- <td class="rw">Thiamine</td>
+ <td class="rw">Thiamine</td><td class="n">$38.38</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$38.38</td>
- <td class="n a">&mdash;</td>
  <td class="n">$38.38</td>
- <td class="n">$38.38</td>
- <td class="d">2 x 100 mL</td></tr>
+ <td class="d">barn 2 x 100 mL</td></tr>
 <tr class="open">
- <td class="med">Protivity<span class="tag t-open">open</span></td>
- <td class="rw">Mycroplasm 50 Dose + Mycroplasma 10 Dose</td>
- <td class="n">$0.00</td>
- <td class="n a">&mdash;</td>
+ <td class="med">Protivity<span class="tag">open</span></td>
+ <td class="rw">Mycroplasm 50 Dose + Mycroplasma 10 Dose</td><td class="n">$0.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$0.00</td>
  <td class="n"><i>not counted</i></td>
  <td class="d">8 x 10-dose boxes on the shelf</td></tr>
 <tr class="zero">
  <td class="med">Brute</td>
- <td class="rw">Brute</td>
- <td class="n">$0.00</td>
- <td class="n a">&mdash;</td>
+ <td class="rw">Brute</td><td class="n">$0.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">none</td></tr>
 <tr class="zero">
  <td class="med">Draxxin</td>
- <td class="rw">Draxxin 250 ML</td>
- <td class="n">$0.00</td>
- <td class="n a">&mdash;</td>
+ <td class="rw">Draxxin 250 ML</td><td class="n">$0.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">none</td></tr>
 <tr class="zero">
  <td class="med">Ultrachoice 8</td>
- <td class="rw">Ultrachoice</td>
- <td class="n">$0.00</td>
- <td class="n a">&mdash;</td>
+ <td class="rw">Ultrachoice</td><td class="n">$0.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">none</td></tr>
 <tr class="zero">
  <td class="med">Vitamin K</td>
- <td class="rw">Vitamin K</td>
- <td class="n">$0.00</td>
- <td class="n a">&mdash;</td>
+ <td class="rw">Vitamin K</td><td class="n">$0.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">none</td></tr>
 <tr class="zero">
  <td class="med">Synovex Primer</td>
- <td class="rw">not carried</td>
- <td class="n">$0.00</td>
- <td class="n a">&mdash;</td>
+ <td class="rw">not carried</td><td class="n">$0.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">none</td></tr>
 <tr class="open">
- <td class="med">Ivomec Long Range Wormer<span class="tag t-recv">note</span></td>
- <td class="rw">not carried</td>
- <td class="n">$0.00</td>
- <td class="n a">&mdash;</td>
+ <td class="med">Ivomec Long Range Wormer<span class="tag">note</span></td>
+ <td class="rw">not carried</td><td class="n">$0.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">2 bottles here, going back to the vendor</td></tr>
 <tr class="zero">
  <td class="med">(not in the catalog)</td>
- <td class="rw">Fly Spray, Valbazen, Vira Shield 50 Dose</td>
- <td class="n">$0.00</td>
- <td class="n a">&mdash;</td>
+ <td class="rw">Fly Spray, Valbazen, Vira Shield 50 Dose</td><td class="n">$0.00</td>
+ <td class="n">&mdash;</td><td class="n j">&mdash;</td>
  <td class="n">$0.00</td>
  <td class="n">$0.00</td>
  <td class="d">none</td></tr>
  </tbody>
- <tfoot><tr><td colspan="2">Totals</td><td class="n">$21,896.25</td><td class="n">&minus;$4,234.17</td>
- <td class="n">$17,662.08</td><td class="n">$17,662.08</td><td class="d" style="font-weight:400">agrees</td></tr></tfoot>
+ <tfoot><tr><td colspan="2">Totals</td><td class="n">$21,896.25</td><td class="n">&minus;$2,450.51</td>
+ <td class="n">&minus;$2.40</td><td class="n">$19,443.34</td><td class="n">$19,443.34</td>
+ <td class="d" style="font-weight:400">agrees</td></tr></tfoot>
 </table>
 
 <div class="keep">
 <h2>Two things still open</h2>
 <ol class="steps">
- <li><b>Protivity needs a cost.</b> There are eight 10-dose boxes on the shelf &mdash; 80 doses &mdash; and Redwing
- carries none, so this one runs the opposite way to everything above: the books are <i>short</i>, not long. We have
- left it out of the count rather than valuing it at zero, because a guessed cost would work its way into the cost of
- every animal treated with it. If you can find what a box cost, it goes into both sides and neither is distorted.</li>
+ <li><b>Protivity needs a cost.</b> Eight 10-dose boxes on the shelf, 80 doses, and Redwing carries none &mdash; the
+ books are short, not long. We have left it out of the count rather than valuing it at zero, because a guessed cost
+ would ride along on every head treated with it. Find what a box cost and it goes onto both sides.</li>
  <li><b>Two bottles of Ivomec Long Range</b> were on the shelf that Redwing has never carried on any line. They are
- going back to the vendor, so there is nothing to post &mdash; but together with the Excede posting and Multi Min's
- fourth bottle, that is three things in one day that point at receiving rather than at the inventory itself. Worth
- a look at how deliveries are being booked in.</li>
+ going back to the vendor, so there is nothing to post &mdash; but with the Excede posting and Multi Min's fourth
+ bottle, that is three things in one day where product came in and was not booked. Worth a look at how deliveries
+ are being entered.</li>
 </ol>
+<p style="margin-top:6px"><b>On Macrosyn.</b> Redwing carries $373.15 against no quantity, from the July close. The
+truck count found a half bottle, which is $195.47 of real product &mdash; so $177.68 of that $373.15 is the error and
+the rest is stock that exists. Worth passing to the accountants with the rest of it.</p>
 </div>
 
 <div class="foot">
  The Redwing report prints no $/unit column, so every unit cost here is its own amount divided by its own quantity.
- The report's two control totals &mdash; 731.00 units and $21,896.25 &mdash; were reproduced before any of this was
- entered, and the adjustment column adds back to the difference between the two totals exactly. Nothing has been
- posted in the ranch program yet; the count is held as a draft until these adjustments are agreed.
+ The report's control totals &mdash; 731.00 units and $21,896.25 &mdash; were reproduced before any of this was
+ entered, and the two adjustment columns add back to the difference between the Redwing total and the count exactly.
+ Nothing has been posted in the ranch program; the count is a draft until these entries are agreed.
 </div>
 </body></html>

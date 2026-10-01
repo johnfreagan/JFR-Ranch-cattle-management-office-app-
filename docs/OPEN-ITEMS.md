@@ -78,6 +78,47 @@ rebate is actually received.
 
 ---
 
+## 0c. The opening count is a draft, and three things hold it there
+
+**Status:** open, raised 2026-10-01 with the opening count.
+
+The count at 2026-09-30 stands at **$19,443.34** across 11 stocked lines and
+bridges to Redwing's own $21,896.25 exactly. It is deliberately still a
+**draft** — posting it creates the opening FIFO layers and locks the period,
+and three things want settling first.
+
+**1. Three readings of the crew's truck counts.** The crew reported in words
+over two messages, and three of those words carry more than one meaning. Each
+is recorded on its own count line and on the PDF, with both numbers:
+
+| | taken as | the other reading |
+|---|---|---|
+| Enroflox, the fourth man's "1.2 of 500" | 1/2 bottle, crew 1,250 mL, $458.91 | 1.2 bottles, 1,600 mL, $587.41 |
+| Excede, the first three men's bottles | 100 mL, crew 187.5 mL, $399.96 | 250 mL, 375 mL, $799.92 |
+| Resflor, "2 bottles 1/2 full" | two half bottles, crew 875 mL, $726.92 | one full and one half, 1,125 mL, $934.61 |
+
+The Excede one is the weakest: the fourth man's quarter bottle **is** a 250 mL,
+which is evidence against the assumption the other three are 100 mL.
+
+**2. Protivity has no cost anywhere.** Eight 10-dose boxes on the shelf, 80
+doses, and Redwing carries none — the books are short, not long. The line is
+left *not counted* rather than counted at zero, because `med_post_count`
+refuses a positive variance it cannot price and a guessed cost would ride
+along on every head treated with it. Jayci is looking for what a box ran.
+
+**3. Seven medications still have a NULL `bottle_size`.** Added to the catalog
+on 2026-10-01 because Redwing carried them and this catalog did not. The
+Redwing report gives a container count and a dollar amount and never says how
+big the container is. They stay flagged **needs a container size** until
+somebody reads a label; all seven count zero today, so none of them blocks the
+post.
+
+**What to do:** confirm the three readings, then post the count and set
+`usage_from`. The Protivity cost can land afterwards as its own receipt; it
+does not have to hold the post.
+
+---
+
 ## 1. Custom SMTP — no email leaves the project today
 
 **Status:** deferred by decision, 2026-08-24.

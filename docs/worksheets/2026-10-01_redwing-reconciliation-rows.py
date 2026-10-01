@@ -1,57 +1,61 @@
 from decimal import Decimal as D
 H=lambda s:s.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
-M=lambda x:('&minus;$' if x<0 else '$')+f"{abs(x):,.2f}"
-
-# (medication, Redwing line(s) at 9/30, Redwing $ at 9/30, adjustment, who, count $, count detail)
+def M(x,dash=True):
+    if x==0 and dash: return '&mdash;'
+    return ('&minus;$' if x<0 else '$')+f"{abs(x):,.2f}"
+# med, redwing line, rw 9/30, done/acct adj, jayci adj, count, shelf, tag
 L=[
- ("Excede","Excede 100 ML + Excede 250 ML",D("7730.11"),D("-2077.36"),"done",
-  D("5652.75"),"24 x 100 mL + 1 x 250 mL"),
- ("Multi Min","Multi Min",D("919.03"),D("306.34"),"jayci",D("1225.37"),"4 x 500 mL"),
- ("One Grass","One Grass",D("1804.00"),D("-1804.00"),"jayci",D("0"),"none, expired"),
- ("Synovex S","Synovex S",D("165.00"),D("-165.00"),"jayci",D("0"),"none, expired"),
- ("Synovex C 100 Ds Prestige","Synovex C",D("121.00"),D("-121.00"),"jayci",D("0"),"none, expired"),
- ("Macrosyn(Draxxin)","Macrosyn 250 ML",D("373.15"),D("-373.15"),"acct",D("0"),"none"),
- ("Enroflox(Baytril)","Enroflox 500 ML",D("3854.87"),D("0"),"",D("3854.87"),"21 x 500 mL"),
- ("Resflor","Resflor 250 ML + Resflor 500 ML",D("4153.81"),D("0"),"",D("4153.81"),"10 x 500 mL"),
- ("Cydectin","Cydectin",D("1511.96"),D("0"),"",D("1511.96"),"2 x 5 L"),
- ("Dectomax","Dectomax",D("609.50"),D("0"),"",D("609.50"),"5 x 500 mL"),
- ("Draxxin KP","Draxxin KP",D("441.00"),D("0"),"",D("441.00"),"1 x 250 mL"),
- ("Estrumate","Estrumate",D("105.00"),D("0"),"",D("105.00"),"1 x 100 mL"),
- ("Biomycin","Biomycin",D("69.44"),D("0"),"",D("69.44"),"1 x 500 mL"),
- ("Thiamine","Thiamine",D("38.38"),D("0"),"",D("38.38"),"2 x 100 mL"),
- ("Protivity","Mycroplasm 50 Dose + Mycroplasma 10 Dose",D("0"),D("0"),"open",None,
-  "8 x 10-dose boxes on the shelf"),
- ("Brute","Brute",D("0"),D("0"),"",D("0"),"none"),
- ("Draxxin","Draxxin 250 ML",D("0"),D("0"),"",D("0"),"none"),
- ("Ultrachoice 8","Ultrachoice",D("0"),D("0"),"",D("0"),"none"),
- ("Vitamin K","Vitamin K",D("0"),D("0"),"",D("0"),"none"),
- ("Synovex Primer","not carried",D("0"),D("0"),"",D("0"),"none"),
- ("Ivomec Long Range Wormer","not carried",D("0"),D("0"),"recv",D("0"),
-  "2 bottles here, going back to the vendor"),
- ("(not in the catalog)","Fly Spray, Valbazen, Vira Shield 50 Dose",D("0"),D("0"),"",D("0"),"none"),
+ ("Excede","Excede 100 ML + Excede 250 ML",D("7730.11"),D("-2077.36"),D("399.96"),D("6052.71"),
+  "barn 24 x 100 mL + 1 x 250 mL; trucks 1 unopened + 1 at 1/4 + 1/4 of a 250","mix"),
+ ("Resflor","Resflor 250 ML + Resflor 500 ML",D("4153.81"),D("0"),D("726.92"),D("4880.73"),
+  "barn 10 x 500 mL; trucks 2 at 1/2 full + 3/4 of a 500","crew"),
+ ("Enroflox(Baytril)","Enroflox 500 ML",D("3854.87"),D("0"),D("458.91"),D("4313.78"),
+  "barn 21 x 500 mL; trucks 3/4 + 1/2 + 3/4 + 1/2","crew"),
+ ("Macrosyn(Draxxin)","Macrosyn 250 ML",D("373.15"),D("-373.15"),D("195.47"),D("195.47"),
+  "trucks 1/2 bottle","mix"),
+ ("Multi Min","Multi Min",D("919.03"),D("0"),D("306.34"),D("1225.37"),"barn 4 x 500 mL","jayci"),
+ ("One Grass","One Grass",D("1804.00"),D("0"),D("-1804.00"),D("0"),"none, expired","jayci"),
+ ("Synovex S","Synovex S",D("165.00"),D("0"),D("-165.00"),D("0"),"none, expired","jayci"),
+ ("Synovex C 100 Ds Prestige","Synovex C",D("121.00"),D("0"),D("-121.00"),D("0"),"none, expired","jayci"),
+ ("Cydectin","Cydectin",D("1511.96"),D("0"),D("0"),D("1511.96"),"barn 2 x 5 L",""),
+ ("Dectomax","Dectomax",D("609.50"),D("0"),D("0"),D("609.50"),"barn 5 x 500 mL",""),
+ ("Draxxin KP","Draxxin KP",D("441.00"),D("0"),D("0"),D("441.00"),"barn 1 x 250 mL",""),
+ ("Estrumate","Estrumate",D("105.00"),D("0"),D("0"),D("105.00"),"barn 1 x 100 mL",""),
+ ("Biomycin","Biomycin",D("69.44"),D("0"),D("0"),D("69.44"),"barn 1 x 500 mL",""),
+ ("Thiamine","Thiamine",D("38.38"),D("0"),D("0"),D("38.38"),"barn 2 x 100 mL",""),
+ ("Protivity","Mycroplasm 50 Dose + Mycroplasma 10 Dose",D("0"),D("0"),D("0"),None,
+  "8 x 10-dose boxes on the shelf","open"),
+ ("Brute","Brute",D("0"),D("0"),D("0"),D("0"),"none",""),
+ ("Draxxin","Draxxin 250 ML",D("0"),D("0"),D("0"),D("0"),"none",""),
+ ("Ultrachoice 8","Ultrachoice",D("0"),D("0"),D("0"),D("0"),"none",""),
+ ("Vitamin K","Vitamin K",D("0"),D("0"),D("0"),D("0"),"none",""),
+ ("Synovex Primer","not carried",D("0"),D("0"),D("0"),D("0"),"none",""),
+ ("Ivomec Long Range Wormer","not carried",D("0"),D("0"),D("0"),D("0"),
+  "2 bottles here, going back to the vendor","note"),
+ ("(not in the catalog)","Fly Spray, Valbazen, Vira Shield 50 Dose",D("0"),D("0"),D("0"),D("0"),"none",""),
 ]
-rw0=sum(r[2] for r in L); adj=sum(r[3] for r in L); cnt=sum(r[5] or D(0) for r in L)
-assert rw0==D("21896.25"), rw0
-assert cnt==D("17662.08"), cnt
-assert rw0+adj==cnt, (rw0,adj,cnt)
-EXP=D("1804.00")+D("165.00")+D("121.00"); MOVE=D("306.34")
-assert EXP-MOVE==D("1783.66")
-print(f"Redwing 9/30 {rw0}  adjustments {adj}  count {cnt}  TIES")
-print(f"expired {EXP} less moved {MOVE} = net write-off {EXP-MOVE}")
+rw=sum(r[2] for r in L); dn=sum(r[3] for r in L); jy=sum(r[4] for r in L); cn=sum(r[5] or D(0) for r in L)
+assert rw==D("21896.25"), rw
+assert dn==D("-2450.51"), dn
+assert jy==D("-2.40"), jy
+assert cn==D("19443.34"), cn
+assert rw+dn+jy==cn, (rw,dn,jy,cn)
+CREW=D("726.92")+D("458.91")+D("399.96")+D("195.47"); assert CREW==D("1781.26")
+EXPIRED=D("1804.00")+D("165.00")+D("121.00"); assert EXPIRED-D("306.34")==D("1783.66")
+assert CREW-(EXPIRED-D("306.34"))==jy, (CREW, EXPIRED, jy)
+print(f"Redwing {rw}  done/acct {dn}  Jayci {jy}  count {cn}  TIES")
+print(f"crew stock {CREW}   expired net {EXPIRED-D('306.34')}   Jayci net {jy}")
 
-TAG={"done":("done","already corrected"),"jayci":("do","for Jayci"),
-     "acct":("acct","with the accountants"),"open":("open","needs a price"),
-     "recv":("note","receiving"),"":("","")}
+CL={"jayci":"do","mix":"part do","crew":"crew","open":"open","note":"note","":""}
 def tr(r):
-    med,rwl,rw,a,who,c,det=r
-    cls = "act" if who in ("jayci",) else ("done" if who=="done" else ("open" if who in("open","acct","recv") else "zero"))
-    t,_=TAG[who]
+    med,line,a,b,c,cnt,shelf,tag=r
+    cls={"jayci":"act","mix":"act","crew":"act","open":"open","note":"open","":"zero"}[tag]
+    t=CL[tag]
     return f"""<tr class="{cls}">
- <td class="med">{H(med)}{f'<span class="tag t-{who}">{t}</span>' if t else ''}</td>
- <td class="rw">{H(rwl)}</td>
- <td class="n">{M(rw)}</td>
- <td class="n a">{'&mdash;' if a==0 else M(a)}</td>
- <td class="n">{M(rw+a)}</td>
- <td class="n">{M(c) if c is not None else '<i>not counted</i>'}</td>
- <td class="d">{H(det)}</td></tr>"""
-open("rows2.html","w").write("\n".join(tr(r) for r in L))
+ <td class="med">{H(med)}{f'<span class="tag">{t}</span>' if t else ''}</td>
+ <td class="rw">{H(line)}</td><td class="n">{M(a,False)}</td>
+ <td class="n">{M(b)}</td><td class="n j">{M(c)}</td>
+ <td class="n">{M(a+b+c,False)}</td>
+ <td class="n">{M(cnt,False) if cnt is not None else '<i>not counted</i>'}</td>
+ <td class="d">{H(shelf)}</td></tr>"""
+open("rows3.html","w").write("\n".join(tr(r) for r in L))
