@@ -1494,12 +1494,30 @@ function pvDraftValues() {
     })).filter(d => d.head > 0 && d.grossLb > 0);
 }
 
+// A weighing counts as the pasture's weight once it covers 25% of the head
+// on the books there (John, 2026-10-01); below that the office keeps it as a
+// note. Say the number at the scale, while there is still time to run more
+// across.
+const PV_MIN_SHARE = 0.25;
+
+function pvWeighNeed() {
+    const { label } = pvWhere();
+    const here = pastureLotsMap[label] || [];
+    const book = here.reduce((t, x) => t + (Number(x.head) || 0), 0);
+    return { book, need: Math.ceil(PV_MIN_SHARE * book) };
+}
+
 function pvWeighTotals() {
     const el = document.getElementById('pvWeighTotals');
     const drafts = pvDraftValues();
     const head = drafts.reduce((t, d) => t + d.head, 0);
     const lb = drafts.reduce((t, d) => t + d.grossLb, 0);
-    if (!head || !lb) { el.innerHTML = ''; return; }
+    const { book, need } = pvWeighNeed();
+    const needLine = !book ? ''
+        : head >= need
+            ? `<div class="pv-compare ok">${head} of ${book} head — enough to count as this pasture's weight (${need} needed).</div>`
+            : `<div class="pv-compare${head ? ' bad' : ''}">Weigh at least ${need} of the ${book} head here (25%) for this to count as the pasture's weight${head ? ` — ${need - head} more` : ''}.</div>`;
+    if (!head || !lb) { el.innerHTML = needLine; return; }
     const method = document.getElementById('pvWeighMethod').value;
     const pct = SHRINK_DEFAULTS[method] || 0;
     const grossAvg = lb / head;
@@ -1508,7 +1526,8 @@ function pvWeighTotals() {
         <div class="pv-tot-row"><span>${head} head weighed</span><span>${Math.round(lb).toLocaleString()} lb gross</span></div>
         <div class="pv-tot-row"><span>Gross average</span><span><b>${grossAvg.toFixed(1)} lb</b></span></div>
         <div class="pv-tot-row muted-row"><span>Less ${pct}% shrink</span><span><b>${shrunkAvg.toFixed(1)} lb</b></span></div>
-        <div class="pv-tot-note">The office sets the true shrink when this is approved.</div>`;
+        <div class="pv-tot-note">The office sets the true shrink when this is approved.</div>
+        ${needLine}`;
 }
 
 function pvSaveWeigh() {
@@ -1528,7 +1547,11 @@ function pvSaveWeigh() {
     const pct = SHRINK_DEFAULTS[method] || 0;
     if (!confirm(`Send test weights?\n${label}\n${drafts.length} draft${drafts.length === 1 ? '' : 's'}, ` +
                  `${head} head, ${Math.round(lb).toLocaleString()} lb gross\n` +
-                 `${(lb / head).toFixed(1)} lb gross average`)) return;
+                 `${(lb / head).toFixed(1)} lb gross average` +
+                 (() => { const { book, need } = pvWeighNeed();
+                          return book && head < need
+                              ? `\n\nUnder ${need} head (25% of ${book}): the office keeps it as a note, not the pasture's weight.`
+                              : ''; })())) return;
 
     const rec = {
         type: 'weight',
