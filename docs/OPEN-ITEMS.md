@@ -78,13 +78,15 @@ rebate is actually received.
 
 ---
 
-## 0c. The opening count is a draft, and two things hold it there
+## 0c. The opening count is a draft, and two things are still to arrive
 
 **Status:** open, raised 2026-10-01 with the opening count.
 
-The count at 2026-09-30 stands at **$20,056.61** across 11 stocked lines and
-bridges to Redwing's own $21,896.25 exactly. It is deliberately still a
-**draft** — posting it creates the opening FIFO layers and locks the period.
+The count at 2026-09-30 stands at **$20,081.64** across 10 stocked lines and
+bridges to Redwing's own $21,896.25 exactly. Every one of the 21 lines now
+says something — none is left NOT COUNTED — which is what makes it postable.
+It is deliberately still a **draft**: posting it creates the opening FIFO
+layers and locks the period.
 
 **Settled 2026-10-01: the three crew readings.** All three phrasings that
 carried more than one meaning were put back to John and answered. Enroflox
@@ -95,25 +97,30 @@ rather than the 187.5 mL estimated. **The weakest of the three readings was
 the one that was wrong**, and it was wrong by $613.27. The lesson for the next
 count: ask for the container size with the fraction, every time.
 
-**1. Protivity has no cost anywhere.** Eight 10-dose boxes on the shelf, 80
-doses, and Redwing carries none — the books are short, not long. The line is
-left *not counted* rather than counted at zero, because `med_post_count`
-refuses a positive variance it cannot price and a guessed cost would ride
-along on every head treated with it. Jayci is looking for what a box ran.
+**Settled 2026-10-01: the truck bottle, and Protivity.** The half bottle
+reported as Macrosyn is **Draxxin KP** — 125 mL and $220.50, not 250 mL and
+$195.47 — which also means there is no Macrosyn anywhere on the place and the
+**whole** $373.15 Redwing carries against no quantity is the July posting
+error, not $177.68 of it. And Protivity is counted **zero by decision**: the
+80 doses are real, but their cost was charged to a lot in a past period and
+the product goes to processing at no cost to burn up, so a counted zero is now
+the true statement and no price is needed. That reverses `2026-10-01e`, which
+was right at the time for a different reason — the line then held a zero
+copied from Redwing, which was a false statement about real doses. Same
+number, opposite meaning, and only the second one is honest.
 
-**2. Seven medications still have a NULL `bottle_size`.** Added to the catalog
+**1. Seven medications still have a NULL `bottle_size`.** Added to the catalog
 on 2026-10-01 because Redwing carried them and this catalog did not. The
 Redwing report gives a container count and a dollar amount and never says how
 big the container is. They stay flagged **needs a container size** until
 somebody reads a label; all seven count zero today, so none of them blocks the
 post.
 
-**Also still to arrive:** Jake Taylor's processing medicine, counted the same
-day. It is in no figure above. See item 0d.
+**2. Jake Taylor's processing medicine.** Counted the same day; it is in no
+figure above. His buyer location exists with `usage_from` NULL, so nothing
+accrues against it until his count is posted. See item 0d.
 
-**What to do:** take Jake Taylor's count, decide item 0d, then post and set
-`usage_from`. The Protivity cost can land afterwards as its own receipt; it
-does not have to hold the post.
+**What to do:** take Jake Taylor's count, then post and set `usage_from`.
 
 ---
 
@@ -146,7 +153,7 @@ the opposite decision and says so in two places:
 
 So today the room/truck split already exists, but as the four gathering boxes
 on each count line — `barn_full`, `barn_open`, `crew_full`, `crew_open` — not
-as separate pools. That is what produced the $2,394.53 crew figure in the
+as separate pools. That is what produced the $2,419.56 crew figure in the
 opening count.
 
 **Two real defects if a second `kind='ranch'` row is simply inserted:**

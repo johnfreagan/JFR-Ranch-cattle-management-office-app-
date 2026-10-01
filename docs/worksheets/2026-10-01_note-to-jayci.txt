@@ -5,17 +5,16 @@ Jayci,
 We're running medicine inventory in the ranch program now, so we finally
 have a physical count to hold Redwing against. Attached.
 
-The count is $20,056.61. Redwing is at $21,896.25. The bridge:
+The count is $20,081.64. Redwing is at $21,896.25. The bridge:
 
 - Excede, $2,077.36 out. Already done - that was the posting we corrected.
   Nothing for you there.
-- Macrosyn, $373.15. Sits in the July close, accountants can handle it.
-  See below, it's not all error.
-- Crew-held stock, $2,394.53 back in.
+- Macrosyn, $373.15 out. July close, so that one is yours and Brenda's.
+- Crew-held stock, $2,419.56 back in.
 - Expired product, $1,783.66 out.
 
-Your two entries net to +$610.87. The account goes up - the crew is
-holding more than the expired stuff takes out.
+Your entries net to +$635.90. The account goes up - the crew is holding
+more than the expired stuff takes out.
 
 The crew stock is the part nobody had on the books. Four drugs charged out
 in September, still in trucks and saddle bags unused, so Redwing is short
@@ -24,11 +23,11 @@ by them:
 - Excede, 475 mL, $1,013.23
 - Resflor, 875 mL, $726.92
 - Enroflox, 1,250 mL, $458.91
-- Macrosyn, 250 mL, $195.47
+- Draxxin KP, 125 mL, $220.50
 
-On Macrosyn - of the $373.15 Redwing carries against no quantity, $195.47
-is a real half bottle in a truck. Only $177.68 is the July error. Tell the
-accountants that before they write off the whole thing.
+On Macrosyn - the half bottle in the truck that we thought was Macrosyn
+turned out to be Draxxin KP. So there's no Macrosyn on the place at all
+and the whole $373.15 is the July posting error, not part of it.
 
 The expired side:
 
@@ -45,9 +44,10 @@ Don't post any of it yet. Jake Taylor has processing medicine and gives me
 his count later today. It's not in any number here and there will be one
 more version.
 
-Protivity - eight 10 dose boxes on the shelf and Redwing carries none. I
-don't have a cost. If you can find what a box ran we'll put it on both
-sides. I don't want to guess, that cost rides on every head we treat.
+Protivity - there's eight 10 dose boxes on the shelf but that product was
+already charged to a lot a while back. We're giving it to processing to
+burn up at no cost, so it's counted at zero on purpose. Nothing for you
+either side.
 
 Last thing - two bottles of Ivomec Long Range that Redwing never had on
 any line. Going back to the vendor so there's nothing to post, but that's

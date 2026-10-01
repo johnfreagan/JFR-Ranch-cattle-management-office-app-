@@ -1125,21 +1125,21 @@ reconciliation is complete rather than merely plausible:
 |---|---|
 | Redwing at 9/30/2026 | $21,896.25 |
 | less Excede, re-allocated in Redwing on 10/1 — *already done* | $2,077.36 |
-| less Macrosyn 250 mL, from the July close — *with the accountants* | $373.15 |
-| **plus medicine in the crew trucks, back into inventory** | **$2,394.53** |
+| less Macrosyn 250 mL, from the July close — *Jayci and Brenda* | $373.15 |
+| **plus medicine in the crew trucks, back into inventory** | **$2,419.56** |
 | less expired product written off, net | $1,783.66 |
 | &nbsp;&nbsp;&nbsp;One Grass $1,804.00 + Synovex S $165.00 + Synovex C $121.00 | $2,090.00 |
 | &nbsp;&nbsp;&nbsp;less the $306.34 moved to Multi Min rather than written off | $306.34 |
-| **Redwing after all of it** | **$20,056.61** |
-| **The count — barn and trucks — valued** | **$20,056.61** |
+| **Redwing after all of it** | **$20,081.64** |
+| **The count — barn and trucks — valued** | **$20,081.64** |
 
-Eleven lines carry stock. Every one of them reconciles its four gathering
-boxes — barn full, barn open, crew full, crew open — against `counted_units`,
+Ten lines carry stock, and none of the 21 is left uncounted. Every stocked
+line reconciles its four gathering boxes — barn full, barn open, crew full, crew open — against `counted_units`,
 and that assertion is in the migration's verify block because it caught a real
 error: the Excede crew boxes once implied 312.5 mL against a counted 2,775.
 
-**The account goes up, not down.** $2,394.53 of crew stock coming in against
-$1,783.66 of expired product going out is a net of **+$610.87**. The trucks
+**The account goes up, not down.** $2,419.56 of crew stock coming in against
+$1,783.66 of expired product going out is a net of **+$635.90**. The trucks
 are holding more than the shelf is throwing away.
 
 ### Counting what the crew carries, rather than waiting
@@ -1157,21 +1157,24 @@ windfall when that product gets used against nothing. John chose to count it.
 Four men reported, in two messages, in bottles and fractions rather than
 millilitres — which is the right precision to ask a man in a truck for, and is
 why `med_count_lines` stores `crew_open` as a **fraction of a bottle** and does
-the multiplication itself. $2,394.53 in four drugs:
+the multiplication itself. $2,419.56 in four drugs:
 
 | | in the trucks | |
 |---|---|---|
 | Excede | 475 mL | $1,013.23 |
 | Resflor | 875 mL | $726.92 |
 | Enroflox | 1,250 mL | $458.91 |
-| Macrosyn | 250 mL | $195.47 |
+| Draxxin KP | 125 mL | $220.50 |
 
-Three of the four were charged out in September and are still unused, so
-**Redwing is understated by them** and they go back in at the October close.
-Macrosyn is the odd one: of the $373.15 Redwing carries against no quantity
-from the July close, $195.47 is a real half bottle in a truck and only $177.68
-is the posting error — which makes the accountants' July fix smaller than it
-looked.
+All four were charged out in September and are still unused, so **Redwing is
+understated by them** and they go back in at the October close.
+
+**The fourth one was booked to the wrong drug first.** It was reported as
+Macrosyn and valued at $195.47; John corrected it to Draxxin KP, 125 mL at
+$220.50. The second-order effect is the one that matters: with no Macrosyn
+anywhere on the place, **all** $373.15 Redwing carries against no quantity
+from the July close is the posting error, not $177.68 of it. Jayci and Brenda
+are the accountants, so that entry is theirs.
 
 **Three of the crew's phrasings carried more than one meaning, and all three
 were put back to John rather than guessed at.** Two were confirmed as read.
@@ -1185,12 +1188,14 @@ to ask for the container size with the fraction, every time.
 difference the exercise was designed to catch was expected to run the other
 way:
 
-- **Protivity**: eight 10-dose boxes on the shelf, Redwing zero. Not counted
-  in, because no cost is known anywhere and `med_post_count` refuses a
-  positive variance it cannot price rather than booking it at zero. Its count
-  line had to be *corrected* — it originally said a counted zero, taken from
-  Redwing, and a counted zero against 80 real doses is a false statement, not
-  a harmless one.
+- **Protivity**: eight 10-dose boxes on the shelf, Redwing zero. Its count
+  line was corrected twice and the pair is worth keeping. It first said a
+  counted zero copied from Redwing — a false statement about 80 real doses —
+  so it went back to NOT COUNTED while a price was looked for. Then John: the
+  product was charged to a lot in a past period and goes to processing at no
+  cost to burn up. So it is **zero by decision** now, and that is the true
+  statement: the doses exist, their cost does not. Same number, opposite
+  meaning, and only the second one is honest.
 - **Multi Min**: four bottles against Redwing's three, $306.34.
 - **Ivomec Long Range**: two bottles Redwing never carried at all. Going back
   to the vendor, so neither side holds them — but they arrived and were never
@@ -1203,7 +1208,7 @@ inventory.
 ### What the opening count still waits on
 
 It is deliberately still a **draft**: posting creates the opening FIFO layers
-and locks the period. Two things hold it there — Protivity's cost, and seven
+and locks the period. What it waits on is Jake Taylor's count, and seven
 medications whose `bottle_size` is still NULL
 because the Redwing report gives a container count and a dollar amount and
 never says how big the container is. A guess there would misprice every future
@@ -1240,3 +1245,4 @@ the opening balance of a real set of books should show its working:
 | `2026-10-01h_med_crew_held_stock.sql` | what the crew carries, first pass |
 | `2026-10-01i_med_crew_actuals.sql` | the crew's actual counts, $2,394.53 |
 | `2026-10-01j_med_jake_taylor_location.sql` | Jake Taylor's buyer shelf; Resflor confirmed |
+| `2026-10-01k_med_draxxin_kp_truck_and_protivity.sql` | the truck bottle is Draxxin KP; Protivity written off |
