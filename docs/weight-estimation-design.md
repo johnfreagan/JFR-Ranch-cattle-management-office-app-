@@ -155,3 +155,87 @@ pastures diverge enough for a blended lot number to be worth having.
 - **Say which basis a number is on.** The lot tile prints the ADG and whether
   it is measured, phased or assumed. A projection that silently changed basis
   when the first load shipped would be worse than either basis alone.
+
+## BUILT 2026-10-01: a pasture weighing is the pasture's weight, and it moves with the cattle
+
+John, 2026-09-29: *"We will seldom weigh entire groups. For example we
+weighed corner traps 1-3 the other day and moved. I think those weights
+should be applied to that starting pasture and then the weight in the new
+pasture is that weight."* This is B2, and John's answer is the resolution of
+the move problem that held it back: **the weight follows the head through
+`lot_movements`, blended by head where groups meet.**
+
+His four calls (2026-10-01):
+
+1. **25% of the head in the pasture** qualifies a weighing, for now. The
+   field app says how many that is at the scale.
+2. **Weight only.** It does not move `lot_projected_weight()`, cost of gain,
+   the closeout, break-even, the PB feed plan (`pb_lots_standing` /
+   `pb_charge_prefeeds` read the book projection) or the dose suggestion.
+   *"We need to see it in action for a while."*
+3. **The sale-barn pay weight is the start weight** for the ADG a weighing
+   implies, though it likely carries more shrink from handling: *"it is all
+   we have."*
+4. **The 9/29 corner-trap weighing counts** — *"that's the actual weight that
+   day."* It was already `applies_to='pasture'`, so no data was corrected.
+
+### How it works
+
+`lot_pasture_weight_detail(lot)` is a read-only replay; nothing is stored, so
+a reversed move or a late approval is reflected the next time anyone looks.
+
+- **Offset from the book.** Every head carries pounds above or below
+  `lot_projected_weight()`. Unweighed head have offset 0: they are the book.
+  A qualifying weighing sets its pasture's offset to booked average minus the
+  book that day. A move carries the source offset to the destination and
+  blends there by head. The estimate is book + offset, so weighed cattle
+  gain forward at whatever rate the book uses and no second ADG is walked.
+- **Head is rebuilt backward**, from today's open assignments through
+  `lot_movements`, because receipts never write `lot_movements` and deaths,
+  sales and transfers carry a pasture only sometimes. A death or sale since
+  the weighing is not added back, so the head behind the 25% test and the
+  blend can read a little low. Head shown on screen is always the real head.
+- **Within a day:** a whole-lot anchor, then pasture weighings, then moves in
+  the order recorded. A weighing whose pasture holds no head at that point
+  (gathered into a trap and weighed there the same day) waits for that day's
+  moves.
+- **A whole-lot anchor resets every offset to zero**, since it has already
+  re-based the book. `applies_to='lot'` samples remain a note.
+- **The ADG a weighing implies** runs from the last weighing of those same
+  cattle (kept through a move only when every head arriving shares one weigh
+  date), else from the lot's purchase average on the earlier of the lot's
+  weighted arrival and the day the cattle went into that pasture. 36-27's
+  corner traps were filled 8/12–8/16 against a weighted arrival of 8/27.
+
+### First result: 36-27, weighed 9/29 and moved the same day
+
+| Trap | Weighed / there | Booked avg | vs book | ADG since in |
+|---|---|---|---|---|
+| 1 | 30 / 85 | 501.8 | +37.5 | 2.43 from 8/14 |
+| 2 | 32 / 81 | 523.8 | +59.4 | 2.79 from 8/12 |
+| 3 | 32 / 74 | 489.2 | +24.9 | 2.25 from 8/16 |
+
+Goat Hill (230 head from all three) carries +40.3; Trap (8 from trap 2, 1
+from trap 3) +55.6; H3 (one from trap 2, one unweighed from pasture 7) +29.7
+at 50% weighed. The lot blends to 482.9 lb against a book of 468.9 on
+2026-10-01. Every other lot reads exactly its book.
+
+### On screen
+
+- Lot tile: a **Scaled** line under *Now* — the blend, and how many head of
+  how many came off a scale. Only on a lot that has a qualifying weighing.
+- Currently in: a **Weight** column (estimate, offset against the book, the
+  share weighed and the weigh date; unweighed pastures say *book*), the blend
+  in the footer, and a **Pasture weighings** table with gross and booked
+  averages, the offset and the implied ADG, each under-25% weighing marked
+  *note only*.
+- This replaces the 2026-09-10 *Last weighed* note column; the
+  `lot_pasture_weights` view stays in the database, unread.
+
+### What would make it move money
+
+Only when John says so, after watching it. The switch is to have
+`lot_projected_weight_detail()` (or its callers) read the blend; the PB feed
+plan, closeout and dose suggestion would all follow, and the migration that
+does it should snapshot every lot's projection first and report the moves,
+as the 9/10 migrations did.

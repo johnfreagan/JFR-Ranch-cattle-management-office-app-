@@ -770,14 +770,23 @@ and the anchor work only did one:
     go it is describing a group that no longer stands there. The column goes
     amber and says which — *"weighed 60 hd, 76 here now"* or *"cattle moved in
     since"* — rather than letting a stale number read as current.
-- **The rest of the LEVEL correction is NOT built.** `docs/weight-estimation-design.md`
-  holds it: pasture-level weights and sorting big/little are the same shape,
-  and the blocker is that **cattle move and a weight belongs to the animals,
-  not the pasture** — tags recycle, so once head are pooled there is no way
-  back to which animals were on the scale. Recommendation there is B1 (blend a
-  partial weighing into the lot average once, no pasture dimension) plus B3 (a
-  sort becomes a `lot_transfers` `kind='sort'` into a child lot, which the app
-  already supports), with true per-pasture anchors held back.
+- **SUPERSEDED 2026-10-01: a pasture weighing is now that pasture's weight,
+  and it moves with the cattle** (John: *"the weight in the new pasture is
+  that weight"*). Function `lot_pasture_weight_detail(lot)`, migration
+  `docs/sql/2026-10-01_pasture_weight_estimates.sql`; full record at the end
+  of `docs/weight-estimation-design.md`. The *Last weighed* column above is
+  replaced by a **Weight** column and a **Pasture weighings** table, and the
+  lot tile gains a **Scaled** line under *Now*.
+  - **25% of the head in the pasture qualifies a weighing.** Under that it is
+    a note, as before.
+  - **Display only.** `lot_projected_weight()` and `lot_status` are
+    untouched, so cost of gain, the closeout, break-even, the PB feed plan
+    and the dose suggestion stay on the book until John says otherwise.
+  - **A read-only replay, nothing stored:** each head carries an offset from
+    the book, a weighing sets its pasture's offset, a move carries it and
+    blends by head. Pasture head is rebuilt backward from today through
+    `lot_movements` (receipts never write it), so it is approximate where a
+    death or sale happened since.
 
 ## Markets and hedge positions (built 2026-09-10)
 

@@ -5691,6 +5691,7 @@ window.addEventListener('unhandledrejection', function(e) {
     let currentRealizedAdg = null;
     let currentLotAnchor = null;   // lot_weight_anchor row: newest whole-lot weighing, else the purchase
     let currentLotProjWt = null;   // lot_projected_weight_detail() walked to today: the one weight projection
+    let currentLotPastureWt = null; // summarizePastureWeights(lot_pasture_weight_detail()), or { error }
     let closeoutFinishTouched = false;   // the finish-weight box was typed in; stop re-suggesting
     let currentFeedAfterBoundary = null;   // feed $ on/after feed_direct_from, null = not loaded
     let currentHeadDays = null;
@@ -6610,7 +6611,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
         $('closeoutContent').innerHTML='<div class="empty">Loading…</div>';
 
-        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes,xferCostRes,xferListRes,procCoverRes,anchorRes,projWtRes]=await Promise.all([
+        const [lotRes,statusRes,invoicesRes,realizedAdgRes,headDaysRes,budgetRes,medCostRes,procCostRes,feedCostRes,xferCostRes,xferListRes,procCoverRes,anchorRes,projWtRes,pastureWtRes]=await Promise.all([
             supabase.from('lots').select('*').eq('id',lotId).single(),
             supabase.from('lot_status').select('*').eq('lot_id',lotId).single(),
             supabase.from('invoices').select('*, delivery_receipts(id, receipt_date, head_count, tag_start, tag_end, missing_tags, notes, receiving_protocol_id, load_out_destinations(*, pastures(name, ranches(name))))').eq('lot_id',lotId).order('invoice_date',{ascending:true}),
@@ -6670,7 +6671,10 @@ window.addEventListener('unhandledrejection', function(e) {
             // today. The closeout's finish weight starts here and walks
             // forward at the same ADG the cost estimate uses (2026-09-11),
             // so the lot tile and the closeout can never disagree.
-            supabase.rpc('lot_projected_weight_detail', { p_lot_id: lotId, p_on_date: ranchToday() })
+            supabase.rpc('lot_projected_weight_detail', { p_lot_id: lotId, p_on_date: ranchToday() }),
+            // Pasture weighings carried with the cattle (2026-10-01). Display
+            // only: nothing booked, no cost and no projection reads it.
+            supabase.rpc('lot_pasture_weight_detail', { p_lot_id: lotId })
         ]);
 
         if(lotRes.error||statusRes.error){
@@ -6684,6 +6688,9 @@ window.addEventListener('unhandledrejection', function(e) {
         currentRealizedAdg = realizedAdgRes && realizedAdgRes.data ? realizedAdgRes.data : null;
         currentLotAnchor = (anchorRes && !anchorRes.error && anchorRes.data) ? anchorRes.data : null;
         currentLotProjWt = (projWtRes && !projWtRes.error && Array.isArray(projWtRes.data) && projWtRes.data.length) ? projWtRes.data[0] : null;
+        currentLotPastureWt = pastureWtRes && pastureWtRes.error
+            ? { error: pastureWtRes.error.message || String(pastureWtRes.error) }
+            : summarizePastureWeights(pastureWtRes ? pastureWtRes.data : []);
         // A read that fails must not look like a lot with no head-days: null
         // means "unknown" and the closeout says so, 0 would silently drop the
         // cost of gain.
@@ -7022,6 +7029,22 @@ window.addEventListener('unhandledrejection', function(e) {
               color: adgSrc === 'realized_thin' ? 'warning' : undefined },
             { label: useTargetForThird ? 'Target' : 'Est ship', value: wtThird ? fmtNum(wtThird) + ' lb' : '—', drill: 'closeout', drillTitle: 'Ship weight assumption' }
         ];
+        // What the scale says, where a pasture has been weighed (John,
+        // 2026-10-01). Beside "Now", never in place of it: cost of gain, the
+        // closeout, break-even, the feed plan and the dose suggestion all
+        // stay on the book until it has been watched for a while.
+        const pwSum = currentLotPastureWt;
+        if (pwSum && pwSum.error) {
+            wtRows.splice(2, 0, { label: 'Scaled', value: 'not loaded', color: 'warning', drill: 'current',
+                drillTitle: 'Pasture weights could not be read: ' + escapeHtml(pwSum.error) });
+        } else if (pwSum && pwSum.measuredHead > 0 && pwSum.blendedLb != null) {
+            wtRows.splice(2, 0, {
+                label: `Scaled <span class="muted" style="font-weight:400;">(${fmtNum(Math.round(pwSum.measuredHead))} of ${fmtNum(pwSum.headNow)} hd off a scale)</span>`,
+                value: fmtNum(Math.round(pwSum.blendedLb)) + ' lb',
+                drill: 'current',
+                drillTitle: 'Pasture weighings carried with the cattle; unweighed head at the book. Display only.'
+            });
+        }
 
         // ---- TIER 1: COST / HEAD ----
         const costRows = [
@@ -9913,6 +9936,18 @@ window.addEventListener('unhandledrejection', function(e) {
             const coverage = det.coverage === 'whole_lot' ? 'whole_lot' : 'sample';
             if (coverage === 'whole_lot' && appliesTo === 'lot') {
                 warnings.push('this will become the lot\u2019s weight anchor \u2014 its projected weight will be re-based on it');
+            }
+            // A pasture weighing sets that pasture's weight only at 25% of the
+            // head there (John, 2026-10-01). Below it the weighing is kept and
+            // shown, but as a note. Checked against the book head now; the
+            // database re-checks against the head there on the weigh date.
+            if (appliesTo === 'pasture' && lot && pasture && totHead) {
+                const lotHere = here.filter(a => a.lot_id === lot.id)
+                    .reduce((t, a) => t + (Number(a.head_count) || 0), 0);
+                if (lotHere > 0 && totHead < 0.25 * lotHere) {
+                    warnings.push(`${totHead} of ${lotHere} hd (${Math.round(100 * totHead / lotHere)}%) — under the 25% ` +
+                        `(${Math.ceil(0.25 * lotHere)} hd) a weighing needs to set ${pasture.name}’s weight; it will show as a note only`);
+                }
             }
             const grossAvg = totHead ? totGross / totHead : null;
             const bookedAvg = grossAvg != null && shrinkPct != null ? grossAvg * (1 - shrinkPct / 100) : null;
@@ -23752,6 +23787,28 @@ ${ranchBlocks}
         };
     }
 
+    // lot_pasture_weight_detail() rows -> the lot's blended scale estimate.
+    // Unweighed head sit at the book, so the blend is the book plus each
+    // weighed group's offset, by head.
+    function summarizePastureWeights(rows) {
+        const pastures = (rows || []).filter(r => r.row_kind === 'pasture');
+        const weighings = (rows || []).filter(r => r.row_kind === 'weighing');
+        let headNow = 0, lbSum = 0, lbHead = 0, measuredHead = 0;
+        pastures.forEach(r => {
+            const hd = Number(r.head_now) || 0;
+            headNow += hd;
+            if (r.est_lb != null) { lbSum += hd * Number(r.est_lb); lbHead += hd; }
+            measuredHead += hd * (Number(r.measured_share) || 0);
+        });
+        return {
+            byPasture: Object.fromEntries(pastures.map(r => [r.pasture_id, r])),
+            weighings,
+            headNow,
+            measuredHead,
+            blendedLb: lbHead > 0 ? lbSum / lbHead : null
+        };
+    }
+
     // ---- Currently in (lot detail) ----
     async function loadLotLocations(lotId) {
         // Phase 12: read pasture_assignments directly (one row per (lot, pasture))
@@ -23786,41 +23843,36 @@ ${ranchBlocks}
 
         const totalHead = enriched.reduce((s, a) => s + a.head_count, 0);
 
-        // What each pasture last weighed. A NOTE, never an anchor - it moves
-        // no projection. John, 2026-09-10: the moment it matters is the
-        // growyard phase and the run-up to shipping, "because different
-        // pastures perform differently some years", and near shipping the
-        // pasture number is the one that gets used because trucks load off
-        // pastures.
-        let pwByPasture = {};
-        const { data: pw, error: pwErr } = await supabase
-            .from('lot_pasture_weights')
-            .select('*')
-            .eq('lot_id', lotId);
-        if (!pwErr && pw) pw.forEach(r => { pwByPasture[r.pasture_id] = r; });
+        // What each pasture weighs (2026-10-01). A weighing of at least 25%
+        // of the head in a pasture becomes that pasture's weight, and the
+        // weight goes with the cattle when they move - John: "the weight in
+        // the new pasture is that weight." Display only: the book projection,
+        // cost of gain, the closeout, the feed plan and the dose suggestion
+        // do not read it.
+        const { data: pwRows, error: pwErr } = await supabase
+            .rpc('lot_pasture_weight_detail', { p_lot_id: lotId });
+        if (pwErr) console.error('lot_pasture_weight_detail failed', pwErr);
+        const pws = pwErr ? null : summarizePastureWeights(pwRows);
+        const pastureName = Object.fromEntries(enriched.map(g => [g.pasture_id, g.pasture_name]));
 
-        // A weighing describes the ANIMALS that were on the scale, not the
-        // pasture. Once head come or go it is describing a group that no
-        // longer stands there, so say so rather than letting an old number
-        // read as current.
         const weightCell = (pastureId) => {
-            const r = pwByPasture[pastureId];
-            if (!r || r.weigh_date == null) return '<span class="muted">&mdash;</span>';
-            const stale = r.head_changed || r.moved_in_since;
-            const vs = r.vs_lot_lb != null
-                ? ` ${Number(r.vs_lot_lb) >= 0 ? '+' : ''}${fmtNum(r.vs_lot_lb, 0)} vs lot`
-                : '';
-            const why = r.moved_in_since ? 'cattle moved in since'
-                      : r.head_changed   ? `weighed ${fmtNum(r.head_weighed)} hd, ${fmtNum(r.head_now)} here now`
-                      : '';
-            return `<strong>${fmtNum(r.avg_booked_lb, 0)} lb</strong>` +
+            if (!pws) return '<span class="muted">&mdash;</span>';
+            const r = pws.byPasture[pastureId];
+            if (!r || r.est_lb == null) return '<span class="muted">&mdash;</span>';
+            const share = Number(r.measured_share) || 0;
+            if (share <= 0) {
+                return `<span class="muted">${fmtNum(r.est_lb, 0)} lb</span>` +
+                       `<div class="muted" style="font-size:11px;">book</div>`;
+            }
+            const off = Number(r.offset_lb) || 0;
+            return `<strong>${fmtNum(r.est_lb, 0)} lb</strong>` +
                    `<div class="muted" style="font-size:11px;">` +
-                   `${fmtNum(r.head_weighed)} hd &middot; ${fmtDate(r.weigh_date)}` +
-                   `${r.days_since != null ? ` (${fmtNum(r.days_since)}d)` : ''}${vs}` +
-                   (stale ? `<br><span style="color:var(--warning,#b8860b);">${escapeHtml(why)}</span>` : '') +
+                   `${off >= 0 ? '+' : ''}${fmtNum(off, 0)} vs book` +
+                   (share < 0.995 ? ` &middot; ${Math.round(share * 100)}% weighed` : '') +
+                   (r.last_weigh_date ? ` &middot; ${fmtDate(r.last_weigh_date)}` : '') +
                    `</div>`;
         };
-        const anyWeighed = enriched.some(g => (pwByPasture[g.pasture_id] || {}).weigh_date != null);
+        const anyWeighed = !!pws && enriched.some(g => (Number((pws.byPasture[g.pasture_id] || {}).measured_share) || 0) > 0);
 
         const rows = enriched.map(g => `
             <tr>
@@ -23831,15 +23883,64 @@ ${ranchBlocks}
             </tr>
         `).join('');
 
+        // Every weighing behind the estimates, newest first, with the ADG it
+        // implies. A weighing names a pasture the cattle may since have left,
+        // so its name comes from the pastures list, not the open assignments.
+        let weighingsHtml = '';
+        if (pws && pws.weighings.length) {
+            const missing = [...new Set(pws.weighings.map(w => w.pasture_id).filter(id => id && !pastureName[id]))];
+            if (missing.length) {
+                const { data: pn, error: pnErr } = await supabase.from('pastures').select('id, name').in('id', missing);
+                if (pnErr) console.error('pasture names failed', pnErr);
+                (pn || []).forEach(p => { pastureName[p.id] = p.name; });
+            }
+            const ws = [...pws.weighings].sort((x, y) => String(y.weigh_date).localeCompare(String(x.weigh_date)) ||
+                String(pastureName[x.pasture_id] || '').localeCompare(String(pastureName[y.pasture_id] || ''), undefined, { numeric: true }));
+            const wRows = ws.map(w => {
+                const vs = w.vs_book_lb != null ? `${Number(w.vs_book_lb) >= 0 ? '+' : ''}${fmtNum(w.vs_book_lb, 0)}` : '&mdash;';
+                const adgTxt = w.adg != null
+                    ? `${Number(w.adg).toFixed(2)}<div class="muted" style="font-size:11px;">since ${fmtDate(w.adg_since)} ${w.adg_basis === 'weighing' ? 'weighing' : 'purchase'}</div>`
+                    : '&mdash;';
+                const counts = w.qualifies
+                    ? ''
+                    : `<div style="font-size:11px;color:var(--warning,#b8860b);">${w.head_there > 0
+                          ? `under 25% of ${fmtNum(w.head_there)} hd &mdash; note only`
+                          : 'no head on the books there &mdash; note only'}</div>`;
+                return `<tr>
+                    <td>${fmtDate(w.weigh_date)}</td>
+                    <td>${escapeHtml(pastureName[w.pasture_id] || '?')}</td>
+                    <td class="num">${fmtNum(w.head_weighed)}${w.head_there > 0 ? ` <span class="muted">/ ${fmtNum(w.head_there)}</span>` : ''}${counts}</td>
+                    <td class="num">${w.avg_gross_lb != null ? fmtNum(w.avg_gross_lb, 0) : '&mdash;'}</td>
+                    <td class="num"><strong>${fmtNum(w.avg_booked_lb, 0)}</strong></td>
+                    <td class="num">${vs}</td>
+                    <td class="num">${adgTxt}</td>
+                </tr>`;
+            }).join('');
+            weighingsHtml = `
+                <h4 style="margin: 14px 0 6px 0; font-size: 13px;">Pasture weighings</h4>
+                <table style="font-size: 13px;">
+                    <thead><tr><th>Date</th><th>Pasture</th><th class="num">Weighed</th><th class="num">Gross avg</th><th class="num">Booked avg</th><th class="num">vs book</th><th class="num">ADG</th></tr></thead>
+                    <tbody>${wRows}</tbody>
+                </table>
+                <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">
+                    Booked is after shrink. ADG runs from the last weighing of those cattle, else from the sale-barn
+                    pay weight on the day they went into that pasture (or the lot's arrival, if later).</p>`;
+        }
+
+        const blended = pws && pws.measuredHead > 0 && pws.blendedLb != null
+            ? `<strong>${fmtNum(Math.round(pws.blendedLb))} lb</strong>` : '';
         $('currentLocationsContent').innerHTML = `
             <table style="font-size: 13px;">
-                <thead><tr><th>Pasture</th><th class="num">Head</th><th class="num">Last weighed</th><th>Since</th></tr></thead>
+                <thead><tr><th>Pasture</th><th class="num">Head</th><th class="num">Weight</th><th>Since</th></tr></thead>
                 <tbody>${rows}</tbody>
-                <tfoot><tr style="border-top: 1px solid var(--border);"><td><strong>Total</strong></td><td class="num"><strong>${fmtNum(totalHead)}</strong></td><td></td><td></td></tr></tfoot>
+                <tfoot><tr style="border-top: 1px solid var(--border);"><td><strong>Total</strong></td><td class="num"><strong>${fmtNum(totalHead)}</strong></td><td class="num">${blended}</td><td></td></tr></tfoot>
             </table>
+            ${pwErr ? `<p style="font-size: 12px; margin: 6px 0 0 0; color: var(--danger);">Pasture weights could not be read: ${escapeHtml(pwErr.message || String(pwErr))}</p>` : ''}
             ${anyWeighed ? `<p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">
-                A pasture weighing is a note, not the lot's weight &mdash; it does not move the projection.
-                It describes the cattle that were on the scale, so it goes amber once head have come or gone.</p>` : ''}
+                A weighing of at least 25% of the head in a pasture sets that pasture's weight, and it moves with the cattle
+                (blended by head where groups meet). It then gains at the lot's ADG. Unweighed head show the book.
+                Display only &mdash; cost of gain, the closeout and the feed plan stay on the book.</p>` : ''}
+            ${weighingsHtml}
             <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">To change pasture inventory: use + Move (relocate cattle), record sales, or record deaths. All changes leave an audit trail.</p>
         `;
         const cnt2 = document.getElementById('currentLocationsCount');
