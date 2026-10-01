@@ -1,0 +1,149 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Accounting for crew-held medicine</title>
+<style>
+ @page{size:letter;margin:.5in .45in}
+ *{box-sizing:border-box}
+ body{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;color:#000;margin:0;font-size:8.8pt;line-height:1.3}
+ .hdr{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;border-bottom:2.5px solid #000;padding-bottom:6px;margin-bottom:9px}
+ h1{font-size:15pt;margin:0 0 2px;letter-spacing:-.2px}
+ .sub{font-size:9.5pt;color:#333}
+ .meta{text-align:right;flex:0 0 auto;font-size:8.5pt;color:#333;white-space:nowrap}
+ h2{font-size:11.5pt;margin:11px 0 3px;padding-bottom:3px;border-bottom:1.5px solid #000}
+ p{margin:0 0 8px;font-size:9.3pt}
+ table{width:100%;border-collapse:collapse}
+ th{font-size:7.2pt;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:0 4px 4px;border-bottom:1.3px solid #000;color:#333}
+ th.n{text-align:right}
+ td{padding:1.9px 4px;border-bottom:1px solid #e2e2e2;vertical-align:top}
+ td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+ .med{font-weight:600}.rw{color:#444;font-size:8.2pt}.d{font-size:8.2pt;color:#444}
+ td.u{font-size:8.2pt;color:#555}
+ .j{font-weight:700}
+ tr.zero td{color:#888}tr.zero td.med{color:#444;font-weight:400}
+ tr.act td{background:#ededed}tr.open td{background:#f6f6f6}
+ .tag{display:inline-block;font-size:6.3pt;text-transform:uppercase;letter-spacing:.4px;padding:0 4px;margin-left:5px;border-radius:2px;vertical-align:1.5px;font-weight:700;background:#000;color:#fff}
+ tr.open .tag,tr.zero .tag{background:none;border:1px solid #777;color:#555}
+ tfoot{display:table-row-group}
+ tfoot td{border-top:1.8px solid #000;border-bottom:none;font-weight:700;padding-top:6px}
+ .bridge{width:100%;border-collapse:collapse;margin:5px 0}
+ .bridge td{padding:4.5px 6px;border-bottom:1px solid #ddd;font-size:9.3pt}
+ .bridge td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+ .bridge tr.sum td{border-top:1.5px solid #000;border-bottom:none;font-weight:700}
+ .bridge tr.ind td:first-child{padding-left:26px;color:#555;font-size:8.8pt}
+ .note{border-left:3px solid #000;background:#f4f4f4;padding:7px 10px;margin:8px 0;font-size:9pt}
+ ol.steps{margin:5px 0 0;padding-left:0;list-style:none;counter-reset:s}
+ ol.steps li{counter-increment:s;padding:5px 0 5px 31px;border-bottom:1px solid #ddd;position:relative;font-size:9.3pt}
+ ol.steps li:before{content:counter(s);position:absolute;left:0;top:6px;width:21px;height:21px;background:#000;color:#fff;border-radius:50%;text-align:center;line-height:21px;font-size:8.3pt;font-weight:700}
+ .amt{float:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:12px}
+ .confirm{border:1.5px solid #000;padding:8px 10px;margin:9px 0;font-size:9pt;page-break-inside:avoid;break-inside:avoid}
+ .confirm>b:first-child{display:block;margin-bottom:3px}
+ .keep{page-break-inside:avoid}
+ .foot{margin-top:8px;font-size:8.3pt;color:#444;border-top:1px solid #999;padding-top:5px;page-break-inside:avoid;break-inside:avoid}
+</style>
+</head><body>
+
+<div class="hdr">
+ <div><h1>Accounting for medicine the crew carries</h1>
+ <div class="sub">A change to <i>when</i> Redwing expenses animal health, not to <i>where</i></div></div>
+ <div class="meta">JFR Ranch Co. Ltd.<br>1 October 2026<br>To Jayci and Brenda &mdash; from John</div>
+</div>
+
+<p>Now that we have a physical medicine count, there is a decision in front of us that was not worth making before.
+It is small to implement and it changes the animal health numbers more than it looks like it should. I want you both
+to see the reasoning rather than just the instruction.</p>
+
+<h2>What is actually happening</h2>
+
+<p>A bottle leaves the medicine room and goes in a cowboy&rsquo;s truck. Redwing charges it to the cattle at that moment.
+But it may be two or three weeks before any of it goes in an animal, and some of it never does &mdash; it comes back, or
+it sits there until the next count finds it.</p>
+
+<p>At 30 September that was <b>$2,419.56 across four drugs &mdash; 2,725 mL</b> &mdash; sitting in trucks and saddle bags
+that Redwing had already expensed. That is roughly <b>12% of the whole medicine inventory</b>. It is not a rounding
+difference and it does not wash out inside a month; it just moves to a different month and lands on different cattle.</p>
+
+<h2>The two ways to handle it</h2>
+
+<table>
+ <thead><tr><th style="width:17%">&nbsp;</th>
+  <th style="width:41%">Method A &mdash; charge it out when it leaves the room <i>(what we do today)</i></th>
+  <th style="width:42%">Method B &mdash; keep it in inventory until it is used</th></tr></thead>
+ <tbody>
+ <tr><td class="med">The entry</td>
+     <td>One entry when the bottle leaves the medicine room.</td>
+     <td>Nothing when the bottle leaves the room. One monthly journal entry for what was actually given.</td></tr>
+ <tr><td class="med">What 117500 holds</td>
+     <td>The medicine room only. It is understated by whatever the crew is carrying.</td>
+     <td>The medicine room <b>and</b> the trucks. It equals the physical count.</td></tr>
+ <tr><td class="med">Month end</td>
+     <td>A true-up entry to add truck stock back. A different number every month, worked out by hand.</td>
+     <td>None. The count <i>is</i> the balance.</td></tr>
+ <tr><td class="med">Where the expense lands</td>
+     <td>The month the bottle was issued, against whatever cattle were on the books then.</td>
+     <td>The month the dose went in the animal, against the lot that got it.</td></tr>
+ <tr><td class="med">Reconciling</td>
+     <td>A bridge with several moving parts, like the one attached.</td>
+     <td>One line: does the count equal the balance?</td></tr>
+ </tbody>
+</table>
+
+<div class="note">
+ <b>My recommendation is Method B,</b> and it needs no new account and no change to the chart of accounts. It changes
+ <i>when</i> the entry is made, not <i>where</i> it goes. The true-up we are making right now for the $2,419.56 is the
+ transition entry &mdash; make it once and 117500 never needs it again.
+</div>
+
+<h2>Why B is both less work and more accurate</h2>
+
+<p><b>Less work.</b> Method A needs a hand-computed true-up every single month, and its size is whatever the crew happens
+to be holding that day. Method B replaces that with one journal entry taken off a report the ranch program already
+produces: the month&rsquo;s usage by medication, by lot, at the cost the product was actually bought at. There is nothing
+to work out.</p>
+
+<p><b>More accurate.</b> Under Method A, September&rsquo;s expense rides on cattle that were treated in October. Cost of gain
+and the lot closeouts both read from animal health, so that error does not stay in one place &mdash; it moves to whichever
+lot happens to be open. Under Method B the cost lands on the animal that got the dose.</p>
+
+<p><b>It is only possible now.</b> Without a count of the trucks you could not run Method B, because the balance would
+include product nobody had ever verified. That is what the count bought us.</p>
+
+<h2>What each month looks like under B</h2>
+<ol class="steps">
+ <li><b>Count.</b> The crew counts their trucks and the office counts the room, the same day, at month end. Bottles and
+ fractions &mdash; half a bottle, three quarters &mdash; the program does the arithmetic.</li>
+ <li><b>Clear the approvals queue first.</b> Any treatment still waiting for approval is not in the ledger yet, and a count
+ taken over the top of it would book those doses as shrink and then book them again when the approval posts. The program
+ refuses to post a count while the queue has anything in it, so this is enforced rather than remembered.</li>
+ <li><b>Post the count.</b> Office does this in the ranch program.</li>
+ <li><b>Take the usage report.</b> The program gives the month&rsquo;s usage by medication and by lot.</li>
+ <li><b>One entry.</b> Credit 117500 for the total used, debit animal health by lot.</li>
+ <li><b>Check it.</b> 117500 after the entry should equal the counted value. If it does not, the difference is shrink, and
+ the program names the drug and the amount rather than leaving you to find it.</li>
+</ol>
+
+<h2>Four things to watch</h2>
+<ol class="steps">
+ <li><b>Shrink becomes visible, and it did not used to be.</b> Today a bottle that goes missing out of a truck was already
+ expensed the day it left the room, so it never shows up anywhere. Under Method B it shows as a count shortfall with a
+ name on it. That is the point of doing this &mdash; but the crew should hear it from us before the first count, not after.</li>
+ <li><b>The trucks have to get counted.</b> Monthly at the least. The program handles a month where somebody does not
+ report &mdash; it carries their last figure forward and marks the count as estimated, rather than booking shrink that did
+ not happen. That is the exception, not the routine.</li>
+ <li><b>We run amounts and dollars side by side for a while.</b> Every reconciliation will carry both columns until we are
+ satisfied the program and Redwing agree. The attached sheet shows why: of the entries on it, every one is a quantity
+ difference times that line&rsquo;s own rate &mdash; except two, and <b>those two are the errors</b>. Dollars alone would not
+ have told us which was which. We can go to dollars only once we have a few clean months.</li>
+ <li><b>Nothing accrues until we switch it on.</b> The ranch program records no usage against inventory until a start date
+ is set. Method B begins the day the opening count is posted, and not before.</li>
+</ol>
+
+<h2>Jake Taylor</h2>
+<p>His processing medicine is a different case and does not need the same treatment. Processing product is generally issued
+and used the same day, so Method A and Method B land in the same place. The ranch program carries his stock on its own
+and ties it to his lots, so the cost reaches the right cattle either way. Nothing for you to change there.</p>
+
+<div class="foot">
+ The figures above come from the physical count at 30 September 2026 and the Redwing Medicine RM Inventory report for
+ account 117500 as of the same date. Nothing has been posted in the ranch program; the count is a draft until the
+ entries on the attached reconciliation are agreed. The transition entry is on that sheet &mdash; it is the same
+ $2,419.56, and it only ever has to be made once.
+</div>
+</body></html>

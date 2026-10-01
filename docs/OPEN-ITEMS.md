@@ -195,6 +195,49 @@ The fix is small and should land on its own, ahead of wave 2.
 
 ---
 
+## 0e. Redwing should stop expensing medicine at issue
+
+**Status:** proposed 2026-10-01, with Jayci and Brenda. Memo and worked
+numbers in `docs/worksheets/2026-10-01_crew-medicine-accounting-memo.html`.
+
+Redwing charges medicine to the cattle **when the bottle leaves the medicine
+room**. This module expenses it **when the dose goes in an animal**. Those are
+different months and different cattle, and the gap is whatever the crew is
+carrying — $2,419.56 at 2026-09-30, about 12% of the medicine inventory.
+
+**Method A (today):** charge at issue, then a hand-computed true-up entry
+every month to put truck stock back. The size changes every month.
+
+**Method B (proposed):** the bottle stays in 117500 when it goes to a truck;
+one monthly journal entry credits 117500 and debits animal health by lot, off
+`med_roll_forward`. Then 117500 **is** the counted value and the monthly
+reconciliation is one line instead of a bridge.
+
+Method B needs no new account — it changes *when* the entry is made, not
+*where*. The $2,419.56 true-up being made now is its transition entry, once.
+
+**What it depends on:**
+
+- The opening count posting and `usage_from` being set. Until then the app
+  records no usage, so there is no number to post.
+- The trucks being counted monthly. `crew_carried` covers a month somebody
+  does not report, by carrying the last figure and marking the count
+  estimated rather than booking shrink that did not happen.
+- Shrink becoming visible, which it is not today — a bottle lost out of a
+  truck was expensed the day it left the room. The crew should hear that
+  before the first count, not after.
+
+**Running amounts beside dollars** on every reconciliation until the two
+systems have agreed for a few months — John's call, 2026-10-01, and the
+opening count is the argument for it: every entry on the sheet is a quantity
+difference times that line's own rate **except two**, and those two are the
+errors. Dollars alone could not separate them.
+
+Jake Taylor's processing medicine is issued and used the same day, so A and B
+land in the same place there. Nothing to change.
+
+---
+
 ## 1. Custom SMTP — no email leaves the project today
 
 **Status:** deferred by decision, 2026-08-24.
