@@ -58,6 +58,16 @@
 --   itself, so on its date every offset resets to zero. Sale and individual
 --   weights never count.
 --
+-- APPLIED 2026-10-01 via apply_migration (begin/commit stripped); the verify
+-- block passed on all 12 lots. md5(prosrc) = e7a1c336de2ce06bb125ff072b66f929,
+-- identical to the body below. rls_verify: PASS, 0 findings. Run as owner,
+-- office, accountant and crew: all read 36-27 at 482.9 lb; crew's ADG column
+-- is blank because crew cannot read invoices (the purchase weight).
+-- Exercised against Test-1 inside a rolled-back block: an under-25% weighing,
+-- a qualifying one, a blend through a move, a same-day gather-and-weigh, a
+-- move reversal, a reweigh (ADG from the prior weighing) and a whole-lot
+-- anchor reset all gave the expected numbers; nothing persisted.
+--
 -- Paste into the SQL editor WITHOUT the begin/commit lines.
 begin;
 
