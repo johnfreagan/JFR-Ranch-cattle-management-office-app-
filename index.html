@@ -2527,6 +2527,14 @@
                         <label for="invCoBottles">Bottles</label>
                         <input type="number" step="0.25" id="invCoBottles" placeholder="1">
                     </div>
+                    <div>
+                        <label for="invCoBottleSize">Bottle size</label>
+                        <input type="number" step="0.01" id="invCoBottleSize" placeholder="250">
+                        <div class="muted" style="font-size:11px;margin-top:2px;">
+                            Fills in from the catalog. <strong>Change it</strong> when the size that
+                            left the room is not that one &mdash; the med-room sheet says which.
+                        </div>
+                    </div>
                 </div>
                 <div id="invCoAlert"></div>
                 <div style="display: flex; gap: 8px; margin-top: 12px;">
@@ -36180,6 +36188,7 @@ ${ranchBlocks}
     async function initInvCheckouts() {
         $('invCoDate').value = ranchToday();
         invFillMedSelect('invCoMed');
+        invSyncCoBottleSize();
         // Crew members, NOT app users. Most of the men who carry bottles have
         // no login and should never see field-app information; the office or
         // the head crew leader enters on their behalf.
@@ -36188,6 +36197,21 @@ ${ranchBlocks}
         sel.innerHTML = '<option value="">— pick —</option>' + invCrewMembers.map(c =>
             `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
         loadInvCheckoutLog();
+    }
+
+    // The size box follows the medication, and a typed size STICKS TO THE
+    // MEDICATION IT WAS TYPED FOR. The med-room sheet runs down a list of men
+    // mostly taking the same drug, so re-defaulting after every save would
+    // make somebody retype 100 five times. But switching drug has to drop it,
+    // or the next man gets Resflor recorded at Excede's size.
+    function invSyncCoBottleSize() {
+        const el = $('invCoBottleSize');
+        if (!el) return;
+        const medId = $('invCoMed').value;
+        if (el.dataset.touchedFor && el.dataset.touchedFor === medId) return;
+        const med = invMedById(medId);
+        el.value = (med && med.bottle_size) ? med.bottle_size : '';
+        delete el.dataset.touchedFor;
     }
 
     async function loadInvCrewMembers(force) {
@@ -36206,9 +36230,14 @@ ${ranchBlocks}
             return;
         }
         const med = invMedById(medId);
-        const size = Number(med && med.bottle_size) || 0;
+        // THE SIZE THAT LEFT THE ROOM, not whichever one the catalog holds.
+        // Excede is on the place in 100 mL and 250 mL and the men take both;
+        // reading the catalog here recorded 2 bottles of the small one as
+        // 500 mL instead of 200. The box defaults from the catalog and is
+        // overridable, the same way a purchase line has always been.
+        const size = invNum($('invCoBottleSize').value) || Number(med && med.bottle_size) || 0;
         if (!(size > 0)) {
-            showAlert('invCoAlert', `${med ? med.name : 'That medication'} has no bottle size on the Medications tab, so bottles cannot be converted to units.`, 'error');
+            showAlert('invCoAlert', `${med ? med.name : 'That medication'} has no bottle size on the Medications tab, so put the size of the bottle that left the room in the Bottle size box.`, 'error');
             return;
         }
         const ranch = invLocations.find(l => l.kind === 'ranch' && !l.is_test);
@@ -36220,13 +36249,19 @@ ${ranchBlocks}
             medication_id: medId,
             location_id: ranch.id,
             qty_units: (isReturn ? -1 : 1) * bottles * size,
+            // Snapshotted, so a later catalog change cannot rewrite what went
+            // out. Same reason med_purchase_lines and med_count_lines each
+            // carry their own.
+            bottle_size: size,
             direction: 0,
             crew_member_id: person,
             notes: isReturn ? 'Return' : null,
             created_by: user ? user.id : null
         });
         if (error) { showAlert('invCoAlert', error.message, 'error'); return; }
-        showAlert('invCoAlert', isReturn ? 'Return recorded.' : 'Checkout recorded.', 'success');
+        showAlert('invCoAlert',
+            `${isReturn ? 'Return' : 'Checkout'} recorded: ${fmtNum(bottles, 2)} x ${fmtNum(size, 0)} ` +
+            `${(med && med.bottle_size_unit) || 'mL'} = ${fmtNum(bottles * size, 1)}.`, 'success');
         $('invCoBottles').value = '';
         loadInvCheckoutLog();
     }
@@ -36251,7 +36286,8 @@ ${ranchBlocks}
         if (!(data || []).length) { $('invCustodyContent').innerHTML = '<div class="empty">No checkouts recorded yet.</div>'; return; }
 
         let html = `<table><thead><tr><th>Date</th><th>Crew member</th><th>Medication</th>
-            <th class="num">Bottles</th><th class="num">Units</th><th>Unit</th><th></th></tr></thead><tbody>`;
+            <th class="num">Bottles</th><th class="num">Bottle size</th>
+            <th class="num">Units</th><th>Unit</th><th></th></tr></thead><tbody>`;
         (data || []).forEach(r => {
             const ret = r.direction_label === 'return';
             html += `<tr>
@@ -36259,6 +36295,7 @@ ${ranchBlocks}
                 <td>${escapeHtml(r.crew_member || '—')}</td>
                 <td>${escapeHtml(r.medication_name)}</td>
                 <td class="num">${r.bottles == null ? '—' : fmtNum(Math.abs(r.bottles), 2)}</td>
+                <td class="num muted">${r.bottle_size == null ? '—' : fmtNum(r.bottle_size, 0)}</td>
                 <td class="num">${fmtNum(Math.abs(r.qty_units), 1)}</td>
                 <td class="muted">${escapeHtml(r.unit || '')}</td>
                 <td>${ret ? '<span class="muted">returned</span>' : ''}</td>
@@ -37116,6 +37153,10 @@ ${ranchBlocks}
         if (del) deleteInvPurchase(del.dataset.invDelPurchase);
     });
 
+    $('invCoMed').addEventListener('change', () => invSyncCoBottleSize());
+    $('invCoBottleSize').addEventListener('input', (e) => {
+        e.target.dataset.touchedFor = $('invCoMed').value || '';
+    });
     $('invCoSaveBtn').addEventListener('click', () => saveInvCheckout(false));
     $('invCoReturnBtn').addEventListener('click', () => saveInvCheckout(true));
 

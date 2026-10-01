@@ -261,6 +261,18 @@ carrying the line on 100 mL: barn 26 + 1/2, crew 4 + 3/4, same 3,125 mL, same
 $6,665.98. That file's verify block now also asserts **every open box on every
 line is a quarter at or under 0.75**, which the database CHECK (`< 1`) does not.
 
+**Partly settled 2026-10-01.** John, asked which size the catalog should hold:
+*"some cowboys like 100 ml and some like 250 ml. We use a checkout sheet in med
+room for what they get that should state size."* That turned out to be a bug
+report — the Checkouts screen converted bottles to units off the catalog with
+no override, so "2 x 100 mL" off the paper sheet recorded 500 mL instead of
+200. Fixed in `docs/sql/2026-10-01m_med_checkout_bottle_size.sql` plus the
+screen: `med_txns.bottle_size` snapshots what left the room, the same way
+`med_purchase_lines` and `med_count_lines` already did, and `med_checkout_log`
+divides by it. **The catalog is now only a default in a box somebody can
+change**, which is what makes the question below low-stakes rather than
+urgent. Left at 250 mL.
+
 **The options, when somebody wants it right rather than merely harmless:**
 
 - leave it, and read *bottles* as "250 mL equivalents" for Excede;
