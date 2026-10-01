@@ -2014,11 +2014,22 @@ CREATE POLICY med_count_lines_delete ON public.med_count_lines
 --     the policies in section 16 are what decides, and crew holds the
 --     grant but matches no policy, so crew writes nothing.
 --
---     The two trigger functions get no EXECUTE grant. Postgres checks
---     EXECUTE on a trigger function at CREATE TRIGGER time, not on each
---     fire, so the triggers work with the function revoked from
---     everything -- which is what we want, because nobody should be able
---     to call med_layer_ledger() directly.
+--     The two trigger functions are revoked from `authenticated` as well
+--     as from PUBLIC and anon. Postgres checks EXECUTE on a trigger
+--     function at CREATE TRIGGER time and not on each fire, so the
+--     triggers still work with the function callable by nobody - which is
+--     what we want, because nobody should be able to call
+--     med_layer_ledger() by hand.
+--
+--     Revoking from `authenticated` is not belt-and-braces; it is the
+--     whole point here. Supabase ships
+--     `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON FUNCTIONS TO anon,
+--     authenticated, service_role`, so a function created in `public`
+--     arrives EXECUTE-able by every logged-in user before this migration
+--     says anything about it. Leaving these two alone would have left
+--     them callable. Found 2026-10-01 by this file's own verify block,
+--     on the live database, after a throwaway Postgres with no such
+--     default privileges had passed it.
 -- ---------------------------------------------------------------------
 
 DO $grants$
@@ -2076,10 +2087,14 @@ BEGIN
     END LOOP;
 
     -- The trigger functions: revoked from everything, granted to nobody.
-    REVOKE ALL ON FUNCTION public.med_layer_ledger()      FROM PUBLIC;
-    REVOKE ALL ON FUNCTION public.med_layer_ledger()      FROM anon;
+    -- `authenticated` included, because Supabase's default privileges
+    -- have already granted it by the time we get here.
+    REVOKE ALL ON FUNCTION public.med_layer_ledger()        FROM PUBLIC;
+    REVOKE ALL ON FUNCTION public.med_layer_ledger()        FROM anon;
+    REVOKE ALL ON FUNCTION public.med_layer_ledger()        FROM authenticated;
     REVOKE ALL ON FUNCTION public.med_guard_locked_period() FROM PUBLIC;
     REVOKE ALL ON FUNCTION public.med_guard_locked_period() FROM anon;
+    REVOKE ALL ON FUNCTION public.med_guard_locked_period() FROM authenticated;
 
     RAISE NOTICE 'function grants: 7 callable RPCs, 2 trigger functions locked';
 END
@@ -2289,15 +2304,43 @@ BEGIN
     --
     --     Nothing in sections 1-17 alters the spine. The assertions
     --     below are the evidence, not a promise.
-    SELECT pg_get_constraintdef(oid) INTO spine
+    -- EXISTS over every CHECK on the table, not the first one that happens
+    -- to mention item_kind. The live table has several: the domain check
+    -- (feed|med), the exactly-one-catalog check, and a destination check
+    -- that reads `item_kind = 'feed' OR destination_location_id IS NULL`.
+    -- An earlier cut of this took the first match with LIMIT 1, drew that
+    -- last one, and reported the spine as med-hostile when it is not.
+    -- Found 2026-10-01 against the live database.
+    SELECT string_agg(pg_get_constraintdef(oid), ' | ' ORDER BY conname) INTO spine
     FROM pg_constraint
     WHERE conrelid = 'public.supply_order_lines'::regclass
       AND contype = 'c'
-      AND pg_get_constraintdef(oid) LIKE '%item_kind%'
-    LIMIT 1;
-    IF spine IS NULL OR spine NOT LIKE '%med%' THEN
-        RAISE EXCEPTION 'supply_order_lines does not accept item_kind = med (%)',
-            coalesce(spine, 'no item_kind check found');
+      AND pg_get_constraintdef(oid) LIKE '%item_kind%';
+
+    -- The domain admits 'med' at all.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'public.supply_order_lines'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%item_kind%'
+          AND pg_get_constraintdef(oid) LIKE '%''med''%'
+    ) THEN
+        RAISE EXCEPTION 'supply_order_lines does not accept item_kind = med. item_kind checks found: %',
+            coalesce(spine, 'none');
+    END IF;
+
+    -- And a med line is required to carry a medication and no feed item,
+    -- which is what makes the shared table unambiguous.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'public.supply_order_lines'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%''med''%'
+          AND pg_get_constraintdef(oid) LIKE '%medication_id%'
+          AND pg_get_constraintdef(oid) LIKE '%feed_item_id%'
+    ) THEN
+        RAISE EXCEPTION 'supply_order_lines has no exactly-one-catalog CHECK covering med. item_kind checks found: %',
+            coalesce(spine, 'none');
     END IF;
 
     IF NOT EXISTS (
