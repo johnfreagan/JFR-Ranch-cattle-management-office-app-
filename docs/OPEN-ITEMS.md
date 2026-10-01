@@ -3,10 +3,44 @@
 Things known to need attention, and deliberately not done yet. Ordered by when
 they will bite, not by size.
 
-**Last reviewed:** 2026-09-11
+**Last reviewed:** 2026-10-01
 
 Anything finished moves to the bottom under *Closed* with the date, so the
 history of what was decided survives.
+
+---
+
+## 0. Crew doctoring in the OFFICE app does not reach the medicine ledger
+
+**Status:** open, and John's call to make. Raised 2026-10-01 with the FIFO
+medicine inventory build.
+
+`med_consume()` is INVOKER, and every policy on the `med_*` tables goes
+through `can_read_books()`, which excludes crew by design — a FIFO draw reads
+what each layer cost. So a treatment **typed by a crew member in the office
+app** saves correctly and never reaches inventory. The next count then finds
+those doses missing and books them as shrink, which is the same wrong number
+the approvals gate exists to prevent, arriving through a different door.
+
+**The field app is not affected.** A field entry becomes a treatment when the
+office approves it, and the office is the one that draws the stock.
+
+**Latent today, not live:** every doctoring event on the books was entered by
+the owner, and crew logins are not set up yet. So the gap is surfaced rather
+than worked around — the treatment is kept, the person is told plainly that
+the dose was not drawn out of inventory, and the office records it.
+
+**The fix, when crew logins happen:** make `med_consume()` SECURITY DEFINER
+and withhold the `total_cost` it returns from anyone who cannot read books.
+The reason is the same one `lot_projected_weight` has been DEFINER for since
+it was written — crew needs the number computed without being shown the
+dollars behind it — and it would need a pinned `search_path` and a line in
+`docs/database.md` rule 6. That is a change to the role model, so it waits
+for a decision rather than being slipped in.
+
+**What to do before then:** nothing, unless a crew login is created. If one
+is, close this first — the alternative is a month of shrink that is really
+just unrecorded doses.
 
 ---
 

@@ -1,7 +1,7 @@
 -- =====================================================================
 -- Medicine inventory on FIFO - wave 1: the ledger and the count
 -- =====================================================================
--- 2026-10-01. Decisions and reasoning: docs/medicine-inventory-design.md
+-- 2026-10-01. Decisions and reasoning: docs/medicine-inventory-fifo-plan.md
 --
 -- WHAT THIS BUILDS
 --
