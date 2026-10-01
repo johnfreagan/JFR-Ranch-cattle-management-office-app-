@@ -455,6 +455,60 @@ dive.
 
 ---
 
+## 22. AI assistant inside the office app (idea, 2026-10-01)
+
+**Status:** tabled by John, 2026-10-01. Nothing built. Pick up from here.
+
+**The idea.** A chat drawer in `index.html` where office staff ask questions
+of the data in plain words ("head in Lot 12", "cost of gain on the fall
+steers") and, later, have it draft entries for a person to confirm.
+
+**Proposed shape**
+
+- New Supabase Edge Function `ai-assistant`, beside `market-quotes-sync`,
+  calls the Claude API. The API key lives in Supabase secrets, never in
+  `index.html` (the page is public on GitHub Pages).
+- The function forwards the caller's own JWT, so every query runs under RLS
+  as that user. Crew still never sees dollars, office cannot delete, and
+  `is_active = false` cuts the assistant off at once. The database enforces
+  this, not the prompt.
+- **v1, read only:** a SELECT-only query tool run as the user (timeout, row
+  cap), a schema describer, and canned helpers (D8 tie-out, cost of gain,
+  withdrawal tags, health report). The system prompt carries the rules from
+  `docs/gotchas.md` and `CLAUDE.md` (`ranch_today()`, fiscal year,
+  `tag_to_int()`, NULL cost is a hole). Every answer shows the SQL it ran.
+- **v2, writes:** Claude only proposes. A confirm card shows the change; the
+  click calls the existing atomic RPCs. No raw SQL writes, so head math
+  cannot drift. Corrections keep the audit-note rule.
+- Optional usage-log table (who asked, what SQL ran, tokens, cost). That is a
+  schema change and needs John's approval.
+
+**Cost.** John's Claude Pro plan does not cover this: an in-app assistant
+uses the Claude API, billed per token from prepaid credits at
+console.anthropic.com. Estimate at about 3-4 round trips and ~40k input /
+~2k output tokens per question, most input cached (list prices as of
+2026-09-25, per million tokens in / out):
+
+| Model | Price | Per question | 600 questions/month |
+|---|---|---|---|
+| Opus 5.5 | $4 / $20 | ~5-10¢ | ~$30-60 |
+| Sonnet 5.5 | $2 / $10 | ~3-5¢ | ~$15-30 |
+| Haiku 4.5 | $1 / $5 | ~1-2¢ | ~$5-10 |
+
+These are estimates, not measured. To control it: a monthly spend limit in
+the Console, small prepaid credit, log `usage` from every reply and show cost
+in the app, and a 1-2 week pilot with owner and office before widening.
+
+**Free alternative to try first.** A Claude session (covered by Pro) with the
+Supabase connector can already answer data questions. It acts as John's
+owner account, not per-user RLS, and gives the office no button.
+
+**Decisions open when picked up:** who gets it (owner and office first, or
+crew too); read-only v1 first (recommended); which model; API key and spend
+cap; whether to add the usage-log table.
+
+---
+
 ## Closed
 
 - **2026-08-27 — The RLS verify script now exists.** `CLAUDE.md` rule 7 and
