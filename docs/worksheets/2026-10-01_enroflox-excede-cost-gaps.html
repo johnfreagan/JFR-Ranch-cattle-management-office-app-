@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Medicine cost discrepancies</title>
+<style>
+  @page { size: letter; margin: 0.55in 0.5in 0.5in 0.5in; }
+  * { box-sizing:border-box; }
+  body { font-family:"Helvetica Neue",Helvetica,Arial,sans-serif; color:#000; margin:0;
+         font-size:10pt; line-height:1.4; }
+  .hdr { display:flex; justify-content:space-between; align-items:flex-end;
+         border-bottom:2.5px solid #000; padding-bottom:6px; margin-bottom:12px; }
+  h1 { font-size:16pt; margin:0 0 2px; letter-spacing:-0.2px; }
+  .sub { font-size:9.5pt; color:#333; }
+  .meta { text-align:right; font-size:9pt; color:#333; white-space:nowrap; }
+  h2 { font-size:12pt; margin:18px 0 2px; padding-bottom:3px; border-bottom:1.5px solid #000; }
+  h2 .tag { float:right; font-size:8pt; letter-spacing:0.6px; text-transform:uppercase;
+            background:#000; color:#fff; padding:2px 7px; border-radius:2px; font-weight:600; }
+  .lede { font-size:10pt; margin:7px 0 9px; }
+  table { width:100%; border-collapse:collapse; margin:8px 0 4px; }
+  th { font-size:7.5pt; text-transform:uppercase; letter-spacing:0.5px; text-align:left;
+       padding:0 6px 4px; border-bottom:1.2px solid #000; color:#333; }
+  td { padding:5px 6px; border-bottom:1px solid #ddd; font-size:9.5pt; }
+  td.n, th.n { text-align:right; font-variant-numeric: tabular-nums; }
+  tr.hi td { background:#f0f0f0; font-weight:700; }
+  .flag { font-weight:700; }
+  .note { border-left:3px solid #000; background:#f4f4f4; padding:7px 10px; margin:9px 0;
+          font-size:9.5pt; }
+  .two { display:flex; gap:16px; }
+  .two > div { flex:1; }
+  .k { font-size:8pt; text-transform:uppercase; letter-spacing:0.5px; color:#555; }
+  .v { font-size:15pt; font-weight:700; line-height:1.1; }
+  .vs { font-size:8.5pt; color:#444; }
+  .box { border:1px solid #999; padding:8px 10px; }
+  ul { margin:5px 0 0 16px; padding:0; }
+  li { margin-bottom:3px; }
+  .bridge td:first-child { width:46%; }
+  .keep { page-break-inside: avoid; break-inside: avoid; }
+  .contd { display:none; font-size:8.5pt; color:#555; border-bottom:1px solid #999;
+           padding-bottom:4px; margin-bottom:4px; }
+  @media print { .keep { page-break-before: auto; } }
+  .foot { margin-top:14px; font-size:8.5pt; color:#444; border-top:1px solid #999; padding-top:6px; }
+</style></head><body>
+
+<div class="hdr">
+  <div>
+    <h1>Two medicine cost gaps, and they are not the same problem</h1>
+    <div class="sub">Enroflox and Excede, from the Redwing Medicine RM Inventory at 30 September 2026</div>
+  </div>
+  <div class="meta">JFR Ranch Co. Ltd.<br>1 October 2026<br>Account 117500</div>
+</div>
+
+<div class="note">
+  <b>WHY THE PRICE MATTERS MORE THAN USUAL RIGHT NOW.</b> Whatever cost the opening count goes in at becomes
+  the FIFO cost of that stock, and every treatment drawn off it carries that cost into the lot until the
+  layer runs out. Getting it wrong does not correct itself next month; it works its way through the cattle.
+  Redwing sets the price at the opening count by design &mdash; which is exactly why these two are worth
+  settling before the count is posted.
+</div>
+
+<h2><span class="tag">Redwing vs us</span>Enroflox 500 mL &mdash; a genuine disagreement about price</h2>
+<p class="lede">Redwing and this program disagree about what a bottle of Enroflox cost. Both figures are
+internally consistent; they simply are not the same number.</p>
+
+<table>
+  <thead><tr><th>Source</th><th class="n">Per bottle</th><th class="n">Per mL</th>
+    <th class="n">21 bottles on hand</th><th class="n">Cost of a 31 mL dose</th></tr></thead>
+  <tbody>
+    <tr><td>Redwing, 9/30/2026 ($3,854.87 &divide; 21)</td><td class="n">$183.57</td><td class="n">$0.367130</td>
+        <td class="n">$3,854.87</td><td class="n">$11.38</td></tr>
+    <tr><td>This program, last purchase price</td><td class="n">$132.18</td><td class="n">$0.264360</td>
+        <td class="n">$2,775.78</td><td class="n">$8.20</td></tr>
+    <tr class="hi"><td>Difference</td><td class="n">$51.39</td><td class="n">+38.9%</td>
+        <td class="n">$1,079.09</td><td class="n">$3.18 a head</td></tr>
+  </tbody>
+</table>
+
+<div class="two">
+  <div class="box"><div class="k">What it could be</div>
+    <ul>
+      <li><b>Freight and handling.</b> Redwing's amount is what the invoice cost landed; ours is the drug
+      line alone. On a 21-bottle order that gap is plausible.</li>
+      <li><b>A stale price here.</b> Our figure is the last purchase we recorded, and Enroflox has moved.</li>
+      <li><b>A different pack or concentration</b> bought at some point and booked to the same item.</li>
+    </ul>
+  </div>
+  <div class="box"><div class="k">How to settle it</div>
+    <ul>
+      <li>Pull the <b>most recent Enroflox invoice</b> and read the per-bottle price and the freight line.</li>
+      <li>If freight explains it, Redwing is right and our catalog price should move up &mdash; landed cost is
+      what FIFO is supposed to carry.</li>
+      <li>If it does not, the quantity or the item mapping in Redwing wants a look.</li>
+    </ul>
+  </div>
+</div>
+
+<h2><span class="tag">Redwing vs itself</span>Excede &mdash; two lines of the same drug priced 4.86&times; apart</h2>
+<p class="lede">This one is not a disagreement with us. Redwing carries Excede on two lines and they do not
+agree with <i>each other</i>.</p>
+
+<table>
+  <thead><tr><th>Redwing line</th><th class="n">Qty</th><th class="n">Amount</th><th class="n">Per bottle</th>
+    <th class="n">Per mL</th><th class="n">Cost of a 7 mL dose</th></tr></thead>
+  <tbody>
+    <tr><td>Excede 100 ML</td><td class="n">24</td><td class="n">$5,133.40</td><td class="n">$213.89</td>
+        <td class="n">$2.138917</td><td class="n">$14.97</td></tr>
+    <tr><td class="flag">Excede 250 ML</td><td class="n">1</td><td class="n">$2,596.71</td>
+        <td class="n">$2,596.71</td><td class="n flag">$10.386840</td><td class="n flag">$72.71</td></tr>
+    <tr><td>This program, last purchase price</td><td class="n">&mdash;</td><td class="n">&mdash;</td>
+        <td class="n">$517.78<span class="vs"> /250&nbsp;mL</span></td><td class="n">$2.071120</td>
+        <td class="n">$14.50</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>THE 250 mL LINE LOOKS LIKE FIVE BOTTLES OF MONEY AGAINST ONE BOTTLE OF PRODUCT.</b>
+  $2,596.71 &divide; 5 = <b>$519.34</b> a bottle &mdash; within <b>0.3%</b> of this program's $517.78, and
+  within 3% of what Redwing's own 100 mL line implies. One bottle at $2,596.71 is not a price any supplier
+  charges for 250 mL of Excede. The most likely reading is a receiving entry that took a case price against
+  a quantity of one. John checked the shelf on 1 October and found <b>one</b> bottle, so the quantity is
+  right and the money is not.
+</div>
+
+<p class="lede">So all 2,650 mL of Excede on hand &mdash; 24 &times; 100 mL plus 1 &times; 250 mL &mdash; is
+being counted at Redwing's own 100 mL rate of $2.138917/mL, which is the rate corroborated twice over.
+That values Excede at <b>$5,668.13</b> against the $7,730.11 Redwing carries.</p>
+
+<div class="keep">
+<div class="contd">Medicine cost gaps &mdash; JFR Ranch &mdash; 1 October 2026 &mdash; continued</div>
+<h2>What writes off, so Redwing ties to the count</h2>
+<table class="bridge">
+  <thead><tr><th>&nbsp;</th><th class="n">Amount</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>Redwing report at 9/30/2026</td><td class="n">$21,896.25</td><td>as printed</td></tr>
+    <tr><td>&minus; Excede over-valuation</td><td class="n">$2,061.98</td>
+        <td>$7,730.11 carried vs $5,668.13 of product</td></tr>
+    <tr><td>&minus; Macrosyn 250 mL</td><td class="n">$373.15</td>
+        <td>value against no quantity at all &mdash; nothing on the shelf</td></tr>
+    <tr><td>&minus; One Grass</td><td class="n">$1,804.00</td>
+        <td>out of date, for disposal</td></tr>
+    <tr class="hi"><td>Total to write off</td><td class="n">$4,239.13</td><td>&nbsp;</td></tr>
+    <tr class="hi"><td>Redwing after the write-offs</td><td class="n">$17,657.12</td><td>&nbsp;</td></tr>
+    <tr><td style="padding-left:18px">of which counted in the program now</td><td class="n">$13,905.63</td>
+        <td>6 medications with stock, 6 counted empty</td></tr>
+    <tr><td style="padding-left:18px">of which still to count</td><td class="n">$3,751.49</td>
+        <td>Cydectin, Dectomax, Draxxin KP, Estrumate, Multi Min, Synovex S &mdash; waiting on container sizes</td></tr>
+  </tbody>
+</table>
+
+</div>
+
+<div class="foot">
+  Every figure on this page is derived from the Redwing report's own quantities and amounts; that report
+  prints no $/unit column, so each unit cost here is amount &divide; quantity. The report's two control totals
+  &mdash; 731.00 units and $21,896.25 &mdash; were reproduced from the scan before any of this was entered,
+  and the bridge above adds back to $21,896.25 exactly.
+</div>
+
+</body></html>

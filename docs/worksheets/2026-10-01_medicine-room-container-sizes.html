@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Medicine room worksheet</title>
+<style>
+  @page { size: letter; margin: 0.55in 0.5in 0.5in 0.5in; }
+  * { box-sizing: border-box; }
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color:#000;
+         margin:0; font-size: 10.5pt; line-height: 1.35; }
+  .hdr { display:flex; justify-content:space-between; align-items:flex-end;
+         border-bottom: 2.5px solid #000; padding-bottom: 6px; margin-bottom: 10px; }
+  h1 { font-size: 16pt; margin:0 0 2px; letter-spacing:-0.2px; }
+  .sub { font-size: 9.5pt; color:#333; }
+  .meta { text-align:right; font-size: 9pt; color:#333; white-space:nowrap; }
+  .why { border-left: 3px solid #000; padding: 7px 10px; margin: 0 0 12px;
+         background:#f4f4f4; font-size: 9.5pt; }
+  .why b { letter-spacing: 0.2px; }
+  table { width:100%; border-collapse: collapse; }
+  th { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.6px;
+       text-align:left; padding: 0 6px 5px; border-bottom: 1.5px solid #000; vertical-align:bottom; }
+  td { padding: 0 6px; border-bottom: 1px solid #bbb; height: 52px; vertical-align: middle; }
+  tr:nth-child(even) td { background: #fafafa; }
+  .med { font-weight: 700; font-size: 11.5pt; }
+  .cat { font-size: 8pt; color:#555; text-transform: uppercase; letter-spacing:0.4px; }
+  .rw { font-size: 9pt; color:#222; }
+  .rw .none { color:#777; font-style: italic; }
+  .write { background: #fff !important; }
+  .units span { display:inline-block; border:1px solid #666; border-radius: 9px;
+                padding: 1px 7px; margin-right: 3px; font-size: 8.5pt; }
+  .q { font-size: 8pt; color:#666; }
+  .foot { margin-top: 14px; font-size: 9pt; color:#333; display:flex; gap:28px; }
+  .foot div { flex:1; }
+  .sig { margin-top: 20px; font-size:9pt; }
+  .sig span { display:inline-block; border-bottom:1px solid #000; width: 210px; margin-right: 26px; }
+</style></head><body>
+
+<div class="hdr">
+  <div>
+    <h1>Medicine room &mdash; container size and unit</h1>
+    <div class="sub">Ten medications the inventory cannot stock or count until somebody reads the label.</div>
+  </div>
+  <div class="meta">JFR Ranch Co. Ltd.<br>1 October 2026<br>Location: Ranch</div>
+</div>
+
+<div class="why">
+  <b>WHY THIS MATTERS.</b> The ledger holds medicine in base units &mdash; mL, cc or doses &mdash; not in
+  bottles. The Redwing report gives a container <i>count</i> and a dollar amount and never says how big the
+  container is. Guessing the size would misprice every future dose of that drug by whatever factor the guess
+  was wrong by, and it would do it silently. So these ten sit flagged until the size comes off the label.
+  <b>Write the size and circle the unit. The quantity column is a bonus &mdash; fill it where it is easy.</b>
+</div>
+
+<table>
+  <thead><tr>
+    <th style="width:22%">Medication</th>
+    <th style="width:24%">What Redwing said at 9/30</th>
+    <th style="width:17%">Container size</th>
+    <th style="width:21%">Unit (circle one)</th>
+    <th style="width:16%">On the shelf <span class="q">(optional)</span></th>
+  </tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<div class="foot">
+  <div><b>Container size</b> means what ONE bottle, jug, cartridge or box holds &mdash; 500 mL, 1 gallon
+  (3,785 cc), 100 doses, 50 count. Not how many you have.</div>
+  <div><b>If a product comes in two sizes</b>, write both and say how many of each. Excede already does:
+  Redwing carries it in 100 mL and 250 mL.</div>
+  <div><b>If the label disagrees with Redwing</b>, the label wins. Note what it says and I will chase the
+  difference.</div>
+</div>
+
+<div class="sig">Counted by <span></span> Date <span></span></div>
+
+<script>
+const rows = [
+ ["Cydectin","Anthelmintic (dewormer)","2 containers, $1,511.96 &mdash; $755.98 each","mL|cc|doses|each"],
+ ["Dectomax","Anthelmintic (dewormer)","5 containers, $609.50 &mdash; $121.90 each","mL|cc|doses|each"],
+ ["Draxxin KP","Antibiotic","1 container, $441.00","mL|cc|doses|each"],
+ ["Synovex Primer","Implant","<span class='none'>not on the Redwing report</span>","doses|each|mL"],
+ ["Synovex S","Implant","150 at $165.00 &mdash; $1.10 each, so doses","doses|each|mL"],
+ ["Protivity","Mycoplasma vaccine","zero on hand","doses|mL|cc"],
+ ["Dexamethasone","Other","<span class='none'>not on the Redwing report</span>","mL|cc|doses"],
+ ["Estrumate","Other","1 container, $105.00","mL|cc|doses|each"],
+ ["One Grass","Other &mdash; out of date, for disposal","400 at $1,804.00 &mdash; $4.51 each","each|doses|mL|cc"],
+ ["Multi Min","Vitamin / mineral","3 containers, $919.03 &mdash; $306.34 each","mL|cc|doses|each"],
+];
+document.getElementById('rows').innerHTML = rows.map(([n,c,rw,u]) => `
+ <tr>
+   <td><div class="med">${n}</div><div class="cat">${c}</div></td>
+   <td class="rw">${rw}</td>
+   <td class="write"></td>
+   <td class="units">${u.split('|').map(x=>`<span>${x}</span>`).join('')}</td>
+   <td class="write"></td>
+ </tr>`).join('');
+</script>
+</body></html>

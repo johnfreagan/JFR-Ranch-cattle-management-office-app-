@@ -1064,3 +1064,68 @@ dose was not drawn, and the office records it. Closing it properly means
 making `med_consume` SECURITY DEFINER and withholding the cost it returns
 from anyone who cannot read books. That is a change to the role model, so it
 is John's call and it is in `docs/OPEN-ITEMS.md`.
+
+---
+
+## The opening count, 2026-10-01
+
+Source: the Redwing **Medicine RM Inventory 1/1/1900 to 9/30/2026**, account
+117500 Animal Health RM. A ScanSnap scan with no text layer, so the figures
+were read off the image; both of the report's own control totals — 731.00
+units and $21,896.25 — were reproduced from that reading before anything was
+entered.
+
+Two properties of that report shape everything downstream:
+
+- **The `$ / unit` column is blank on every line.** Unit cost is derived as
+  amount ÷ quantity.
+- **The quantity column is not one unit of measure.** Enroflox 21 at $183.57
+  is bottles; Synovex C 110 at $1.10 is doses. This ledger multiplies by
+  bottle size, so reading one for the other puts the opening balance out by a
+  factor of a hundred. Every count line records which it took.
+
+### The bridge
+
+It adds back to the report's own total exactly, which is the test that the
+reconciliation is complete rather than merely plausible.
+
+| | |
+|---|---|
+| Redwing at 9/30/2026 | $21,896.25 |
+| less Excede over-valuation | $2,061.98 |
+| less Macrosyn 250 mL, value with no quantity | $373.15 |
+| less One Grass, out of date, for disposal | $1,804.00 |
+| **Redwing after the write-offs** | **$17,657.12** |
+| of which counted at 2026-10-01 | $13,905.63 |
+| of which still to count, pending container sizes | $3,751.49 |
+
+### Two cost gaps, and they are not the same problem
+
+**Enroflox is a genuine disagreement about price.** Redwing's derived
+$0.367130/mL against this catalog's $0.264360 — plus 38.9%, $1,079.09 across
+the 21 bottles on hand, $3.18 a head on a 31 mL dose. Both figures are
+internally consistent; they are simply not the same number. The likeliest
+cause is freight and handling, which Redwing's amount carries and the catalog
+price does not — in which case Redwing is right and the catalog should move,
+because landed cost is what FIFO is meant to carry. Settle it off the most
+recent Enroflox invoice.
+
+**Excede is Redwing disagreeing with itself.** It carries the drug on two
+lines: 100 mL × 24 at $2.138917/mL, and 250 mL × 1 at $10.386840/mL — 4.86×
+the first. $2,596.71 ÷ 5 = $519.34 a bottle, within 0.3% of this catalog's
+$517.78, so the line reads like **five bottles of money booked against a
+quantity of one**, which is what a case price taken against a single unit at
+receiving looks like. John checked the shelf on 2026-10-01 and found one
+bottle: the quantity stands and the money does not. All 2,650 mL is counted at
+Redwing's own 100 mL rate, the only Excede figure corroborated twice.
+
+The worked memo and the medicine-room worksheet are in `docs/worksheets/`.
+
+### What the opening count still waits on
+
+Seven medications were added to the catalog on 2026-10-01 because Redwing
+carried them and this catalog did not — a quarter of the report's value. Their
+`bottle_size` is deliberately NULL: the report gives a container count and a
+dollar amount and never says how big the container is, and a guess would
+misprice every future dose of that drug silently. They stay flagged **needs a
+container size** until somebody reads a label.
