@@ -1,0 +1,36 @@
+Jayci,
+
+We're running medicine inventory in the ranch program now, so we finally
+have a physical count to hold Redwing against. First one is attached.
+Twenty of twenty two lines already agree.
+
+Four things to do in Redwing:
+
+- Multi Min - add one bottle, $306.34. Shelf has four, we carry three.
+  Take that out of the expired product below instead of booking it as a
+  purchase.
+- One Grass - write off 400 units, $1,804.00. Out of date, already
+  disposed of.
+- Synovex S - write off 150 doses, $165.00. Out of date.
+- Synovex C - write off 110 doses, $121.00. Out of date.
+
+That's $2,090.00 of expired product off the books, $306.34 of it landing
+on Multi Min, so $1,783.66 is the expense.
+
+Excede is already handled - that was the posting we corrected today,
+nothing for you there. Macrosyn $373.15 sits in the July close and I'll
+let the accountants treat that one how they want.
+
+One open item. Protivity - there's eight 10 dose boxes on the shelf and
+Redwing carries none. I don't have a cost on it. If you can find what a
+box ran we'll put it on both sides. I don't want to guess at it, that
+cost rides along on every head we treat.
+
+Last thing - we also turned up two bottles of Ivomec Long Range that
+Redwing never had on any line. They're going back to the vendor so
+there's nothing to post, but that's the third thing today where product
+came in and didn't get booked. Worth a look at how deliveries are
+getting entered.
+
+Thanks,
+John
