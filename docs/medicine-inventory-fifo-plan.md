@@ -1229,6 +1229,42 @@ not, and inserting a second `kind='ranch'` row without fixing
 **Decided 2026-10-01: Jake Taylor now, the real split in wave 2.** Item 0d has
 the finding, the two defects and what is left to do.
 
+### Two ways to fill a count line
+
+Added 2026-10-02, on Jake Taylor's count. The grid was built for a man holding
+a part bottle: four boxes, open bottles as a **fraction** in quarters, capped
+at three quarters, because that is the precision an eyeball estimate honestly
+has. Jake's sheet came in thirds, eighths and exact doses — 1 ⅔ of a 500,
+1 ⅛ of a 50, **90 doses** off an implant strip. Six of his nine lines could
+not be typed at all.
+
+Rounding them to quarters was the alternative and it is worse than it looks:
+
+| | as written | to quarters |
+|---|---|---|
+| the count | $2,668.56 | $2,712.55 |
+
+**1.6% high, and four of the five rounded lines round up** — not random, since
+a man writing ⅔ is reporting less than the ¾ above it. It also puts our books
+deliberately at odds with the sheet he signed.
+
+So a line is now filled **one of two ways**:
+
+- **the four boxes**, for an estimate, unchanged;
+- **Counted units**, for an exact figure, typed straight in.
+
+Typing in one blanks the other, so the two can never sit there disagreeing
+while somebody guesses which posted. The grid shows which way each line was
+filled, because a reader next month should know whether 833.3 was measured or
+guessed at.
+
+**No schema change was needed** — the shape already said it. A line with boxes
+has boxes; a line with a `counted_units` and no boxes was typed. The loader
+reads that back.
+
+The quarter assertion in `2026-10-01l` still holds: a typed line has no boxes,
+so its `coalesce(barn_open,0)` is zero, which is a quarter and under the cap.
+
 ### The day's corrections, in order
 
 Each is its own file in `docs/sql/`, each with its own verify block, because

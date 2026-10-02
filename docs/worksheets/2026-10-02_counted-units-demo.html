@@ -1,0 +1,1085 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Counted units box</title><style>
+        :root {
+            --bg: #f5f5f0;
+            --surface: #ffffff;
+            --border: #d4d2c8;
+            --text: #2c2c2a;
+            --text-muted: #73726c;
+            --accent: #5a3a1a;
+            --accent-hover: #4a2f15;
+            --danger: #993333;
+            --success: #3b6d11;
+            --warn: #b87800;
+            --radius: 8px;
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            color: var(--text);
+            background: var(--bg);
+            min-height: 100vh;
+        }
+        h1, h2, h3, h4 { font-weight: 500; margin: 0; }
+        h1 { font-size: 22px; }
+        h2 { font-size: 18px; }
+        h3 { font-size: 16px; }
+        h4 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header .brand { display: flex; align-items: baseline; gap: 12px; }
+        header .brand .ranch { font-size: 18px; font-weight: 500; }
+        header .brand .app { color: var(--text-muted); font-size: 14px; }
+        header .user-info { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+        header .role-badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            background: var(--accent);
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        header .role-badge.office { background: var(--text-muted); }
+        header .role-badge.crew { background: #888; }
+        header .role-badge.accountant { background: #6a5acd; }
+        header .nav-tabs { display: flex; gap: 4px; }
+        header .nav-tab {
+            padding: 8px 14px;
+            border-radius: var(--radius);
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            font: inherit;
+            font-size: 14px;
+            margin: 0;
+        }
+        header .nav-tab:hover { background: #ebeae3; color: var(--text); }
+        header .nav-tab.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        header .nav-tab.active:hover { background: var(--accent-hover); color: white; }
+
+        /* Sub-tabs — pills under the main nav */
+        .sub-tabs {
+            display: flex;
+            gap: 6px;
+            padding: 4px;
+            background: #ebeae3;
+            border-radius: 24px;
+            margin-bottom: 20px;
+            width: fit-content;
+        }
+        .sub-tab {
+            padding: 6px 16px;
+            border: none;
+            background: transparent;
+            border-radius: 20px;
+            color: var(--text-muted);
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.15s ease;
+            margin: 0;
+        }
+        .sub-tab:hover {
+            color: var(--text);
+        }
+        .sub-tab.active {
+            background: white;
+            color: var(--accent);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .sub-tab.active:hover {
+            color: var(--accent);
+        }
+        .sub-tab.placeholder {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+        .sub-tab.placeholder.active {
+            font-style: italic;
+        }
+        /* Inventory tab row: sub-tabs are WHAT YOU ARE DOING, the chip is
+           WHAT YOU ARE DOING IT TO. Adding meds - or fuel, or parts - is a
+           chip and a data-material attribute, not another screen. */
+        .inv-tabrow {
+            display: flex; align-items: center; gap: 14px;
+            flex-wrap: wrap; margin-bottom: 20px;
+        }
+        .inv-tabrow .sub-tabs { margin-bottom: 0; }
+        .mat-chip {
+            display: flex; gap: 4px; padding: 4px;
+            background: #ebeae3; border-radius: 24px;
+        }
+        .mat-chip button {
+            padding: 6px 14px; border: none; background: transparent;
+            border-radius: 20px; color: var(--text-muted); cursor: pointer;
+            font: inherit; font-size: 13px; font-weight: 500; margin: 0;
+        }
+        .mat-chip button:hover { color: var(--text); }
+        .mat-chip button.active {
+            background: white; color: var(--accent);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        /* A group is a sub-tab that opens a short menu. The bar keeps its pill
+           shape, so a group reads as one more tab rather than a new control. */
+        .sub-group { position: relative; display: inline-flex; }
+        .sub-group .group-btn { white-space: nowrap; }
+        .sub-group .caret { font-size: 9px; opacity: .55; margin-left: 2px; }
+        .sub-group.open .caret { opacity: 1; }
+        .group-menu {
+            display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+            background: white; border: 1px solid var(--border, #ddd); border-radius: 10px;
+            box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 4px; min-width: 190px;
+        }
+        .sub-group.open .group-menu { display: block; }
+        .group-menu .sub-tab {
+            display: block; width: 100%; text-align: left; border-radius: 7px;
+            padding: 7px 12px; white-space: nowrap;
+        }
+        .group-menu .sub-tab:hover { background: #f2f1ec; }
+        .group-menu .sub-tab.hidden { display: none; }
+        /* Yard sheet: ranch bands, pasture rows, and a lot split that opens
+           under the pasture when its head count is clicked. */
+        .ys-table tr.ys-ranch td { background: #ebeae3; padding-top: 8px; padding-bottom: 8px; }
+        .ys-table tr.ys-pasture.open td { border-bottom: none; }
+        .ys-table tr.ys-detail > td { padding: 0 0 10px 28px; background: #fafaf6; }
+        .ys-table tr.ys-detail table th { font-size: 11px; }
+        .ys-pasture-link { cursor: pointer; color: var(--accent); }
+        .ys-pasture-link:hover { text-decoration: underline; }
+        .ys-head-btn {
+            font: inherit; font-weight: 600; font-size: 13px; padding: 2px 8px; margin: 0;
+            border: 1px solid transparent; border-radius: 6px; background: transparent;
+            color: var(--accent); cursor: pointer;
+        }
+        .ys-head-btn:hover { background: #f2f1ec; border-color: var(--border); }
+        .ys-head-btn .caret { font-size: 9px; opacity: .6; }
+        .needs-sev { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+        .needs-sev.alert { color: var(--danger, #b02a2a); }
+        .needs-sev.warn  { color: #b58900; }
+        .needs-sev.info  { color: var(--text-muted); }
+
+        main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+        button, .btn {
+            font: inherit;
+            padding: 8px 14px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            transition: background 120ms;
+            margin-left: 6px;
+        }
+        button:first-child { margin-left: 0; }
+        button:hover, .btn:hover { background: #ebeae3; }
+        button.primary, .btn.primary {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        button.primary:hover, .btn.primary:hover { background: var(--accent-hover); }
+        button.danger { background: var(--surface); color: var(--danger); border-color: var(--danger); }
+        button.danger:hover { background: #fbeaea; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 14px;
+        }
+        label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font: inherit;
+            background: var(--surface);
+            color: var(--text);
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        textarea { resize: vertical; min-height: 60px; }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 18px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        /* Collapsible cards — click header to expand/collapse */
+        .card.collapsible > .card-header {
+            cursor: pointer;
+            user-select: none;
+            margin-bottom: 0;
+        }
+        .card.collapsible > .card-header h3::before,
+        .card.collapsible > .card-header h2::before {
+            content: '▸ ';
+            display: inline-block;
+            transition: transform 0.15s;
+            color: var(--accent);
+            margin-right: 4px;
+        }
+        .card.collapsible.expanded > .card-header h3::before,
+        .card.collapsible.expanded > .card-header h2::before {
+            transform: rotate(90deg);
+        }
+        .card.collapsible:not(.expanded) > .card-body {
+            display: none;
+        }
+        /* When collapsed, restore the bottom margin we removed from card-header */
+        .card.collapsible.expanded > .card-header {
+            margin-bottom: 14px;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            text-align: left;
+            padding: 10px 8px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+        th {
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 11px;
+        }
+        tr:last-child td { border-bottom: none; }
+        tr.clickable { cursor: pointer; }
+        tr.clickable:hover { background: #fafaf6; }
+        tr.closed-row { color: var(--text-muted); }
+        tr.test-row { color: #999; font-style: italic; }
+        tr.test-row td strong { font-weight: 400; }
+        td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        td.muted { color: var(--text-muted); }
+
+        .login-container {
+            max-width: 360px;
+            margin: 80px auto 0;
+            padding: 32px 28px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+        .login-container h1 { margin-bottom: 4px; }
+        .login-container .subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+        .login-container .form-row { margin-bottom: 14px; }
+        .login-container button { width: 100%; margin-top: 8px; margin-left: 0; }
+
+        .alert {
+            padding: 10px 14px;
+            border-radius: var(--radius);
+            margin-bottom: 14px;
+            font-size: 14px;
+        }
+        .alert.error { background: #fbeaea; color: var(--danger); border: 1px solid #f0c0c0; }
+        .alert.success { background: #e8f3dc; color: var(--success); border: 1px solid #c0deaa; }
+        .alert.info { background: #f0f0e8; color: var(--text-muted); border: 1px solid var(--border); }
+
+        .empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .modal-backdrop.show { display: flex; }
+        .modal {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 24px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal h2 { margin-bottom: 14px; }
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+        }
+        @media (max-width: 1000px) {
+            .detail-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 700px) {
+            .detail-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        .stat {
+            padding: 12px 14px;
+            background: #fafaf6;
+            border-radius: var(--radius);
+        }
+        .stat .label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat .value { font-size: 20px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+        .stat .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+        /* ==========================================================
+           Lot detail header — redesigned with sub-tabs in header + kebab
+           ========================================================== */
+        .lot-detail-header-card { padding: 16px 20px; }
+
+        .lot-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 6px;
+            flex-wrap: wrap;
+        }
+        .lot-header-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .lot-header-title h2 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .lot-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .lot-header-subtabs {
+            display: flex;
+            gap: 0;
+            margin: 0;
+            border-bottom: none;
+            background: #fafaf6;
+            border-radius: var(--radius);
+            padding: 3px;
+        }
+        .lot-header-subtabs .sub-tab {
+            border: none;
+            background: transparent;
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.12s;
+        }
+        .lot-header-subtabs .sub-tab:hover { color: var(--text); }
+        .lot-header-subtabs .sub-tab.active {
+            background: #fff;
+            color: var(--accent);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+        }
+        .lot-header-subtabs .tab-count:not(:empty) {
+            display: inline-block;
+            margin-left: 5px;
+            padding: 0 6px;
+            min-width: 18px;
+            font-size: 11px;
+            line-height: 17px;
+            border-radius: 9px;
+            background: #eceae2;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        .lot-header-subtabs .sub-tab.active .tab-count:not(:empty) { background: #f3ead0; color: var(--accent); }
+
+        .head-tieout-tile {
+            display: block; width: 100%; text-align: left; margin-bottom: 14px;
+            padding: 12px 16px; font-size: 15px; font-weight: 600; cursor: pointer;
+            border-radius: var(--radius); border: 1px solid #ccc; background: #f4f4f4; color: #333;
+        }
+        .head-tieout-tile.ties { background: #eaf3e0; border-color: var(--success); color: var(--success); }
+        .head-tieout-tile.off  { background: #fbeaea; border-color: var(--danger);  color: var(--danger); }
+        .test-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #f0c000;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            border-radius: 4px;
+        }
+
+        /* Kebab menu — unified admin actions */
+        .kebab-wrap { position: relative; }
+        .kebab-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 18px;
+            line-height: 1;
+            padding: 4px 10px;
+            cursor: pointer;
+            color: var(--text);
+        }
+        .kebab-btn:hover { background: #f4f4ee; }
+        .kebab-menu {
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 0;
+            min-width: 180px;
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            padding: 4px;
+            z-index: 50;
+        }
+        .kebab-item {
+            display: block;
+            width: 100%;
+            text-align: left;
+            background: transparent;
+            border: none;
+            padding: 8px 12px;
+            font-size: 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--text);
+        }
+        .kebab-item:hover { background: #f4f4ee; }
+        .kebab-item-danger { color: var(--danger); }
+        .kebab-item-danger:hover { background: #fde2e2; }
+
+        /* Tiered stat grids */
+        .stat-grid-tier1 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 12px;
+            margin-bottom: 8px;
+        }
+        .stat-grid-tier2 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        @media (max-width: 900px) {
+            .stat-grid-tier1 { grid-template-columns: repeat(2, 1fr); }
+            .stat-grid-tier2 { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 480px) {
+            .stat-grid-tier1, .stat-grid-tier2 { grid-template-columns: 1fr 1fr; }
+        }
+        .stat-tier1 {
+            padding: 10px 12px;
+            background: #fafaf6;
+            border-radius: var(--radius);
+            min-height: 120px;
+        }
+        .stat-tier1 .label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+        .stat-tier1 .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; line-height: 1.1; }
+        .stat-tier1 .sub { font-size: 11px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
+        .stat-tier2 {
+            padding: 10px 12px;
+            background: #f6f6ef;
+            border-radius: var(--radius);
+            min-height: 120px;
+        }
+        .stat-tier2 .label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+        .stat-tier2 .value { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; margin-top: 1px; }
+        .stat-tier2 .sub { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+
+        /* Phase 16: Stacked row-style tile body. Used inside both tier1 and tier2.
+           Each row: label on the left, value on the right (both same size). */
+        .tile-rows { display: flex; flex-direction: column; gap: 4px; }
+        .tile-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 14px;
+            font-variant-numeric: tabular-nums;
+        }
+        .tile-row .tr-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+        .tile-row .tr-value {
+            font-weight: 600;
+            text-align: right;
+            color: var(--text);
+        }
+        /* Slight bump for tier 1 (more important values) */
+        .stat-tier1 .tile-row { font-size: 15px; }
+        .stat-tier1 .tile-row .tr-value { font-weight: 600; }
+        /* Color modifiers for value column */
+        .tr-value.tr-danger { color: var(--danger); }
+        .tr-value.tr-warning { color: #b58900; }
+        .tr-value.tr-success { color: var(--success); }
+        /* Health vs baseline card */
+        .hc-table { width: 100%; max-width: 560px; }
+        .hc-table td.num, .hc-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .hc-delta-flag { color: var(--danger); font-weight: 600; }
+        .hc-line { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
+        .hc-line strong { color: var(--text); font-weight: 600; }
+        .hc-wide th.hc-grp { text-align: center; border-bottom: 1px solid var(--border, #ddd); }
+        .hc-wide td, .hc-wide th { white-space: nowrap; }
+        .muted-num { color: var(--text-muted); }
+        .hc-review { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 3px;
+                     background: #fdf3d7; color: #7a5c00; margin-left: 6px; }
+        /* Every tile value is a drill-down (2026-09-04). */
+        .tile-row[data-drill] { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 0 4px; }
+        .tile-row[data-drill]:hover { background: #f3f1ea; }
+        .tile-row[data-drill]:hover .tr-value { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+        #drillBackBar { margin: 0 0 8px 0; }
+        #drillBackBar a {
+            display: inline-block; padding: 5px 12px; font-size: 13px; font-weight: 500;
+            color: var(--accent); background: #fff; border: 1px solid var(--border);
+            border-radius: 999px; text-decoration: none;
+        }
+        #drillBackBar a:hover { background: #f3f1ea; }
+        tr.co-drill[data-drill] { cursor: pointer; }
+        tr.co-drill[data-drill]:hover td { background: #f3f1ea; }
+        tr.co-drill[data-drill]:hover td:first-child { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+        div.co-drill[data-drill] { cursor: pointer; border-radius: 4px; margin: -2px -6px; padding: 2px 6px; }
+        div.co-drill[data-drill]:hover { background: #f3f1ea; }
+
+        /* Count badges in card headers */
+        .card-count {
+            color: var(--text-muted);
+            font-weight: 400;
+            font-size: 13px;
+            margin-left: 4px;
+        }
+        /* + buttons inside cards stay visible even when card is collapsed */
+        .card.collapsible:not(.expanded) .card-add-btn { display: inline-block; }
+
+        /* Uniform width + centered text for card-add-btn (right-side action buttons on lot detail) */
+        .card-add-btn {
+            min-width: 150px;
+            text-align: center;
+            padding: 6px 14px;
+            white-space: nowrap;
+        }
+
+        .breadcrumb { color: var(--text-muted); margin-bottom: 14px; font-size: 14px; }
+        .breadcrumb a { color: var(--accent); text-decoration: none; cursor: pointer; }
+        .breadcrumb a:hover { text-decoration: underline; }
+
+        .closeout-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        @media (max-width: 800px) { .closeout-layout { grid-template-columns: 1fr; } }
+        .closeout-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .results-panel { background: #fafaf6; border-radius: var(--radius); padding: 14px; }
+        .closed-banner {
+            background: #fff7e0;
+            color: var(--warn);
+            border: 1px solid #f0d890;
+            padding: 8px 14px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            margin-bottom: 14px;
+        }
+
+        .hidden { display: none !important; }
+
+        /* Type-ahead pasture picker */
+        .pasture-picker {
+            position: relative;
+        }
+        .pasture-picker input {
+            width: 100%;
+        }
+        .pasture-picker-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 240px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            z-index: 250;
+            display: none;
+        }
+        .pasture-picker-dropdown.open { display: block; }
+        .pasture-picker-item {
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 14px;
+            border-bottom: 1px solid #f0eee6;
+        }
+        .pasture-picker-item:last-child { border-bottom: none; }
+        .pasture-picker-item:hover, .pasture-picker-item.highlighted {
+            background: #f5f3ec;
+        }
+        .pasture-picker-item .ranch {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+        .pasture-picker-empty {
+            padding: 10px;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-style: italic;
+        }
+
+        /* ---- ROLE GATE ----
+           RLS in the database is the actual enforcement. This only stops us
+           showing a control the signed-in role cannot use, so the app does
+           not look broken. Write access ranks owner > office > crew, which
+           matches every policy: writes are either {owner,office} or {owner}.
+           !important so it beats both the .hidden class JS toggles and any
+           inline display style. If data-role is never set nothing is hidden,
+           which is the safe fallback — RLS still refuses the write. */
+        body[data-role="crew"]   [data-perm="office"],
+        body[data-role="crew"]   [data-perm="owner"],
+        body[data-role="office"] [data-perm="owner"],
+        /* accountant is NOT a rung on that ladder -- it reads everything
+           office reads and writes nothing, so it needs the office surfaces
+           visible and every write control gone. data-write marks the
+           controls (its own attribute so it can sit on an element that
+           already carries data-perm); the client wrapper actually refuses. */
+        body[data-role="accountant"] [data-perm="owner"],
+        body[data-role="accountant"] [data-write]         { display: none !important; }
+    
+        /* ---- Field approvals ---- */
+        .approvals-badge {
+            display: inline-block; min-width: 18px; padding: 1px 6px; margin-left: 4px;
+            border-radius: 9px; background: var(--danger, #d70015); color: #fff;
+            font-size: 11px; font-weight: 700; line-height: 16px; text-align: center;
+        }
+        .approvals-summary { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+        .appr-chip {
+            font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 11px;
+            background: #eef0f2; color: #3a3a3c;
+        }
+        .appr-chip.ok   { background: #e5fceb; color: #1c7c31; }
+        .appr-chip.warn    { background: #fff4e5; color: #8a4b00; }
+        .appr-chip.blocked { background: #ffe5e7; color: #b3121f; }
+        .appr-warnings {
+            flex-basis: 100%; font-size: 12px; color: #8a4b00;
+            padding: 2px 0 2px 24px; line-height: 1.5;
+        }
+        .appr-issues { color: #b3121f; }
+        .appr-day { margin-bottom: 22px; }
+        .appr-day-head {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 15px; font-weight: 700; padding: 6px 0 8px;
+            border-bottom: 2px solid var(--border, #e5e5ea); margin-bottom: 10px;
+        }
+        .appr-day-count {
+            font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px;
+            background: #eef0f2; color: #3a3a3c;
+        }
+        .approvals-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        /* ---- Approvals > Feed (PB daily report) ----
+           Laid out after the "Feed Approvals Mockup" artifact. Tables scroll in
+           their own box; every tap target is at least 40px for iPhone/iPad. */
+        .pb-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+                   margin-bottom: 14px; overflow: hidden; }
+        .pb-head { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 12px 14px;
+                   border-bottom: 1px solid var(--border); }
+        .pb-date { font-weight: 700; font-size: 18px; }
+        .pb-head .pb-stats { font-size: 14px; color: var(--text-muted); }
+        .pb-head a { margin-left: auto; font-size: 13px; font-weight: 500; min-height: 40px; display: inline-flex; align-items: center; }
+        .pb-head .pb-sm { margin-left: auto; }
+        .pb-head a + .pb-sm { margin-left: 0; }
+        .pb-sec { padding: 10px 14px; display: grid; gap: 8px; }
+        .pb-sec h4 { margin: 0; }
+        .pb-tbl { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .pb-tbl table { width: 100%; font-size: 14px; border-collapse: collapse; }
+        .pb-tbl td { vertical-align: top; }
+        .pb-tbl td.num, .pb-tbl th.num { white-space: nowrap; }
+        .pb-tbl tr:has(+ .pb-actrow) td { border-bottom: 0; }
+        .pb-tbl td.pb-btns { text-align: right; padding-top: 0; }
+        @media (max-width: 600px) {
+            .pb-tbl table { font-size: 13px; }
+            .pb-tbl th, .pb-tbl td { padding-left: 4px; padding-right: 4px; }
+        }
+        .pb-muted { color: var(--text-muted); font-size: 13px; }
+        .pb-bad { color: #b3121f; font-weight: 600; }
+        .pb-problem { background: #ffe5e7; color: #b3121f; border-radius: 6px; padding: 10px 12px; font-weight: 500; font-size: 14px; }
+        .pb-note { background: #fff4e5; color: #8a4b00; border-radius: 6px; padding: 10px 12px; font-size: 14px; }
+        .pb-zero { background: #eef0f2; color: #3a3a3c; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+        .pb-waiting { background: #fff4e5; color: #8a4b00; border: 1px solid #f0d3a6; border-radius: 6px;
+                      padding: 10px 12px; margin-bottom: 12px; font-size: 14px; display: grid; gap: 6px; }
+        .pb-tag { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 8px; white-space: nowrap;
+                  background: #eef0f2; color: #3a3a3c; text-transform: uppercase; }
+        .pb-tag.pre { background: #e3ebe4; color: #2f6b3a; text-transform: none; }
+        #apprFeedPane button, #apprFeedPane select, #apprFeedPane input { min-height: 40px; }
+        .pb-card button.pb-sm { padding: 6px 12px; font-size: 13px; font-weight: 600; margin-left: 6px; }
+        .pb-card button.pb-sm:first-child { margin-left: 0; }
+        .pb-card button.pb-sm.on { border-color: #2f6b3a; color: #2f6b3a; }
+        .pb-panel { background: #f4f4f1; border-radius: 6px; padding: 12px; display: grid; gap: 8px; font-size: 14px; }
+        .pb-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .pb-row button { margin-left: 0; }
+        .pb-row select { max-width: 100%; }
+        .pb-row input.pb-lb { width: 120px; text-align: right; }
+        .pb-left { font-size: 14px; font-weight: 600; }
+        .pb-left.ok { color: #1c7c31; } .pb-left.bad { color: #b3121f; }
+        .pb-lot { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+        .pb-lot b { font-size: 15px; }
+        .pb-lot .pb-items { grid-column: 1 / -1; font-size: 13px; color: var(--text-muted); }
+        .pb-lot .pb-items.pb-bad { color: #b3121f; }
+        .pb-prelot .pb-state { font-weight: 600; color: #2f6b3a; }
+        .pb-total { border-bottom: 0; }
+        .pb-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 14px;
+                   border-top: 1px solid var(--border); background: var(--bg); }
+        .pb-acts button { margin-left: 0; }
+        .pb-acts input { flex: 1; min-width: 0; max-width: 360px; padding: 6px 8px; }
+        .pb-full { flex-basis: 100%; }
+        .pb-full input { flex: 1; }
+        .pb-mini { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; width: 100%; text-align: left;
+                   margin: 0 0 8px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+                   background: var(--surface); font-size: 14px; }
+        .pb-mini .pb-date { font-size: 15px; }
+        .appr-day-all {
+            margin-left: auto; font-size: 11px; font-weight: 600; padding: 3px 9px;
+            border: 1px solid var(--border, #d1d1d6); border-radius: 6px; background: none;
+        }
+        .appr-date {
+            width: 132px; padding: 2px 6px; font-size: 12px;
+            border: 1px solid var(--border, #d1d1d6); border-radius: 5px;
+        }
+        .appr-note {
+            width: 150px; padding: 3px 7px; font-size: 12px;
+            border: 1px solid var(--border, #d1d1d6); border-radius: 5px;
+        }
+        .appr-reject {
+            border: 0; background: none; color: var(--danger, #d70015);
+            font-size: 13px; font-weight: 700; padding: 2px 6px; cursor: pointer;
+        }
+        .appr-edit {
+            border: 0; background: none; color: var(--accent, #007aff);
+            font-size: 13px; font-weight: 700; padding: 2px 6px; cursor: pointer;
+        }
+        .appr-edit:disabled { opacity: .35; cursor: default; }
+        .appr-flag.edited { background: #e8f0fe; color: #1a4fa0; }
+        .appr-flag.ok { background: #e5fceb; color: #1b7a34; }
+        /* The cowboy's original, kept visible beside the correction so the
+           office can see what was actually recorded in the pasture. */
+        .appr-orig { font-size: 11px; color: var(--text-muted, #6b6b70); margin-top: 2px; }
+        .aedit-grid {
+            display: grid; grid-template-columns: 120px 1fr; gap: 8px 10px; align-items: center;
+        }
+        .aedit-grid label { font-size: 12px; color: var(--text-muted, #6b6b70); }
+        .aedit-grid input, .aedit-grid select { width: 100%; }
+        .aedit-med { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+        .aedit-was { font-size: 11px; color: var(--text-muted, #6b6b70); margin: 8px 0 0; }
+        .appr-section { margin-bottom: 20px; }
+        .appr-section h3 {
+            font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+            color: var(--text-muted, #6b6b70); margin: 0 0 8px; font-weight: 700;
+        }
+        .appr-lot { margin-bottom: 12px; }
+        .appr-lot-head { font-weight: 700; font-size: 14px; padding: 4px 0; }
+        .appr-pasture {
+            font-size: 12px; color: var(--text-muted, #6b6b70);
+            padding: 2px 0 2px 12px; font-weight: 600;
+        }
+        /* One line per entry: the office scans these, it does not read them. */
+        .appr-row {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+            padding: 6px 8px 6px 24px; border-bottom: 1px solid var(--border, #e5e5ea);
+            font-size: 13px;
+        }
+        .appr-row.blocked { background: #fffaf3; padding-left: 8px; }
+        .appr-check { width: auto; margin: 0; }
+        .appr-tag { font-family: ui-monospace, Menlo, monospace; font-weight: 700; min-width: 54px; }
+        .appr-action { min-width: 120px; }
+        .appr-detail { flex: 1 1 220px; color: var(--text-muted, #6b6b70); }
+        .appr-when, .appr-who { font-size: 12px; color: var(--text-muted, #6b6b70); }
+        .appr-flag {
+            font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+            background: #fff4e5; color: #8a4b00;
+        }
+        .appr-flag.danger { background: #ffe5e7; color: #b3121f; }
+        .appr-issues {
+            flex-basis: 100%; font-size: 12px; color: #8a4b00;
+            padding: 4px 0 2px 24px; line-height: 1.5;
+        }
+
+        /* ---- Daily report ---- */
+        /* Reuses the .appr-* grouping styles on purpose: the whole point is
+           that this reads the same as the approvals screen. */
+        .dfr-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .dfr-controls input { width: 160px; margin: 0; }   /* flatpickr's alt input, not the hidden original */
+        .dfr-nav { padding: 4px 11px; font-weight: 700; line-height: 1.2; }
+        .dfr-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+        .dfr-row .appr-detail { flex: 1 1 200px; }
+        .dfr-head { font-size: 12px; font-weight: 700; }
+        .dfr-src {
+            font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+            padding: 1px 6px; border-radius: 4px; background: #eef0f2; color: #6b6b70;
+        }
+        .dfr-src.field { background: #e8f1ff; color: #1a4b8c; }
+        .dfr-late {
+            background: #fffaf3; border: 1px solid #f0e0c8;
+            border-radius: var(--radius, 8px); padding: 10px 14px; margin-top: 18px;
+        }
+        .dfr-late-head { font-size: 13px; font-weight: 700; margin: 0 0 2px; text-transform: none; letter-spacing: 0; color: #8a4b00; }
+        .dfr-foot {
+            margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--border, #e5e5ea);
+            font-size: 12px; color: var(--text-muted, #6b6b70); line-height: 1.6;
+        }
+</style>
+<style>body{background:#f3f4f6;padding:18px}
+ .shot{max-width:1280px;margin:0 auto 22px}
+ .note{border-left:3px solid #b45309;background:#fffbeb;padding:10px 12px;margin:0 0 14px;font-size:12px}
+ .sheet{font-size:11px;color:#6b7280}
+ #tot{font-weight:700}
+</style></head><body>
+<div class="shot">
+<div class="note"><strong>This one is live &mdash; type in it.</strong> It is the office app's real count grid, the real
+code, with Jake Taylor's nine lines in it. Three are already filled in by <em>box</em> because they land on quarters.
+The other six are the ones that cannot be. Put <strong>833.33</strong> in Valcor's Counted units, or
+<strong>90</strong> in Synovex C, and watch the Entered column. Then type in one of Macrosyn's boxes and watch the
+typed figure give way.</div>
+</div>
+<div class="shot"><div class="card">
+<div class="card-header"><h2>Count 2026-09-30 &mdash; Jake Taylor</h2>
+<div style="display:flex;gap:8px;"><button>Print</button><button class="primary">Post count</button></div></div>
+<div class="form-grid" style="margin-bottom:12px;">
+ <div><label>Date</label><input type="date" value="2026-09-30"></div>
+ <div><label>Location</label><select><option>Jake Taylor</option></select></div>
+ <div><label>Counted by</label><input value="Jake Taylor"></div>
+ <div><label><input type="checkbox" checked> Opening count</label></div>
+</div>
+<div id="invCountLines"></div>
+<div id="invCountSummary" style="margin-top:12px;padding:10px;border-left:3px solid #000;background:#f4f4f4;font-size:12px;"></div>
+</div></div>
+<script>
+const SEED = [{"medication_id": "Ferappease", "name": "Ferappease", "unit": "cc", "bottle_size": 1000, "expected": 0, "unit_cost": 0.28571, "sheet": "1000 ML", "barn_full": "", "barn_open": "", "crew_full": "", "crew_open": "", "direct_units": "", "crew_carried": false, "unpriced": false, "needs_size": false}, {"medication_id": "Macrosyn(Draxxin)", "name": "Macrosyn(Draxxin)", "unit": "mL", "bottle_size": 500, "expected": 0, "unit_cost": 0.78188, "sheet": "1 & 3/4 of a 500", "barn_full": "1", "barn_open": "0.75", "crew_full": "", "crew_open": "", "direct_units": "", "crew_carried": false, "unpriced": false, "needs_size": false}, {"medication_id": "Valcor", "name": "Valcor", "unit": "mL", "bottle_size": 500, "expected": 0, "unit_cost": 0.30142, "sheet": "1 & 2/3 of a 500", "barn_full": "", "barn_open": "", "crew_full": "", "crew_open": "", "direct_units": "", "crew_carried": false, "unpriced": false, "needs_size": false}, {"medication_id": "Synovex_C_100_Ds_Prestige", "name": "Synovex C 100 Ds Prestige", "unit": "doses", "bottle_size": 100, "expected": 0, "unit_cost": 1.3793, "sheet": "90 doses", "barn_full": "", "barn_open": "", "crew_full": "", "crew_open": "", "direct_units": "", "crew_carried": false, "unpriced": false, "needs_size": false}, {"medication_id": "Bovi-Shield_Gold_1_Shot_50_dose", "name": "Bovi-Shield Gold 1 Shot 50 dose", "unit": "doses", "bottle_size": 50, "expected": 0, "unit_cost": 4.221, "sheet": "2 x 50 + 7 x 10 = 170 doses", "barn_full": "", "barn_open": "", "crew_full": "", "crew_open": "", "direct_units": "", "crew_carried": false, "unpriced": false, "needs_size": false}, {"medication_id": "Ultrachoice_8", "name": "Ultrachoice 8", "unit": "doses", "bottle_size": 250, "expected": 0, "unit_cost": 0.75948, "sheet": "1 & 1/3 of a 250", "barn_full": "", "barn_open": "", "crew_full": "", "crew_open": "", "direct_units": "", "crew_carried": false, "unpriced": false, "needs_size": false}, {"medication_id": "Synanthic", "name": "Synanthic", "unit": "mL", "bottle_size": 1000, "expected": 0, "unit_cost": 0.27495, "sheet": "3/4 of a jug", "barn_full": "0", "barn_open": "0.75", "crew_full": "", "crew_open": "", "direct_units": "", "crew_carried": false, "unpriced": false, "needs_size": false}, {"medication_id": "Pinkeye_Autogenous_Bacterin", "name": "Pinkeye Autogenous Bacterin", "unit": "doses", "bottle_size": 50, "expected": 0, "unit_cost": 1.9762, "sheet": "1 & 1/8 of a 50", "barn_full": "", "barn_open": "", "crew_full": "", "crew_open": "", "direct_units": "", "crew_carried": false, "unpriced": false, "needs_size": false}, {"medication_id": "Exile_Ultra_Pour-On_1_gallon", "name": "Exile Ultra Pour-On 1 gallon", "unit": "mL", "bottle_size": 3785, "expected": 0, "unit_cost": 0.037281373844121536, "sheet": "1/4 jug", "barn_full": "0", "barn_open": "0.25", "crew_full": "", "crew_open": "", "direct_units": "", "crew_carried": false, "unpriced": false, "needs_size": false}];
+const $ = (id) => document.getElementById(id);
+const invNum = (v) => { if (v === '' || v == null) return null; const n = Number(v); return isNaN(n) ? null : n; };
+function fmtNum(n,d=0){if(n==null||isNaN(n)) return '\u2014';return Number(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
+function fmtMoney(n){if(n==null||isNaN(n)) return '\u2014';return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+const escapeHtml = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let invCountState = { id: 'demo', status: 'draft', lines: SEED };
+const invCountShowExpectedEl = { checked: false };
+$('invCountShowExpected') || (window.invCountShowExpectedShim = true);
+document.body.insertAdjacentHTML('beforeend',
+  '<input type="checkbox" id="invCountShowExpected" style="display:none">');
+
+// ===== invCountedUnits =====
+function invCountedUnits(l) {
+    // TYPED UNITS WIN, and nothing has to arbitrate because typing in
+    // one side blanks the other. Jake Taylor counts implants - 90 doses,
+    // exactly - and 90 is 0.9 of a 100-dose bottle, which the open boxes
+    // cannot hold. Forcing an exact count through quarters of a bottle
+    // loses the one thing it had going for it.
+    const direct = invNum(l.direct_units);
+    if (direct != null) return direct;
+    const bf = invNum(l.barn_full), bo = invNum(l.barn_open);
+    const cf = invNum(l.crew_full), co = invNum(l.crew_open);
+    if (bf == null && bo == null && cf == null && co == null) return null;
+    const size = Number(l.bottle_size) || 0;
+    return ((bf || 0) + (bo || 0) + (cf || 0) + (co || 0)) * size;
+}
+
+// A line is short a crew number if the barn side was counted and the crew
+// side was left entirely blank.
+// ===== helpers =====
+// Which way a line was filled in. Worth being able to ask: a reader
+// next month should know whether 833.3 was measured or guessed at.
+function invCountIsTyped(l) { return invNum(l.direct_units) != null; }
+function invCountBoxesUsed(l) {
+    return invNum(l.barn_full) != null || invNum(l.barn_open) != null
+        || invNum(l.crew_full) != null || invNum(l.crew_open) != null;
+}
+
+
+// ===== render =====
+function renderInvCountLines() {
+    const showExp = $('invCountShowExpected').checked;
+    const posted = invCountState && invCountState.status === 'posted';
+    const dis = posted ? ' disabled' : '';
+    let html = `<table><thead><tr>
+        <th>Medication</th><th>Unit</th><th class="num">Bottle size</th>
+        <th class="num">Barn full</th><th class="num">Barn open</th>
+        <th class="num">Crew full</th><th class="num">Crew open</th>
+        ${showExp ? '<th class="num">Expected</th>' : ''}
+        <th class="num">Counted units</th><th>Entered</th>
+        <th class="num">Variance</th></tr></thead><tbody>`;
+
+    const box = (l, field, step) =>
+        `<input type="number" step="${step}" min="0"${field.endsWith('open') ? ' max="0.75"' : ''}` +
+        ` style="width:78px;text-align:right;"${dis}` +
+        ` value="${l[field]}" data-inv-count="${l.medication_id}" data-field="${field}">`;
+
+    // The other way in. An exact figure goes straight here - 90 doses,
+    // 833.3 mL - and the boxes stay for a man holding a part bottle who
+    // can honestly say "about half". Typing in either blanks the other,
+    // so a line is never filled both ways at once.
+    const unitsBox = (l) =>
+        `<input type="number" step="0.01" min="0" style="width:96px;text-align:right;"${dis}` +
+        ` value="${l.direct_units}" data-inv-count="${l.medication_id}" data-field="direct_units"` +
+        ` placeholder="${invCountBoxesUsed(l) ? fmtNum(invCountedUnits(l), 1) : ''}">`;
+
+    const entered = (l) => invCountIsTyped(l)
+        ? '<span style="color:#15803d;font-size:11px;">typed</span>'
+        : (invCountBoxesUsed(l)
+            ? `<span class="muted" style="font-size:11px;">${
+                fmtNum((invNum(l.barn_full)||0)+(invNum(l.barn_open)||0)
+                     + (invNum(l.crew_full)||0)+(invNum(l.crew_open)||0), 2)} x ${
+                fmtNum(l.bottle_size, 0)}</span>`
+            : '');
+
+    invCountState.lines.forEach(l => {
+        const counted = invCountedUnits(l);
+        const variance = counted == null ? null : counted - l.expected;
+        // A medication with no container size cannot be counted at all -
+        // bottles do not convert to units without one. Say so in the row
+        // rather than accepting a number that means nothing.
+        if (l.needs_size) {
+            html += `<tr><td>${escapeHtml(l.name)}</td><td class="muted">—</td>
+                <td colspan="${showExp ? 9 : 8}" style="color:#b45309;font-size:12px;">
+                Needs a container size on the Medications tab before it can be stocked or counted.</td></tr>`;
+            return;
+        }
+        html += `<tr>
+            <td>${escapeHtml(l.name)}${l.unpriced ? ' <span class="muted" style="font-size:11px;color:#b45309">unpriced</span>' : ''}
+                ${l.crew_carried ? ' <span style="font-size:11px;color:#b45309">crew carried</span>' : ''}</td>
+            <td class="muted">${escapeHtml(l.unit || '')}</td>
+            <td class="num muted">${l.bottle_size ? fmtNum(l.bottle_size, 0) : '—'}</td>
+            <td class="num">${box(l, 'barn_full', '1')}</td>
+            <td class="num">${box(l, 'barn_open', '0.25')}</td>
+            <td class="num">${box(l, 'crew_full', '1')}</td>
+            <td class="num">${box(l, 'crew_open', '0.25')}</td>
+            ${showExp ? `<td class="num muted">${fmtNum(l.expected, 1)}</td>` : ''}
+            <td class="num" data-cell="counted">${unitsBox(l)}</td>
+            <td data-cell="entered">${entered(l)}</td>
+            <td class="num" data-cell="variance"${variance ? ` style="color:${variance < 0 ? '#b91c1c' : '#15803d'}"` : ''}>${
+                variance == null ? '—' : (variance > 0 ? '+' : '') + fmtNum(variance, 1)}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    html += `<p class="muted" style="font-size:12px;margin-top:8px;">
+        Fill a line <strong>one of two ways</strong>. Use the four boxes when somebody is holding a part
+        bottle and estimating — open bottles are a <strong>fraction of a bottle</strong>, write ¼, ½, ¾,
+        not millilitres, and barn and crew add into one figure. Use <strong>Counted units</strong> when you
+        have an exact number, like 90 doses off an implant strip or a figure off a buyer's sheet.
+        Typing in one blanks the other. Leaving everything blank means
+        <strong>not counted</strong>, which is not the same as zero.</p>`;
+    $('invCountLines').innerHTML = html;
+    renderInvCountSummary();
+}
+
+// ===== handler =====
+$('invCountLines').addEventListener('input', (e) => {
+    const el = e.target.closest('[data-inv-count]');
+    if (!el) return;
+    const line = invCountState.lines.find(l => l.medication_id === el.dataset.invCount);
+    if (!line) return;
+    const field = el.dataset.field;
+    line[field] = el.value;
+
+    // ONE LINE, ONE METHOD. Typing a figure blanks the boxes and typing
+    // in a box blanks the figure, so the two can never sit there
+    // disagreeing while somebody guesses which one posted. The other
+    // side's inputs are cleared in the DOM rather than by re-rendering,
+    // because a re-render eats the caret mid-number.
+    const row = el.closest('tr');
+    if (el.value !== '') {
+        const others = field === 'direct_units'
+            ? ['barn_full', 'barn_open', 'crew_full', 'crew_open']
+            : ['direct_units'];
+        others.forEach(f => {
+            line[f] = '';
+            const other = row && row.querySelector(`[data-field="${f}"]`);
+            if (other && other !== el) other.value = '';
+        });
+    }
+
+    renderInvCountSummary();
+    if (row) {
+        const counted = invCountedUnits(line);
+        const variance = counted == null ? null : counted - line.expected;
+        const varCell = row.querySelector('[data-cell="variance"]');
+        const entCell = row.querySelector('[data-cell="entered"]');
+        const cntInput = row.querySelector('[data-field="direct_units"]');
+        // The typed box shows what the boxes make of it, greyed, so the
+        // number is on screen either way without pretending it was typed.
+        if (cntInput && field !== 'direct_units') {
+            cntInput.placeholder = counted == null ? '' : fmtNum(counted, 1);
+        }
+        if (entCell) {
+            entCell.innerHTML = invNum(line.direct_units) != null
+                ? '<span style="color:#15803d;font-size:11px;">typed</span>'
+                : (invCountBoxesUsed(line)
+                    ? `<span class="muted" style="font-size:11px;">${
+                        fmtNum((invNum(line.barn_full)||0)+(invNum(line.barn_open)||0)
+                             + (invNum(line.crew_full)||0)+(invNum(line.crew_open)||0), 2)} x ${
+                        fmtNum(line.bottle_size, 0)}</span>`
+                    : '');
+        }
+        if (varCell) {
+            varCell.textContent = variance == null ? '\u2014'
+                : (variance > 0 ? '+' : '') + fmtNum(variance, 1);
+            varCell.style.color = !variance ? '' : (variance < 0 ? '#b91c1c' : '#15803d');
+        }
+    }
+});
+
+
+
+function renderInvCountSummary() {
+  let n=0, val=0, typed=0;
+  invCountState.lines.forEach(l => {
+    const c = invCountedUnits(l);
+    if (c == null) return;
+    n++; val += c * (l.unit_cost || 0);
+    if (invCountIsTyped(l)) typed++;
+  });
+  $('invCountSummary').innerHTML =
+    `<strong>${n}</strong> of ${invCountState.lines.length} lines counted &mdash; ` +
+    `<strong>${typed}</strong> typed, <strong>${n - typed}</strong> off the boxes. ` +
+    `Counted value <span id="tot">${fmtMoney(val)}</span>.`;
+}
+renderInvCountLines();
+</script>
+</body></html>

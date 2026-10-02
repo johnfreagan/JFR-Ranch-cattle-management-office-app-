@@ -36412,6 +36412,14 @@ ${ranchBlocks}
                 crew_full:  s && s.crew_full  != null ? s.crew_full  : '',
                 crew_open:  s && s.crew_open  != null ? s.crew_open  : '',
                 crew_carried: s ? !!s.crew_carried : false,
+                // A saved line with a counted figure and no boxes was TYPED.
+                // The schema already tells the two apart, so this needs no
+                // new column: boxes mean somebody estimated, a bare
+                // counted_units means somebody counted.
+                direct_units: (s && s.counted_units != null
+                    && s.barn_full == null && s.barn_open == null
+                    && s.crew_full == null && s.crew_open == null)
+                    ? s.counted_units : '',
                 prev_crew_full: prev && prev.crew_full != null ? prev.crew_full : null,
                 prev_crew_open: prev && prev.crew_open != null ? prev.crew_open : null,
                 unit_cost: s && s.unit_cost != null ? s.unit_cost : '',
@@ -36428,6 +36436,13 @@ ${ranchBlocks}
     //
     // All four blank still means NOT COUNTED, which is not the same as zero.
     function invCountedUnits(l) {
+        // TYPED UNITS WIN, and nothing has to arbitrate because typing in
+        // one side blanks the other. Jake Taylor counts implants - 90 doses,
+        // exactly - and 90 is 0.9 of a 100-dose bottle, which the open boxes
+        // cannot hold. Forcing an exact count through quarters of a bottle
+        // loses the one thing it had going for it.
+        const direct = invNum(l.direct_units);
+        if (direct != null) return direct;
         const bf = invNum(l.barn_full), bo = invNum(l.barn_open);
         const cf = invNum(l.crew_full), co = invNum(l.crew_open);
         if (bf == null && bo == null && cf == null && co == null) return null;
@@ -36437,7 +36452,17 @@ ${ranchBlocks}
 
     // A line is short a crew number if the barn side was counted and the crew
     // side was left entirely blank.
+    // Which way a line was filled in. Worth being able to ask: a reader
+    // next month should know whether 833.3 was measured or guessed at.
+    function invCountIsTyped(l) { return invNum(l.direct_units) != null; }
+    function invCountBoxesUsed(l) {
+        return invNum(l.barn_full) != null || invNum(l.barn_open) != null
+            || invNum(l.crew_full) != null || invNum(l.crew_open) != null;
+    }
+
     function invCrewMissing(l) {
+        // A typed line has no crew side to be missing.
+        if (invCountIsTyped(l)) return false;
         const counted = (invNum(l.barn_full) != null || invNum(l.barn_open) != null);
         return counted && invNum(l.crew_full) == null && invNum(l.crew_open) == null;
     }
@@ -36470,12 +36495,31 @@ ${ranchBlocks}
             <th class="num">Barn full</th><th class="num">Barn open</th>
             <th class="num">Crew full</th><th class="num">Crew open</th>
             ${showExp ? '<th class="num">Expected</th>' : ''}
-            <th class="num">Counted</th><th class="num">Variance</th></tr></thead><tbody>`;
+            <th class="num">Counted units</th><th>Entered</th>
+            <th class="num">Variance</th></tr></thead><tbody>`;
 
         const box = (l, field, step) =>
             `<input type="number" step="${step}" min="0"${field.endsWith('open') ? ' max="0.75"' : ''}` +
             ` style="width:78px;text-align:right;"${dis}` +
             ` value="${l[field]}" data-inv-count="${l.medication_id}" data-field="${field}">`;
+
+        // The other way in. An exact figure goes straight here - 90 doses,
+        // 833.3 mL - and the boxes stay for a man holding a part bottle who
+        // can honestly say "about half". Typing in either blanks the other,
+        // so a line is never filled both ways at once.
+        const unitsBox = (l) =>
+            `<input type="number" step="0.01" min="0" style="width:96px;text-align:right;"${dis}` +
+            ` value="${l.direct_units}" data-inv-count="${l.medication_id}" data-field="direct_units"` +
+            ` placeholder="${invCountBoxesUsed(l) ? fmtNum(invCountedUnits(l), 1) : ''}">`;
+
+        const entered = (l) => invCountIsTyped(l)
+            ? '<span style="color:#15803d;font-size:11px;">typed</span>'
+            : (invCountBoxesUsed(l)
+                ? `<span class="muted" style="font-size:11px;">${
+                    fmtNum((invNum(l.barn_full)||0)+(invNum(l.barn_open)||0)
+                         + (invNum(l.crew_full)||0)+(invNum(l.crew_open)||0), 2)} x ${
+                    fmtNum(l.bottle_size, 0)}</span>`
+                : '');
 
         invCountState.lines.forEach(l => {
             const counted = invCountedUnits(l);
@@ -36485,7 +36529,7 @@ ${ranchBlocks}
             // rather than accepting a number that means nothing.
             if (l.needs_size) {
                 html += `<tr><td>${escapeHtml(l.name)}</td><td class="muted">—</td>
-                    <td colspan="${showExp ? 8 : 7}" style="color:#b45309;font-size:12px;">
+                    <td colspan="${showExp ? 9 : 8}" style="color:#b45309;font-size:12px;">
                     Needs a container size on the Medications tab before it can be stocked or counted.</td></tr>`;
                 return;
             }
@@ -36499,16 +36543,20 @@ ${ranchBlocks}
                 <td class="num">${box(l, 'crew_full', '1')}</td>
                 <td class="num">${box(l, 'crew_open', '0.25')}</td>
                 ${showExp ? `<td class="num muted">${fmtNum(l.expected, 1)}</td>` : ''}
-                <td class="num">${counted == null ? '<span class="muted">not counted</span>' : fmtNum(counted, 1)}</td>
-                <td class="num"${variance ? ` style="color:${variance < 0 ? '#b91c1c' : '#15803d'}"` : ''}>${
+                <td class="num" data-cell="counted">${unitsBox(l)}</td>
+                <td data-cell="entered">${entered(l)}</td>
+                <td class="num" data-cell="variance"${variance ? ` style="color:${variance < 0 ? '#b91c1c' : '#15803d'}"` : ''}>${
                     variance == null ? '—' : (variance > 0 ? '+' : '') + fmtNum(variance, 1)}</td>
             </tr>`;
         });
         html += '</tbody></table>';
         html += `<p class="muted" style="font-size:12px;margin-top:8px;">
-            Open bottles are a <strong>fraction of a bottle</strong> — write ¼, ½, ¾, not millilitres.
-            Barn and crew are counted separately and added into one figure; leaving all four blank
-            means <strong>not counted</strong>, which is not the same as zero.</p>`;
+            Fill a line <strong>one of two ways</strong>. Use the four boxes when somebody is holding a part
+            bottle and estimating — open bottles are a <strong>fraction of a bottle</strong>, write ¼, ½, ¾,
+            not millilitres, and barn and crew add into one figure. Use <strong>Counted units</strong> when you
+            have an exact number, like 90 doses off an implant strip or a figure off a buyer's sheet.
+            Typing in one blanks the other. Leaving everything blank means
+            <strong>not counted</strong>, which is not the same as zero.</p>`;
         $('invCountLines').innerHTML = html;
         renderInvCountSummary();
     }
@@ -37179,19 +37227,53 @@ ${ranchBlocks}
         if (!el) return;
         const line = invCountState.lines.find(l => l.medication_id === el.dataset.invCount);
         if (!line) return;
-        line[el.dataset.field] = el.value;
-        // Only the summary is refreshed, not the grid: re-rendering the rows
-        // would eat the caret mid-number.
-        renderInvCountSummary();
+        const field = el.dataset.field;
+        line[field] = el.value;
+
+        // ONE LINE, ONE METHOD. Typing a figure blanks the boxes and typing
+        // in a box blanks the figure, so the two can never sit there
+        // disagreeing while somebody guesses which one posted. The other
+        // side's inputs are cleared in the DOM rather than by re-rendering,
+        // because a re-render eats the caret mid-number.
         const row = el.closest('tr');
+        if (el.value !== '') {
+            const others = field === 'direct_units'
+                ? ['barn_full', 'barn_open', 'crew_full', 'crew_open']
+                : ['direct_units'];
+            others.forEach(f => {
+                line[f] = '';
+                const other = row && row.querySelector(`[data-field="${f}"]`);
+                if (other && other !== el) other.value = '';
+            });
+        }
+
+        renderInvCountSummary();
         if (row) {
             const counted = invCountedUnits(line);
-            const cells = row.querySelectorAll('td');
-            const varCell = cells[cells.length - 1], cntCell = cells[cells.length - 2];
             const variance = counted == null ? null : counted - line.expected;
-            cntCell.innerHTML = counted == null ? '<span class="muted">not counted</span>' : fmtNum(counted, 1);
-            varCell.innerHTML = variance == null ? '—' : (variance > 0 ? '+' : '') + fmtNum(variance, 1);
-            varCell.style.color = !variance ? '' : (variance < 0 ? '#b91c1c' : '#15803d');
+            const varCell = row.querySelector('[data-cell="variance"]');
+            const entCell = row.querySelector('[data-cell="entered"]');
+            const cntInput = row.querySelector('[data-field="direct_units"]');
+            // The typed box shows what the boxes make of it, greyed, so the
+            // number is on screen either way without pretending it was typed.
+            if (cntInput && field !== 'direct_units') {
+                cntInput.placeholder = counted == null ? '' : fmtNum(counted, 1);
+            }
+            if (entCell) {
+                entCell.innerHTML = invNum(line.direct_units) != null
+                    ? '<span style="color:#15803d;font-size:11px;">typed</span>'
+                    : (invCountBoxesUsed(line)
+                        ? `<span class="muted" style="font-size:11px;">${
+                            fmtNum((invNum(line.barn_full)||0)+(invNum(line.barn_open)||0)
+                                 + (invNum(line.crew_full)||0)+(invNum(line.crew_open)||0), 2)} x ${
+                            fmtNum(line.bottle_size, 0)}</span>`
+                        : '');
+            }
+            if (varCell) {
+                varCell.textContent = variance == null ? '\u2014'
+                    : (variance > 0 ? '+' : '') + fmtNum(variance, 1);
+                varCell.style.color = !variance ? '' : (variance < 0 ? '#b91c1c' : '#15803d');
+            }
         }
     });
 
