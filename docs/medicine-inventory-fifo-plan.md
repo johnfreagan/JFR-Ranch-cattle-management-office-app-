@@ -1431,6 +1431,7 @@ and the verify block asserts it lot by lot rather than trusting that.
 | `2026-10-02f_med_id_tags_office_stock.sql` | 5,000 ID tags in the medicine room, #1001-6000 |
 | `2026-10-02g_med_jake_id_tags.sql` | Jake's #2-999, and his nine on the 1st covered |
 | `2026-10-02h_med_transfer.sql` | stock moves between pools, FIFO, at its own cost |
+| `2026-10-02i_med_jake_zero_cost_stock.sql` | previously expensed drug to Jake at $0, to use up |
 
 ### Tags are stock, and the office block went on the shelf (2026-10-02)
 
@@ -1553,3 +1554,45 @@ neither end: a move out of one would inject invented stock into the books.
 A move does not appear in the checkout log, and the log says so — nobody is
 holding it. It shows on On hand immediately, and on Activity and the
 roll-forward as a transfer.
+
+### Giving previously expensed drug away at $0 (2026-10-02)
+
+John put three items on Jake's shelf at no cost, to be used up this month:
+1 x 250-dose UltraChoice, 4 x 50-dose Pinkeye, 9 x 10-dose Protivity — 540
+units. The catalog settled the arithmetic rather than a guess; his figures and
+the bottle sizes agree on all three.
+
+**$0 is right here and catalog was right for the tags**, and the difference is
+worth stating because it looks inconsistent. Tags are a recurring per-head cost
+that has to read right on every lot forever. This is a one-time leftover with
+an end date, already paid for once before there was a system, and charging a
+lot for it again would charge twice. The same reasoning John applied to
+Protivity back in July: give it to processing at no cost and burn it up.
+
+**"As the oldest inventory" is the one thing the period lock would not allow.**
+Jake is locked through 30 Sep by his posted count, so the earliest a layer can
+be dated is 1 Oct, and his existing UltraChoice and Pinkeye layers are dated
+30 Sep. FIFO orders by `received_date` first. Backdating would have meant
+un-posting the count his opening balance and Jayci's reconciliation rest on, to
+make an inventory figure read differently — not worth it, and not auditable
+afterwards. So they are dated 1 Oct with `sort_order` -1, ahead of everything
+else in the open period, and what FIFO will actually do is:
+
+| | what draws first |
+|---|---|
+| Protivity | nothing else exists — the $0 stock IS first |
+| Pinkeye | 47.25 costed doses, then the 200 free |
+| UltraChoice | 324.33 costed doses, then the 250 free |
+
+Over the month the total is identical; only which lot carries the real cost
+changes, and 47 head clears the costed pinkeye early anyway.
+
+**Protivity still cannot draw**, and no amount of inventory fixes it:
+`flat_dose_amount` is NULL and the active protocol it sits on sets no override,
+so a processing draw has no dose to pull. Those 90 doses will sit exactly the
+way the per-hundredweight meds sat waiting on a weight. One field on the
+Medications tab — doses a head — and it burns up as intended.
+
+**John transferred the Multi Min himself** to test the new screen: 3 x 500 mL,
+Ranch to Jake, carried at $0.612687, and the medicine room went 2,000 mL to
+500. The transfer worked in production on the day it shipped.
