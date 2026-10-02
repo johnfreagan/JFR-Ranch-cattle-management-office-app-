@@ -4921,6 +4921,20 @@
                 </div>
             </div>
             <div>
+                <label for="lotEstWeight">Estimated purchase weight (lb a head)</label>
+                <input type="number" step="1" min="0" id="lotEstWeight" placeholder="e.g. 525">
+                <div class="muted" style="font-size: 11px; margin-top: 3px;">
+                    Only used to dose <strong>per-hundredweight processing medicine while this lot has no
+                    invoice weight at all</strong>. The moment an invoice is entered it takes over and this
+                    is ignored — real weight always wins. Leave blank and those meds simply do not draw
+                    until an invoice lands, and a count will not post while they are waiting.
+                </div>
+            </div>
+            <div>
+                <label for="lotEstWeightSource">Who gave the estimate</label>
+                <input type="text" id="lotEstWeightSource" placeholder="e.g. John, at purchase">
+            </div>
+            <div>
                 <label for="lotNotes">Notes</label>
                 <textarea id="lotNotes"></textarea>
             </div>
@@ -9543,6 +9557,8 @@ window.addEventListener('unhandledrejection', function(e) {
         $('endTag').value=mode==='duplicate'?'':(seed?.end_tag||'');
         $('targetAdg').value=seed?.target_adg||'';
         $('lotNotes').value=mode==='duplicate'?'':(seed?.notes||'');
+        $('lotEstWeight').value = mode==='duplicate' ? '' : (seed?.est_purchase_weight_lb ?? '');
+        $('lotEstWeightSource').value = mode==='duplicate' ? '' : (seed?.est_weight_source || '');
         // Settable on a NEW lot only. Flipping it on a lot that already holds
         // real cattle would hide its Closeout, strip its assumptions out of
         // every cost view that reads them and let head transfer in at $0 —
@@ -9596,6 +9612,8 @@ window.addEventListener('unhandledrejection', function(e) {
             end_tag:$('endTag').value?parseInt($('endTag').value):null,
             target_adg:$('targetAdg').value?parseFloat($('targetAdg').value):null,
             notes:$('lotNotes').value.trim()||null,
+            est_purchase_weight_lb: $('lotEstWeight').value ? Number($('lotEstWeight').value) : null,
+            est_weight_source: $('lotEstWeightSource').value.trim()||null,
             created_by:currentUser.id
         };
         if(mode==='new') payload.is_feed_pen=$('lotIsFeedPen').checked;
@@ -35746,14 +35764,18 @@ ${ranchBlocks}
             return null;
         }
 
-        let drawn = 0, waiting = 0;
+        let drawn = 0, waiting = 0, locked = 0;
         for (const rid of ids) {
             try {
-                if (reverseFirst) await supabase.rpc('med_processing_reverse', { p_receipt_id: rid });
+                if (reverseFirst) {
+                    const { data: rev } = await supabase.rpc('med_processing_reverse', { p_receipt_id: rid });
+                    locked += Number(rev && rev.lines_locked) || 0;
+                }
                 const { data, error } = await supabase.rpc('med_processing_draw', { p_receipt_id: rid });
                 if (error) throw error;
                 drawn   += Number(data && data.lines_drawn) || 0;
                 waiting += Number(data && data.lines_awaiting_weight) || 0;
+                locked  += Number(data && data.lines_locked) || 0;
             } catch (e) {
                 // Never swallowed: a draw that did not happen becomes shrink at
                 // the next count, and that is exactly the number nobody can
@@ -35770,7 +35792,17 @@ ${ranchBlocks}
                 `They draw by themselves when the invoice is entered. A count will not post until they do.`,
                 'warning');
         }
-        return { drawn, waiting };
+        // John's rule, 2026-10-02: correct it while the month is open, leave it
+        // when the week straddled month end. Said out loud rather than silently
+        // skipped - the shelf and this invoice now disagree by that much, on
+        // purpose, and somebody should know which lines.
+        if (locked > 0) {
+            showAlert('globalAlert',
+                `${locked} processing line(s) fall in a month that is already counted and closed, so they were ` +
+                `left as they were drawn. The invoice weight does not change them. Nothing further to do.`,
+                'warning');
+        }
+        return { drawn, waiting, locked };
     }
 
     // Deleting or re-saving a treatment puts its units back on the shelf, to
