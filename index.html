@@ -2519,27 +2519,19 @@
                         <label for="invCoPerson">Crew member</label>
                         <select id="invCoPerson"></select>
                     </div>
-                    <div>
-                        <label for="invCoMed">Medication</label>
-                        <select id="invCoMed"></select>
-                    </div>
-                    <div>
-                        <label for="invCoBottles">Bottles</label>
-                        <input type="number" step="0.25" id="invCoBottles" placeholder="1">
-                    </div>
-                    <div>
-                        <label for="invCoBottleSize">Bottle size</label>
-                        <input type="number" step="0.01" id="invCoBottleSize" placeholder="250">
-                        <div class="muted" style="font-size:11px;margin-top:2px;">
-                            Fills in from the catalog. <strong>Change it</strong> when the size that
-                            left the room is not that one &mdash; the med-room sheet says which.
-                        </div>
-                    </div>
                 </div>
+                <p class="muted" style="font-size: 12px; margin: 10px 0 6px 0;">
+                    One man, as many items as he took. Bottle size fills in from the catalog &mdash;
+                    <strong>change it</strong> when the size that left the room is not that one, and the
+                    med-room sheet says which.
+                </p>
+                <div id="invCoLines"></div>
+                <button id="invCoAddLineBtn" style="margin-top: 8px;">+ Line</button>
                 <div id="invCoAlert"></div>
                 <div style="display: flex; gap: 8px; margin-top: 12px;">
                     <button class="primary" id="invCoSaveBtn" data-write>Record checkout</button>
                     <button id="invCoReturnBtn" data-write>Record return</button>
+                    <span class="muted" id="invCoSummary" style="align-self: center; font-size: 12px;"></span>
                 </div>
 
                 <h4 style="margin: 22px 0 6px 0;">Checkout log</h4>
@@ -35837,6 +35829,7 @@ ${ranchBlocks}
     let invMedsCache = [];      // active medications, for pickers and matching
     let invUsers = [];          // for the checkout person picker
     let invPurchaseLines = [];  // entry grid state
+    let invCoLines = [];        // checkout grid state - one man, many items
     let invCountsCache = [];    // the counts list, for the delete confirmation
     let invCountState = null;   // { id, lines: [...] } while a count is open
     let invOnHandCache = [];    // last on-hand render, so the sheet can print it
@@ -36293,8 +36286,8 @@ ${ranchBlocks}
     // ---- CHECKOUTS -------------------------------------------------------
     async function initInvCheckouts() {
         $('invCoDate').value = ranchToday();
-        invFillMedSelect('invCoMed');
-        invSyncCoBottleSize();
+        invCoLines = [];
+        invCoAddLine();
         // Crew members, NOT app users. Most of the men who carry bottles have
         // no login and should never see field-app information; the office or
         // the head crew leader enters on their behalf.
@@ -36305,19 +36298,69 @@ ${ranchBlocks}
         loadInvCheckoutLog();
     }
 
-    // The size box follows the medication, and a typed size STICKS TO THE
-    // MEDICATION IT WAS TYPED FOR. The med-room sheet runs down a list of men
-    // mostly taking the same drug, so re-defaulting after every save would
-    // make somebody retype 100 five times. But switching drug has to drop it,
-    // or the next man gets Resflor recorded at Excede's size.
-    function invSyncCoBottleSize() {
-        const el = $('invCoBottleSize');
+    // One man, as many items as he took. The med-room sheet is written that
+    // way - a name, then everything under it - and entering it a line at a
+    // time meant re-picking the same man four times and four log rows that
+    // nothing tied together.
+    function invCoAddLine(seed) {
+        invCoLines.push({
+            tempId: invTempId(),
+            medication_id: (seed && seed.medication_id) || '',
+            bottles: '',
+            bottle_size: (seed && seed.bottle_size) || '',
+            // The medication a typed size was typed FOR. A size that sticks
+            // to its drug saves retyping 100 down a column of Excede; a size
+            // that sticks to the BOX would record the next man's Resflor at
+            // Excede's size.
+            sizeTouchedFor: (seed && seed.sizeTouchedFor) || ''
+        });
+        renderInvCoLines();
+    }
+
+    function invCoDefaultSize(line) {
+        if (line.sizeTouchedFor && line.sizeTouchedFor === line.medication_id) return;
+        const med = invMedById(line.medication_id);
+        line.bottle_size = (med && med.bottle_size) ? String(med.bottle_size) : '';
+        line.sizeTouchedFor = '';
+    }
+
+    function renderInvCoLines() {
+        const host = $('invCoLines');
+        if (!host) return;
+        if (!invCoLines.length) {
+            host.innerHTML = '<div class="empty">Nothing yet. Click + Line.</div>';
+            renderInvCoSummary();
+            return;
+        }
+        let html = `<table><thead><tr>
+            <th>Medication</th><th class="num">Bottles</th><th class="num">Bottle size</th>
+            <th>Unit</th><th class="num">Units</th><th></th></tr></thead><tbody>`;
+        invCoLines.forEach(l => {
+            const med = invMedById(l.medication_id);
+            const opts = '<option value="">— pick —</option>' + invMedsCache.map(m =>
+                `<option value="${m.id}"${m.id === l.medication_id ? ' selected' : ''}>${escapeHtml(m.name)}</option>`).join('');
+            const units = (invNum(l.bottles) || 0) * (invNum(l.bottle_size) || 0);
+            html += `<tr>
+                <td><select data-inv-coline="${l.tempId}" data-field="medication_id" style="min-width:180px;">${opts}</select></td>
+                <td class="num"><input type="number" step="0.25" style="width:80px;text-align:right;" value="${l.bottles ?? ''}" data-inv-coline="${l.tempId}" data-field="bottles"></td>
+                <td class="num"><input type="number" step="0.01" style="width:90px;text-align:right;" value="${l.bottle_size ?? ''}" data-inv-coline="${l.tempId}" data-field="bottle_size"></td>
+                <td class="muted">${escapeHtml(med ? (med.bottle_size_unit || 'mL') : '')}</td>
+                <td class="num">${units ? fmtNum(units, 1) : '—'}</td>
+                <td><button data-inv-rmcoline="${l.tempId}">✕</button></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        host.innerHTML = html;
+        renderInvCoSummary();
+    }
+
+    function renderInvCoSummary() {
+        const el = $('invCoSummary');
         if (!el) return;
-        const medId = $('invCoMed').value;
-        if (el.dataset.touchedFor && el.dataset.touchedFor === medId) return;
-        const med = invMedById(medId);
-        el.value = (med && med.bottle_size) ? med.bottle_size : '';
-        delete el.dataset.touchedFor;
+        const used = invCoLines.filter(l => l.medication_id || invNum(l.bottles) != null);
+        if (!used.length) { el.textContent = ''; return; }
+        const bottles = used.reduce((s, l) => s + (invNum(l.bottles) || 0), 0);
+        el.textContent = `${used.length} item${used.length === 1 ? '' : 's'}, ${fmtNum(bottles, 2)} bottles.`;
     }
 
     async function loadInvCrewMembers(force) {
@@ -36328,47 +36371,86 @@ ${ranchBlocks}
     }
 
     async function saveInvCheckout(isReturn) {
-        const medId = $('invCoMed').value;
         const person = $('invCoPerson').value;
-        const bottles = invNum($('invCoBottles').value);
-        if (!medId || !person || !(bottles > 0)) {
+        // A line nobody touched is not an error, it is a spare row. A line
+        // half filled in IS an error, and naming which one beats a blanket
+        // refusal when four items are on the screen.
+        const lines = invCoLines.filter(l => l.medication_id || invNum(l.bottles) != null);
+        if (!person || !lines.length) {
             showAlert('invCoAlert', 'Pick a person, a medication and a number of bottles.', 'error');
             return;
         }
-        const med = invMedById(medId);
-        // THE SIZE THAT LEFT THE ROOM, not whichever one the catalog holds.
-        // Excede is on the place in 100 mL and 250 mL and the men take both;
-        // reading the catalog here recorded 2 bottles of the small one as
-        // 500 mL instead of 200. The box defaults from the catalog and is
-        // overridable, the same way a purchase line has always been.
-        const size = invNum($('invCoBottleSize').value) || Number(med && med.bottle_size) || 0;
-        if (!(size > 0)) {
-            showAlert('invCoAlert', `${med ? med.name : 'That medication'} has no bottle size on the Medications tab, so put the size of the bottle that left the room in the Bottle size box.`, 'error');
+        const problems = [];
+        const rows = [];
+        lines.forEach((l, i) => {
+            const med = invMedById(l.medication_id);
+            const bottles = invNum(l.bottles);
+            const label = `Line ${i + 1}`;
+            if (!med) { problems.push(`${label}: pick a medication.`); return; }
+            if (!(bottles > 0)) { problems.push(`${label} (${med.name}): how many bottles?`); return; }
+            // THE SIZE THAT LEFT THE ROOM, not whichever one the catalog
+            // holds. Excede is on the place in 100 mL and 250 mL and the men
+            // take both; reading the catalog here recorded 2 bottles of the
+            // small one as 500 mL instead of 200. The box defaults from the
+            // catalog and is overridable, the same way a purchase line has
+            // always been.
+            const size = invNum(l.bottle_size) || Number(med.bottle_size) || 0;
+            if (!(size > 0)) {
+                problems.push(`${label} (${med.name}): no bottle size on the Medications tab, so put the size of the bottle that left the room in the Bottle size box.`);
+                return;
+            }
+            rows.push({ med, bottles, size });
+        });
+        if (problems.length) { showAlert('invCoAlert', problems.join('<br>'), 'error'); return; }
+        // Two lines of the same drug at the same size are one checkout written
+        // twice, not two bottles - the sheet never reads that way.
+        const seen = new Set();
+        const dup = rows.find(r => {
+            const key = r.med.id + '|' + r.size;
+            if (seen.has(key)) return true;
+            seen.add(key); return false;
+        });
+        if (dup) {
+            showAlert('invCoAlert', `${escapeHtml(dup.med.name)} at ${fmtNum(dup.size, 0)} is on two lines. Put the whole number of bottles on one.`, 'error');
             return;
         }
+
         const ranch = invLocations.find(l => l.kind === 'ranch' && !l.is_test);
         const { data: { user } } = await supabase.auth.getUser();
+        const txnDate = $('invCoDate').value || ranchToday();
         // A checkout does not move stock. direction 0: custody only.
-        const { error } = await supabase.from('med_txns').insert({
-            txn_date: $('invCoDate').value || ranchToday(),
+        //
+        // One insert, so the man's sheet lands whole or not at all. Half a
+        // sheet is worse than none: the rest gets retyped and the first items
+        // are then in the log twice.
+        const { error } = await supabase.from('med_txns').insert(rows.map(r => ({
+            txn_date: txnDate,
             txn_type: 'checkout',
-            medication_id: medId,
+            medication_id: r.med.id,
             location_id: ranch.id,
-            qty_units: (isReturn ? -1 : 1) * bottles * size,
+            qty_units: (isReturn ? -1 : 1) * r.bottles * r.size,
             // Snapshotted, so a later catalog change cannot rewrite what went
             // out. Same reason med_purchase_lines and med_count_lines each
             // carry their own.
-            bottle_size: size,
+            bottle_size: r.size,
             direction: 0,
             crew_member_id: person,
             notes: isReturn ? 'Return' : null,
             created_by: user ? user.id : null
-        });
+        })));
         if (error) { showAlert('invCoAlert', error.message, 'error'); return; }
+        const what = rows.map(r =>
+            `${fmtNum(r.bottles, 2)} x ${fmtNum(r.size, 0)} ${r.med.bottle_size_unit || 'mL'} ${escapeHtml(r.med.name)}`).join(', ');
         showAlert('invCoAlert',
-            `${isReturn ? 'Return' : 'Checkout'} recorded: ${fmtNum(bottles, 2)} x ${fmtNum(size, 0)} ` +
-            `${(med && med.bottle_size_unit) || 'mL'} = ${fmtNum(bottles * size, 1)}.`, 'success');
-        $('invCoBottles').value = '';
+            `${isReturn ? 'Return' : 'Checkout'} recorded - ${rows.length} item${rows.length === 1 ? '' : 's'}: ${what}.`, 'success');
+        // Next man, same sheet. The last drug and size carry over because a
+        // column of the sheet is usually the same drug; the NAME does not,
+        // because filing one man's bottles under the man above him is the
+        // mistake this screen exists to avoid.
+        const last = rows[rows.length - 1];
+        invCoLines = [];
+        invCoAddLine({ medication_id: last.med.id, bottle_size: String(last.size), sizeTouchedFor: last.med.id });
+        $('invCoPerson').value = '';
         loadInvCheckoutLog();
     }
 
@@ -37325,9 +37407,34 @@ ${ranchBlocks}
         if (del) deleteInvPurchase(del.dataset.invDelPurchase);
     });
 
-    $('invCoMed').addEventListener('change', () => invSyncCoBottleSize());
-    $('invCoBottleSize').addEventListener('input', (e) => {
-        e.target.dataset.touchedFor = $('invCoMed').value || '';
+    $('invCoAddLineBtn').addEventListener('click', () => invCoAddLine());
+    // Delegated, same as the purchase grid: the number fields deliberately do
+    // NOT re-render, because re-rendering eats the caret.
+    $('invCoLines').addEventListener('input', (e) => {
+        const el = e.target.closest('[data-inv-coline]');
+        if (!el) return;
+        const line = invCoLines.find(l => l.tempId === el.dataset.invColine);
+        if (!line) return;
+        line[el.dataset.field] = el.value;
+        if (el.dataset.field === 'bottle_size') line.sizeTouchedFor = line.medication_id || '';
+        renderInvCoSummary();
+    });
+    $('invCoLines').addEventListener('change', (e) => {
+        const el = e.target.closest('[data-inv-coline]');
+        if (el && el.dataset.field === 'medication_id') {
+            const line = invCoLines.find(l => l.tempId === el.dataset.invColine);
+            if (line) {
+                line.medication_id = el.value;
+                invCoDefaultSize(line);
+                renderInvCoLines();
+            }
+        }
+    });
+    $('invCoLines').addEventListener('click', (e) => {
+        const rm = e.target.closest('[data-inv-rmcoline]');
+        if (!rm) return;
+        invCoLines = invCoLines.filter(l => l.tempId !== rm.dataset.invRmcoline);
+        if (!invCoLines.length) invCoAddLine(); else renderInvCoLines();
     });
     $('invCoSaveBtn').addEventListener('click', () => saveInvCheckout(false));
     $('invCoReturnBtn').addEventListener('click', () => saveInvCheckout(true));

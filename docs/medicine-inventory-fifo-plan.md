@@ -1288,3 +1288,93 @@ the opening balance of a real set of books should show its working:
 | `2026-10-02_med_processing_draw.sql` | processing draws off the shelf; a count will not post ahead of a weight |
 | `2026-10-02b_med_count_delete_guard.sql` | a posted count cannot be deleted; drafts can |
 | `2026-10-02c_med_estimated_weight.sql` | an office estimate doses per-cwt meds until the first invoice |
+| `2026-10-02d_med_fifo_processing_cost.sql` | a lot reads the FIFO draw where there is one, the catalog where there is not |
+
+### A lot's processing cost reads what was really used (2026-10-02)
+
+John: *"Pull processing meds using fifo costing after October 1."*
+
+`lot_processing_cost_detail` priced every processing med off the catalog —
+`dose × medications.cost_per_unit`. That is the right answer while nothing has
+been drawn, and it was all there was before the shelf existed. From go-live a
+receipt also pulls real bottles off real FIFO layers at the price those layers
+were bought at, and the catalog price is a *current* price, not the price of
+the drug that went in the cattle. Two numbers for one event, and the lot was
+carrying the wrong one.
+
+Per receipt, per medication, in order:
+
+1. a FIFO draw exists → cost per head = **drawn cost ÷ head**;
+2. no draw → the catalog, as before;
+3. neither → `cost_per_head`, else NULL, which is a hole and reads as one.
+
+**No date is hard-coded.** A draw can only exist where `usage_from` let it
+happen, so the rule scopes itself: September receipts have no draw and keep
+their implied cost, October receipts have one and read it. The day go-live
+moves for a new location this follows without an edit.
+
+The **dose follows the money** — `avg_dose` reads `drawn_units ÷ head` where
+there is a draw. Otherwise a lot could show the protocol's 10 mL beside a cost
+that came from the 8 mL actually pulled.
+
+**Item 16 held.** All 10 lots snapshotted to `_proc_cost_snapshot_20261002`
+before and compared after: **$99,264.14 both times, not one lot moved a cent.**
+The only drawn receipt is lot 32-26's 1 Oct, 9 head, where implied and actual
+agree exactly at $109.72 — the layer is what set the catalog price. The two
+separate the first time a price changes between a purchase and a processing,
+and from then on the lot carries the price of the bottle that was used.
+
+An hour later the same gate reported lot 32-26 **up $266.16**, which is not
+this change: John had entered **355 lb** as the office estimate, so Valcor,
+Macrosyn and Synanthic started pricing — exactly what `2026-10-02c` built the
+estimate for. Proved by rebuilding the view body with the draw preference
+switched **off** and comparing lot by lot: catalog-only and drawn agree to the
+cent on all 10 lots *with* the estimate in place. The verify now exempts a lot
+priced off an estimate and **names it**, rather than failing forever on data
+that arrived after the snapshot.
+
+`rls_verify` then caught the snapshot table itself: a public table with RLS
+off, holding processing cost a lot. Dollars, and crew never sees dollars. It
+now reads like every other costed table — `can_read_books()` — and it is
+disposable once the FIFO costing has a month behind it. rls_verify: **PASS**.
+
+**Open on lot 32-26, and it needs John.** Three lines on the 1 Oct receipt read
+`to draw` — Valcor 63, Macrosyn 36, Synanthic 36 units. They were skipped when
+the receipt was saved because the dose was unknowable without a weight, and the
+weight came afterwards. The drug is out of the barn and the shelf does not know
+it. Re-saving that load out pulls them; Jake Taylor is locked only through
+30 Sep, so a 1 Oct draw is allowed.
+
+### One man, as many items as he took (2026-10-02)
+
+John: *"Need to be able to add multiple items on med checkout sheet per crew
+member."*
+
+The Checkouts screen took one medication at a time, which is not how the sheet
+in the medicine room is written — a name, then everything that went out under
+it. Four items meant picking the same man four times, and four log rows that
+nothing tied together.
+
+The form is now a date, a crew member, and a **grid of lines**: medication,
+bottles, bottle size, with `+ Line` and a ✕ per row. It follows
+`renderInvPurchaseLines()` — delegated handlers, and the number fields
+deliberately do **not** re-render, because re-rendering eats the caret.
+
+Three things it holds onto:
+
+- **one insert**, so a man's sheet lands whole or not at all. Half a sheet is
+  worse than none: the rest gets retyped and the first items are then in the
+  log twice.
+- **a typed size sticks to its medication**, per line. Saves retyping 100 down
+  a column of Excede; a size that stuck to the *box* would record the next
+  man's Resflor at Excede's size.
+- **the same drug twice at the same size is refused.** That is one checkout
+  written twice, not two bottles — the sheet never reads that way.
+
+After a save the last drug and size carry over to the fresh line, because a
+column of the sheet is usually the same drug. The **name does not**: filing one
+man's bottles under the man above him is the mistake this screen exists to
+avoid.
+
+No schema change. `med_txns.bottle_size` from `2026-10-01m` already carries the
+size per row, and a checkout is still `direction 0` — custody, not movement.

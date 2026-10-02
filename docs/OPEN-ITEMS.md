@@ -148,6 +148,43 @@ one moves no stock and un-does nothing.
 
 ---
 
+## 0i. Three processing lines on lot 32-26 are out of the barn and off the books
+
+**Found 2026-10-02.** Needs John, because it moves real stock.
+
+Lot 32-26's **1 Oct receipt, 9 head** drew 8 of its 11 lines, $109.72. Three
+did not, and read `to draw` on `med_processing_lines`:
+
+| medication | units waiting |
+|---|---|
+| Valcor | 63 |
+| Macrosyn(Draxxin) | 36 |
+| Synanthic | 36 |
+
+All three are dosed **per hundredweight**. When the load out was saved the lot
+had no weight of any kind, so the dose was unknowable and the draw skipped
+them rather than guess. John then entered **355 lb** as the office estimate
+(`2026-10-02c`), so the dose is now known — but a draw happens at save time,
+not retroactively, which is the same rule that made the go-live backfill
+deliberate rather than automatic.
+
+So the drug is out of the barn and the shelf does not know it. The lot is not
+under-costed — those lines price off the catalog in the meantime — but the
+**on-hand is overstated** by what is sitting in the table above.
+
+**The fix is one action:** open that load out and save it. The draw re-asks
+every line, pulls the three, and the lot flips from implied to actual on them.
+Jake Taylor is locked only through **30 Sep**, so a 1 Oct draw is allowed and
+nothing has to be un-posted.
+
+**Watch for it again at every month end.** Any per-cwt line on a receipt
+entered before its weight will sit like this until somebody re-saves. The
+count gate (`0g`) catches the straddle case — it will not let a count post
+while a receipt in its period waits on a weight — but a weight that arrives
+*after* the period closed cannot be drawn into it at all.
+
+---
+
 ## 0d. Three stock locations, against a design that deliberately has one
 
 **Status:** DECIDED 2026-10-01 — Jake Taylor added now, the room/truck split
