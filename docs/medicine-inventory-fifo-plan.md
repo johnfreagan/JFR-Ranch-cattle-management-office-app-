@@ -1432,6 +1432,7 @@ and the verify block asserts it lot by lot rather than trusting that.
 | `2026-10-02g_med_jake_id_tags.sql` | Jake's #2-999, and his nine on the 1st covered |
 | `2026-10-02h_med_transfer.sql` | stock moves between pools, FIFO, at its own cost |
 | `2026-10-02i_med_jake_zero_cost_stock.sql` | previously expensed drug to Jake at $0, to use up |
+| `2026-10-02j_med_protivity_dose.sql` | Protivity doses 1 a head, so its free stock can draw |
 
 ### Tags are stock, and the office block went on the shelf (2026-10-02)
 
@@ -1587,11 +1588,29 @@ else in the open period, and what FIFO will actually do is:
 Over the month the total is identical; only which lot carries the real cost
 changes, and 47 head clears the costed pinkeye early anyway.
 
-**Protivity still cannot draw**, and no amount of inventory fixes it:
-`flat_dose_amount` is NULL and the active protocol it sits on sets no override,
-so a processing draw has no dose to pull. Those 90 doses will sit exactly the
-way the per-hundredweight meds sat waiting on a weight. One field on the
-Medications tab — doses a head — and it burns up as intended.
+**Protivity could not draw** until John gave the dose the same day: *"1 dose
+per hd 10 doses a bottle."* The bottle was already right at 10 doses — only
+`flat_dose_amount` was missing, so a draw had no dose to pull and those 90
+doses would have sat the way the per-hundredweight meds sat waiting on a
+weight. One field (`2026-10-02j`).
+
+Its **catalog price stays NULL on purpose.** Setting `bottle_cost` to 0 would
+say Protivity costs nothing in general; what is true is that the stock Jake was
+given is free, which is a fact about those 9 bottles and belongs on the layer,
+where it already is. Draws off that layer read $0 because they really were
+free; older receipts keep reading as a hole, which is honest.
+
+The item 16 gate held for a reason worth writing down: `cost_per_head_line`
+needs a *price*, and Protivity still has none, so giving it a dose cannot move
+a dollar anywhere — $99,530.31 before and after, same 5 lots carrying unpriced
+lines. What changed is that the line can now draw.
+
+One trap recorded in that file: when the free 90 doses run out, a further draw
+goes uncovered, and `med_consume` prices uncovered usage at the last cost it
+knows — which is now the $0 layer. It would book free and *not* be flagged
+unpriced, because that flag only raises when there is no number at all. The
+units still show as uncovered on screen. If Protivity is ever bought again,
+price it before it is used.
 
 **John transferred the Multi Min himself** to test the new screen: 3 x 500 mL,
 Ranch to Jake, carried at $0.612687, and the medicine room went 2,000 mL to
