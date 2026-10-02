@@ -1428,3 +1428,44 @@ and the verify block asserts it lot by lot rather than trusting that.
 | file | what it did |
 |---|---|
 | `2026-10-02e_lot_processing_costs_one_source.sql` | the lot card and the report read one costing |
+
+### Tags are stock, and the office block went on the shelf (2026-10-02)
+
+John: *"We have 5000 id tags #1001-6000 in med room. Put in inventory at the
+catalog price."*
+
+5,000 doses × $0.4056 = **$2,028.00**. The catalog carries ID Tag as a 50-dose
+bag at $20.28, so that is 100 bags, and `cost_per_unit` is a generated column
+off the bag — nothing set a price by hand.
+
+**It went in as an `adjustment` layer, not a count**, for three reasons in
+order of weight:
+
+1. The Ranch count for 30 Sep is **posted**. `med_locked_through('Ranch')` is
+   2026-09-30 and `med_purchase_lines` carries the period-lock trigger, so a
+   layer dated on or before that is refused outright. The tags were simply
+   never on that sheet.
+2. A count is the shelf as somebody saw it on a day. Posting one today would
+   lock the Ranch period through 2 Oct and shut the door on 1–2 Oct doctoring
+   still to be entered. Full counts at month end, every month — John's rule.
+3. Jayci's reconciliation is built on the 30 Sep balance. Found stock belongs
+   *after* it, in the open period, as its own line rather than as a changed
+   opening figure.
+
+The ledger trigger wrote the matching +5,000 row by itself; its note says what
+the stock is, where it came from and that the price is the catalog because the
+invoice has not been found — so the correction, when it lands, is this layer's
+`unit_cost` and nothing downstream has to be reversed. Nothing has drawn
+against it yet.
+
+Two traps this hit, both now commented in the file: `qty_units` on a purchase
+line is **generated** (`qty_bottles × bottle_size`) and refuses a value, the
+same way `medications.cost_per_unit` does; and the layer is unit-normalized
+(`bottle_size` 1, `qty_bottles` in units) like every other layer on the place,
+while `med_on_hand` still reports 100 bags because `bottles_equiv` divides by
+the catalog size.
+
+**What it did not do:** settle Jake Taylor's uncovered tags. His 1 Oct draw
+took 9 ID tags and 9 Lot tags off a shelf that holds neither, and those came
+out of his box 150 miles from the medicine room. Settling them here would
+charge the lot for tags that never moved. OPEN-ITEMS **0k**.

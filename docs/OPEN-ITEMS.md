@@ -235,6 +235,39 @@ Summing the integer keeps it bigint.
 
 ---
 
+## 0k. Jake's tags are not in inventory, so his processing draw is uncovered
+
+**Found 2026-10-02**, entering the office tags. Needs John.
+
+The office block is on the shelf — 5,000 ID tags, #1001-6000, $2,028.00
+(`docs/sql/2026-10-02f_med_id_tags_office_stock.sql`). **Jake Taylor's are
+not**, and neither are lot tags at either place:
+
+| location | medication | on hand | uncovered |
+|---|---|---|---|
+| Ranch | ID Tag | 5,000 · $2,028.00 | — |
+| Ranch | Lot Tag | 0 | — |
+| Jake Taylor | ID Tag | 0 | **9 · $3.65** |
+| Jake Taylor | Lot Tag | 0 | **9 · $3.65** |
+
+The 1 Oct processing draw took 9 of each off a shelf that holds neither, so
+both sit as uncovered usage priced at catalog. The lot is **not** under-charged
+— uncovered usage still costs the lot at catalog — but the shelf cannot show
+what Jake is holding, and `med_settle_uncovered()` has no layer to settle
+against.
+
+**What is known:** Jake has **#2-1000, 999 ID tags**, verified by John
+2026-10-02. Lot tags at both places are uncounted, and John's note from the
+day before stands: *"The lot tag haven't been billed to us yet."*
+
+**The proposal, waiting on his word:** an adjustment layer for Jake's 999 ID
+tags at catalog, $405.19, dated in the open period exactly as the office block
+was — then `med_settle_uncovered()` clears his 9. Lot tags stay out until
+somebody counts them, because a quantity nobody has looked at is not an
+opening balance.
+
+---
+
 ## 0d. Three stock locations, against a design that deliberately has one
 
 **Status:** DECIDED 2026-10-01 — Jake Taylor added now, the room/truck split
