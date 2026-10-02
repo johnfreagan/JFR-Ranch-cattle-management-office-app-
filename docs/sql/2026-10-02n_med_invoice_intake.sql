@@ -1,4 +1,7 @@
--- STATUS 2026-10-02: DRAFT, NOT APPLIED. Awaiting John's explicit approval (CLAUDE.md: schema changes need it).
+-- STATUS 2026-10-02: NOT APPLIED. Tested in a forced-rollback run against the
+-- real #6654 email (John: "Test", 14:06 CT) - passed, rolled back clean.
+-- John said "Apply" 14:08 CT; the apply_migration approval prompt was
+-- cancelled, so nothing is live yet.
 
 -- Bar J vet-med invoices: email -> staged intake -> Approvals > Meds -> purchase.
 --
