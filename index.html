@@ -35805,6 +35805,7 @@ ${ranchBlocks}
     let invMedsCache = [];      // active medications, for pickers and matching
     let invUsers = [];          // for the checkout person picker
     let invPurchaseLines = [];  // entry grid state
+    let invCountsCache = [];    // the counts list, for the delete confirmation
     let invCountState = null;   // { id, lines: [...] } while a count is open
     let invOnHandCache = [];    // last on-hand render, so the sheet can print it
     let invCrewMembers = [];    // names, not app users - most hands have no login
@@ -36387,6 +36388,7 @@ ${ranchBlocks}
         if (error) { $('invCountListContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
         if (!(data || []).length) { $('invCountListContent').innerHTML = '<div class="empty">No counts yet.</div>'; return; }
 
+        invCountsCache = data || [];
         let html = `<table><thead><tr><th>Date</th><th>Location</th><th>Counted by</th>
             <th>Status</th><th>Crew</th><th></th></tr></thead><tbody>`;
         (data || []).forEach(c => {
@@ -36404,11 +36406,28 @@ ${ranchBlocks}
                 <td><button data-inv-open-count="${c.id}">${c.status === 'posted' ? 'View' : 'Continue'}</button>
                     ${c.status === 'posted'
                         ? `<button data-inv-unpost="${c.id}" data-perm="owner" data-write style="margin-left:6px;">Un-post</button>`
-                        : ''}</td>
+                        : `<button data-inv-del-count="${c.id}" data-write style="margin-left:6px;">Delete</button>`}</td>
             </tr>`;
         });
         html += '</tbody></table>';
         $('invCountListContent').innerHTML = html;
+    }
+
+    // A DRAFT ONLY. A posted count is un-posted, never deleted: deleting one
+    // cascades its lines away and leaves the layers it created standing with
+    // nothing pointing at where they came from. The database refuses it too -
+    // this button just never offers it.
+    async function deleteInvCount(countId) {
+        const c = (invCountsCache || []).find(x => x.id === countId);
+        const when = c ? c.count_date : 'this count';
+        if (!confirm(`Delete the draft count for ${when}?\n\nA draft has posted nothing, so no stock moves and nothing is un-done. The counted figures on it are lost.`)) return;
+        const { error } = await supabase.from('med_count_lines').delete().eq('count_id', countId);
+        if (error) { showAlert('globalAlert', 'Could not delete the count lines: ' + error.message, 'error'); return; }
+        const { error: e2 } = await supabase.from('med_counts')
+            .delete().eq('id', countId).eq('status', 'draft');
+        if (e2) { showAlert('globalAlert', 'Could not delete the count: ' + e2.message, 'error'); return; }
+        showAlert('globalAlert', 'Draft count deleted.', 'success');
+        loadInvCounts();
     }
 
     async function openInvCountEntry(countId) {
@@ -37294,6 +37313,8 @@ ${ranchBlocks}
         if (open) { openInvCountEntry(open.dataset.invOpenCount); return; }
         const un = e.target.closest('[data-inv-unpost]');
         if (un) unpostInvCount(un.dataset.invUnpost);
+        const del = e.target.closest('[data-inv-del-count]');
+        if (del) deleteInvCount(del.dataset.invDelCount);
     });
     $('invCountLines').addEventListener('input', (e) => {
         const el = e.target.closest('[data-inv-count]');

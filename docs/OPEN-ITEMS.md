@@ -132,25 +132,19 @@ needs one click on the Counts screen. It holds no lines and created nothing.
 
 ---
 
-## 0h. Deleting a count orphans the layers it created
+## 0h. CLOSED — a posted count cannot be deleted, and drafts now can be
 
-**Status:** open, found 2026-10-02 while chasing something else. Not urgent,
-but it is a hole in an otherwise careful design.
+**Closed 2026-10-02**, same day it was found.
+`docs/sql/2026-10-02b_med_count_delete_guard.sql`.
 
-`med_count_lines.count_id` is `ON DELETE CASCADE` and
-`med_purchase_lines.count_id` is `ON DELETE SET NULL`. So deleting a posted
-count **destroys the count detail and leaves its opening layers standing**,
-with nothing left pointing at where they came from. The layers keep their
-value, so no money moves — but the audit trail from a bottle on the shelf back
-to the count that put it there is gone, and `med_unpost_count()` exists
-precisely so nobody needs to delete one.
+A `BEFORE DELETE` trigger on `med_counts` refuses a posted row and says to
+un-post it instead, so the cascade can no longer throw away a count's lines
+and orphan the layers it created. `med_purchase_lines.count_id` is indexed.
 
-`med_purchase_lines.count_id` also has **no index**, so the SET NULL scan goes
-wide on a table that will only grow.
-
-**The fix:** refuse the delete on a posted count (a trigger, or
-`ON DELETE RESTRICT`), and index `med_purchase_lines.count_id`. Un-posting
-first is the supported path and should be the only one.
+**And the Counts screen grew a Delete button for draft rows**, which it never
+had. That gap is how this surfaced: a leftover test draft needed clearing and
+there was no control to do it with. A draft has posted nothing, so deleting
+one moves no stock and un-does nothing.
 
 ---
 

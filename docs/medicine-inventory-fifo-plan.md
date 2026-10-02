@@ -1286,3 +1286,4 @@ the opening balance of a real set of books should show its working:
 | `2026-10-01m_med_checkout_bottle_size.sql` | a checkout records the size of bottle that left the room |
 | `2026-10-01n_med_go_live.sql` | both counts posted, usage_from set, today's doses drawn |
 | `2026-10-02_med_processing_draw.sql` | processing draws off the shelf; a count will not post ahead of a weight |
+| `2026-10-02b_med_count_delete_guard.sql` | a posted count cannot be deleted; drafts can |
