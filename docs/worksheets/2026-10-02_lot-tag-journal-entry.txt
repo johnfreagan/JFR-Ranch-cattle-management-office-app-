@@ -1,0 +1,52 @@
+JFR RANCH CO. LTD.
+Journal entry request - lot tags on hand at 30 September 2026
+Prepared 2 October 2026 for Jayci and Brenda
+
+WHAT HAPPENED
+
+Lot tags were billed to us last month and charged in bulk to cattle, so
+the whole purchase is in September expense. 167 of them had not been used
+as of the morning of 1 October - they were sitting on Jake Taylor's shelf,
+where our processing medicine is held. Those 167 are inventory at 30
+September, not September expense.
+
+THE ENTRY
+
+  Date: 30 September 2026
+
+  Debit   Medicine & supplies inventory (asset)          67.74
+  Credit  [the expense account the bulk lot-tag bill hit]       67.74
+
+  Memo: Capitalize 167 lot tags on hand at 30 Sep 2026, billed in bulk to
+        cattle during September. 167 tags at $0.4056 each (50 for $20.28).
+
+Please map the credit to whichever account took the original bill - we
+think it is the same one the cattle processing supplies run through, but
+you have the invoice.
+
+HOW IT UNWINDS
+
+  9 tags were used on 1 October, $3.65. That expenses in October, out of
+  the asset.
+
+  158 tags remain, $64.08. They stay as inventory until used, and the
+  medicine inventory system now draws them down as cattle are processed.
+
+ONE RECONCILING ITEM, SO IT DOES NOT SURPRISE ANYBODY
+
+The medicine inventory system carries these tags from 1 October, not 30
+September. The reason is that Jake Taylor's September count is posted and
+closed, and the system will not let stock be dated into a closed count -
+that lock is what keeps the count and the books from drifting.
+
+So if you tie the inventory report to the general ledger at 30 September,
+the ledger will show $67.74 that the report does not. One line, this
+entry, and it agrees again from 1 October onward.
+
+If you would rather not have that one-line difference at 30 September,
+date the entry 1 October instead. The trade is that September then keeps
+the full bulk expense, including the tags nobody used. We think 30
+September is the better answer and that is how it is written above, but it
+is your call.
+
+Questions to John.

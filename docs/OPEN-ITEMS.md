@@ -262,9 +262,14 @@ the number it would track. **If this ever stops being a one-off** — another
 bulk buy expensed outside the system — reopen this rather than quietly adding
 more untracked stock.
 
-Lot tags are still out, at both places: nobody has counted them and they have
-not been billed to us. Jake's 9 lot tags from the 1 Oct draw stay uncovered at
-$3.65, so the lot is charged and only the shelf is silent.
+**Lot tags are now in, and the tag story is closed.** John counted 167 at
+Jake's on the morning of 1 Oct (`2026-10-02l`); the 9 his receipt drew that day
+settled against them, repricing nothing, and **no tag usage is uncovered
+anywhere** — Ranch ID 5,000 / $2,028.00, Jake ID 989 / $401.14, Jake Lot 158 /
+$64.08. They were billed in bulk to cattle in September, so a journal entry
+capitalizes the 167 unused at 30 Sep rather than the layer carrying new money:
+`docs/worksheets/2026-10-02_lot-tag-journal-entry.txt`, with the one-day
+inventory-to-GL reconciling item spelled out for Jayci and Brenda.
 
 **The transfer he asked for in the same breath is built** —
 `docs/sql/2026-10-02h_med_transfer.sql`, and the Checkouts screen now moves

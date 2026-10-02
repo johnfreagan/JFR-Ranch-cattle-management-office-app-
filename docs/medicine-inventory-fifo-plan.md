@@ -1434,6 +1434,7 @@ and the verify block asserts it lot by lot rather than trusting that.
 | `2026-10-02i_med_jake_zero_cost_stock.sql` | previously expensed drug to Jake at $0, to use up |
 | `2026-10-02j_med_protivity_dose.sql` | Protivity doses 1 a head, so its free stock can draw |
 | `2026-10-02k_med_fifo_ignores_unpriced_draw.sql` | a draw that knows no price no longer beats the catalog |
+| `2026-10-02l_med_lot_tags_jake.sql` | 167 lot tags at Jake's, and nothing uncovered anywhere |
 
 ### Tags are stock, and the office block went on the shelf (2026-10-02)
 
@@ -1654,3 +1655,48 @@ Proved with a test that rolled itself back: a provisional, uncovered 10-unit
 Primer draw against 37X's receipt left its Primer at **$2.0200 a head before
 and $2.0200 after**. Zero provisional draws exist today, so this is a trap
 closed before it sprang.
+
+### Lot tags, and the tag story closed (2026-10-02)
+
+John: *"Had 167 lot tags as of yesterday morning. Were billed last month to
+cattle bulk let's put in inventory and give me a journal entry to pull that
+forward from last month."*
+
+167 x $0.4056 = **$67.74**, the same bag price the ID tags carry (50 for
+$20.28). **The location is Jake Taylor, settled by arithmetic rather than a
+guess:** his 1 Oct receipt drew 9 lot tags off a shelf that held none, and 167
+on hand that morning less the 9 he used leaves 158 — the identical pattern to
+his ID tags the same morning (998 less the same 9).
+
+`med_settle_uncovered()` covered his 9: **repriced 0**, lot 32-26 unmoved at
+$778.17. **Nothing on the place carries uncovered tag usage any more**, at
+either location, for either kind of tag:
+
+| location | tag | on hand | value |
+|---|---|---|---|
+| Ranch | ID | 5,000 | $2,028.00 |
+| Ranch | Lot | 0 | — |
+| Jake Taylor | ID | 989 | $401.14 |
+| Jake Taylor | Lot | 158 | $64.08 |
+
+**The layer carries no new money**, which is the point of the journal entry.
+The tags were billed in bulk to cattle in September, so the cash is already
+through a closed month's P&L; the entry capitalizes the 167 that were still on
+hand at 30 Sep rather than buying them again. Written up for Jayci and Brenda
+in `docs/worksheets/2026-10-02_lot-tag-journal-entry.txt`: debit medicine and
+supplies inventory $67.74, credit whichever account took the bulk bill, dated
+30 Sep.
+
+**With the one reconciling item stated out loud**, because it would otherwise
+surprise somebody: the shelf layer is dated **1 Oct** — Jake's September count
+is posted and the period lock will not take stock dated into it — while the
+books capitalize at **30 Sep**. So an inventory-to-GL tie at 30 Sep is off by
+exactly this $67.74, and agrees again from 1 Oct. The alternative, dating the
+entry 1 Oct, leaves September carrying the cost of tags nobody used. The
+memo recommends 30 Sep and says it is their call.
+
+A small nit left alone deliberately: Lot Tag carries `bottle_size_unit` 'mL',
+which is nonsense for a tag and reads as "1.000 mL a head" on the lot detail.
+It is label-only — `cost_per_unit` is `bottle_cost / bottle_size` and cares
+nothing for the word — so fixing it changes no number. It is still a data
+correction on live books, so it waits for John.
