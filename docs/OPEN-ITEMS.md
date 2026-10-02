@@ -78,49 +78,58 @@ rebate is actually received.
 
 ---
 
-## 0c. The opening count is a draft, and two things are still to arrive
+## 0c. CLOSED — the opening count posted and the ledger went live
 
-**Status:** open, raised 2026-10-01 with the opening count.
+**Closed 2026-10-01.** Both counts posted, `usage_from` set to 2026-10-01 on
+both locations, and today's seven doctoring draws backfilled by hand because
+they were typed before the ledger was live. Record and standing assertions in
+`docs/sql/2026-10-01n_med_go_live.sql`.
 
-The count at 2026-09-30 stands at **$20,081.64** across 10 stocked lines and
-bridges to Redwing's own $21,896.25 exactly. Every one of the 21 lines now
-says something — none is left NOT COUNTED — which is what makes it postable.
-It is deliberately still a **draft**: posting it creates the opening FIFO
-layers and locks the period.
+| | opening | drawn 10/1 | on hand |
+|---|---|---|---|
+| Ranch | $20,081.64 | $91.12 | $19,990.51 |
+| Jake Taylor | $2,668.56 | — | $2,668.56 |
+| | **$22,750.19** | **$91.12** | **$22,659.07** |
 
-**Settled 2026-10-01: the three crew readings.** All three phrasings that
-carried more than one meaning were put back to John and answered. Enroflox
-"1.2 of 500" is 1/2 of a 500 mL bottle; Resflor "2 bottles 1/2 full" is two
-half bottles, not one full and one half; and Excede's actual is four
-containers — 1 full 100 mL, 1 full 250 mL and two quarter-full 250 mL, 475 mL
-rather than the 187.5 mL estimated. **The weakest of the three readings was
-the one that was wrong**, and it was wrong by $613.27. The lesson for the next
-count: ask for the container size with the fraction, every time.
+The seven NULL `bottle_size` medications all counted zero, so none of them
+blocked the post; they still cannot be stocked or counted until somebody reads
+a label. Protivity posted as a decided zero.
 
-**Settled 2026-10-01: the truck bottle, and Protivity.** The half bottle
-reported as Macrosyn is **Draxxin KP** — 125 mL and $220.50, not 250 mL and
-$195.47 — which also means there is no Macrosyn anywhere on the place and the
-**whole** $373.15 Redwing carries against no quantity is the July posting
-error, not $177.68 of it. And Protivity is counted **zero by decision**: the
-80 doses are real, but their cost was charged to a lot in a past period and
-the product goes to processing at no cost to burn up, so a counted zero is now
-the true statement and no price is needed. That reverses `2026-10-01e`, which
-was right at the time for a different reason — the line then held a zero
-copied from Redwing, which was a false statement about real doses. Same
-number, opposite meaning, and only the second one is honest.
+---
 
-**1. Seven medications still have a NULL `bottle_size`.** Added to the catalog
-on 2026-10-01 because Redwing carried them and this catalog did not. The
-Redwing report gives a container count and a dollar amount and never says how
-big the container is. They stay flagged **needs a container size** until
-somebody reads a label; all seven count zero today, so none of them blocks the
-post.
+## 0g. Processing does not draw from medicine inventory
 
-**2. Jake Taylor's processing medicine.** Counted the same day; it is in no
-figure above. His buyer location exists with `usage_from` NULL, so nothing
-accrues against it until his count is posted. See item 0d.
+**Status:** open, and it is the half of go-live that did not happen. Raised
+2026-10-01.
 
-**What to do:** take Jake Taylor's count, then post and set `usage_from`.
+John asked to go live "so today's doctoring **and processing** goes against
+it". Doctoring does. Processing does not, because nothing in the app consumes
+medicine inventory at processing — there is exactly one `med_consume()` caller
+in `index.html` and it is `invRecordDoctoringUsage`, wired at three doctoring
+save sites.
+
+**What that costs right now.** Jake Taylor's entire shelf is processing
+product, so his **$2,668.56 will sit unchanged** while real doses go in real
+cattle. The plan anticipated this exact shape in its item 19: a buyer balance
+that nothing draws on "would sit untouched for a month and end up overstated
+by whatever he actually used". The ranch holds some processing product too,
+though most of its counted value is doctoring drugs.
+
+**It is not a small build.** The plan's item 17 sets the rule: a processing
+draw comes off the buyer's shelf when his `source_key` matches the lot's
+Source, and off Ranch stock otherwise. That needs the protocol's medication
+list resolved per head, the location chosen per receipt, and a shortfall
+recorded rather than a failure when the buyer's shelf is short.
+
+**And it has a gate the plan calls non-negotiable** (item 16): before
+processing flips to FIFO, a snapshot must show every lot's processing total
+unchanged to the cent. A single lot moving means processing does not flip that
+day.
+
+**Until it is built:** processing medicine use is invisible to the ledger, and
+the first count that covers it will read that use as shrink. Either build the
+draw, or count Jake Taylor's shelf again at month end and book the difference
+knowingly rather than letting it arrive as a shrink figure.
 
 ---
 

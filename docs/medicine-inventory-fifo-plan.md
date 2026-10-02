@@ -1284,3 +1284,4 @@ the opening balance of a real set of books should show its working:
 | `2026-10-01k_med_draxxin_kp_truck_and_protivity.sql` | the truck bottle is Draxxin KP; Protivity written off |
 | `2026-10-01l_med_excede_bottle_size_100.sql` | Excede on a 100 mL bottle so the count screen can take it |
 | `2026-10-01m_med_checkout_bottle_size.sql` | a checkout records the size of bottle that left the room |
+| `2026-10-01n_med_go_live.sql` | both counts posted, usage_from set, today's doses drawn |
