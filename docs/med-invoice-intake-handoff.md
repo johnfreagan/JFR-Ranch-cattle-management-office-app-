@@ -6,6 +6,16 @@ read off the live database / repo — no inference.
 
 ---
 
+## Status, 2026-10-02 (Claude Code session)
+- Step 3 done and on main: Approvals > Meds, reusing the purchase grid. Tested with
+  `scripts/med-intake-harness/run.js` (in-memory stand-in, never the live DB). Detail in
+  `docs/medicine-inventory-fifo-plan.md`, "Emailed invoices: Approvals > Meds".
+- Step 1 NOT done: `apply_migration` timed out four times; nothing reached the database.
+  The file header records it and the md5s to check against once it runs.
+- Step 2 NOT done: no table to stage into. Once the migration is live, stage
+  message `1a0fd5610b3129d5` (or let the 4am run do it).
+- Live browser test as owner not done: no intake table, and no sign-in from the session.
+
 Finish the Bar J invoice intake. Branch `draft/med-invoice-intake` holds the migration
 `docs/sql/2026-10-02n_med_invoice_intake.sql` and this file. Work on that branch, then
 merge to main to deploy.
