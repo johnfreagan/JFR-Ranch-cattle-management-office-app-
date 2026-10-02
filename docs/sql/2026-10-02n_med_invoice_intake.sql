@@ -1,17 +1,14 @@
--- STATUS 2026-10-02: NOT APPLIED. Tested in a forced-rollback run against the
--- real #6654 email (John: "Test", 14:06 CT) - passed, rolled back clean.
--- John said "Apply" 14:08 CT; the apply_migration approval prompt was
--- cancelled, so nothing is live yet.
--- 2026-10-02, Claude Code session: apply_migration tried four times (whole
--- file, and once tables-only); every call timed out at 60s and nothing
--- reached the database (no tables, no functions, nothing in the migration
--- list, no query running). Still NOT APPLIED. The app's Approvals > Meds is
--- deployed and says so until this runs. Same file passed in a scratch
--- Postgres 16 with the real #6654 text: md5(prosrc) to compare against once
--- live - med_alias_learn 78ffa2932337747169ab2c8073e26cde,
--- med_parse_barj_invoice 25e41e836a3c34518827fcfcb1492fa0,
--- reject_med_invoice bfa3b61c766ff028e2fdbe3640c0a9ea,
--- stage_med_invoice fd058df6e7ba0805e0e8b3242d45cc1d.
+-- STATUS: Applied 2026-10-02 on John's approval ("Test" 14:06 CT, "Apply"
+-- 14:08 CT). apply_migration timed out four times that day without reaching
+-- the database, so John ran this file himself in the Supabase SQL Editor.
+-- Verified afterwards: md5(prosrc) of all four functions matches this file
+-- (med_alias_learn 78ffa2932337747169ab2c8073e26cde, med_parse_barj_invoice
+-- 25e41e836a3c34518827fcfcb1492fa0, reject_med_invoice
+-- bfa3b61c766ff028e2fdbe3640c0a9ea, stage_med_invoice
+-- fd058df6e7ba0805e0e8b3242d45cc1d); both tables have RLS on with 4
+-- policies; anon holds no table privilege and cannot execute any of the four
+-- functions; rls_verify passes. Bar J #6654 (Gmail 1a0fd5610b3129d5) staged
+-- the same day: 2 lines, $237.69, no problems.
 
 -- Bar J vet-med invoices: email -> staged intake -> Approvals > Meds -> purchase.
 --

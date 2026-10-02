@@ -10,11 +10,12 @@ read off the live database / repo — no inference.
 - Step 3 done and on main: Approvals > Meds, reusing the purchase grid. Tested with
   `scripts/med-intake-harness/run.js` (in-memory stand-in, never the live DB). Detail in
   `docs/medicine-inventory-fifo-plan.md`, "Emailed invoices: Approvals > Meds".
-- Step 1 NOT done: `apply_migration` timed out four times; nothing reached the database.
-  The file header records it and the md5s to check against once it runs.
-- Step 2 NOT done: no table to stage into. Once the migration is live, stage
-  message `1a0fd5610b3129d5` (or let the 4am run do it).
-- Live browser test as owner not done: no intake table, and no sign-in from the session.
+- Step 1 done: John ran the migration in the SQL Editor after apply_migration timed out
+  four times. md5s match the file, anon has nothing, rls_verify passes.
+- Step 2 done: #6654 staged (2 lines, $237.69, no problems), waiting in Approvals > Meds.
+  The catalog already has "Vitamin K" (100 mL); pick it for the Vitamin K1 line rather
+  than building a new medication.
+- Live browser test as owner not done from the session (no sign-in there).
 
 Finish the Bar J invoice intake. Branch `draft/med-invoice-intake` holds the migration
 `docs/sql/2026-10-02n_med_invoice_intake.sql` and this file. Work on that branch, then
