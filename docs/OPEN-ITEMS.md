@@ -272,6 +272,31 @@ stock between pools as well as handing it to a man.
 
 ---
 
+## 0l. Synovex Primer has no container size — parked by John until the next buy
+
+**Parked 2026-10-02.** John: *"No primer on hand so cost and size will be
+updated if we buy more, ignore for now."* Nothing to do, recorded so the
+`needs_container_size` flag on the on-hand screen is not re-investigated by
+whoever sees it next.
+
+**Its cost is NOT missing**, contrary to an earlier note in this chain. Primer
+carries `cost_per_head` $2.02 and the lots are charged it — $3,308.76 across
+six live lots, none unpriced. What is missing is `bottle_size`, so it cannot be
+counted in bottles. Zero on hand, so there is nothing to count.
+
+It is still on **two active protocols** (`Summer Cutting Bulls/2026`,
+`26 Summer X Steers/Bulls Receiving`) with a dose of 1 a head. That is fine if
+the cattle are still getting it and stock is simply out; **if they are not,
+Primer should come off those protocols** — in a new protocol version, never an
+in-place edit — because otherwise every new receipt books a dose of a drug
+nobody has, as uncovered usage that can never settle. **Worth one answer from
+John when he is next on protocols.**
+
+Looking at this turned up a real bug in the FIFO costing, now fixed:
+`docs/sql/2026-10-02k_med_fifo_ignores_unpriced_draw.sql`.
+
+---
+
 ## 0d. Three stock locations, against a design that deliberately has one
 
 **Status:** DECIDED 2026-10-01 — Jake Taylor added now, the room/truck split

@@ -1433,6 +1433,7 @@ and the verify block asserts it lot by lot rather than trusting that.
 | `2026-10-02h_med_transfer.sql` | stock moves between pools, FIFO, at its own cost |
 | `2026-10-02i_med_jake_zero_cost_stock.sql` | previously expensed drug to Jake at $0, to use up |
 | `2026-10-02j_med_protivity_dose.sql` | Protivity doses 1 a head, so its free stock can draw |
+| `2026-10-02k_med_fifo_ignores_unpriced_draw.sql` | a draw that knows no price no longer beats the catalog |
 
 ### Tags are stock, and the office block went on the shelf (2026-10-02)
 
@@ -1615,3 +1616,41 @@ price it before it is used.
 **John transferred the Multi Min himself** to test the new screen: 3 x 500 mL,
 Ranch to Jake, carried at $0.612687, and the medicine room went 2,000 mL to
 500. The transfer worked in production on the day it shipped.
+
+### A draw that knows no price must not beat the catalog (2026-10-02)
+
+Found while checking Synovex Primer, which John had just set aside: *"No primer
+on hand so cost and size will be updated if we buy more, ignore for now."*
+
+**A correction to the record first.** Primer was described earlier in this
+chain as drawing at $0 and leaving holes on 61 receipts. That was wrong. Primer
+carries `cost_per_head` = **$2.02** and the lots are charged it — $3,308.76
+across the six live lots, none of it unpriced. What Primer actually lacks is
+`bottle_size`, which is a **shelf** problem rather than a cost problem: with no
+container size it cannot be counted in bottles and `med_on_hand` flags
+`needs_container_size`. Setting it aside until the next purchase is fine, and
+that is where it is.
+
+**The bug that fell out of looking.** `2026-10-02d` made a lot's processing
+cost prefer the actual FIFO draw over the catalog, which is right. But it
+preferred *any* draw — and `med_consume` writes a draw even when nothing on the
+shelf and nothing in the catalog can price it. That is the deliberate
+fail-soft: a treatment that happened must not be lost to a bookkeeping gap, so
+it books at zero and raises `cost_provisional`.
+
+Put those together on Primer — no stock, no per-unit price — and the next load
+out on either of its two active protocols would have written a provisional draw
+of $0, and the costing would have **preferred that zero over the $2.02 a head
+the catalog holds**. `drawn_cost` would be 0, which is not NULL, so the first
+branch wins. A real charge silently replaced by nothing, on every lot processed
+from here.
+
+One condition fixes it: the lateral ignores provisional draws. A draw that
+knows what it cost still wins, **including an uncovered one priced off the last
+layer we knew** — that figure is real. Only a draw carrying no price at all
+falls back to the catalog, which is what the catalog is for.
+
+Proved with a test that rolled itself back: a provisional, uncovered 10-unit
+Primer draw against 37X's receipt left its Primer at **$2.0200 a head before
+and $2.0200 after**. Zero provisional draws exist today, so this is a trap
+closed before it sprang.
