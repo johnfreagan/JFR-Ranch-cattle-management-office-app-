@@ -1,10 +1,13 @@
 -- =====================================================================
 -- The lot card and the processing report read ONE costing. (Proposed.)
 -- =====================================================================
--- STATUS: **NOT APPLIED.** Written 2026-10-02, waiting on John's
--- go-ahead, because applying it moves a real lot's processing cost:
--- 32-26 goes from $512.01 to $778.17 on the lot card and in the
--- closeout. Nothing else on the place moves - proved below.
+-- STATUS: APPLIED 2026-10-02 on John's go-ahead. It moved exactly one
+-- lot, which is what was measured beforehand: 32-26 from $512.01 to
+-- $778.17 on the lot card and in the closeout. The other nine lots came
+-- back identical to the cent. Processing across the place: $99,264.14 ->
+-- $99,530.31, all of it that one lot. The file's body was re-applied
+-- afterwards and md5s identical to the deployed view, 709b3873.
+-- rls_verify: PASS.
 --
 -- WHAT IS WRONG. There are two views, and each carries its OWN private
 -- copy of the whole processing-cost calculation:
@@ -77,7 +80,11 @@ select d.lot_id,
        -- Invoice head that no load out covers. Those head are priced off
        -- the INVOICE's protocol, and the tile says so out loud - 37X had
        -- 361 of 369 head on invoices with no receipt rows at all.
-       (select coalesce(sum(i.head_count - coalesce(rh.head, 0)), 0)
+       -- The cast is load-bearing: head_count - bigint is bigint, and
+       -- sum(bigint) is NUMERIC, which CREATE OR REPLACE refuses because
+       -- the column was bigint ("cannot change data type of view
+       -- column"). Summing the integer keeps it bigint.
+       (select coalesce(sum((i.head_count - coalesce(rh.head, 0))::integer), 0)
           from invoices i
           left join (select invoice_id, sum(head_count) as head
                        from delivery_receipts group by invoice_id) rh

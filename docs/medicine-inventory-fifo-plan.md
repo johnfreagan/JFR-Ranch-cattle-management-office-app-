@@ -1406,9 +1406,9 @@ own figure.
 
 ### Two views, two copies of the same costing (2026-10-02)
 
-Found answering *"Is the processing cost card correct in the lot page."* It is
-not, and the write-up is OPEN-ITEMS **0j** with the fix in
-`docs/sql/2026-10-02e_lot_processing_costs_one_source.sql`, **not applied**.
+Found answering *"Is the processing cost card correct in the lot page."* It was
+not. Fixed and applied the same day on John's go-ahead —
+`docs/sql/2026-10-02e_lot_processing_costs_one_source.sql`, OPEN-ITEMS **0j**.
 
 `lot_processing_costs` (the lot card and the closeout) and
 `lot_processing_cost_detail` (the report and the drilldown) each carry a
@@ -1420,4 +1420,11 @@ nothing else.
 
 The fix makes the summary an aggregate over the detail. Duplicated maths
 drifts; this is the same reason the processing draw shares its dose expression
-with the costing view instead of restating it.
+with the costing view instead of restating it. Applied, it moved exactly what
+was measured: 32-26 to $778.17, the other nine to the cent, $99,264.14 →
+$99,530.31 across the place. The card and the report cannot disagree again,
+and the verify block asserts it lot by lot rather than trusting that.
+
+| file | what it did |
+|---|---|
+| `2026-10-02e_lot_processing_costs_one_source.sql` | the lot card and the report read one costing |

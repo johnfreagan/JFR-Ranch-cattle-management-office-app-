@@ -185,11 +185,11 @@ while a receipt in its period waits on a weight — but a weight that arrives
 
 ---
 
-## 0j. The lot card's processing cost is three weeks stale — fix written, NOT applied
+## 0j. CLOSED — the lot card and the processing report read one costing
 
-**Found 2026-10-02**, answering John: *"Is the processing cost card correct in
-the lot page."* **It is not.** Needs his go-ahead, because the fix moves a real
-lot.
+**Found and closed 2026-10-02**, answering John: *"Is the processing cost card
+correct in the lot page."* It was not. Applied on his go-ahead.
+`docs/sql/2026-10-02e_lot_processing_costs_one_source.sql`.
 
 There are two views and each carries its **own private copy** of the whole
 processing-cost calculation:
@@ -221,8 +221,17 @@ costing view on purpose. Column list unchanged; `med_line_count` and
 `unpriced_line_count` go from counting (source × med) to (lot × med), and
 nothing in the app reads the first or depends on the exact value of the second.
 
-**Applying it moves lot 32-26's processing cost and its closeout by $266.16 and
-nothing else.** That is why it is sitting here instead of on the database.
+**Applied, and it moved exactly what was measured:** lot 32-26 from $512.01 to
+$778.17, the other nine identical to the cent. Processing across the place went
+$99,264.14 → $99,530.31, all of it that one lot. `receipt_count` and
+`invoice_gap_head` came back unchanged, 37X still reporting its 361 head on
+invoices no load out covers. The file's body was re-applied afterwards and
+md5s identical to the deployed view. rls_verify: PASS.
+
+One thing to know for next time: the cast in `invoice_gap_head` is load-bearing.
+`head_count - bigint` is bigint and `sum(bigint)` is numeric, which
+`CREATE OR REPLACE` refuses outright — *cannot change data type of view column*.
+Summing the integer keeps it bigint.
 
 ---
 
