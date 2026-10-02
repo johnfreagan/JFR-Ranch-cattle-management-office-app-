@@ -284,13 +284,39 @@ carries `cost_per_head` $2.02 and the lots are charged it — $3,308.76 across
 six live lots, none unpriced. What is missing is `bottle_size`, so it cannot be
 counted in bottles. Zero on hand, so there is nothing to count.
 
-It is still on **two active protocols** (`Summer Cutting Bulls/2026`,
-`26 Summer X Steers/Bulls Receiving`) with a dose of 1 a head. That is fine if
-the cattle are still getting it and stock is simply out; **if they are not,
-Primer should come off those protocols** — in a new protocol version, never an
-in-place edit — because otherwise every new receipt books a dose of a drug
-nobody has, as uncovered usage that can never settle. **Worth one answer from
-John when he is next on protocols.**
+It stays on its **two active protocols** (`Summer Cutting Bulls/2026`,
+`26 Summer X Steers/Bulls Receiving`) at 1 dose a head. John, 2026-10-02:
+*"It will be purchased before the protocol is used again."* So the cattle do
+get it, the shelf is simply empty, and nothing has to come off anything — there
+will be a layer before the next receipt needs one.
+
+### The trap on the day it IS bought
+
+`medications.cost_per_unit` is a GENERATED column —
+`bottle_cost / bottle_size` when the size is set, NULL otherwise. And the
+costing prefers, in order: a priced draw, then `cost_per_unit × dose`, then
+`cost_per_head`. Primer has no `cost_per_unit` today, which is the only reason
+its $2.02 `cost_per_head` is what the lots read.
+
+**Filling in BOTH bottle size and bottle cost on the Medications tab would
+generate `cost_per_unit`, and that outranks `cost_per_head` on every receipt
+with no priced draw — including the whole history.** 1,638 head have been
+charged Primer at $2.02 across six live lots, so every $0.10 of difference
+between the new per-dose price and $2.02 moves $163.80 of closed processing
+cost.
+
+So when the purchase lands:
+
+| do | why |
+|---|---|
+| put the price on the **purchase line** | that is the layer; future draws price off it at the real cost |
+| set **bottle size only** on the Medications tab | the shelf can then count it in bottles, and `cost_per_unit` stays NULL because `bottle_cost` is still blank |
+| leave `cost_per_head` $2.02 alone | it is what pre-go-live receipts read, and the only price history has |
+
+If the history *should* be re-priced to the real cost, that is a deliberate
+decision with a number attached, not a side effect of typing a bottle cost into
+the catalog. It is the same rule as CLAUDE.md's "never edit a drug price in
+place to change cost from a date".
 
 Looking at this turned up a real bug in the FIFO costing, now fixed:
 `docs/sql/2026-10-02k_med_fifo_ignores_unpriced_draw.sql`.
