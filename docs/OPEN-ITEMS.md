@@ -97,39 +97,60 @@ a label. Protivity posted as a decided zero.
 
 ---
 
-## 0g. Processing does not draw from medicine inventory
+## 0g. CLOSED — processing draws, and a count will not post ahead of it
 
-**Status:** open, and it is the half of go-live that did not happen. Raised
-2026-10-01.
+**Closed 2026-10-02.** `docs/sql/2026-10-02_med_processing_draw.sql`.
 
-John asked to go live "so today's doctoring **and processing** goes against
-it". Doctoring does. Processing does not, because nothing in the app consumes
-medicine inventory at processing — there is exactly one `med_consume()` caller
-in `index.html` and it is `invRecordDoctoringUsage`, wired at three doctoring
-save sites.
+A receipt now draws its protocol's medicine off the right shelf — the buyer's
+when his `source_key` matches the lot's Source, Ranch otherwise (plan item 17).
+The dose is **not** computed twice: `med_processing_dosed` carries the same
+expression `lot_processing_cost_detail` has always used, so the shelf and the
+closeout cannot drift apart by dosing differently.
 
-**What that costs right now.** Jake Taylor's entire shelf is processing
-product, so his **$2,668.56 will sit unchanged** while real doses go in real
-cattle. The plan anticipated this exact shape in its item 19: a buyer balance
-that nothing draws on "would sit untouched for a month and end up overstated
-by whatever he actually used". The ranch holds some processing product too,
-though most of its counted value is doctoring drugs.
+Today's receipt (10/1, lot 32-26, 9 head) drew **8 lines, $109.72** — $102.42
+of drugs off Jake Taylor's shelf, plus ID Tag and Lot Tag uncovered at catalog
+cost ($7.30) because no tag stock has been counted yet. Three per-hundredweight
+lines (Valcor, Macrosyn, Synanthic) are **awaiting weight** and were not
+estimated.
 
-**It is not a small build.** The plan's item 17 sets the rule: a processing
-draw comes off the buyer's shelf when his `source_key` matches the lot's
-Source, and off Ranch stock otherwise. That needs the protocol's medication
-list resolved per head, the location chosen per receipt, and a shortfall
-recorded rather than a failure when the buyer's shelf is short.
+**John's week-straddle question got the gate.** *"Invoices entered weekly. What
+about month end that straddles a week!"* — processing happens, product leaves
+the shelf, the invoice is not in yet so the per-weight lines have not drawn,
+and the month-end count then books the difference as **shrink that never
+happened**. That is the approvals-gate failure arriving through a fourth door,
+so it gets the same answer: **a count will not post while any receipt in its
+period is still waiting on a weight.** Tested end to end — a draft count dated
+2026-10-31 at Jake Taylor refused with the three lines named.
 
-**And it has a gate the plan calls non-negotiable** (item 16): before
-processing flips to FIFO, a snapshot must show every lot's processing total
-unchanged to the cent. A single lot moving means processing does not flip that
-day.
+**Still open, small:** two tag lines are uncovered until somebody counts tags
+and enters the invoice, then `med_settle_uncovered()` clears them. John is
+counting the med room tags and checking the lot-tag billing.
 
-**Until it is built:** processing medicine use is invisible to the ledger, and
-the first count that covers it will read that use as shrink. Either build the
-draw, or count Jake Taylor's shelf again at month end and book the difference
-knowingly rather than letting it arrive as a shrink figure.
+**Left behind:** one empty draft count at Jake Taylor dated 2026-10-31,
+relabelled **"DELETE ME - test row"**. The Supabase tool refuses DELETE, so it
+needs one click on the Counts screen. It holds no lines and created nothing.
+
+---
+
+## 0h. Deleting a count orphans the layers it created
+
+**Status:** open, found 2026-10-02 while chasing something else. Not urgent,
+but it is a hole in an otherwise careful design.
+
+`med_count_lines.count_id` is `ON DELETE CASCADE` and
+`med_purchase_lines.count_id` is `ON DELETE SET NULL`. So deleting a posted
+count **destroys the count detail and leaves its opening layers standing**,
+with nothing left pointing at where they came from. The layers keep their
+value, so no money moves — but the audit trail from a bottle on the shelf back
+to the count that put it there is gone, and `med_unpost_count()` exists
+precisely so nobody needs to delete one.
+
+`med_purchase_lines.count_id` also has **no index**, so the SET NULL scan goes
+wide on a table that will only grow.
+
+**The fix:** refuse the delete on a posted count (a trigger, or
+`ON DELETE RESTRICT`), and index `med_purchase_lines.count_id`. Un-posting
+first is the supported path and should be the only one.
 
 ---
 

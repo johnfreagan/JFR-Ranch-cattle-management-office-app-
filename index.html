@@ -9918,6 +9918,22 @@ window.addEventListener('unhandledrejection', function(e) {
                 }
             }
 
+            // THE WEEK-STRADDLE ANSWER. Linking an invoice is what finally
+            // gives a per-hundredweight line its weight, so the draws that were
+            // deferred complete here. Every receipt on this invoice is re-asked,
+            // not just the newly linked ones: a corrected weight has to reach a
+            // line that already drew off the old one.
+            try {
+                const { data: onInvoice } = await supabase
+                    .from('delivery_receipts').select('id').eq('invoice_id', invoiceId);
+                const ids = (onInvoice || []).map(r => r.id);
+                if (ids.length) await invRecordProcessingDraw(ids, true);
+            } catch (e) {
+                showAlert('globalAlert',
+                    'Invoice saved, but the deferred processing draws could not be completed: ' +
+                    (e.message || e), 'error');
+            }
+
             $('invoiceSaveBtn').disabled=false;
             hideModal('invoiceModal');
             expandCardOnNextRender('invoicesCard');
@@ -26643,6 +26659,10 @@ ${ranchBlocks}
             receiptId = result.data.id;
         }
 
+        // The shelf. An edit reverses first, so a changed head count does not
+        // leave the original draw standing alongside the new one.
+        await invRecordProcessingDraw(receiptId, !isNew);
+
         // Insert destination rows
         if (validDests.length > 0) {
             const destPayload = validDests.map(d => ({
@@ -35698,6 +35718,59 @@ ${ranchBlocks}
                 });
             } catch (e) { /* deliberately swallowed - see above */ }
         }
+    }
+
+    // PROCESSING DRAWS OFF THE SHELF TOO, as of 2026-10-02.
+    //
+    // The dose maths is not duplicated here: med_processing_lines carries the
+    // same expression lot_processing_cost_detail has always used, so the shelf
+    // and the closeout cannot drift apart by dosing differently. This only
+    // decides WHEN to ask for the draw.
+    //
+    // A per-hundredweight line with no invoice weight is NOT estimated. It
+    // reports as awaiting weight and draws by itself when the invoice is
+    // linked - which is why saving an invoice calls this too.
+    async function invRecordProcessingDraw(receiptIds, reverseFirst) {
+        const ids = (Array.isArray(receiptIds) ? receiptIds : [receiptIds]).filter(Boolean);
+        if (!ids.length) return null;
+        if (!(await invLedgerReady())) return null;
+
+        // Same gap as doctoring: med_processing_draw is INVOKER and the med
+        // policies go through can_read_books(), so crew cannot reach it. Say
+        // so rather than letting the draw vanish.
+        if (currentProfile && !['owner', 'office'].includes(currentProfile.role)) {
+            showAlert('globalAlert',
+                'Load out saved. The processing medicine was NOT taken out of inventory - ' +
+                'that needs an office login. Tell the office before the next count, ' +
+                'or the count will read those doses as shrink.', 'error');
+            return null;
+        }
+
+        let drawn = 0, waiting = 0;
+        for (const rid of ids) {
+            try {
+                if (reverseFirst) await supabase.rpc('med_processing_reverse', { p_receipt_id: rid });
+                const { data, error } = await supabase.rpc('med_processing_draw', { p_receipt_id: rid });
+                if (error) throw error;
+                drawn   += Number(data && data.lines_drawn) || 0;
+                waiting += Number(data && data.lines_awaiting_weight) || 0;
+            } catch (e) {
+                // Never swallowed: a draw that did not happen becomes shrink at
+                // the next count, and that is exactly the number nobody can
+                // explain three weeks later.
+                showAlert('globalAlert',
+                    'Saved, but the processing medicine could not be taken out of inventory: ' +
+                    (e.message || e) + ' — tell the office before the next count.', 'error');
+                return null;
+            }
+        }
+        if (waiting > 0) {
+            showAlert('globalAlert',
+                `${waiting} processing line(s) are waiting on an invoice weight and have not been drawn. ` +
+                `They draw by themselves when the invoice is entered. A count will not post until they do.`,
+                'warning');
+        }
+        return { drawn, waiting };
     }
 
     // Deleting or re-saving a treatment puts its units back on the shelf, to
