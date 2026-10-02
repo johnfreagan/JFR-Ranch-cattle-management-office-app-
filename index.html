@@ -2505,8 +2505,8 @@
         <!-- ---- Checkouts -------------------------------------------- -->
         <div id="invCheckoutsView" class="hidden" data-perm="office">
             <div class="card">
-                <div class="card-header"><h2>Checkouts</h2></div>
-                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                <div class="card-header"><h2>Checkouts &amp; moves</h2></div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;" id="invCoModeNote">
                     Who has what. A checkout does <strong>not</strong> move stock &mdash; the bottle
                     is still ranch inventory, just in somebody's hand. Custody only.
                 </p>
@@ -2516,7 +2516,11 @@
                         <input type="date" id="invCoDate">
                     </div>
                     <div>
-                        <label for="invCoPerson">Crew member</label>
+                        <label for="invCoFrom">Out of which pool</label>
+                        <select id="invCoFrom"></select>
+                    </div>
+                    <div>
+                        <label for="invCoPerson">Goes to</label>
                         <select id="invCoPerson"></select>
                     </div>
                 </div>
@@ -2542,6 +2546,8 @@
                     wrong in a consistent direction, and crew logins would not fix it: they say who typed
                     it, not whose box it came out of. <strong>Shrink is a crew number.</strong>
                     This list is for finding a bottle.
+                    <br>A <strong>move</strong> between pools is not here &mdash; nobody is holding it.
+                    It shows on On hand straight away, and on Activity and the roll-forward as a transfer.
                 </p>
                 <div id="invCustodyContent"><div class="empty">Loading…</div></div>
             </div>
@@ -36338,10 +36344,74 @@ ${ranchBlocks}
         // no login and should never see field-app information; the office or
         // the head crew leader enters on their behalf.
         await loadInvCrewMembers();
+        // Real pools only, both ends. The helper labels test pools and keeps
+        // them, which is right where somebody is trying something out - but a
+        // move out of a test pool into a real one would inject invented stock
+        // into the books, so this screen does not offer them at all.
+        const realPools = invLocations.filter(l => !l.is_test);
+        const fromSel = $('invCoFrom');
+        const keepFrom = fromSel.value;
+        fromSel.innerHTML = realPools.map(l =>
+            `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
+        if (keepFrom && realPools.some(l => l.id === keepFrom)) fromSel.value = keepFrom;
+        else {
+            const ranch = realPools.find(l => l.kind === 'ranch');
+            if (ranch) fromSel.value = ranch.id;
+        }
+
+        // ONE screen, two destinations (John, 2026-10-02: "We do need a way
+        // to transfer meds possibly using the checkout to move between
+        // inventory pools").
+        //
+        // They are not the same act and the screen says so. A man is CUSTODY:
+        // the bottle is still ranch stock, in his hand, and nothing moves. A
+        // pool is a MOVE: stock leaves one shelf FIFO and lands on the other
+        // at the cost it left at. Same form because it is the same question -
+        // what went out, how much, what size - and keeping the one grid beats
+        // a second screen nobody remembers exists.
+        //
+        // The option values carry their kind, because a crew id and a
+        // location id are both uuids and nothing else would tell them apart.
+        const pools = realPools;
         const sel = $('invCoPerson');
-        sel.innerHTML = '<option value="">— pick —</option>' + invCrewMembers.map(c =>
-            `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+        sel.innerHTML = '<option value="">— pick —</option>'
+            + (invCrewMembers.length
+                ? '<optgroup label="A man (custody only - nothing moves)">'
+                  + invCrewMembers.map(c => `<option value="crew:${c.id}">${escapeHtml(c.name)}</option>`).join('')
+                  + '</optgroup>'
+                : '')
+            + (pools.length
+                ? '<optgroup label="Another pool (moves the stock)">'
+                  + pools.map(l => `<option value="loc:${l.id}">${escapeHtml(l.name)}</option>`).join('')
+                  + '</optgroup>'
+                : '');
+        syncInvCoMode();
         loadInvCheckoutLog();
+    }
+
+    // { kind: 'crew' | 'loc' | '', id } off the one destination picker.
+    function invCoDest() {
+        const v = $('invCoPerson').value || '';
+        const cut = v.indexOf(':');
+        if (cut < 0) return { kind: '', id: '' };
+        return { kind: v.slice(0, cut), id: v.slice(cut + 1) };
+    }
+
+    // The screen tells you which of the two things you are about to do, in
+    // the words that matter: custody does not move stock, a move does.
+    function syncInvCoMode() {
+        const dest = invCoDest();
+        const moving = dest.kind === 'loc';
+        $('invCoModeNote').innerHTML = moving
+            ? `<strong>This moves the stock.</strong> It leaves the pool on the left oldest-layer-first
+               and lands on the other one <strong>at the cost it left at</strong> &mdash; two layers at
+               two prices arrive as two layers, so the next draw over there costs what the drug really
+               cost. Lot numbers and expiry dates travel with it. Both months have to be open, and it
+               will not move more than is on the shelf.`
+            : `Who has what. A checkout does <strong>not</strong> move stock &mdash; the bottle
+               is still ranch inventory, just in somebody's hand. Custody only.`;
+        $('invCoSaveBtn').textContent = moving ? 'Move stock' : 'Record checkout';
+        $('invCoReturnBtn').classList.toggle('hidden', moving);
     }
 
     // One man, as many items as he took. The med-room sheet is written that
@@ -36417,13 +36487,13 @@ ${ranchBlocks}
     }
 
     async function saveInvCheckout(isReturn) {
-        const person = $('invCoPerson').value;
+        const dest = invCoDest();
         // A line nobody touched is not an error, it is a spare row. A line
         // half filled in IS an error, and naming which one beats a blanket
         // refusal when four items are on the screen.
         const lines = invCoLines.filter(l => l.medication_id || invNum(l.bottles) != null);
-        if (!person || !lines.length) {
-            showAlert('invCoAlert', 'Pick a person, a medication and a number of bottles.', 'error');
+        if (!dest.kind || !lines.length) {
+            showAlert('invCoAlert', 'Pick where it is going, a medication and a number of bottles.', 'error');
             return;
         }
         const problems = [];
@@ -36461,9 +36531,60 @@ ${ranchBlocks}
             return;
         }
 
-        const ranch = invLocations.find(l => l.kind === 'ranch' && !l.is_test);
+        const fromId = $('invCoFrom').value
+            || (invLocations.find(l => l.kind === 'ranch' && !l.is_test) || {}).id;
+        if (!fromId) { showAlert('invCoAlert', 'Pick the pool it is coming out of.', 'error'); return; }
+        if (dest.kind === 'loc' && dest.id === fromId) {
+            showAlert('invCoAlert', 'That is the same pool at both ends. Pick a different one.', 'error');
+            return;
+        }
         const { data: { user } } = await supabase.auth.getUser();
         const txnDate = $('invCoDate').value || ranchToday();
+
+        // ---- A MOVE between pools ---------------------------------------
+        // One call a line, because med_transfer() is per medication: it walks
+        // the source FIFO, rebuilds each consumed layer at the destination at
+        // ITS OWN cost, and refuses to move what is not there or to post into
+        // a closed month. Each line stands or falls on its own and is named
+        // in the result - a four-line sheet where the third item is short
+        // should land the other three and say which one did not.
+        if (dest.kind === 'loc') {
+            const done = [], failed = [];
+            for (const r of rows) {
+                const { data, error } = await supabase.rpc('med_transfer', {
+                    p_medication_id: r.med.id,
+                    p_from_location: fromId,
+                    p_to_location: dest.id,
+                    p_qty_units: r.bottles * r.size,
+                    p_txn_date: txnDate,
+                    p_notes: null
+                });
+                if (error) failed.push(`${r.med.name}: ${error.message}`);
+                else done.push(`${fmtNum(r.bottles, 2)} x ${fmtNum(r.size, 0)} ` +
+                    `${r.med.bottle_size_unit || 'mL'} ${r.med.name}` +
+                    (data && data.total_cost != null ? ` (${fmtMoney(data.total_cost)})` : ''));
+            }
+            const where = ($('invCoPerson').options[$('invCoPerson').selectedIndex] || {}).text || 'the other pool';
+            if (failed.length && !done.length) {
+                showAlert('invCoAlert', 'Nothing moved.<br>' + failed.map(escapeHtml).join('<br>'), 'error');
+            } else if (failed.length) {
+                showAlert('invCoAlert',
+                    `Moved to ${escapeHtml(where)}: ${done.map(escapeHtml).join(', ')}.` +
+                    `<br><strong>Did not move:</strong><br>${failed.map(escapeHtml).join('<br>')}`, 'error');
+            } else {
+                showAlert('invCoAlert',
+                    `Moved to ${escapeHtml(where)}: ${done.map(escapeHtml).join(', ')}.`, 'success');
+            }
+            if (done.length) {
+                const last = rows[rows.length - 1];
+                invCoLines = [];
+                invCoAddLine({ medication_id: last.med.id, bottle_size: String(last.size), sizeTouchedFor: last.med.id });
+            }
+            loadInvCheckoutLog();
+            return;
+        }
+
+        // ---- CUSTODY, from here down ------------------------------------
         // A checkout does not move stock. direction 0: custody only.
         //
         // One insert, so the man's sheet lands whole or not at all. Half a
@@ -36473,14 +36594,14 @@ ${ranchBlocks}
             txn_date: txnDate,
             txn_type: 'checkout',
             medication_id: r.med.id,
-            location_id: ranch.id,
+            location_id: fromId,
             qty_units: (isReturn ? -1 : 1) * r.bottles * r.size,
             // Snapshotted, so a later catalog change cannot rewrite what went
             // out. Same reason med_purchase_lines and med_count_lines each
             // carry their own.
             bottle_size: r.size,
             direction: 0,
-            crew_member_id: person,
+            crew_member_id: dest.id,
             notes: isReturn ? 'Return' : null,
             created_by: user ? user.id : null
         })));
@@ -37139,16 +37260,28 @@ ${ranchBlocks}
         if (error) { $('invReportsContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
         if (!(data || []).length) { $('invReportsContent').innerHTML = '<div class="empty">No movement in this range.</div>'; return; }
 
+        // Net transfers, one column. Two would be honest and nobody would
+        // read them: a pool either gained stock from another pool or lost it,
+        // and the sign says which.
+        const xferNet = (r) => (Number(r.transferred_in_units) || 0) - (Number(r.transferred_out_units) || 0);
         invReportRows = (data || []).map(r => [
             String(r.period_month).slice(0, 7), r.medication_name,
             fmtNum(r.beginning_units, 2), fmtNum(r.purchased_units, 2), fmtNum(r.used_units, 2),
-            fmtNum(r.adjustment_units, 2), fmtNum(r.uncovered_units, 2), fmtNum(r.ending_units, 2),
-            Number(r.ending_value).toFixed(2)
+            fmtNum(r.adjustment_units, 2), fmtNum(xferNet(r), 2), fmtNum(r.uncovered_units, 2),
+            fmtNum(r.ending_units, 2), Number(r.ending_value).toFixed(2)
         ]);
 
         const anyUncovered = (data || []).some(r => Number(r.uncovered_units) !== 0);
+        const anyXfer = (data || []).some(r => xferNet(r) !== 0);
         let html = `<p class="muted" style="font-size:12px;">beginning + purchases + opening &minus; used
-            + adjustments + uncovered = ending. Ties by construction.</p>`;
+            + adjustments + transfers + uncovered = ending. Ties by construction.</p>`;
+        if (anyXfer) {
+            html += `<div style="padding:8px 10px;border-left:3px solid #1d4ed8;background:#eff6ff;font-size:12px;margin-bottom:10px;">
+                <strong>Transfers</strong> is stock that moved between pools &mdash; the medicine room to
+                a buyer's shelf, say. Positive came in, negative went out. It is deliberately
+                <strong>not</strong> in Adjustments: stock leaving for somebody else's shelf is not
+                shrink and must never read like it.</div>`;
+        }
         if (anyUncovered) {
             html += `<div style="padding:8px 10px;border-left:3px solid #b45309;background:#fffbeb;font-size:12px;margin-bottom:10px;">
                 <strong>Uncovered</strong> is usage the ledger had no stock behind &mdash; doses given against
@@ -37156,7 +37289,8 @@ ${ranchBlocks}
         }
         html += `<table><thead><tr><th>Month</th><th>Medication</th>
             <th class="num">Beginning</th><th class="num">Purchases</th><th class="num">Opening</th>
-            <th class="num">Used</th><th class="num">Adjustments</th><th class="num">Uncovered</th>
+            <th class="num">Used</th><th class="num">Adjustments</th><th class="num">Transfers</th>
+            <th class="num">Uncovered</th>
             <th class="num">Ending</th><th class="num">Ending $</th></tr></thead><tbody>`;
         (data || []).forEach(r => {
             html += `<tr>
@@ -37167,6 +37301,7 @@ ${ranchBlocks}
                 <td class="num">${fmtNum(r.opening_units, 1)}</td>
                 <td class="num">${fmtNum(r.used_units, 1)}</td>
                 <td class="num">${fmtNum(r.adjustment_units, 1)}</td>
+                <td class="num"${xferNet(r) ? ' style="color:#1d4ed8"' : ''}>${xferNet(r) ? fmtNum(xferNet(r), 1) : '—'}</td>
                 <td class="num"${Number(r.uncovered_units) ? ' style="color:#b45309"' : ''}>${fmtNum(r.uncovered_units, 1)}</td>
                 <td class="num">${fmtNum(r.ending_units, 1)}</td>
                 <td class="num">${fmtMoney(r.ending_value)}</td>
@@ -37454,6 +37589,7 @@ ${ranchBlocks}
     });
 
     $('invCoAddLineBtn').addEventListener('click', () => invCoAddLine());
+    $('invCoPerson').addEventListener('change', syncInvCoMode);
     // Delegated, same as the purchase grid: the number fields deliberately do
     // NOT re-render, because re-rendering eats the caret.
     $('invCoLines').addEventListener('input', (e) => {

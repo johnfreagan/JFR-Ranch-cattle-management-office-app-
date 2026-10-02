@@ -1428,6 +1428,9 @@ and the verify block asserts it lot by lot rather than trusting that.
 | file | what it did |
 |---|---|
 | `2026-10-02e_lot_processing_costs_one_source.sql` | the lot card and the report read one costing |
+| `2026-10-02f_med_id_tags_office_stock.sql` | 5,000 ID tags in the medicine room, #1001-6000 |
+| `2026-10-02g_med_jake_id_tags.sql` | Jake's #2-999, and his nine on the 1st covered |
+| `2026-10-02h_med_transfer.sql` | stock moves between pools, FIFO, at its own cost |
 
 ### Tags are stock, and the office block went on the shelf (2026-10-02)
 
@@ -1469,3 +1472,84 @@ the catalog size.
 took 9 ID tags and 9 Lot tags off a shelf that holds neither, and those came
 out of his box 150 miles from the medicine room. Settling them here would
 charge the lot for tags that never moved. OPEN-ITEMS **0k**.
+
+### Previously expensed stock: John's call (2026-10-02)
+
+The office tags and some meds were bought and **expensed in a lump sum earlier
+in the year**, before there was a system to track them. Carrying them at
+catalog makes the lot costing right and arguably counts the dollars twice in
+the year; carrying them at zero makes the books right and distorts processing
+cost. Four options went to John, including a `previously_expensed` flag that
+would have let one shelf report FIFO value for costing and book value for the
+balance sheet.
+
+His answer, and it is the right one:
+
+> "All of this is a one off first month problem as we work through this
+> inventory. Only thing that will linger is the roughly six thousand tags at
+> $.40 cost roughly. Kind of immaterial in the dollars and was always handled
+> this way for ease of operation because no good system to handle."
+
+**So nothing was built.** Stock sits at catalog. The exposure is ~$2,429 of
+tags that drain as cattle get tagged, and nothing new joins it because every
+layer from here arrives with an invoice behind it. The machinery would have
+cost more than the number it tracked — which is the test for any of this.
+Reopen it only if a bulk buy is ever again expensed outside the system.
+
+### Moving stock between pools (2026-10-02)
+
+John: *"We do need a way to transfer meds possibly using the checkout to move
+between inventory pools. Probably won't happen often but does happen some."*
+
+There was no way to do it at all. A checkout is custody at **one** location —
+direction 0, nothing moves — and nothing else in the module crossed a location
+boundary.
+
+`med_transfer(medication, from, to, units, date, notes)` does three things,
+and the second is the one that matters:
+
+1. consumes at the source by FIFO, oldest layer first, **through
+   `med_consume()`** — not a second FIFO walk. A second walk is a second walk
+   to get wrong, and this module has already been bitten once by duplicated
+   maths (`lot_processing_costs`, `2026-10-02e`);
+2. rebuilds each consumed layer at the destination **at its own cost** — ship
+   600 mL off a $0.30 layer and a $0.38 layer and the destination gets both,
+   so the next draw there costs what the drug really cost. A blend would
+   quietly re-price inventory on the way out the door, which is the one thing
+   FIFO exists to prevent;
+3. carries the maker's lot number and the expiry with each layer. Drug does
+   not get younger by changing trucks.
+
+**A transfer is not a usage, so it gets none of usage's forgiveness.** Usage
+posts short against an empty shelf, because a treatment that happened must not
+be lost to a bookkeeping gap, and it slides its date into the open period for
+the same reason. Nobody hands over drug they do not have, and paperwork can be
+dated right, so a transfer refuses both: more than the shelf holds, or a date
+inside either pool's closed month.
+
+**No new `txn_type`.** The two sides are `adjustment` rows carrying reason
+`transfer_out` / `transfer_in`, the same way count shrink is an adjustment
+carrying reason `count`. A new type would have meant dropping and re-adding a
+CHECK constraint and — worse — every view that buckets by `txn_type` would
+have gone on tying while showing the movement in **no column at all**.
+
+So the roll-forward learned the movement properly: `transferred_in_*` and
+`transferred_out_*`, appended last, and transfers are **excluded** from
+Adjustments, where stock leaving for Jake's shelf would have read like shrink.
+The report's printed identity is now:
+
+> beginning + purchases + opening − used + adjustments + transfers + uncovered = ending
+
+and the migration's verify checks it on every row, rather than trusting it.
+
+**One screen, two destinations.** The Checkouts form grew "Out of which pool"
+and a "Goes to" picker with two groups — *a man (custody only, nothing moves)*
+and *another pool (moves the stock)*. Same multi-line grid, because it is the
+same question: what went out, how much, what size. The explanation above the
+form swaps to match, and the button says **Move stock** instead of Record
+checkout, because those are not the same act. Test pools are offered at
+neither end: a move out of one would inject invented stock into the books.
+
+A move does not appear in the checkout log, and the log says so — nobody is
+holding it. It shows on On hand immediately, and on Activity and the
+roll-forward as a transfer.

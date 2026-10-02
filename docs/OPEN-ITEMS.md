@@ -235,48 +235,40 @@ Summing the integer keeps it bigint.
 
 ---
 
-## 0k. Previously expensed stock has no cost basis the books agree with
+## 0k. CLOSED — previously expensed stock stays at catalog, and it is a one-off
 
-**Open 2026-10-02.** The tags are entered; **the accounting question is not
-settled** and it is bigger than tags.
+**Closed 2026-10-02 by John's call**, after the options went to him:
 
-**What is on the shelf now**
+> "All of this is a one off first month problem as we work through this
+> inventory. Only thing that will linger is the roughly six thousand tags at
+> $.40 cost roughly. Kind of immaterial in the dollars and was always handled
+> this way for ease of operation because no good system to handle."
 
-| location | medication | on hand | value | note |
-|---|---|---|---|---|
-| Ranch | ID Tag | 5,000 (#1001-6000) | $2,028.00 | 5 boxes of 1,000 |
-| Jake Taylor | ID Tag | 989 (#11-999) | $401.14 | 998 in, #2-10 used 1 Oct |
-| either | Lot Tag | 0 | — | never counted, not billed to us |
+**So: no flag, no reclassifying entry, nothing to track.** The stock sits at
+catalog, which is the number that makes processing cost right — his own
+objection to a zero. The dollars that are arguably counted twice are **~$2,429
+of tags** entered this month and they drain as cattle get tagged; nothing new
+joins them, because from here every layer arrives with an invoice behind it.
 
-`docs/sql/2026-10-02f_...` and `2026-10-02g_med_jake_id_tags.sql`. Both at the
-catalog $0.4056. Jake's 9 uncovered ID tags settled against his layer:
-`transactions_repriced` **0**, lot 32-26 unmoved at $778.17.
+| what is on the shelf at catalog | |
+|---|---|
+| Ranch, ID Tag #1001-6000 | 5,000 · $2,028.00 |
+| Jake Taylor, ID Tag #11-999 | 989 · $401.14 |
 
-**The problem John raised.** Those tags were *"expensed out earlier in year
-lump sum when we didn't have a good inventory and mgt tracking program."* He
-also has previously expensed meds he wants to send to Jake to use up. So:
+What was deliberately NOT built, and should not be built later without a new
+reason: a `previously_expensed` flag, a dual FIFO/book value on the shelf, and
+any capitalizing journal entry. The cost of carrying that machinery outweighs
+the number it would track. **If this ever stops being a one-off** — another
+bulk buy expensed outside the system — reopen this rather than quietly adding
+more untracked stock.
 
-- **At zero cost** the processing cost is distorted — his own objection, and he
-  is right. Tags are ~$0.81 a head with the lot tag, and a free draw
-  understates every lot that touches it.
-- **At catalog** the lot costing is right, but the cash already went through
-  the P&L once. Carrying it as an asset now means the year's books hold the
-  expense *and* the asset unless somebody reclassifies.
+Lot tags are still out, at both places: nobody has counted them and they have
+not been billed to us. Jake's 9 lot tags from the 1 Oct draw stay uncovered at
+$3.65, so the lot is charged and only the shelf is silent.
 
-Two ledgers, two different questions: the lot needs what a tag **costs**, the
-books need the expense recognized **once**.
-
-**What is needed before this closes:** which fiscal year the lump-sum expense
-landed in (a reclass inside FY 2027 is clean; reaching back into closed
-FY 2026 is not), and Jayci and Brenda's call on whether to capitalize. The
-options and the recommendation went to John 2026-10-02 — chiefly a
-`previously_expensed` flag on the layer so one shelf can report **FIFO value**
-for costing and **book value** for the balance sheet, and the number she would
-need if she does capitalize.
-
-**Also missing:** there is no way to move stock between med locations. Sending
-the old meds to Jake needs a transfer — consume at the Ranch, re-layer at
-Jake's at the same unit cost — and no function or screen does that today.
+**The transfer he asked for in the same breath is built** —
+`docs/sql/2026-10-02h_med_transfer.sql`, and the Checkouts screen now moves
+stock between pools as well as handing it to a man.
 
 ---
 
