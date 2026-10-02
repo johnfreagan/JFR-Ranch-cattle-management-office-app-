@@ -1378,3 +1378,46 @@ avoid.
 
 No schema change. `med_txns.bottle_size` from `2026-10-01m` already carries the
 size per row, and a checkout is still `direction 0` — custody, not movement.
+
+### The starting weight estimate is required on a new lot (2026-10-02)
+
+John: *"Make the lot starting weight estimate mandatory info on starting new
+lot."*
+
+Lot 32-26 is why. Cattle are processed the day they land and the invoice comes
+days later, so while the lot has no weight every per-hundredweight med on the
+protocol doses at **nothing**: the drug goes in the cattle, the lot is charged
+$0 for it, and the shelf is never drawn down. Three of 32-26's eleven
+processing meds sat like that until a weight was typed the next day, and the
+three units had to be drawn by re-saving the load out.
+
+So the field is `required` on a new lot, with two carve-outs that are honest
+rather than convenient:
+
+- **Edit**, so a lot already on the books can still be saved for an unrelated
+  reason, and so a lot whose invoice has landed is not asked for a figure
+  nothing reads.
+- **The feed pen**, which takes cripples transferred in at $0 and is never
+  purchased or processed.
+
+Zero is not an answer either — checked in the save path, because `required`
+only stops a blank box. A duplicate counts as a new lot and is asked for its
+own figure.
+
+### Two views, two copies of the same costing (2026-10-02)
+
+Found answering *"Is the processing cost card correct in the lot page."* It is
+not, and the write-up is OPEN-ITEMS **0j** with the fix in
+`docs/sql/2026-10-02e_lot_processing_costs_one_source.sql`, **not applied**.
+
+`lot_processing_costs` (the lot card and the closeout) and
+`lot_processing_cost_detail` (the report and the drilldown) each carry a
+private copy of the whole calculation. The detail got the weight estimate and
+the FIFO draw; the summary got neither. Lot 32-26 reads **$512.01** on the card
+and **$778.17** on the report. Every other lot agrees to the cent, which is
+what makes the fix safe to describe exactly: it moves one lot by $266.16 and
+nothing else.
+
+The fix makes the summary an aggregate over the detail. Duplicated maths
+drifts; this is the same reason the processing draw shares its dose expression
+with the costing view instead of restating it.

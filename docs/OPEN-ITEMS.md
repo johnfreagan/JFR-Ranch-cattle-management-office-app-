@@ -185,6 +185,47 @@ while a receipt in its period waits on a weight — but a weight that arrives
 
 ---
 
+## 0j. The lot card's processing cost is three weeks stale — fix written, NOT applied
+
+**Found 2026-10-02**, answering John: *"Is the processing cost card correct in
+the lot page."* **It is not.** Needs his go-ahead, because the fix moves a real
+lot.
+
+There are two views and each carries its **own private copy** of the whole
+processing-cost calculation:
+
+| view | one row a | feeds |
+|---|---|---|
+| `lot_processing_costs` | lot | the **lot card** (Proc $/hd) and the closeout |
+| `lot_processing_cost_detail` | medication | the Processing Cost report and the drilldown |
+
+Both were written 2026-09-10 from the same text. The detail has had two changes
+since and the summary neither — `2026-10-02c` (the office weight estimate) and
+`2026-10-02d` (the FIFO draw preferred over the catalog). So the card reads a
+calculation three weeks old.
+
+| lot | card now | report now | gap |
+|---|---|---|---|
+| 32-26 | $512.01 | $778.17 | **+$266.16** |
+| every other lot (9) | — | — | $0.00, to the cent |
+
+The $266.16 is Valcor, Macrosyn and Synanthic dosed off John's 355 lb estimate.
+One number on the report, another on the card, same screen — and **the card is
+the one the closeout uses**.
+
+**The fix, written and waiting:** `docs/sql/2026-10-02e_lot_processing_costs_one_source.sql`.
+`lot_processing_costs` becomes an aggregate **over** `lot_processing_cost_detail`
+— one costing, two shapes — so the summary has no copy of anything to forget.
+Same lesson as the processing draw, which shares its dose expression with the
+costing view on purpose. Column list unchanged; `med_line_count` and
+`unpriced_line_count` go from counting (source × med) to (lot × med), and
+nothing in the app reads the first or depends on the exact value of the second.
+
+**Applying it moves lot 32-26's processing cost and its closeout by $266.16 and
+nothing else.** That is why it is sitting here instead of on the database.
+
+---
+
 ## 0d. Three stock locations, against a design that deliberately has one
 
 **Status:** DECIDED 2026-10-01 — Jake Taylor added now, the room/truck split

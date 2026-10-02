@@ -4913,13 +4913,16 @@
                 </div>
             </div>
             <div>
-                <label for="lotEstWeight">Estimated purchase weight (lb a head)</label>
+                <label for="lotEstWeight" id="lotEstWeightLabel">Estimated purchase weight (lb a head) *</label>
                 <input type="number" step="1" min="0" id="lotEstWeight" placeholder="e.g. 525">
-                <div class="muted" style="font-size: 11px; margin-top: 3px;">
-                    Only used to dose <strong>per-hundredweight processing medicine while this lot has no
-                    invoice weight at all</strong>. The moment an invoice is entered it takes over and this
-                    is ignored — real weight always wins. Leave blank and those meds simply do not draw
-                    until an invoice lands, and a count will not post while they are waiting.
+                <div class="muted" style="font-size: 11px; margin-top: 3px;" id="lotEstWeightHint">
+                    <strong>Required on a new lot.</strong> Cattle are processed the day they land and the
+                    invoice comes days later, and without a weight every per-hundredweight med on the
+                    protocol doses at nothing: the drug goes in the cattle, the lot is charged $0 for it,
+                    and a medicine count will not post while those lines wait. Within a few pounds is
+                    plenty. It is used <strong>only</strong> while this lot has no invoice weight at all —
+                    the moment an invoice is entered it takes over and this is ignored. Real weight
+                    always wins.
                 </div>
             </div>
             <div>
@@ -9567,13 +9570,42 @@ window.addEventListener('unhandledrejection', function(e) {
                may arrive at $0 and whether the lot has a closeout at all.`;
         $('lotForm').dataset.mode=mode;
         $('lotForm').dataset.seedId=mode==='duplicate'?(seed?.id||''):'';
+        syncLotEstWeightRequired();
         showModal('lotModal');
+    }
+
+    // The estimate is REQUIRED on a new lot (John, 2026-10-02). Cattle are
+    // processed the day they land and the invoice comes days later, so on a
+    // lot with no weight every per-cwt med on the protocol doses at nothing -
+    // the drug goes in the cattle and the lot is charged $0 for it. Lot 32-26
+    // is how we found out: three of its eleven processing meds priced at
+    // nothing and never drew off the shelf until a weight was typed in the
+    // next day.
+    //
+    // Two carve-outs, both honest:
+    //   - EDIT, so a lot already on the books can still be saved for an
+    //     unrelated reason without being held hostage, and so a lot whose
+    //     invoice has landed is not asked for a figure nothing reads.
+    //   - the FEED PEN, which takes cripples transferred in at $0 and is
+    //     never purchased or processed.
+    function syncLotEstWeightRequired() {
+        const mode = $('lotForm').dataset.mode || 'new';
+        const pen = $('lotIsFeedPen').checked;
+        const need = mode !== 'edit' && !pen;
+        $('lotEstWeight').required = need;
+        $('lotEstWeightLabel').textContent =
+            'Estimated purchase weight (lb a head)' + (need ? ' *' : '');
+        $('lotEstWeightHint').firstElementChild.textContent = need
+            ? 'Required on a new lot.'
+            : (pen ? 'Not needed on the feed pen - nothing is purchased or processed into it.'
+                   : 'Optional here, because this lot is already on the books.');
     }
 
     // A pen dated today would derive the right fiscal year but leave the
     // July rollover with nowhere to land: close_feed_pen_year dates the
     // rollover 1 July and refuses a destination pen that did not exist yet.
     $('lotIsFeedPen').addEventListener('change', () => {
+        syncLotEstWeightRequired();
         if (!$('lotIsFeedPen').checked || ($('lotForm').dataset.mode || 'new') !== 'new') return;
         const today = ranchToday();
         const y = Number(today.slice(0, 4));
@@ -9595,6 +9627,20 @@ window.addEventListener('unhandledrejection', function(e) {
         const mode=$('lotForm').dataset.mode||'new';
         const seedId=$('lotForm').dataset.seedId||null;
 
+        // Required on a new lot, and 0 is not an answer. Checked here as well
+        // as on the input, because required only stops a BLANK box.
+        const estWt = $('lotEstWeight').value === '' ? null : Number($('lotEstWeight').value);
+        if (mode !== 'edit' && !$('lotIsFeedPen').checked && !(estWt > 0)) {
+            showAlert('lotModalAlert',
+                'Put in the estimated purchase weight. Without it every per-hundredweight ' +
+                'med on the receiving protocol doses at nothing, so the drug goes in the cattle ' +
+                'and this lot is charged $0 for it. Within a few pounds is plenty - an invoice ' +
+                'weight takes over the moment one is entered.', 'error');
+            $('lotSaveBtn').disabled=false;
+            $('lotEstWeight').focus();
+            return;
+        }
+
         const payload={
             lot_number:$('lotNumber').value.trim(),
             arrival_date:$('arrivalDate').value,
@@ -9604,7 +9650,7 @@ window.addEventListener('unhandledrejection', function(e) {
             end_tag:$('endTag').value?parseInt($('endTag').value):null,
             target_adg:$('targetAdg').value?parseFloat($('targetAdg').value):null,
             notes:$('lotNotes').value.trim()||null,
-            est_purchase_weight_lb: $('lotEstWeight').value ? Number($('lotEstWeight').value) : null,
+            est_purchase_weight_lb: estWt,
             est_weight_source: $('lotEstWeightSource').value.trim()||null,
             created_by:currentUser.id
         };
