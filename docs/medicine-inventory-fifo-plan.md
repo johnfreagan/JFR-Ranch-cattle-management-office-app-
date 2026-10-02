@@ -1435,6 +1435,7 @@ and the verify block asserts it lot by lot rather than trusting that.
 | `2026-10-02j_med_protivity_dose.sql` | Protivity doses 1 a head, so its free stock can draw |
 | `2026-10-02k_med_fifo_ignores_unpriced_draw.sql` | a draw that knows no price no longer beats the catalog |
 | `2026-10-02l_med_lot_tags_jake.sql` | 167 lot tags at Jake's, and nothing uncovered anywhere |
+| `2026-10-02m_med_lot_tags_zero_and_each.sql` | lot tags go in free; both tags counted in "each" |
 
 ### Tags are stock, and the office block went on the shelf (2026-10-02)
 
@@ -1700,3 +1701,50 @@ which is nonsense for a tag and reads as "1.000 mL a head" on the lot detail.
 It is label-only — `cost_per_unit` is `bottle_cost / bottle_size` and cares
 nothing for the word — so fixing it changes no number. It is still a data
 correction on live books, so it waits for John.
+
+### The lot tags go in free, and a tag is counted in "each" (2026-10-02)
+
+John, minutes after the journal entry was drafted: *"Let's put the lot tags in
+Jake's inventory at zero cost and will start adding cost with new purchases in
+future."* And: *"Let's change both lot tags and id tags to 'each' not doses."*
+
+**So there is no journal entry.** The tags were billed in bulk to cattle last
+month and the money is already through September, where it belongs.
+Capitalizing $67.74 would take a cost out of September that September is
+entitled to keep, for tags that will be gone inside a month. The memo written
+for Jayci and Brenda an hour earlier was **withdrawn in place** rather than
+deleted, so nobody can send a stale copy — the file now says do not post it,
+and reverse it if it was already posted.
+
+Two things went to zero: the layer, and **the 9 tags already drawn off it**. A
+consumed allocation is frozen on purpose — that is what makes a reversal exact
+— so zeroing it is a deliberate correction, not a recalculation. Leaving it
+would have charged 32-26 $3.65 for tags John had just declared free.
+
+What moved, and it is all that moved:
+
+| | before | after |
+|---|---|---|
+| 32-26 Lot Tag line | $17.04 | **$13.38** |
+| 32-26 total | $778.17 | **$774.52** |
+| processing, every lot | $99,530.31 | $99,526.66 |
+| on hand, both pools | $24,992.82 | $24,928.74 |
+
+The $13.38 left is right, not a leftover: the 30 Sep receipt (33 head) has no
+draw, so it still reads the catalog at $0.4056 a head; only the 1 Oct receipt
+(9 head) drew off the free layer. Across 42 head that blends to $0.3187. The
+**catalog price is deliberately not zeroed** — pre-go-live receipts read it,
+the same as every other medicine, and the next purchase needs somewhere to
+start.
+
+**ID tags stay at catalog**, and that is not an inconsistency. John's earlier
+call was that the ~6,000 at $0.40 are immaterial and should read right per head.
+The lot tags went the other way because they were billed in bulk to the cattle
+last month specifically. Different facts, different answer, both his.
+
+**"Each", not doses.** A tag is not a dose, and Lot Tag was carrying 'mL' —
+"1.000 mL a head" on the lot detail. Changed in the catalog *and* in the `unit`
+snapshot each existing tag layer carries, so the shelf does not show a mix.
+Label only: `cost_per_unit` is `bottle_cost / bottle_size` and cares nothing
+for the word, which the migration's verify proves by asserting the Lot Tag
+catalog still reads $0.4056 and the ID tags still value at $2,429.14.

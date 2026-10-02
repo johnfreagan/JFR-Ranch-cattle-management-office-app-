@@ -266,10 +266,13 @@ more untracked stock.
 Jake's on the morning of 1 Oct (`2026-10-02l`); the 9 his receipt drew that day
 settled against them, repricing nothing, and **no tag usage is uncovered
 anywhere** — Ranch ID 5,000 / $2,028.00, Jake ID 989 / $401.14, Jake Lot 158 /
-$64.08. They were billed in bulk to cattle in September, so a journal entry
-capitalizes the 167 unused at 30 Sep rather than the layer carrying new money:
-`docs/worksheets/2026-10-02_lot-tag-journal-entry.txt`, with the one-day
-inventory-to-GL reconciling item spelled out for Jayci and Brenda.
+$64.08. They were billed in bulk to cattle in September, and John's final call
+(`2026-10-02m`) is that **the lot tags go in at ZERO cost** — the money is
+already through September where it belongs, and cost starts with the next
+purchase. **So there is no journal entry**; the memo drafted for Jayci and
+Brenda is withdrawn in place. The 9 already drawn went to zero with the layer,
+which took 32-26 from $778.17 to **$774.52**. ID tags stay at catalog, by his
+earlier call. Both tags are now counted in **"each"**.
 
 **The transfer he asked for in the same breath is built** —
 `docs/sql/2026-10-02h_med_transfer.sql`, and the Checkouts screen now moves
