@@ -235,36 +235,48 @@ Summing the integer keeps it bigint.
 
 ---
 
-## 0k. Jake's tags are not in inventory, so his processing draw is uncovered
+## 0k. Previously expensed stock has no cost basis the books agree with
 
-**Found 2026-10-02**, entering the office tags. Needs John.
+**Open 2026-10-02.** The tags are entered; **the accounting question is not
+settled** and it is bigger than tags.
 
-The office block is on the shelf — 5,000 ID tags, #1001-6000, $2,028.00
-(`docs/sql/2026-10-02f_med_id_tags_office_stock.sql`). **Jake Taylor's are
-not**, and neither are lot tags at either place:
+**What is on the shelf now**
 
-| location | medication | on hand | uncovered |
-|---|---|---|---|
-| Ranch | ID Tag | 5,000 · $2,028.00 | — |
-| Ranch | Lot Tag | 0 | — |
-| Jake Taylor | ID Tag | 0 | **9 · $3.65** |
-| Jake Taylor | Lot Tag | 0 | **9 · $3.65** |
+| location | medication | on hand | value | note |
+|---|---|---|---|---|
+| Ranch | ID Tag | 5,000 (#1001-6000) | $2,028.00 | 5 boxes of 1,000 |
+| Jake Taylor | ID Tag | 989 (#11-999) | $401.14 | 998 in, #2-10 used 1 Oct |
+| either | Lot Tag | 0 | — | never counted, not billed to us |
 
-The 1 Oct processing draw took 9 of each off a shelf that holds neither, so
-both sit as uncovered usage priced at catalog. The lot is **not** under-charged
-— uncovered usage still costs the lot at catalog — but the shelf cannot show
-what Jake is holding, and `med_settle_uncovered()` has no layer to settle
-against.
+`docs/sql/2026-10-02f_...` and `2026-10-02g_med_jake_id_tags.sql`. Both at the
+catalog $0.4056. Jake's 9 uncovered ID tags settled against his layer:
+`transactions_repriced` **0**, lot 32-26 unmoved at $778.17.
 
-**What is known:** Jake has **#2-1000, 999 ID tags**, verified by John
-2026-10-02. Lot tags at both places are uncounted, and John's note from the
-day before stands: *"The lot tag haven't been billed to us yet."*
+**The problem John raised.** Those tags were *"expensed out earlier in year
+lump sum when we didn't have a good inventory and mgt tracking program."* He
+also has previously expensed meds he wants to send to Jake to use up. So:
 
-**The proposal, waiting on his word:** an adjustment layer for Jake's 999 ID
-tags at catalog, $405.19, dated in the open period exactly as the office block
-was — then `med_settle_uncovered()` clears his 9. Lot tags stay out until
-somebody counts them, because a quantity nobody has looked at is not an
-opening balance.
+- **At zero cost** the processing cost is distorted — his own objection, and he
+  is right. Tags are ~$0.81 a head with the lot tag, and a free draw
+  understates every lot that touches it.
+- **At catalog** the lot costing is right, but the cash already went through
+  the P&L once. Carrying it as an asset now means the year's books hold the
+  expense *and* the asset unless somebody reclassifies.
+
+Two ledgers, two different questions: the lot needs what a tag **costs**, the
+books need the expense recognized **once**.
+
+**What is needed before this closes:** which fiscal year the lump-sum expense
+landed in (a reclass inside FY 2027 is clean; reaching back into closed
+FY 2026 is not), and Jayci and Brenda's call on whether to capitalize. The
+options and the recommendation went to John 2026-10-02 — chiefly a
+`previously_expensed` flag on the layer so one shelf can report **FIFO value**
+for costing and **book value** for the balance sheet, and the number she would
+need if she does capitalize.
+
+**Also missing:** there is no way to move stock between med locations. Sending
+the old meds to Jake needs a transfer — consume at the Ranch, re-layer at
+Jake's at the same unit cost — and no function or screen does that today.
 
 ---
 
