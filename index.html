@@ -1865,6 +1865,7 @@
                 <div class="sub-tabs" id="apprPaneTabs">
                     <button class="sub-tab active" data-appr-pane="field">Field entries <span id="apprFieldCount" class="approvals-badge hidden">0</span></button>
                     <button class="sub-tab" data-appr-pane="feed" data-perm="office">Feed <span id="apprFeedCount" class="approvals-badge hidden">0</span></button>
+                    <button class="sub-tab" data-appr-pane="meds" data-perm="office">Meds <span id="apprMedsCount" class="approvals-badge hidden">0</span></button>
                 </div>
                 <div id="apprFieldPane">
                 <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
@@ -1891,6 +1892,16 @@
                     <div id="pbSummary" class="approvals-summary"></div>
                     <div id="pbAlert"></div>
                     <div id="pbContent"><div class="empty">Loading…</div></div>
+                </div>
+                <div id="apprMedsPane" class="hidden" data-perm="office">
+                    <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
+                        Bar J vet-med invoices, read off the email by the morning triage. Nothing here is in
+                        inventory until it is posted. Review &amp; post opens the Purchases screen filled from
+                        the invoice: choose where it was received, pick or build any medication it does not
+                        know, and the lines must tie to the invoice total before it posts.
+                    </p>
+                    <div id="apprMedsAlert"></div>
+                    <div id="apprMedsContent"><div class="empty">Loading…</div></div>
                 </div>
             </div>
         </div>
@@ -2447,6 +2458,7 @@
                     <h2 id="invPurchaseEntryTitle">New purchase</h2>
                     <button id="invPurchaseBackBtn">Back</button>
                 </div>
+                <div id="invPurIntakeNote"></div>
 
                 <div class="form-grid">
                     <div>
@@ -5390,7 +5402,10 @@
             </div>
 
             <div class="modal-actions">
-                <button type="button" id="deathsDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete</button>
+                <!-- Owner only: lot_events DELETE is owner-only under RLS, and
+                     delete_death_event refuses (and rolls back) when the
+                     delete is refused. 2026-10-03. -->
+                <button type="button" id="deathsDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete</button>
                 <button type="button" id="deathsCancelBtn">Cancel</button>
                 <button type="submit" class="primary" id="deathsSaveBtn" data-perm="office" data-write>Save</button>
             </div>
@@ -10603,13 +10618,14 @@ window.addEventListener('unhandledrejection', function(e) {
     }
 
     // The nav badge is the sum of the two queues; each pane carries its own.
-    let apprFieldN = 0, apprFeedN = 0;
+    let apprFieldN = 0, apprFeedN = 0, apprMedsN = 0;
     function updateApprovalsBadge(n) {
         if (n != null) apprFieldN = n;
         const set = (id, v) => { const b = $(id); if (b) { b.textContent = v; b.classList.toggle('hidden', !v); } };
         set('apprFieldCount', apprFieldN);
         set('apprFeedCount', apprFeedN);
-        set('navApprovalsCount', apprFieldN + apprFeedN);
+        set('apprMedsCount', apprMedsN);
+        set('navApprovalsCount', apprFieldN + apprFeedN + apprMedsN);
     }
     function updatePbBadge(n) { apprFeedN = n; updateApprovalsBadge(null); }
 
@@ -10623,12 +10639,14 @@ window.addEventListener('unhandledrejection', function(e) {
             return;
         }
         if (!apprCanFeed()) return;
-        const [f, pb] = await Promise.all([
+        const [f, pb, md] = await Promise.all([
             supabase.from('pending_field_entries').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-            supabase.from('pb_daily_reports').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+            supabase.from('pb_daily_reports').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+            supabase.from('med_invoice_intake').select('id, med_purchases(id)').eq('status', 'pending')
         ]);
         if (!f.error) apprFieldN = f.count || 0;
         if (!pb.error) apprFeedN = pb.count || 0;
+        if (!md.error) apprMedsN = (md.data || []).filter(r => !medIntakePosted(r)).length;
         updateApprovalsBadge(null);
     }
 
@@ -11841,7 +11859,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('approvalsView').classList.remove('hidden');
         showApprovalsPane(apprPane);
         loadApprovals();
-        if (apprCanFeed()) loadPbReports();
+        if (apprCanFeed()) { loadPbReports(); loadMedIntake(); }
     }
 
     // ==========================================================
@@ -11857,7 +11875,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // "first lot in pays", charges, by_pen prefeed flag).
     // ==========================================================
     let apprPane = 'field';
-    try { if (localStorage.getItem('apprPane') === 'feed') apprPane = 'feed'; } catch (e) {}
+    try { const p = localStorage.getItem('apprPane'); if (p === 'feed' || p === 'meds') apprPane = p; } catch (e) {}
     let pbList = [];
     let pbWaiting = [];         // prefeed_waiting(): [{ pasture, fed, lb, days_waiting, error }]
     let pbRole = null;          // current_user_role(), read on load
@@ -11883,20 +11901,23 @@ window.addEventListener('unhandledrejection', function(e) {
         pbRole = data || null;
         // Crew never sees the Feed tab (CSS hides data-perm="office" too;
         // this also covers a profile row that disagrees with the database).
-        const tab = document.querySelector('#apprPaneTabs [data-appr-pane="feed"]');
-        if (tab) tab.classList.toggle('hidden', !apprCanFeed());
-        if (!apprCanFeed() && apprPane === 'feed') showApprovalsPane('field');
+        ['feed', 'meds'].forEach(p => {
+            const tab = document.querySelector(`#apprPaneTabs [data-appr-pane="${p}"]`);
+            if (tab) tab.classList.toggle('hidden', !apprCanFeed());
+        });
+        if (!apprCanFeed() && apprPane !== 'field') showApprovalsPane('field');
         return pbRole;
     }
 
     function showApprovalsPane(pane) {
-        if (pane === 'feed' && !apprCanFeed()) pane = 'field';
+        if (pane !== 'field' && !apprCanFeed()) pane = 'field';
         apprPane = pane;
         try { localStorage.setItem('apprPane', pane); } catch (e) {}
         document.querySelectorAll('#apprPaneTabs [data-appr-pane]').forEach(b =>
             b.classList.toggle('active', b.dataset.apprPane === pane));
         $('apprFieldPane').classList.toggle('hidden', pane !== 'field');
         $('apprFeedPane').classList.toggle('hidden', pane !== 'feed');
+        $('apprMedsPane').classList.toggle('hidden', pane !== 'meds');
     }
 
     async function loadPbReports() {
@@ -15085,12 +15106,14 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('navSettings').addEventListener('click', () => showSettingsTab('protocols'));
     $('navReports').addEventListener('click', () => showReportsTab('active-lots'));
     $('navApprovals').addEventListener('click', showApprovalsTab);
-    $('approvalsRefreshBtn').addEventListener('click', () => apprPane === 'feed' ? loadPbReports() : loadApprovals());
+    $('approvalsRefreshBtn').addEventListener('click', () =>
+        apprPane === 'feed' ? loadPbReports() : apprPane === 'meds' ? loadMedIntake() : loadApprovals());
     $('apprPaneTabs').addEventListener('click', e => {
         const b = e.target.closest('[data-appr-pane]');
         if (b) showApprovalsPane(b.dataset.apprPane);
     });
     $('pbContent').addEventListener('click', pbOnClick);
+    $('apprMedsContent').addEventListener('click', medIntakeOnClick);
     $('pbContent').addEventListener('input', e => { if (e.target.closest('.pb-split')) pbSplitRefresh(); });
     $('pbContent').addEventListener('change', e => { if (e.target.closest('.pb-split')) pbSplitRefresh(); });
     $('apprEditSaveBtn').addEventListener('click', saveApprovalEdit);
@@ -21364,9 +21387,14 @@ ${body}
         }
     });
 
-    function openMedModal(med = null) {
+    // afterSave(row) runs once after a NEW medication saves. Approvals > Meds
+    // uses it to drop the new med onto the invoice line that asked for it.
+    let medAfterSave = null;
+    function openMedModal(med = null, afterSave = null) {
         clearAlert('medModalAlert');
-        $('medModalTitle').textContent = med ? 'Edit medication' : 'New medication';
+        medAfterSave = afterSave;
+        // A pre-filled object with no id is a new medication, not an edit.
+        $('medModalTitle').textContent = med?.id ? 'Edit medication' : 'New medication';
         $('medId').value = med?.id || '';
         $('medName').value = med?.name || '';
         $('medCategory').value = med?.generic_category || '';
@@ -21464,7 +21492,7 @@ ${body}
     }
 
     $('newMedBtn').addEventListener('click', () => openMedModal());
-    $('medCancelBtn').addEventListener('click', () => hideModal('medModal'));
+    $('medCancelBtn').addEventListener('click', () => { medAfterSave = null; hideModal('medModal'); });
     $('medDoseMode').addEventListener('change', updateMedDoseUI);
     // Live cost/unit display when bottle fields change
     $('medBottleSize').addEventListener('input', updateMedCostPerUnit);
@@ -21522,6 +21550,9 @@ ${body}
         if (result.error) { showAlert('medModalAlert', result.error.message); return; }
         hideModal('medModal');
         loadMeds();
+        const after = medAfterSave;
+        medAfterSave = null;
+        if (after && !id) after(result.data);
     });
 
     // ==========================================================
@@ -24435,17 +24466,31 @@ ${ranchBlocks}
             return;
         }
 
+        // A reversing move carries "[reverses <id>]" in its notes (see
+        // reverseMovementRow). That marker hides Reverse on the reversal
+        // itself and on the move it already reversed.
+        const reversedIds = new Set();
+        movements.forEach(m => {
+            const hit = /\[reverses ([0-9a-f-]{36})\]/.exec(m.notes || '');
+            if (hit) reversedIds.add(hit[1]);
+        });
         const histRows = movements.map(m => {
             const fromLabel = m.from_pasture_id ? escapeHtml(pastureLabel[m.from_pasture_id] || '?') : '<span class="muted">Unassigned</span>';
             const toLabel = escapeHtml(pastureLabel[m.to_pasture_id] || '?');
+            const isReversal = /\[reverses [0-9a-f-]{36}\]/.test(m.notes || '');
+            const canReverse = m.from_pasture_id && !isReversal && !reversedIds.has(m.id);
+            const reverseCell = canReverse
+                ? `<button type="button" class="move-row-reverse" data-movement-id="${m.id}" data-perm="office" data-write style="padding: 2px 8px; font-size: 11px;">Reverse</button>`
+                : (reversedIds.has(m.id) ? '<span class="muted" style="font-size: 11px;">Reversed</span>' : '');
             return `<tr>
                 <td>${fmtDate(m.move_date)}</td>
                 <td>${fromLabel}</td>
                 <td>${toLabel}</td>
                 <td class="num">${fmtNum(m.head_count)}</td>
                 <td class="muted" style="font-size: 13px;">${escapeHtml(m.notes || '')}</td>
-                <td>
-                    <button type="button" class="move-row-delete" data-movement-id="${m.id}" style="padding: 2px 8px; font-size: 11px; color: var(--danger);">Delete</button>
+                <td style="white-space: nowrap;">
+                    ${reverseCell}
+                    <button type="button" class="move-row-delete" data-movement-id="${m.id}" data-perm="owner" data-write style="padding: 2px 8px; font-size: 11px; color: var(--danger);">Delete</button>
                 </td>
             </tr>`;
         }).join('');
@@ -24454,15 +24499,52 @@ ${ranchBlocks}
                 <thead><tr><th>Date</th><th>From</th><th>To</th><th class="num">Head</th><th>Notes</th><th></th></tr></thead>
                 <tbody>${histRows}</tbody>
             </table>
-            <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">Deleting a move reverses it: the head go back where they came from, and if the move emptied and closed the source pasture, that pasture is reopened.</p>
+            <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">Reverse a wrong move: it records the opposite move on the same date, so the cattle spend no days in the wrong pasture and both moves stay in the history. Delete (owner only) erases the move instead.</p>
         `;
         const mc2 = document.getElementById('moveHistoryCount');
         if (mc2) mc2.textContent = `(${movements.length})`;
 
-        // Wire delete handlers (audit-only)
+        const byId = new Map(movements.map(m => [m.id, m]));
+        $('moveHistoryContent').querySelectorAll('.move-row-reverse').forEach(btn => {
+            btn.addEventListener('click', () => reverseMovementRow(byId.get(btn.dataset.movementId), pastureLabel));
+        });
         $('moveHistoryContent').querySelectorAll('.move-row-delete').forEach(btn => {
             btn.addEventListener('click', () => deleteMovementRow(btn.dataset.movementId));
         });
+    }
+
+    // Reverse = post the opposite move through record_move_with_pasture, on
+    // the ORIGINAL move date. Office cannot delete a move (lot_movements and
+    // lot_pasture_assignments DELETE are owner-only), and a reversal keeps the
+    // history: the wrong move and its correction both stay. Dating it the
+    // same day nets the wrong pasture's head-days to zero. The RPC refuses if
+    // the head are no longer standing in the pasture they were moved to.
+    async function reverseMovementRow(m, pastureLabel) {
+        if (!m || !m.from_pasture_id) return;
+        const fromName = pastureLabel[m.from_pasture_id] || '?';
+        const toName = pastureLabel[m.to_pasture_id] || '?';
+        if (!confirm(
+            `Reverse this move?\n\n` +
+            `  ${fmtNum(m.head_count)} head go back from ${toName} to ${fromName}, dated ${fmtDate(m.move_date)}.\n\n` +
+            `Both moves stay in the history. If the cattle have moved again, died or sold since, this will refuse.\n\n` +
+            `Feed from PB days already approved while they stood in ${toName} stays charged to this lot.`
+        )) return;
+
+        const { error } = await supabase.rpc('record_move_with_pasture', {
+            p_lot_id: currentLot.id,
+            p_from_pasture_id: m.to_pasture_id,
+            p_to_pasture_id: m.from_pasture_id,
+            p_head_count: m.head_count,
+            p_move_date: m.move_date,
+            p_notes: `Reverses the ${m.move_date} move ${fromName} → ${toName}, entered in error. [reverses ${m.id}]`,
+            p_recorded_by: currentUser.id
+        });
+        if (error) {
+            showAlert('globalAlert', 'Move NOT reversed, nothing was changed: ' + error.message, 'error');
+            return;
+        }
+        showAlert('globalAlert', `Move reversed — ${fmtNum(m.head_count)} head back in ${fromName} as of ${fmtDate(m.move_date)}.`, 'success');
+        showLotDetail(currentLot.id);
     }
 
     // Deleting a move REVERSES it. This used to raw-delete the lot_movements
@@ -25198,7 +25280,7 @@ ${ranchBlocks}
                 <td>${escapeHtml(past)}</td>
                 <td class="muted" style="font-size:12px;">${escapeHtml(e.notes || '')}</td>
                 <td>${reversible(e)
-                    ? `<button type="button" class="ha-del" data-id="${e.id}" data-perm="office" data-write
+                    ? `<button type="button" class="ha-del" data-id="${e.id}" data-perm="owner" data-write
                                style="font-size:11.5px; padding:3px 8px;">Reverse</button>`
                     : '<span class="muted" style="font-size:11px;">Record removal</span>'}</td>
             </tr>`;
@@ -25872,7 +25954,7 @@ ${ranchBlocks}
         $('moveLotTitle').textContent = isFirstMove
             ? `Assign lot ${currentLot.lot_number} to pasture(s)`
             : `Move lot ${currentLot.lot_number}`;
-        $('moveDate').value = new Date().toISOString().slice(0, 10);
+        setDateValue('moveDate', ranchToday());
         if ($('moveNotes')) $('moveNotes').value = '';
 
         if (currentMoveAssignments.length === 0) {
@@ -26026,7 +26108,7 @@ ${ranchBlocks}
         $('moveLotSaveBtn').disabled = true;
 
         try {
-            const moveDate = $('moveDate').value || new Date().toISOString().slice(0, 10);
+            const moveDate = $('moveDate').value || ranchToday();
 
             const validDests = moveDestinations.filter(d => d.pasture_id && d.head_count > 0);
             if (validDests.length === 0) {
@@ -26050,77 +26132,12 @@ ${ranchBlocks}
                 }
             }
 
-            // ===== Source-side adjustments =====
-            // Phase 12 model: each (lot, pasture) has at most one active row.
-            // For non-virtual sources, decrement head_count by sel.head_to_move.
-            // If decrement reaches zero, close the row (set moved_out).
-            for (let i = 0; i < moveOutSelections.length; i++) {
-                const sel = moveOutSelections[i];
-                if (sel.head_to_move <= 0) continue;
-                const a = currentMoveAssignments[i];
-                if (a.__virtual) continue;
-
-                const newHead = a.head_count - sel.head_to_move;
-                if (newHead < 0) {
-                    throw new Error(`Internal: negative head count on ${a.ranch_name}/${a.pasture_name}.`);
-                }
-                if (newHead === 0) {
-                    // Close fully
-                    const { error: closeErr } = await supabase
-                        .from('lot_pasture_assignments')
-                        .update({ moved_out: moveDate })
-                        .eq('id', a.id);
-                    if (closeErr) throw closeErr;
-                } else {
-                    // Decrement
-                    const { error: updErr } = await supabase
-                        .from('lot_pasture_assignments')
-                        .update({ head_count: newHead })
-                        .eq('id', a.id);
-                    if (updErr) throw updErr;
-                }
-            }
-
-            // ===== Destination-side adjustments =====
-            // For each destination, either add to existing open row at that pasture
-            // OR insert a new row if none exists. Unique index enforces one open
-            // row per (lot, pasture).
-            for (const d of validDests) {
-                const head = Number(d.head_count);
-                const { data: existing } = await supabase
-                    .from('lot_pasture_assignments')
-                    .select('id, head_count')
-                    .eq('lot_id', currentLot.id)
-                    .eq('pasture_id', d.pasture_id)
-                    .is('moved_out', null)
-                    .maybeSingle();
-
-                if (existing) {
-                    const { error: addErr } = await supabase
-                        .from('lot_pasture_assignments')
-                        .update({ head_count: existing.head_count + head })
-                        .eq('id', existing.id);
-                    if (addErr) throw addErr;
-                } else {
-                    const { error: insErr } = await supabase
-                        .from('lot_pasture_assignments')
-                        .insert({
-                            lot_id: currentLot.id,
-                            pasture_id: d.pasture_id,
-                            head_count: head,
-                            moved_in: moveDate,
-                            recorded_by: currentUser.id
-                        });
-                    if (insErr) throw insErr;
-                }
-            }
-
-            // ===== Audit log: write one lot_movements row per (source, destination) pair =====
-            // For simple cases (one source → one destination), this is one row.
-            // For multi-source/multi-dest, we record allocation in source-then-destination order.
-            // Allocation: walk sources in order, fill destinations in order, record paired moves.
+            // ===== Pair sources with destinations =====
+            // One move per (source, destination) pair: walk the sources in
+            // order and fill the destinations in order. A single source to a
+            // single destination is one move.
             const userNotes = ($('moveNotes') ? $('moveNotes').value.trim() : '') || null;
-            const movementRows = [];
+            const pairs = [];
             const sources = moveOutSelections
                 .map((sel, idx) => ({ sel, a: currentMoveAssignments[idx] }))
                 .filter(x => x.sel.head_to_move > 0);
@@ -26131,17 +26148,12 @@ ${ranchBlocks}
                 while (destNeed > 0 && srcIdx < sources.length) {
                     const portion = Math.min(srcRemaining, destNeed);
                     if (portion > 0) {
-                        // Compose notes: prefer user input, else add the auto-context for unassigned
                         const autoNote = sources[srcIdx].a.__virtual ? 'From unassigned (initial placement)' : null;
-                        const finalNote = [userNotes, autoNote].filter(Boolean).join(' / ') || null;
-                        movementRows.push({
-                            lot_id: currentLot.id,
-                            move_date: moveDate,
+                        pairs.push({
                             from_pasture_id: sources[srcIdx].a.__virtual ? null : sources[srcIdx].a.pasture_id,
                             to_pasture_id: d.pasture_id,
                             head_count: portion,
-                            recorded_by: currentUser.id,
-                            notes: finalNote
+                            notes: [userNotes, autoNote].filter(Boolean).join(' / ') || null
                         });
                         srcRemaining -= portion;
                         destNeed -= portion;
@@ -26152,11 +26164,43 @@ ${ranchBlocks}
                     }
                 }
             }
-            if (movementRows.length > 0) {
-                const { error: logErr } = await supabase
-                    .from('lot_movements')
-                    .insert(movementRows);
-                if (logErr) throw logErr;
+
+            // ===== Post each pair through record_move_with_pasture =====
+            // The RPC writes the lot_movements row and both pasture sides in
+            // one transaction, so a single move can never land half-done.
+            // (This screen used to write the assignments and the movement row
+            // as separate calls with no rollback.) A NULL source is the
+            // unassigned head: the RPC adds to the destination only.
+            const posted = [];
+            try {
+                for (const p of pairs) {
+                    const { data, error } = await supabase.rpc('record_move_with_pasture', {
+                        p_lot_id: currentLot.id,
+                        p_from_pasture_id: p.from_pasture_id,
+                        p_to_pasture_id: p.to_pasture_id,
+                        p_head_count: p.head_count,
+                        p_move_date: moveDate,
+                        p_notes: p.notes,
+                        p_recorded_by: currentUser.id
+                    });
+                    if (error) throw error;
+                    posted.push(data);
+                }
+            } catch (postErr) {
+                // Several pairs and one failed: undo the ones already posted,
+                // newest first. delete_move_event is owner-only and refuses
+                // (changing nothing) for office, so say plainly what is left.
+                const stuck = [];
+                for (const id of posted.slice().reverse()) {
+                    const { error: undoErr } = await supabase.rpc('delete_move_event', { p_movement_id: id });
+                    if (undoErr) stuck.push(id);
+                }
+                if (stuck.length) {
+                    throw new Error(`Move NOT finished: ${postErr.message} ` +
+                        `${stuck.length} of the ${pairs.length} legs were already recorded and could not be undone ` +
+                        `(only the owner can delete a move). Open Move history and Reverse them, or ask John.`);
+                }
+                throw new Error(`Move NOT saved, nothing was changed: ${postErr.message}`);
             }
 
             $('moveLotSaveBtn').disabled = false;
@@ -35928,9 +35972,11 @@ ${ranchBlocks}
         const el = $(id); if (!el) return;
         const keep = el.value;
         const list = opts.kind ? invLocations.filter(l => l.kind === opts.kind) : invLocations;
-        el.innerHTML = list.map(l =>
+        el.innerHTML = (opts.blank ? `<option value="">${escapeHtml(opts.blank)}</option>` : '') + list.map(l =>
             `<option value="${l.id}">${escapeHtml(l.name)}${l.is_test ? '  (TEST)' : ''}</option>`).join('');
-        if (keep && list.some(l => l.id === keep)) el.value = keep;
+        // Must-answer: no default, not even the last one used.
+        if (opts.blank) el.value = '';
+        else if (keep && list.some(l => l.id === keep)) el.value = keep;
         else {
             const ranch = list.find(l => l.kind === 'ranch');
             if (ranch) el.value = ranch.id;
@@ -36099,6 +36145,10 @@ ${ranchBlocks}
     function openInvPurchaseEntry() {
         hideAllViews();
         $('invMedPurchaseEntryView').classList.remove('hidden');
+        invPurIntake = null;
+        $('invPurchaseEntryTitle').textContent = 'New purchase';
+        $('invPurIntakeNote').innerHTML = '';
+        clearAlert('invPurAlert');
         $('invPurDate').value = ranchToday();
         ['invPurVendor', 'invPurInvoiceNo', 'invPurTotal', 'invPurFreight', 'invPurPaste'].forEach(id => $(id).value = '');
         invFillLocationSelect('invPurLocation');
@@ -36190,7 +36240,8 @@ ${ranchBlocks}
             const perUnit = units > 0 ? lineTotal / units : null;
             html += `<tr${l.medication_id ? '' : ' style="background:#fef2f2;"'}>
                 <td><select data-inv-line="${l.tempId}" data-field="medication_id" style="min-width:180px;">${opts}</select>
-                    ${l.medication_id ? '' : `<div class="muted" style="font-size:11px;">pasted: ${escapeHtml(l.pasted_name || '')}</div>`}</td>
+                    ${invPurIntake ? invPurIntakeLineNote(l)
+                      : l.medication_id ? '' : `<div class="muted" style="font-size:11px;">pasted: ${escapeHtml(l.pasted_name || '')}</div>`}</td>
                 <td class="num"><input type="number" step="0.25" style="width:80px;text-align:right;" value="${l.qty_bottles ?? ''}" data-inv-line="${l.tempId}" data-field="qty_bottles"></td>
                 <td class="num"><input type="number" step="0.01" style="width:90px;text-align:right;" value="${l.bottle_size ?? ''}" data-inv-line="${l.tempId}" data-field="bottle_size"></td>
                 <td class="muted">${escapeHtml(med ? (med.bottle_size_unit || 'mL') : '')}</td>
@@ -36236,6 +36287,10 @@ ${ranchBlocks}
 
     async function saveInvPurchase() {
         if (!invPurchaseLines.length) { showAlert('invPurAlert', 'No lines to post.', 'error'); return; }
+        if (!$('invPurLocation').value) {
+            showAlert('invPurAlert', 'Choose where it was received to before posting.', 'error');
+            return;
+        }
         const bad = invPurchaseLines.filter(l => !l.medication_id
             || !(invNum(l.qty_bottles) > 0) || !(invNum(l.bottle_size) > 0) || invNum(l.unit_price) == null);
         if (bad.length) {
@@ -36256,9 +36311,16 @@ ${ranchBlocks}
                 invoice_number: $('invPurInvoiceNo').value || null,
                 location_id: $('invPurLocation').value,
                 invoice_total: invNum($('invPurTotal').value),
+                ...(invPurIntake ? { intake_id: invPurIntake.id } : {}),
                 created_by: user ? user.id : null
             }).select().single();
-            if (pErr) throw pErr;
+            if (pErr) {
+                // med_purchases_intake_uniq: one emailed invoice posts once.
+                if (invPurIntake && pErr.code === '23505' && /intake/.test(pErr.message || '')) {
+                    throw new Error('this invoice is already posted (' + pErr.message + '). Nothing was posted again. Go back to Approvals > Meds and refresh.');
+                }
+                throw pErr;
+            }
 
             // Freight is allocated across the lines BY VALUE, so unit_cost is
             // landed cost and FIFO carries what the bottle really cost to get
@@ -36312,14 +36374,267 @@ ${ranchBlocks}
                         ` that was on the shelf at the time — that would otherwise have shown up as` +
                         ` shrink at the next count.`;
             }
+            // Remember John's own picks so the next invoice with the same
+            // item name matches on its own. Posted already; a failure here
+            // is reported, not hidden, and does not undo the post.
+            let aliasNote = '';
+            if (invPurIntake) {
+                const learnErr = await invPurLearnAliases(invPurIntake.vendor);
+                if (learnErr) aliasNote = ' Could not remember the medication pick(s): ' + learnErr +
+                    ' The purchase is posted; the next invoice will ask again.';
+            }
             showAlert('globalAlert',
-                `Purchase posted: ${rows.length} line(s), ${fmtMoney(linesTotal + freight)}.` + extra, 'success');
-            showInventoryTab('purchases');
+                `Purchase posted: ${rows.length} line(s), ${fmtMoney(linesTotal + freight)}.` + extra + aliasNote,
+                aliasNote ? 'error' : 'success');
+            if (invPurIntake) { invPurIntake = null; invPurBackToMeds(); }
+            else showInventoryTab('purchases');
         } catch (e) {
             showAlert('invPurAlert', 'Could not post: ' + (e.message || e), 'error');
         } finally {
             btn.disabled = false; btn.textContent = 'Post purchase';
         }
+    }
+
+    // ---- APPROVALS > MEDS: emailed vet-med invoices -----------------------
+    // The morning triage reads Bar J invoice emails and calls
+    // stage_med_invoice(); the database parses each one into
+    // med_invoice_intake. Review & post opens THIS purchase grid filled from
+    // the invoice - there is no second grid, and the tie-out still gates the
+    // post. Posted = a med_purchases row carries intake_id (unique: one
+    // invoice posts once; deleting the purchase puts it back in the queue).
+    // Lines John matches by hand are remembered in med_name_aliases.
+    // Migration: docs/sql/2026-10-02n_med_invoice_intake.sql.
+    let invPurIntake = null;    // { id, vendor, invoice_number } while posting an emailed invoice
+    let medIntakeList = [];     // pending + recently reviewed intakes, as last loaded
+    let medIntakeBusy = false;
+
+    // The embed comes back as an array, or as one object if PostgREST reads
+    // the unique index on intake_id as one-to-one. Posted if a purchase exists.
+    function medIntakePurchase(r) {
+        const p = r && r.med_purchases;
+        return Array.isArray(p) ? (p[0] || null) : (p || null);
+    }
+    function medIntakePosted(r) { return !!medIntakePurchase(r); }
+
+    async function loadMedIntake() {
+        clearAlert('apprMedsAlert');
+        const el = $('apprMedsContent');
+        if (!medIntakeList.length) el.innerHTML = '<div class="empty">Loading…</div>';
+        const cols = 'id, vendor, invoice_number, invoice_date, invoice_total, item_count, lines, problems, ' +
+                     'status, staged_at, reviewed_at, review_notes, med_purchases(id, purchase_date, location_id)';
+        const [pend, recent] = await Promise.all([
+            supabase.from('med_invoice_intake').select(cols).eq('status', 'pending').order('invoice_date'),
+            supabase.from('med_invoice_intake').select(cols).order('staged_at', { ascending: false }).limit(20)
+        ]);
+        const err = pend.error || recent.error;
+        if (err) {
+            const missing = /med_invoice_intake|schema cache|does not exist/i.test(err.message || '');
+            el.innerHTML = `<div class="alert error">Could not load emailed invoices: ${escapeHtml(err.message || String(err))}` +
+                (missing ? ' — if the table is missing, docs/sql/2026-10-02n_med_invoice_intake.sql is not applied yet.' : '') + '</div>';
+            return;
+        }
+        // Location names for the posted rows. Not fatal: say so and go on.
+        try { await loadInvLookups(); } catch (e) {
+            showAlert('apprMedsAlert', 'Could not load stock locations: ' + (e.message || e), 'error');
+        }
+        const byId = new Map();
+        [...(pend.data || []), ...(recent.data || [])].forEach(r => byId.set(r.id, r));
+        medIntakeList = [...byId.values()];
+        const waiting = medIntakeList.filter(r => r.status === 'pending' && !medIntakePosted(r));
+        const done = medIntakeList.filter(r => r.status === 'rejected' || medIntakePosted(r))
+            .sort((a, b) => String(b.staged_at).localeCompare(String(a.staged_at))).slice(0, 20);
+        apprMedsN = waiting.length;
+        updateApprovalsBadge(null);
+        el.innerHTML = renderMedIntake(waiting, done);
+    }
+
+    function renderMedIntake(waiting, done) {
+        const write = pbCanWrite();
+        let html = '';
+        if (!waiting.length) {
+            html += `<div class="empty">No emailed med invoices waiting. The morning triage stages them;
+                a role without access to the books sees none here, not an error.</div>`;
+        }
+        waiting.forEach(r => {
+            const lines = Array.isArray(r.lines) ? r.lines : [];
+            const probs = Array.isArray(r.problems) ? r.problems : [];
+            html += `<div style="border:1px solid var(--border, #e5e7eb);border-radius:8px;padding:12px;margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                    <div><strong>${escapeHtml(r.vendor)}</strong> &middot; Invoice #${escapeHtml(r.invoice_number)}
+                        &middot; ${escapeHtml(fmtDate(r.invoice_date))}</div>
+                    <div><strong>${fmtMoney(r.invoice_total)}</strong></div>
+                </div>
+                <div style="overflow-x:auto;"><table style="margin-top:8px;"><thead><tr>
+                    <th>Item on invoice</th><th class="num">Qty</th><th class="num">$ / bottle</th><th class="num">Line total</th>
+                </tr></thead><tbody>
+                ${lines.map(l => `<tr><td>${escapeHtml(l.name || '')}</td><td class="num">${fmtNum(l.qty, 2)}</td>
+                    <td class="num">${fmtMoney(l.unit_price)}</td><td class="num">${fmtMoney(l.line_total)}</td></tr>`).join('')
+                  || '<tr><td colspan="4" class="muted">No lines read.</td></tr>'}
+                </tbody></table></div>
+                ${probs.length ? `<div class="alert error" style="margin-top:8px;">${probs.map(p => escapeHtml(p)).join('<br>')}</div>` : ''}
+                <div class="muted" style="font-size:12px;margin-top:6px;">Staged ${escapeHtml(fmtDate(String(r.staged_at || '').slice(0, 10)))}</div>
+                ${write ? `<div style="display:flex;gap:8px;margin-top:10px;">
+                    <button class="primary" data-mi-review="${r.id}" data-write>Review &amp; post</button>
+                    <button data-mi-reject="${r.id}" data-write>Reject</button>
+                </div>` : ''}
+            </div>`;
+        });
+        if (done.length) {
+            html += `<details style="margin-top:8px;"><summary class="muted" style="cursor:pointer;">Recently posted or rejected (${done.length})</summary>
+                <div style="overflow-x:auto;"><table style="margin-top:8px;"><thead><tr>
+                    <th>Invoice</th><th>Date</th><th class="num">Total</th><th>Outcome</th>
+                </tr></thead><tbody>
+                ${done.map(r => {
+                    const p = medIntakePurchase(r);
+                    const loc = p ? invLocations.find(x => x.id === p.location_id) : null;
+                    const out = p ? `Posted${loc ? ' to ' + escapeHtml(loc.name) : ''} (purchase ${escapeHtml(fmtDate(p.purchase_date))})`
+                                  : `Rejected: ${escapeHtml(r.review_notes || '')}`;
+                    return `<tr><td>${escapeHtml(r.vendor)} #${escapeHtml(r.invoice_number)}</td>
+                        <td>${escapeHtml(fmtDate(r.invoice_date))}</td><td class="num">${fmtMoney(r.invoice_total)}</td><td>${out}</td></tr>`;
+                }).join('')}
+                </tbody></table></div></details>`;
+        }
+        return html;
+    }
+
+    async function medIntakeOnClick(e) {
+        const rv = e.target.closest('[data-mi-review]');
+        if (rv) { openMedIntakeReview(rv.dataset.miReview); return; }
+        const rj = e.target.closest('[data-mi-reject]');
+        if (!rj || medIntakeBusy) return;
+        const r = medIntakeList.find(x => x.id === rj.dataset.miReject);
+        if (!r) return;
+        const reason = prompt(`Reject ${r.vendor} invoice #${r.invoice_number}? Say why (required):`);
+        if (reason === null) return;
+        if (!reason.trim()) { showAlert('apprMedsAlert', 'Not rejected: a reason is required.', 'error'); return; }
+        medIntakeBusy = true;
+        try {
+            const { error } = await supabase.rpc('reject_med_invoice', { p_intake_id: r.id, p_reason: reason.trim() });
+            if (error) { showAlert('apprMedsAlert', 'Could not reject: ' + error.message, 'error'); return; }
+            await loadMedIntake();
+            showAlert('apprMedsAlert', `Invoice #${r.invoice_number} rejected.`, 'success');
+        } finally { medIntakeBusy = false; }
+    }
+
+    // Opens the existing purchase grid, filled from the staged invoice.
+    async function openMedIntakeReview(id) {
+        const r = medIntakeList.find(x => x.id === id);
+        if (!r) return;
+        if (medIntakePosted(r)) { showAlert('apprMedsAlert', `Invoice #${r.invoice_number} is already posted.`, 'error'); return; }
+        try { await loadInvLookups(true); } catch (e) {
+            showAlert('apprMedsAlert', 'Could not load medications and locations: ' + (e.message || e), 'error');
+            return;
+        }
+        const al = await supabase.from('med_name_aliases').select('vendor, alias, medication_id, bottle_size');
+        if (al.error) { showAlert('apprMedsAlert', 'Could not load remembered medication names: ' + al.error.message, 'error'); return; }
+        const vendorLc = String(r.vendor).toLowerCase();
+        const aliases = (al.data || []).filter(a => String(a.vendor).toLowerCase() === vendorLc);
+
+        openInvPurchaseEntry();
+        invPurIntake = { id: r.id, vendor: r.vendor, invoice_number: r.invoice_number };
+        $('invPurchaseEntryTitle').textContent = `Post emailed invoice: ${r.vendor} #${r.invoice_number}`;
+        $('invPurDate').value = r.invoice_date;
+        $('invPurVendor').value = r.vendor;
+        $('invPurInvoiceNo').value = r.invoice_number;
+        $('invPurTotal').value = Number(r.invoice_total).toFixed(2);
+        invFillLocationSelect('invPurLocation', { blank: '— choose where it went —' });
+
+        // Alias first (John's own earlier pick), then the exact catalog name.
+        // Never a near match.
+        invPurchaseLines = (Array.isArray(r.lines) ? r.lines : []).map(l => {
+            const name = String(l.name || '').trim();
+            const a = aliases.find(x => String(x.alias).toLowerCase() === name.toLowerCase());
+            const aMed = a ? invMedById(a.medication_id) : null;
+            const med = aMed || invMatchMedByName(name);
+            const qty = invNum(l.qty), lt = invNum(l.line_total);
+            const size = (aMed ? invNum(a.bottle_size) : null) ?? invNum(l.bottle_size) ?? '';
+            return {
+                tempId: invTempId(),
+                medication_id: med ? med.id : '',
+                pasted_name: name,
+                qty_bottles: qty,
+                bottle_size: size,
+                unit_price: (qty > 0 && lt != null) ? Number((lt / qty).toFixed(6)) : invNum(l.unit_price),
+                auto_med_id: med ? med.id : '',
+                auto_size: size,
+                matched_by: aMed ? 'alias' : med ? 'name' : ''
+            };
+        });
+
+        const probs = Array.isArray(r.problems) ? r.problems : [];
+        const need = invPurchaseLines.filter(l => !l.medication_id).length;
+        $('invPurIntakeNote').innerHTML =
+            (probs.length ? `<div class="alert error">Read off the invoice: ${probs.map(p => escapeHtml(p)).join('<br>')}</div>` : '') +
+            `<div class="alert info">Emailed invoice. <strong>Received to</strong> starts blank: choose where it went.` +
+            (need ? ` <strong>${need} line(s)</strong> need a medication: pick one, or click New medication.` : '') +
+            ` A line you pick by hand is remembered for the next ${escapeHtml(r.vendor)} invoice.</div>`;
+        renderInvPurchaseLines();
+    }
+
+    function invPurIntakeLineNote(l) {
+        const inv = `<div class="muted" style="font-size:11px;">invoice: ${escapeHtml(l.pasted_name || '')}`;
+        if (!l.medication_id) {
+            return inv + `</div><button type="button" data-inv-newmed="${l.tempId}" style="font-size:12px;margin-top:4px;">New medication</button>`;
+        }
+        if (l.medication_id === l.auto_med_id) {
+            return inv + (l.matched_by === 'alias' ? ' &middot; remembered pick' : ' &middot; same name') + '</div>';
+        }
+        return inv + ' &middot; your pick, remembered when posted</div>';
+    }
+
+    // New medication, pre-filled from the invoice line. On save it joins the
+    // pickers and lands on the line that asked for it.
+    function invPurNewMed(tempId) {
+        const l = invPurchaseLines.find(x => x.tempId === tempId);
+        if (!l) return;
+        openMedModal({
+            name: l.pasted_name || '',
+            bottle_size: invNum(l.bottle_size),
+            bottle_size_unit: 'mL',
+            bottle_cost: invNum(l.unit_price)
+        }, med => {
+            if (!invMedsCache.some(m => m.id === med.id)) {
+                invMedsCache.push(med);
+                invMedsCache.sort((a, b) => String(a.generic_category || '').localeCompare(String(b.generic_category || ''))
+                                         || String(a.name).localeCompare(String(b.name)));
+            }
+            const line = invPurchaseLines.find(x => x.tempId === tempId);
+            if (line) {
+                line.medication_id = med.id;
+                if (!(invNum(line.bottle_size) > 0) && med.bottle_size) line.bottle_size = med.bottle_size;
+            }
+            renderInvPurchaseLines();
+            showAlert('invPurAlert', `${med.name} added to the medication list and put on this line.`, 'info');
+        });
+    }
+
+    // After a post: remember every line John matched by hand (a pick that is
+    // not what the alias or the exact name gave, or a remembered pick whose
+    // bottle size he changed). Returns error text, or null.
+    async function invPurLearnAliases(vendor) {
+        const picks = invPurchaseLines.filter(l => l.pasted_name && l.medication_id && (
+            l.medication_id !== l.auto_med_id ||
+            (l.matched_by === 'alias' && invNum(l.bottle_size) !== invNum(l.auto_size))));
+        const errs = [];
+        for (const l of picks) {
+            const { error } = await supabase.rpc('med_alias_learn', {
+                p_vendor: vendor, p_alias: l.pasted_name,
+                p_medication_id: l.medication_id, p_bottle_size: invNum(l.bottle_size)
+            });
+            if (error) errs.push(`${l.pasted_name}: ${error.message}`);
+        }
+        return errs.length ? errs.join('; ') : null;
+    }
+
+    function invPurBackToMeds() {
+        apprPane = 'meds';
+        showApprovalsTab();
+    }
+
+    // Back / Cancel: an emailed invoice goes back to its queue, unposted.
+    function invPurLeave() {
+        if (invPurIntake) { invPurIntake = null; invPurBackToMeds(); }
+        else showInventoryTab('purchases');
     }
 
     async function deleteInvPurchase(id) {
@@ -37543,8 +37858,8 @@ ${ranchBlocks}
     $('invSettleBtn').addEventListener('click', () => settleInvUncovered($('invOnHandLocation').value, false));
 
     $('invNewPurchaseBtn').addEventListener('click', openInvPurchaseEntry);
-    $('invPurchaseBackBtn').addEventListener('click', () => showInventoryTab('purchases'));
-    $('invPurCancelBtn').addEventListener('click', () => showInventoryTab('purchases'));
+    $('invPurchaseBackBtn').addEventListener('click', invPurLeave);
+    $('invPurCancelBtn').addEventListener('click', invPurLeave);
     $('invPurParseBtn').addEventListener('click', applyInvPaste);
     $('invPurAddLineBtn').addEventListener('click', () => {
         invPurchaseLines.push({ tempId: invTempId(), medication_id: '', qty_bottles: '', bottle_size: '', unit_price: '' });
@@ -37577,6 +37892,8 @@ ${ranchBlocks}
         }
     });
     $('invPurLines').addEventListener('click', (e) => {
+        const nm = e.target.closest('[data-inv-newmed]');
+        if (nm) { invPurNewMed(nm.dataset.invNewmed); return; }
         const rm = e.target.closest('[data-inv-rmline]');
         if (rm) {
             invPurchaseLines = invPurchaseLines.filter(l => l.tempId !== rm.dataset.invRmline);
