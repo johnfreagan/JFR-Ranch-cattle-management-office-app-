@@ -5402,7 +5402,10 @@
             </div>
 
             <div class="modal-actions">
-                <button type="button" id="deathsDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete</button>
+                <!-- Owner only: lot_events DELETE is owner-only under RLS, and
+                     delete_death_event refuses (and rolls back) when the
+                     delete is refused. 2026-10-03. -->
+                <button type="button" id="deathsDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete</button>
                 <button type="button" id="deathsCancelBtn">Cancel</button>
                 <button type="submit" class="primary" id="deathsSaveBtn" data-perm="office" data-write>Save</button>
             </div>
@@ -25226,7 +25229,7 @@ ${ranchBlocks}
                 <td>${escapeHtml(past)}</td>
                 <td class="muted" style="font-size:12px;">${escapeHtml(e.notes || '')}</td>
                 <td>${reversible(e)
-                    ? `<button type="button" class="ha-del" data-id="${e.id}" data-perm="office" data-write
+                    ? `<button type="button" class="ha-del" data-id="${e.id}" data-perm="owner" data-write
                                style="font-size:11.5px; padding:3px 8px;">Reverse</button>`
                     : '<span class="muted" style="font-size:11px;">Record removal</span>'}</td>
             </tr>`;
