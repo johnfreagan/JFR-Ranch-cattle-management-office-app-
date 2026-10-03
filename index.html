@@ -1325,7 +1325,7 @@
                 <div class="card">
                     <div class="card-header">
                         <h3>Sales</h3>
-                        <button class="primary card-add-btn" onclick="document.getElementById('newSaleBtn').click()">💲 + Sale</button>
+                        <button class="primary card-add-btn" onclick="openShipmentForLot()" title="Opens a new shipment with this lot filled in">💲 + Sale</button>
                     </div>
                     <div id="salesContent"><div class="empty">No sales yet.</div></div>
                 </div>
@@ -3118,7 +3118,7 @@
                         <input type="text" id="acctProfitCenter" placeholder="Stockers">
                     </div>
                     <div>
-                        <label for="acctProductionYear">Production Year</label>
+                        <label for="acctProductionYear">Production Year <span class="muted" style="font-size: 11px;">(calendar year of the sale date)</span></label>
                         <input type="number" id="acctProductionYear" step="1" placeholder="2026">
                     </div>
                 </div>
@@ -5584,7 +5584,7 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="saleDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete sale</button>
+                <button type="button" id="saleDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete sale</button>
                 <div>
                     <button type="button" id="saleCancelBtn">Cancel</button>
                     <button type="submit" class="primary" id="saleSaveBtn" data-perm="office" data-write>Save sale</button>
@@ -8076,48 +8076,10 @@ window.addEventListener('unhandledrejection', function(e) {
         });
     })();
 
-    // ==========================================================
-    // DUPLICATE LOT — stub: clones metadata into a new draft lot
-    // ==========================================================
-    (function bindDuplicateLot() {
-        const btn = document.getElementById('duplicateLotBtn');
-        if (!btn) return;
-        btn.addEventListener('click', async () => {
-            if (!currentLot) return;
-            const proposed = currentLot.lot_number + '-COPY';
-            const newNumber = prompt(
-                `Create a new lot using ${currentLot.lot_number} as the template?\n\nThe new lot will copy: source, sex class, target ADG, target ship date, target days on feed, fiscal year, target ship weight.\n\nIt will NOT copy: invoices, tags, head count, deaths, sales, doctoring, pasture assignments.\n\nNew lot number:`,
-                proposed
-            );
-            if (!newNumber) return;
-            const trimmedNumber = newNumber.trim();
-            if (!trimmedNumber) return;
-
-            const payload = {
-                lot_number: trimmedNumber,
-                source: currentLot.source,
-                sex_class: currentLot.sex_class,
-                target_adg: currentLot.target_adg,
-                target_ship_date: null,                  // user should set fresh
-                target_ship_weight: currentLot.target_ship_weight,
-                target_days_on_feed: currentLot.target_days_on_feed,
-                fiscal_year: currentLot.fiscal_year,
-                arrival_date: new Date().toISOString().slice(0, 10),
-                notes: 'Duplicated from ' + currentLot.lot_number
-            };
-            const { data, error } = await supabase
-                .from('lots')
-                .insert(payload)
-                .select()
-                .single();
-            if (error) {
-                alert('Failed to duplicate lot: ' + error.message);
-                return;
-            }
-            // Open the new lot detail so user can finish setup
-            showLotDetail(data.id);
-        });
-    })();
+    // DUPLICATE LOT: handled by openLotModal(currentLot, 'duplicate') only.
+    // An older prompt-based handler here was bound to the same button, so one
+    // tap could create two lots, the prompt's copy skipping the required
+    // estimated weight. Removed 2026-10-03.
 
     // ==========================================================
     // DELETE THIS TEST LOT — only enabled for TEST_/TEST- prefix lots
@@ -9566,7 +9528,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('lotId').value=mode==='edit'?(seed?.id||''):'';
         $('lotNumber').value=mode==='duplicate'?'':(seed?.lot_number||'');
         // For brand-new lots, default arrival date to today. For edit, use existing. For duplicate, blank (user must set fresh).
-        const todayIso = new Date().toISOString().slice(0, 10);
+        const todayIso = ranchToday();
         let arrivalVal;
         if (mode === 'edit') arrivalVal = seed?.arrival_date || '';
         else if (mode === 'duplicate') arrivalVal = '';
@@ -10794,7 +10756,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <span class="appr-action">${r.kind === 'count' ? 'Count' : 'Test weight'}</span>
                 <span class="appr-detail">${body}</span>
                 <input type="date" class="appr-date" data-id="${r.entry.id}"
-                       value="${escapeHtml(String(r.entry.event_datetime || '').slice(0, 10))}"
+                       value="${escapeHtml(entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10))}"
                        ${r.entry.status === 'pending' ? '' : 'disabled'}>
                 <span class="appr-when"></span>
                 <span class="appr-who">${escapeHtml(raw.recordedBy || '')}</span>
@@ -10804,7 +10766,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <button type="button" class="appr-edit" data-id="${r.entry.id}" data-perm="office"
                         title="Set the lot, the true shrink, and what this sample stands for"
                         ${r.entry.status === 'pending' ? '' : 'disabled'}>✎</button>
-                <button type="button" class="appr-reject" data-id="${r.entry.id}" title="Reject and send back to the cowboy">✖</button>
+                <button type="button" class="appr-reject" data-id="${r.entry.id}" data-perm="office" data-write title="Reject and send back to the cowboy">✖ Send back</button>
                 ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
                 ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
             </div>`;
@@ -10832,7 +10794,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <span class="appr-action">${escapeHtml((r.action && r.action.name) || raw.treatmentType || (isMove ? 'Move' : ''))}</span>
                 <span class="appr-detail">${detail}</span>
                 <input type="date" class="appr-date" data-id="${r.entry.id}"
-                       value="${escapeHtml(String(r.entry.event_datetime || '').slice(0, 10))}"
+                       value="${escapeHtml(entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10))}"
                        title="The day the work happened. Saved on its own; corrects a record entered on the wrong day."
                        ${r.entry.status === 'pending' ? '' : 'disabled'}>
                 <span class="appr-when">${escapeHtml(when)}</span>
@@ -10845,7 +10807,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <button type="button" class="appr-edit" data-id="${r.entry.id}" data-perm="office"
                         title="Correct this entry — lot, pasture, action, meds, head count"
                         ${r.entry.status === 'pending' ? '' : 'disabled'}>✎</button>
-                <button type="button" class="appr-reject" data-id="${r.entry.id}" title="Reject and send back to the cowboy">✖</button>
+                <button type="button" class="appr-reject" data-id="${r.entry.id}" data-perm="office" data-write title="Reject and send back to the cowboy">✖ Send back</button>
                 ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
                 ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
             </div>`;
@@ -10930,7 +10892,9 @@ window.addEventListener('unhandledrejection', function(e) {
             p_head_count: 1,                    // a tagged death is one animal
             p_tag_number: r.tag || null,
             p_cause: null,                      // office fills cause in later
-            p_event_date: String(r.entry.event_datetime || '').slice(0, 10),
+            // The cowboy's day (raw), the same day the row is shown and grouped
+            // under. event_datetime is UTC and drifts a day on evenings/winter.
+            p_event_date: entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10),
             p_notes: noteBits.join(' · '),
             p_created_by: currentUser.id
         });
@@ -10957,7 +10921,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 p_from_pasture_id: r.pasture.id,
                 p_to_pasture_id: r.toPasture.id,
                 p_head_count: leg.head,
-                p_move_date: String(r.entry.event_datetime || '').slice(0, 10),
+                p_move_date: entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10),
                 p_notes: note,
                 p_recorded_by: currentUser.id
             });
@@ -10977,7 +10941,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // verified marker the Anomalies check reads, or it does not tie and never
     // reached here — resolveApprovalEntry blocks it.
     async function postCountEntry(r) {
-        const day = String(r.entry.event_datetime || '').slice(0, 10);
+        const day = entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10);
         const note = [r.raw.notes, `counted by ${r.raw.recordedBy || 'field'}`].filter(Boolean).join(' · ');
         const stamp = `[counted ${day}]` + (note ? ' ' + note : '');
         const { data: asg, error } = await supabase
@@ -11002,7 +10966,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // office's shrink, and the two are stored separately so a later true-up
     // calibrates on gross rather than on an already-shrunk number.
     async function postWeightEntry(r) {
-        const day = String(r.entry.event_datetime || '').slice(0, 10);
+        const day = entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10);
         const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(r.entry.id);
         const rows = r.drafts.map((d, i) => {
             const gross = Number(d.grossLb) || 0;
@@ -11170,9 +11134,19 @@ window.addEventListener('unhandledrejection', function(e) {
         const reason = prompt('Why is this being rejected?\n\nThe cowboy sees this in the field app.');
         if (reason === null) return;
         if (!reason.trim()) { showAlert('globalAlert', 'A reason is required to reject.', 'error'); return; }
-        const { error } = await supabase.from('pending_field_entries')
-            .update({ status: 'rejected', review_notes: reason.trim() }).eq('id', id);
+        // The reason goes first (the cowboy reads it); any earlier office note,
+        // such as a date correction, is kept after it rather than overwritten.
+        const row = (approvalsCache.entries || []).find(r => String(r.entry.id) === String(id));
+        const prior = row && row.entry.review_notes ? ' · ' + row.entry.review_notes : '';
+        const { data, error } = await supabase.from('pending_field_entries')
+            .update({ status: 'rejected', review_notes: reason.trim() + prior })
+            .eq('id', id).eq('status', 'pending').select('id');
         if (error) { showAlert('globalAlert', 'Could not reject: ' + error.message, 'error'); return; }
+        if (!data || !data.length) {
+            showAlert('globalAlert', 'Not rejected: nothing was changed. The entry may already have been approved or rejected, or your login cannot change it.', 'error');
+            loadApprovals();
+            return;
+        }
         showAlert('globalAlert', 'Entry rejected and sent back.', 'success');
         loadApprovals();
     }
@@ -11279,7 +11253,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <td><strong>${escapeHtml(r.lot_number)}</strong></td>
                 <td class="num">${r.book}</td>
                 <td><input type="number" class="settle-count" data-lot="${r.lot_id}" min="0" step="1"
-                           value="${r.counted != null ? r.counted : r.book}" style="width:90px; text-align:right;"></td>
+                           value="${r.counted != null ? r.counted : ''}" placeholder="count" style="width:90px; text-align:right;"></td>
                 <td class="settle-delta" data-lot="${r.lot_id}"></td>
                 <td class="settle-cp" data-lot="${r.lot_id}"></td>
             </tr>`).join('');
@@ -11328,12 +11302,20 @@ window.addEventListener('unhandledrejection', function(e) {
                 return;
             }
             const keep = cEl.querySelector('select') ? cEl.querySelector('select').value : '';
-            cEl.innerHTML = `<select class="settle-cp-sel" data-lot="${r.lot_id}" style="max-width:230px;">${opts}</select>
+            cEl.innerHTML = `<select class="settle-cp-sel" data-lot="${r.lot_id}" style="max-width:230px;"><option value="">— pick the other pasture —</option>${opts}</select>
                              <div class="muted" style="font-size:11px;">${delta > 0 ? 'bring ' + delta + ' from' : 'send ' + (-delta) + ' to'}</div>`;
             if (keep) { const sel = cEl.querySelector('select'); if ([...sel.options].some(o => o.value === keep)) sel.value = keep; }
         });
 
         const el = $('settlePastureTotals');
+        // Counted starts blank (2026-10-03). Prefilled with the books number,
+        // one tap on Record the count marked a pasture counted that nobody
+        // had counted.
+        const blanks = rows.filter(r => r.counted == null).length;
+        if (blanks) {
+            el.innerHTML = `<span class="muted">Type the head you counted for ${blanks === rows.length ? 'each lot' : blanks + ' more lot' + (blanks === 1 ? '' : 's')} (0 if none).</span>`;
+            return;
+        }
         if (countTotal === bookTotal) {
             const changed = rows.filter(r => (r.counted || 0) !== r.book).length;
             el.innerHTML = changed
@@ -11377,7 +11359,12 @@ window.addEventListener('unhandledrejection', function(e) {
             const delta = r.counted - r.book;
             if (delta === 0) continue;
             const sel = document.querySelector(`.settle-cp-sel[data-lot="${r.lot_id}"]`);
-            if (!sel || !sel.value) {
+            if (sel && !sel.value) {
+                showAlert('settlePastureAlert',
+                    `Pick the other pasture for ${r.lot_number}: where the ${Math.abs(delta)} head ${delta > 0 ? 'came from' : 'went'}.`, 'error');
+                return;
+            }
+            if (!sel) {
                 showAlert('settlePastureAlert',
                     `${r.lot_number} is ${Math.abs(delta)} head ${delta > 0 ? 'short on the books' : 'over on the books'} ` +
                     `and has no other pasture to ${delta > 0 ? 'draw from' : 'send them to'}. ` +
@@ -11815,7 +11802,8 @@ window.addEventListener('unhandledrejection', function(e) {
             return;
         }
         const oldStamp = String(row.entry.event_datetime || '');
-        const oldDay = oldStamp.slice(0, 10);
+        // The day shown on the row (the cowboy's raw day), not the UTC slice.
+        const oldDay = entryDayKey(row) || oldStamp.slice(0, 10);
         if (oldDay === newDay) return;
 
         // event_datetime is UTC; shift it by whole days so the time of day
@@ -11827,22 +11815,32 @@ window.addEventListener('unhandledrejection', function(e) {
 
         // raw.dateTime is the cowboy's local "YYYY-MM-DDTHH:MM:SS"; swap only
         // the date half so his recorded time of day is preserved verbatim.
+        // Moves, counts and weights keep their day in raw.date, doctoring and
+        // deaths in raw.dateTime; update whichever the entry carries, or the
+        // row keeps showing (and grouping under) the old day.
         const rawStamp = String((row.raw && row.raw.dateTime) || '');
         const newRaw = Object.assign({}, row.raw);
+        if (row.raw && row.raw.date) newRaw.date = newDay;
         if (rawStamp.includes('T')) newRaw.dateTime = newDay + 'T' + rawStamp.split('T')[1];
-        else newRaw.dateTime = newDay;
+        else if (rawStamp || !(row.raw && row.raw.date)) newRaw.dateTime = newDay;
 
         const prior = row.entry.review_notes ? row.entry.review_notes + ' · ' : '';
-        const { error } = await supabase.from('pending_field_entries')
+        const { data, error } = await supabase.from('pending_field_entries')
             .update({
                 event_datetime: shifted,
                 raw: newRaw,
                 review_notes: `${prior}date corrected ${oldDay} → ${newDay} by ${currentProfile.full_name}`
             })
             .eq('id', id)
-            .eq('status', 'pending');   // never rewrite something already posted
+            .eq('status', 'pending')    // never rewrite something already posted
+            .select('id');
         if (error) {
             showAlert('globalAlert', 'Could not change the date: ' + error.message, 'error');
+            return;
+        }
+        if (!data || !data.length) {
+            showAlert('globalAlert', 'Date NOT changed: the entry may already have been approved or rejected, or your login cannot change it.', 'error');
+            loadApprovals();
             return;
         }
         showAlert('globalAlert', `Moved to ${newDay}.`, 'success');
@@ -11852,9 +11850,12 @@ window.addEventListener('unhandledrejection', function(e) {
     // Notes save on their own so a "leave it for tomorrow" note survives
     // without approving or rejecting anything.
     async function saveApprovalNote(id, value) {
-        const { error } = await supabase.from('pending_field_entries')
-            .update({ review_notes: value.trim() || null }).eq('id', id);
-        if (error) showAlert('globalAlert', 'Note not saved: ' + error.message, 'error');
+        const { data, error } = await supabase.from('pending_field_entries')
+            .update({ review_notes: value.trim() || null })
+            .eq('id', id).eq('status', 'pending').select('id');
+        if (error) { showAlert('globalAlert', 'Note not saved: ' + error.message, 'error'); return; }
+        if (!data || !data.length) { showAlert('globalAlert', 'Note NOT saved: the entry may already have been approved or rejected, or your login cannot change it.', 'error'); return; }
+        showAlert('globalAlert', 'Note saved.', 'success');
     }
 
     function showApprovalsTab() {
@@ -12624,7 +12625,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const t = st.totals;
         const lines = shpAllocate();
 
-        if (!$('shpDate').value) errs.push('Settlement date is required.');
+        if (!$('shpDate').value) errs.push('Sale date is required.');
         if (!shipmentState.groups.length) errs.push('Add at least one weight group.');
 
         shipmentState.groups.forEach(g => {
@@ -13304,7 +13305,8 @@ window.addEventListener('unhandledrejection', function(e) {
          'shpFreightLoads','shpFreightTotal','shpPricePerCwt','shpGrossAmount'
         ].forEach(id => { $(id).value = ''; });
         $('shpJfrPaysFreight').checked = false;
-        $('shpDate').value = today;
+        setDateValue('shpDate', today);
+        shpSheetDate = today;
 
         const { data: past } = await supabase.from('shipments').select('buyer, destination');
         const buyers = [...new Set((past || []).map(p => p.buyer).filter(Boolean))].sort();
@@ -13315,6 +13317,22 @@ window.addEventListener('unhandledrejection', function(e) {
         await loadShipmentInventory();
         renderWeightGroups();
         renderDeductions();
+    }
+
+    // Lot detail "💲 + Sale" lands here (2026-10-03). The old single-lot sale
+    // modal moved head with separate unchecked calls and no rollback; the
+    // shipment screen has the overdraw check, the withdrawal warning and full
+    // rollback, so every new sale goes through it. Fills the first line with
+    // this lot, and its pasture when the lot stands in exactly one.
+    async function openShipmentForLot() {
+        if (!currentLot) return;
+        const lotId = currentLot.id;
+        await openShipmentEntry();
+        const line = shipmentState.groups[0].loads[0].lines[0];
+        line.lot_id = lotId;
+        const here = (shipmentInventory || []).filter(i => i.lot_id === lotId && Number(i.head_count) > 0);
+        if (here.length === 1) line.pasture_id = here[0].pasture_id;
+        renderWeightGroups();
     }
 
     // ---- SAVE ------------------------------------------------------------
@@ -13898,6 +13916,22 @@ window.addEventListener('unhandledrejection', function(e) {
         shipmentState.deductions.push({ tempId: shpTempId(), label: '', basis: 'flat', rate: '', amount: '' });
         renderDeductions();
     });
+    // Sale date carries down to the loads (2026-10-03). Each load keeps its
+    // own date because a sheet can span days, but a load still on the old
+    // sheet date (or blank) follows the sheet. Before this, back-dating the
+    // sheet left every load on today, and the sales rows and moved_out were
+    // booked on the load date.
+    let shpSheetDate = '';
+    $('shpDate').addEventListener('change', () => {
+        const nu = $('shpDate').value;
+        if (!shipmentState || !nu || nu === shpSheetDate) { shpSheetDate = nu || shpSheetDate; return; }
+        let moved = 0;
+        shipmentState.groups.forEach(g => g.loads.forEach(l => {
+            if (!l.date || l.date === shpSheetDate) { l.date = nu; moved++; }
+        }));
+        shpSheetDate = nu;
+        if (moved) renderWeightGroups();
+    });
     ['shpPricePerCwt', 'shpGrossAmount', 'shpFreightMiles', 'shpFreightRate',
      'shpFreightLoads', 'shpFreightTotal', 'shpJfrPaysFreight'].forEach(id => {
         $(id).addEventListener('input', recomputeShipment);
@@ -13929,14 +13963,14 @@ window.addEventListener('unhandledrejection', function(e) {
         catch (e) { saved = {}; }
         $('acctAccount').value = saved.account ?? ACCT_DEFAULTS.account;
         $('acctProfitCenter').value = saved.profitCenter ?? ACCT_DEFAULTS.profitCenter;
-        if (saved.productionYear) $('acctProductionYear').value = saved.productionYear;
+        // Production Year is NOT remembered (2026-10-03): it belongs to the
+        // shipment, and a remembered one carried last year's value forward.
     }
     function acctSaveConstants() {
         try {
             localStorage.setItem(ACCT_LS_KEY, JSON.stringify({
                 account: $('acctAccount').value,
-                profitCenter: $('acctProfitCenter').value,
-                productionYear: $('acctProductionYear').value
+                profitCenter: $('acctProfitCenter').value
             }));
         } catch (e) { /* storage unavailable; the report still works */ }
     }
@@ -14028,9 +14062,9 @@ window.addEventListener('unhandledrejection', function(e) {
 
         acctReportCache = { shipment: shp, rows, shipDays: [...new Set((loads || []).map(l => l.load_date).filter(Boolean))].sort() };
 
-        if (!$('acctProductionYear').value && shp.sale_date) {
-            $('acctProductionYear').value = String(shp.sale_date).slice(0, 4);
-        }
+        // Re-derived for every shipment: the CALENDAR year of the sale date.
+        // Typing over it changes this report only.
+        $('acctProductionYear').value = shp.sale_date ? String(shp.sale_date).slice(0, 4) : '';
         renderAcctReport();
     }
 
@@ -16472,6 +16506,17 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const m = $('fprMethod').value;
         const money = !!(FP_METHODS[m] || {}).money;
         const weight = parseFloat($('fprWeight').value);
+
+        // Cattle leaving to be sold or eaten get the same withdrawal warning
+        // as a shipment (2026-10-03). It warns and lists the tags; it never
+        // blocks. Checked against the pen and every lot the head came off.
+        if (m === 'sold' || m === 'butchered') {
+            const date = $('fprDate').value;
+            const lotIds = [currentLot.id, ...fpState.lines
+                .filter(l => (Number(l.head) || 0) > 0 && l.src).map(l => l.src)];
+            const lotDates = [...new Set(lotIds)].map(id => ({ lot_id: id, date }));
+            if (!(await withdrawalConfirm(lotDates, m === 'sold' ? 'this sale' : 'this butchering'))) return;
+        }
 
         $('fprSaveBtn').disabled = true;
         const { error } = await supabase.rpc('record_feed_pen_removal', {
@@ -18956,7 +19001,7 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         doc.setFontSize(9);
         doc.setTextColor(120);
         doc.text('Pulled first = doctored on or before the day it died. Shorts = missing at shipping, not deaths.', 14, doc.lastAutoTable.finalY + 8);
-        await sharePdfFile(doc, `death-capture-${new Date().toISOString().slice(0, 10)}.pdf`, 'Death Capture');
+        await sharePdfFile(doc, `death-capture-${ranchToday()}.pdf`, 'Death Capture');
     }
 
     let freshCattleReportInit = false;
@@ -19104,7 +19149,7 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         doc.setTextColor(120);
         doc.text('Pull OK = date in + 8 days (day 9 in parentheses) — Draxxin window. Loads drop off 17 days after receiving.',
             14, doc.lastAutoTable.finalY + 8);
-        await sharePdfFile(doc, `fresh-cattle-${new Date().toISOString().slice(0, 10)}.pdf`, 'Fresh Cattle — Doctoring Eligibility');
+        await sharePdfFile(doc, `fresh-cattle-${ranchToday()}.pdf`, 'Fresh Cattle — Doctoring Eligibility');
     }
 
     function printFreshCattleReport() {
@@ -22400,7 +22445,7 @@ ${body}
         $('protoSexClass').value = sourceProto ? (sourceProto.sex_class || '') : '';
         $('protoEffectiveFrom').value = (mode === 'edit' && sourceProto)
             ? (sourceProto.effective_from || '')
-            : new Date().toISOString().slice(0, 10);
+            : ranchToday();
         $('protoActive').value = (sourceProto && sourceProto.is_active === false) ? 'false' : 'true';
         $('protoFormNotes').value = sourceProto ? (sourceProto.notes || '') : '';
 
@@ -23017,7 +23062,7 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
             version_label: $('protoVersion').value.trim() || null,
             protocol_type: $('protoType').value,
             sex_class: $('protoSexClass').value || null,
-            effective_from: $('protoEffectiveFrom').value || new Date().toISOString().slice(0, 10),
+            effective_from: $('protoEffectiveFrom').value || ranchToday(),
             is_active: $('protoActive').value === 'true',
             notes: $('protoFormNotes').value.trim() || null
         };
@@ -23025,6 +23070,23 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         let result;
         try {
             if (id) {
+                // Editing a protocol in use re-prices processing on every
+                // receipt that points at it, back to the first one (CLAUDE.md:
+                // never edit a protocol in place to change cost from a date).
+                // Say so before saving, and point at ⎘ Duplicate. 2026-10-03.
+                const [{ count: nRc, error: eRc }, { count: nInv, error: eInv }] = await Promise.all([
+                    supabase.from('delivery_receipts').select('id', { count: 'exact', head: true }).eq('receiving_protocol_id', id),
+                    supabase.from('invoices').select('id', { count: 'exact', head: true }).eq('receiving_protocol_id', id)
+                ]);
+                if (eRc || eInv) throw (eRc || eInv);
+                if ((nRc || 0) + (nInv || 0) > 0 && !confirm(
+                    `This protocol is on ${nRc || 0} load out(s) and ${nInv || 0} invoice(s).\n\n` +
+                    `Changing its medicines or doses re-prices processing on ALL of them, including closed lots and past years.\n\n` +
+                    `To change cost from a date, Cancel and use ⎘ Duplicate to make a new version instead.\n\n` +
+                    `OK = edit this protocol anyway (name, notes or a true correction).`)) {
+                    $('protocolSaveBtn').disabled = false;
+                    return;
+                }
                 result = await supabase.from('protocols').update(payload).eq('id', id).select().single();
             } else {
                 if (mode === 'duplicate' && $('protocolSeedId').value) {
@@ -23371,18 +23433,21 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
 
         let pastQ = supabase
             .from('pastures')
-            .select('id, ranch_id, name, acres, is_active, forage_types(name)')
+            .select('id, ranch_id, name, acres, total_acres, is_active, forage_types(name)')
             .order('name');
         if (!includeInactive) pastQ = pastQ.eq('is_active', true);
         const { data: pastures, error: pErr } = await pastQ;
         if (pErr) throw pErr;
 
-        // Pull current head per pasture from pasture_status view
-        const { data: status } = await supabase
+        // Current head per pasture. The column is current_head_total; this
+        // read asked for head_current (which does not exist) and ignored the
+        // error, so every pasture printed 0 head (fixed 2026-10-03).
+        const { data: status, error: sErr } = await supabase
             .from('pasture_status')
-            .select('pasture_id, head_current');
+            .select('pasture_id, current_head_total');
+        if (sErr) throw sErr;
         const headByPasture = {};
-        (status || []).forEach(s => { headByPasture[s.pasture_id] = s.head_current || 0; });
+        (status || []).forEach(s => { headByPasture[s.pasture_id] = s.current_head_total || 0; });
 
         // Group pastures under their ranches
         const ranchMap = new Map();
@@ -23393,7 +23458,8 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
                 r.pastures.push({
                     id: p.id,
                     name: p.name,
-                    acres: p.acres,
+                    // The pasture form writes total_acres; acres is the older column.
+                    acres: p.total_acres ?? p.acres,
                     forage: p.forage_types?.name || '',
                     head: headByPasture[p.id] || 0,
                     active: p.is_active
@@ -23439,7 +23505,7 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
                     return `<tr><td>${escapeHtml(p.name)}${inactiveStr}</td><td class="meta">${escapeHtml(meta)}</td></tr>`;
                 }).join('');
                 return `<div class="ranch-block">
-                    <h2>${escapeHtml(r.name)}${r.active === false ? ' [retired]' : ''}</h2>
+                    <h2>${escapeHtml(r.name)}${r.is_active === false ? ' [retired]' : ''}</h2>
                     <p class="ranch-summary">${escapeHtml(ranchSummary)}${r.owner ? ' · ' + escapeHtml(r.owner) : ''}</p>
                     <table>${pastureRows}</table>
                 </div>`;
@@ -23517,7 +23583,7 @@ ${ranchBlocks}
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            const dateStr = new Date().toISOString().slice(0, 10);
+            const dateStr = ranchToday();
             a.href = url;
             a.download = `jfr_locations_${dateStr}.csv`;
             document.body.appendChild(a);
@@ -24642,7 +24708,7 @@ ${ranchBlocks}
             if (!confirm(`Setting head count to 0 will close the assignment. Continue?`)) return;
             const { error } = await supabase
                 .from('lot_pasture_assignments')
-                .update({ moved_out: new Date().toISOString().slice(0, 10) })
+                .update({ moved_out: ranchToday() })
                 .eq('id', assignmentId);
             if (error) { alert('Update failed: ' + error.message); return; }
         } else {
@@ -25523,7 +25589,7 @@ ${ranchBlocks}
         $('deathsModalTitle').textContent = 'Record deaths';
         $('deathsEventId').value = '';
         $('deathsLotInfo').textContent = `Lot ${currentLot.lot_number} · ${fmtNum(currentStatus.head_current)} head currently`;
-        setDateValue('deathsDate', new Date().toISOString().slice(0, 10));
+        setDateValue('deathsDate', ranchToday());
         $('deathsCause').value = '';
         $('deathsNotes').value = '';
         $('deathsTreatmentHistory').style.display = 'none';
@@ -25788,7 +25854,7 @@ ${ranchBlocks}
             const eventId = $('deathsEventId').value || null;
             const isEdit = !!eventId;
 
-            const eventDate = $('deathsDate').value || new Date().toISOString().slice(0, 10);
+            const eventDate = $('deathsDate').value || ranchToday();
             const cause = $('deathsCause').value.trim() || null;
             const notes = $('deathsNotes').value.trim() || null;
 
@@ -26432,15 +26498,14 @@ ${ranchBlocks}
                 pasture_id: d.pasture_id,
                 head_count: d.head_count
             }));
-            // Show edit-mode hint about destinations
-            $('receiptDestHint').textContent = 'Edits to destinations here update the load out record but do NOT move cattle. Use "Move" on the lot to relocate.';
+            $('receiptDestHint').textContent = 'Date, head, tags and destination pastures are locked on a saved load out (changing them here never moved cattle). To change them, delete this load out, which puts everything back, and enter it again.';
 
             // Show attachments section + load existing attachments
             $('receiptAttachmentsSection').classList.remove('hidden');
             await loadReceiptAttachments(receipt.id);
         } else {
             $('receiptModalTitle').textContent = 'New load out';
-            setDateValue('receiptDate', new Date().toISOString().slice(0, 10));
+            setDateValue('receiptDate', ranchToday());
             $('receiptDeleteBtn').classList.add('hidden');
             receiptDestinations = [{ pasture_id: '', head_count: '' }];
             $('receiptDestHint').textContent = 'On save, these become pasture assignments for the lot.';
@@ -26449,6 +26514,17 @@ ${ranchBlocks}
         }
 
         renderReceiptDestinations();
+        // Saved load out: only protocol, invoice link and notes can change
+        // (2026-10-03). Head, tags, date and pastures are what the pasture head
+        // and tag registry were built from; editing them never followed through.
+        const lockLoadOut = !!receipt;
+        ['receiptDate', 'receiptHead', 'receiptTagStart', 'receiptTagEnd', 'receiptMissing'].forEach(fid => {
+            const el = $(fid);
+            el.disabled = lockLoadOut;
+            if (el._flatpickr && el._flatpickr.altInput) el._flatpickr.altInput.disabled = lockLoadOut;
+        });
+        $('addReceiptDestBtn').classList.toggle('hidden', lockLoadOut);
+        $('receiptDestList').querySelectorAll('input, select, button').forEach(el => { el.disabled = lockLoadOut; });
         updateReceiptTagPreview();
         showModal('receiptModal');
     }
@@ -26787,143 +26863,55 @@ ${ranchBlocks}
     // The actual save logic, parameterized so it can be called from direct-save or override flows
     async function actuallySaveLoadOut(payload, isNew, id, validDests, tagsToRegister, conflictsToRetire, overrideReason) {
         let receiptId;
-        if (id) {
-            const result = await supabase.from('delivery_receipts').update(payload).eq('id', id).select().single();
-            if (result.error) throw result.error;
+        if (!isNew) {
+            // Edit: only protocol, invoice link and notes (the rest is locked
+            // in openReceiptModal). Row-checked so a refused update is said.
+            const { data: upd, error: updErr } = await supabase.from('delivery_receipts')
+                .update({
+                    receiving_protocol_id: payload.receiving_protocol_id,
+                    invoice_id: payload.invoice_id,
+                    notes: payload.notes
+                })
+                .eq('id', id).select('id');
+            if (updErr) throw updErr;
+            if (!upd || upd.length === 0) throw new Error('Nothing was saved: the load out could not be updated (it may have been deleted, or your login cannot change it).');
             receiptId = id;
-
-            // Replace destinations rows in the load_out_destinations table.
-            const { error: delErr } = await supabase.from('load_out_destinations').delete().eq('receipt_id', receiptId);
-            if (delErr) throw delErr;
         } else {
-            payload.created_by = currentUser.id;
-            const result = await supabase.from('delivery_receipts').insert(payload).select().single();
-            if (result.error) throw result.error;
-            receiptId = result.data.id;
-        }
-
-        // The shelf. An edit reverses first, so a changed head count does not
-        // leave the original draw standing alongside the new one.
-        await invRecordProcessingDraw(receiptId, !isNew);
-
-        // Insert destination rows
-        if (validDests.length > 0) {
-            const destPayload = validDests.map(d => ({
-                receipt_id: receiptId,
-                pasture_id: d.pasture_id,
-                head_count: Number(d.head_count)
-            }));
-            const { error: destErr } = await supabase.from('load_out_destinations').insert(destPayload);
-            if (destErr) throw destErr;
-        }
-
-        // Auto-create lot_pasture_assignments — only on create, not on edit
-        // Phase 12+: enforce one open row per (lot, pasture). For each destination:
-        // if an open row already exists for this (lot, pasture), ADD the head count
-        // to that row. Otherwise insert a new row.
-        //
-        // Phase 13 fix: if this fails, we DO NOT return early — tag registration
-        // below should still run. We just collect the warning and surface at end.
-        let pastureAssignFailureMsg = null;
-        if (isNew && validDests.length > 0) {
-            try {
-                for (const d of validDests) {
-                    const { data: existing } = await supabase
-                        .from('lot_pasture_assignments')
-                        .select('id, head_count')
-                        .eq('lot_id', currentLot.id)
-                        .eq('pasture_id', d.pasture_id)
-                        .is('moved_out', null)
-                        .maybeSingle();
-                    if (existing) {
-                        const { error: addErr } = await supabase
-                            .from('lot_pasture_assignments')
-                            .update({ head_count: Number(existing.head_count) + Number(d.head_count) })
-                            .eq('id', existing.id);
-                        if (addErr) throw addErr;
-                    } else {
-                        const { error: insErr } = await supabase
-                            .from('lot_pasture_assignments')
-                            .insert({
-                                lot_id: currentLot.id,
-                                pasture_id: d.pasture_id,
-                                head_count: Number(d.head_count),
-                                moved_in: payload.receipt_date,
-                                notes: 'Auto from load out',
-                                recorded_by: currentUser.id
-                            });
-                        if (insErr) throw insErr;
-                    }
-                }
-            } catch (assignErr) {
-                // Capture the failure but continue — tag registration is still important
-                pastureAssignFailureMsg = 'Pasture auto-assign failed: ' + assignErr.message + '. Tag registration will still run. Check Yard Sheet for the pasture-sum anomaly after save.';
-                console.warn(pastureAssignFailureMsg);
-            }
-        }
-
-        // ========================================
-        // TAG REGISTRATION (only for new load-outs)
-        // ========================================
-        if (isNew && tagsToRegister.length > 0 && currentLot.fiscal_year) {
-            // Step 1: retire conflicting registrations (override case)
-            if (conflictsToRetire.length > 0 && overrideReason) {
-                const conflictIds = conflictsToRetire.map(c => c.tag_number);
-                // Look up the lot_tags row IDs for these conflicts
-                const { data: existing, error: lookupErr } = await supabase
-                    .from('lot_tags')
-                    .select('id, tag_number, lot_id')
-                    .eq('fiscal_year', currentLot.fiscal_year)
-                    .eq('status', 'active')
-                    .in('tag_number', conflictIds);
-                if (lookupErr) {
-                    showAlert('receiptModalAlert', 'Load out saved, but tag conflict resolution failed: ' + lookupErr.message);
-                    return;
-                }
-                // Filter: only retire registrations from OTHER lots (not the current lot)
-                const toRetire = (existing || []).filter(x => x.lot_id !== currentLot.id).map(x => x.id);
-                if (toRetire.length > 0) {
-                    const { error: retireErr } = await supabase
-                        .from('lot_tags')
-                        .update({
-                            status: 'retired',
-                            retired_at: new Date().toISOString(),
-                            retired_reason: 'Override on registration to lot ' + currentLot.lot_number + ': ' + overrideReason
-                        })
-                        .in('id', toRetire);
-                    if (retireErr) {
-                        showAlert('receiptModalAlert', 'Load out saved, but failed to retire previous registrations: ' + retireErr.message);
-                        return;
-                    }
-                }
-            }
-
-            // Step 2: register all tags as active for this lot
-            const tagPayload = tagsToRegister.map(t => ({
-                tag_number: t,
-                lot_id: currentLot.id,
-                delivery_receipt_id: receiptId,
-                fiscal_year: currentLot.fiscal_year,
-                status: 'active',
-                registered_by: currentUser.id,
-                notes: overrideReason ? ('Override registration: ' + overrideReason) : null
-            }));
-            const { error: tagErr } = await supabase.from('lot_tags').insert(tagPayload);
-            if (tagErr) {
-                // Schema might not be deployed; surface the warning but don't fail
-                console.warn('Tag registration failed:', tagErr.message);
-                showAlert('receiptModalAlert', 'Load out saved, but tag registration failed: ' + tagErr.message + ' (Phase 7 schema may not be deployed yet — that is OK, load-out is saved)');
-                $('receiptSaveBtn').disabled = false;
-                return;
-            }
+            // New: receipt, destinations, pasture head and tags in ONE
+            // transaction (record_load_out, docs/sql/2026-10-03c). Any failure
+            // saves nothing. It replaces five separate calls, one of which let
+            // the receipt save with its head in no pasture.
+            const { data, error } = await supabase.rpc('record_load_out', {
+                p_lot_id: currentLot.id,
+                p_receipt_date: payload.receipt_date,
+                p_head_count: payload.head_count,
+                p_tag_start: payload.tag_start,
+                p_tag_end: payload.tag_end,
+                p_missing_tags: payload.missing_tags || [],
+                p_receiving_protocol_id: payload.receiving_protocol_id,
+                p_invoice_id: payload.invoice_id,
+                p_notes: payload.notes,
+                p_destinations: validDests.map(d => ({ pasture_id: d.pasture_id, head_count: Number(d.head_count) })),
+                p_register_tags: tagsToRegister || [],
+                p_override_reason: overrideReason || null
+            });
+            if (error) throw new Error('Load out NOT saved, nothing was changed: ' + error.message);
+            receiptId = data.receipt_id;
         }
 
         $('receiptSaveBtn').disabled = false;
         hideModal('receiptModal');
         expandCardOnNextRender('receiptsCard');
-        if (pastureAssignFailureMsg) {
-            showAlert('globalAlert', '⚠ Load out saved and tags registered, but pasture auto-assign failed. ' + pastureAssignFailureMsg, 'warning');
-        }
+        showAlert('globalAlert', isNew
+            ? `Load out saved: ${fmtNum(payload.head_count)} head in, ${fmtNum((tagsToRegister || []).length)} tag(s) registered.`
+            : 'Load out updated.', 'success');
+
+        // The shelf (processing medicine). Separate on purpose: inventory, not
+        // head math, and it reports its own failure - after the success line,
+        // so a draw problem replaces it rather than being hidden by it. An
+        // edit reverses first, so a changed protocol does not leave the old
+        // draw standing.
+        await invRecordProcessingDraw(receiptId, !isNew);
         showLotDetail(currentLot.id);
     }
 
@@ -27269,9 +27257,11 @@ ${ranchBlocks}
             if (typeof flatpickr !== 'undefined') {
                 flatpickr('#docEntryDate', { dateFormat: 'm/d/Y', allowInput: true });
             }
-            $('docEntryDate').value = (new Date()).toLocaleDateString('en-US', {
-                month: '2-digit', day: '2-digit', year: 'numeric'
-            });
+            // The ranch day (America/Chicago), not the viewer's clock.
+            {
+                const [y, m, d] = ranchToday().split('-');
+                $('docEntryDate').value = `${m}/${d}/${y}`;
+            }
 
             $('docEntryAction').addEventListener('change', onDocEntryActionChange);
             $('docEntryTagInput').addEventListener('keydown', onDocEntryTagInputKey);
@@ -27385,7 +27375,11 @@ ${ranchBlocks}
         // Action dropdown
         const actionSel = $('docEntryAction');
         actionSel.innerHTML = '<option value="">— Pick action —</option>';
-        allActionsForDoctoringCache.forEach(a => {
+        // Death actions are not offered here (2026-10-03): this screen writes
+        // doctoring rows only, so a death saved here took no head off, retired
+        // no tag and broke nothing visibly. Deaths go through ⚠ + Record deaths
+        // on the lot (record_death_with_pasture).
+        allActionsForDoctoringCache.filter(a => !a.is_dead).forEach(a => {
             const protocol = docEntryFieldProtocols.find(p => p.field_action_id === a.id);
             const medNames = protocol
                 ? [protocol.default_med_1_id, protocol.default_med_2_id, protocol.default_med_3_id]
@@ -27399,6 +27393,10 @@ ${ranchBlocks}
             opt.textContent = label;
             actionSel.appendChild(opt);
         });
+        const deathHint = document.createElement('option');
+        deathHint.disabled = true;
+        deathHint.textContent = 'A death? Use ⚠ + Record deaths on the lot';
+        actionSel.appendChild(deathHint);
 
         // Active lot tags
         await loadActiveLotTagsForEntry();
@@ -28268,12 +28266,20 @@ ${ranchBlocks}
         // Populate action dropdown (active only)
         const actionSel = $('doctoringActionId');
         actionSel.innerHTML = '<option value="">— Pick action —</option>';
-        allActionsForDoctoringCache.filter(a => a.is_active).forEach(a => {
-            const opt = document.createElement('option');
-            opt.value = a.id;
-            opt.textContent = a.name;
-            actionSel.appendChild(opt);
-        });
+        // Death actions are left out (2026-10-03): a doctoring row records no
+        // death. Kept only when editing an event that already carries one.
+        allActionsForDoctoringCache
+            .filter(a => a.is_active && (!a.is_dead || (event && event.field_action_id === a.id)))
+            .forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a.id;
+                opt.textContent = a.name;
+                actionSel.appendChild(opt);
+            });
+        const deathHint = document.createElement('option');
+        deathHint.disabled = true;
+        deathHint.textContent = 'A death? Use ⚠ + Record deaths on the lot';
+        actionSel.appendChild(deathHint);
 
         // Pasture picker — awaited so an edit shows its saved value rather
         // than briefly rendering blank and looking like it was never set.
@@ -28300,7 +28306,7 @@ ${ranchBlocks}
             $('doctoringNoTag').checked = false;
             $('doctoringDeleteBtn').classList.add('hidden');
             renderMedRows([]);
-            initOrUpdateDoctoringDatepicker(new Date().toISOString().slice(0, 10));
+            initOrUpdateDoctoringDatepicker(ranchToday());
         }
 
         // Show/hide drug off based on selected action
@@ -29072,7 +29078,12 @@ ${ranchBlocks}
         $('salesContent').querySelectorAll('tr.clickable').forEach(r => {
             r.addEventListener('click', () => {
                 const sale = currentLotSalesCache.find(x => x.id === r.dataset.saleId);
-                if (sale) openSaleModal(sale);
+                if (!sale) return;
+                // A shipment's sale rows carry its allocated money and pay
+                // weight; the lot modal would rebuild them without it. Change
+                // them from the shipment.
+                if (sale.shipment_id) showShipmentDetail(sale.shipment_id);
+                else openSaleModal(sale);
             });
         });
     }
@@ -29136,7 +29147,7 @@ ${ranchBlocks}
             });
         } else {
             $('saleModalTitle').textContent = 'New sale';
-            $('saleDate').value = new Date().toISOString().slice(0, 10);
+            $('saleDate').value = ranchToday();
             $('saleDeleteBtn').classList.add('hidden');
 
             // Pre-fill source if lot has only one active pasture
@@ -29161,6 +29172,18 @@ ${ranchBlocks}
         }
 
         renderSaleSources();
+        // Editing an older lot sale changes money and paperwork only. Head
+        // and source pastures are locked: changing them here never moved
+        // cattle, so it broke the head tie-out. To change head, the owner
+        // deletes the sale (which puts the head back) and it is re-entered
+        // as a shipment.
+        const locked = !!sale;
+        $('saleHead').disabled = locked;
+        $('addSaleSourceBtn').classList.toggle('hidden', locked);
+        $('saleSourceList').querySelectorAll('input, select, button').forEach(el => { el.disabled = locked; });
+        $('saleSourceSummary').textContent = locked
+            ? 'Head and source pastures are locked on a saved sale. Only the owner can delete it, which puts the head back.'
+            : $('saleSourceSummary').textContent;
         updateSaleTagPreview();
         updateSaleShrinkPreview();
         showModal('saleModal');
@@ -29399,9 +29422,11 @@ ${ranchBlocks}
         try {
             if (!head || head <= 0) throw new Error('Head count is required.');
 
-            // Sources validation
-            let validSources;
-            if (saleSources.length === 1) {
+            // Sources validation (new sales only; an edit keeps its sources)
+            let validSources = [];
+            if (!isNew) {
+                // locked on edit, see openSaleModal
+            } else if (saleSources.length === 1) {
                 const src = saleSources[0];
                 if (!src.pasture_id) throw new Error('Pick a source pasture.');
                 validSources = [{ pasture_id: src.pasture_id, head_count: head }];
@@ -29546,9 +29571,6 @@ ${ranchBlocks}
                 const result = await supabase.from('sales').update(payload).eq('id', id).select().single();
                 if (result.error) throw result.error;
                 saleId = id;
-                // Rebuild sources
-                const { error: delErr } = await supabase.from('sale_sources').delete().eq('sale_id', saleId);
-                if (delErr) throw delErr;
             } else {
                 payload.created_by = currentUser.id;
                 const result = await supabase.from('sales').insert(payload).select().single();
@@ -29556,14 +29578,16 @@ ${ranchBlocks}
                 saleId = result.data.id;
             }
 
-            // Insert sources
-            const srcPayload = validSources.map(s => ({
-                sale_id: saleId,
-                pasture_id: s.pasture_id,
-                head_count: Number(s.head_count)
-            }));
-            const { error: srcErr } = await supabase.from('sale_sources').insert(srcPayload);
-            if (srcErr) throw srcErr;
+            // Insert sources (new sales only; an edit keeps its sources)
+            if (isNew) {
+                const srcPayload = validSources.map(s => ({
+                    sale_id: saleId,
+                    pasture_id: s.pasture_id,
+                    head_count: Number(s.head_count)
+                }));
+                const { error: srcErr } = await supabase.from('sale_sources').insert(srcPayload);
+                if (srcErr) throw srcErr;
+            }
 
             // Decrement lot_pasture_assignments for the sources (only on create — edits don't move cattle).
             // Phase 12+: each (lot, pasture) has at most one open row. Decrement head_count.
@@ -29639,16 +29663,24 @@ ${ranchBlocks}
         }
     });
 
+    // Owner only (2026-10-03). This used to raw-delete the sales row and leave
+    // the head off the pastures. delete_sale_with_reversal puts the head back
+    // on the pastures the sale came from, un-retires its tags (trigger) and
+    // reopens the lot if the sale had emptied it. A shipment's sales never
+    // open this modal; they are reversed by deleting the shipment.
     $('saleDeleteBtn').addEventListener('click', async () => {
         const id = $('saleId').value;
         if (!id) return;
-        if (!confirm('Delete this sale? This cannot be undone. Note: this does NOT restore cattle to pastures.')) return;
+        if (!confirm('Delete this sale and put the cattle back?\n\n' +
+            'The head go back on the pastures they were sold out of, and their tags become active again. ' +
+            'If the cattle have been moved since, this will refuse rather than guess.')) return;
         $('saleDeleteBtn').disabled = true;
-        const { error } = await supabase.from('sales').delete().eq('id', id);
+        const { data, error } = await supabase.rpc('delete_sale_with_reversal', { p_sale_id: id });
         $('saleDeleteBtn').disabled = false;
-        if (error) { showAlert('saleModalAlert', error.message); return; }
+        if (error) { showAlert('saleModalAlert', 'Sale NOT deleted, nothing was changed: ' + error.message); return; }
         hideModal('saleModal');
-        showAlert('globalAlert', 'Sale deleted.', 'success');
+        showAlert('globalAlert', `Sale deleted — ${fmtNum(data.head_restored)} head back on the pastures` +
+            (data.lot_reopened ? '; the lot was reopened.' : '.'), 'success');
         showLotDetail(currentLot.id);
     });
 
@@ -30015,9 +30047,16 @@ ${ranchBlocks}
         $('invTabRow').classList.remove('hidden');
         invApplyMaterial();
 
-        // A sub-tab hidden by the chip cannot be the active one.
-        const btn = $('feedSubtabs').querySelector(`.sub-tab[data-subtab="${subtab}"]`);
-        if (!btn || btn.classList.contains('hidden')) subtab = 'needs';
+        // A sub-tab hidden by the chip cannot be the active one. Feed and Meds
+        // both have a "counts" button, so look for a VISIBLE one; taking the
+        // first match found the hidden Meds button and sent Feed > Counts to
+        // Needs Attention (2026-10-03). Orders, invoices and deliveries have
+        // no button of their own but are real screens (reached from
+        // Purchases and Needs rows), so they are not bounced either.
+        const visibleBtn = [...$('feedSubtabs').querySelectorAll(`.sub-tab[data-subtab="${subtab}"]`)]
+            .some(b => !b.classList.contains('hidden'));
+        const buttonless = ['orders', 'invoices'].includes(subtab) || (subtab === 'receipts' && invMaterial === 'feed');
+        if (!visibleBtn && !buttonless) subtab = 'needs';
         $('feedSubtabs').querySelectorAll('.sub-tab').forEach(b => {
             if (b.classList.contains('group-btn')) return;
             b.classList.toggle('active',
@@ -30684,6 +30723,7 @@ ${ranchBlocks}
             hideModal('invOrderModal');
             showAlert('globalAlert', id ? 'Order updated.' : 'Order saved.', 'success');
             loadInvOrders();
+            if (!$('invPurchasesView').classList.contains('hidden')) loadInvPurchases();
             invRefreshBadge();
         } catch (err) {
             showAlert('invOrderModalAlert', err.message || String(err));
@@ -30952,6 +30992,7 @@ ${ranchBlocks}
                 ? 'Invoice recorded. It tied exactly — nothing was re-priced.'
                 : 'Invoice recorded. The difference was allocated; feed already fed keeps its frozen cost.', 'success');
             loadInvInvoices();
+            if (!$('invPurchasesView').classList.contains('hidden')) loadInvPurchases();
             invRefreshBadge();
         } catch (err) {
             // A header with no loads would sit on the list forever reading
@@ -32247,6 +32288,7 @@ ${ranchBlocks}
                 hideModal('fdReceiptModal');
                 showAlert('globalAlert', 'Delivery recorded.', 'success');
                 loadFeedReceipts();
+                if (!$('invPurchasesView').classList.contains('hidden')) loadInvPurchases();
                 invRefreshBadge();
                 return;
             }
@@ -32289,11 +32331,14 @@ ${ranchBlocks}
             await fdLoadOnHand();
             loadFeedReceipts();
             invRefreshBadge();
-            if (filled > 0) {
-                showAlert('fdRcAlert',
-                    `Priced. ${filled} feed-out line${filled === 1 ? '' : 's'} that were waiting on this load now carry a cost.`,
-                    'success');
-            }
+            // Edits are opened from Purchases and Needs rows, where the
+            // Deliveries view is hidden, so say it in globalAlert and refresh
+            // whichever list is on screen.
+            if (!$('invPurchasesView').classList.contains('hidden')) loadInvPurchases();
+            if (!$('invNeedsView').classList.contains('hidden')) loadInvNeeds();
+            showAlert('globalAlert', filled > 0
+                ? `Delivery updated. ${filled} feed-out line${filled === 1 ? '' : 's'} that were waiting on this load now carry a cost.`
+                : 'Delivery updated.', 'success');
         } finally {
             $('fdRcSaveBtn').disabled = false;
         }
@@ -33597,7 +33642,9 @@ ${ranchBlocks}
             await fdLoadOnHand();
             loadFeedCounts();
             const n = post.data || 0;
-            showAlert('fdCtAlert',
+            // globalAlert, not the Counts view's own box: a count opened from a
+            // Needs Attention row posts while that view is hidden.
+            showAlert('globalAlert',
                 n ? `Count posted. ${n} adjustment${n === 1 ? '' : 's'} written to the ledger.`
                   : 'Count posted. Everything tied to the books exactly.', 'success');
         } finally {
