@@ -522,3 +522,11 @@ is **not applied yet** (see below).
   + the 10-03 migration).
 - **Cow/Calf Wip** has no Redwing account or production centre filled in (`cost_centers`), the same
   as for the hand-entered draws John already makes against it.
+- **Redwing: Feed Application + Cost centres is one sheet (2026-10-03, John: "both on one report so
+  we don't have to check each one when we post").** Inventory → Reports → *Feed Application + Cost
+  centres* shows the lot blocks for the Feed Application screen, then each cost centre's journal
+  block (Cow/Calf Wip …), then "Feed posted this period": lots, cost centres, total. One Print / PDF /
+  Copy covers all three parts; Copy rows marks the two parts with upper-case headings. The separate
+  Cost centres menu entry is gone (an old pick of it opens this sheet). Mineral, Variance and the
+  roll-forward stay separate. `run-local.js` suite 5 checks it on the approved 10/1 day: 36-27
+  4,890 lb + Cow/Calf Wip 7,970 lb = 12,860 lb on one sheet and in the copied rows.

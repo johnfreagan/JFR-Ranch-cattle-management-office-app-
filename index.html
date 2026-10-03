@@ -759,6 +759,7 @@
         .pb-tag.pre { background: #e3ebe4; color: #2f6b3a; text-transform: none; }
         .pb-tag.cc, .pb-tag.pre { white-space: normal; display: inline-block; }
         .pb-tag.cc { background: #e6eaf4; color: #2d4373; text-transform: none; }
+        h4.fd-rw-part { margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
         .pb-cclot b { color: #2d4373; }
         #apprFeedPane button, #apprFeedPane select, #apprFeedPane input { min-height: 40px; }
         .pb-card button.pb-sm { padding: 6px 12px; font-size: 13px; font-weight: 600; margin-left: 6px; }
@@ -962,9 +963,8 @@
                 <div class="sub-group" data-group="reports" data-material="feed">
                     <button type="button" class="sub-tab group-btn">Reports <span class="caret">▾</span></button>
                     <div class="group-menu">
-                        <button class="sub-tab" data-subtab="redwing" data-rw="feed"     data-material="feed">Feed Application</button>
+                        <button class="sub-tab" data-subtab="redwing" data-rw="feed"     data-material="feed">Feed Application + Cost centres</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw="mineral"  data-material="feed">Mineral Application</button>
-                        <button class="sub-tab" data-subtab="redwing" data-rw="centres"  data-material="feed">Cost centres</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw="variance" data-material="feed">Variance account</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw="roll"     data-material="feed">Inventory roll-forward</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw=""         data-material="feed">Everything together</button>
@@ -34750,6 +34750,27 @@ ${ranchBlocks}
             any lot&rsquo;s cost of gain &mdash; <code>lot_feed_daily</code> reads lot feed-outs only.</p>`;
     }
 
+    // The feed posting as ONE sheet: lot blocks for the Feed Application
+    // screen, then the cost-centre journal (Cow/Calf Wip and the like), then
+    // what went where. Posted together so nobody has to check two reports.
+    function fdRwFeedPostingHtml() {
+        const { lots, centres } = fdRwBuild();
+        let lLb = 0, lUsd = 0, lPend = 0, cLb = 0, cUsd = 0, cPend = 0;
+        Object.values(lots).forEach(L => Object.values(L.feed).forEach(v => { lLb += v.lb; lUsd += v.usd; lPend += v.pending; }));
+        Object.values(centres).forEach(C => { cLb += C.lb; cUsd += C.usd; cPend += C.pending; });
+        return `<h4 class="fd-rw-part">Feed Application &mdash; production centres (lots)</h4>` + fdRwApplicationHtml('feed') +
+            `<h4 class="fd-rw-part">Cost centres &mdash; journal entry</h4>` + fdRwCentresHtml() +
+            `<div style="margin-bottom:16px;">
+                <div style="font-weight:600; margin-bottom:4px;">Feed posted this period</div>
+                <table><thead><tr><th>To</th><th class="num">$</th><th class="num">lbs</th></tr></thead>
+                <tbody>
+                <tr><td>Lots &mdash; Feed Application</td><td class="num">${fdRwUsd(lUsd)}${fdRwPendingFlag(lPend)}</td><td class="num">${fdRwLb(lLb)}</td></tr>
+                <tr><td>Cost centres</td><td class="num">${fdRwUsd(cUsd)}${fdRwPendingFlag(cPend)}</td><td class="num">${fdRwLb(cLb)}</td></tr>
+                <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);"><td>Total</td>
+                    <td class="num">${fdRwUsd(lUsd + cUsd)}${fdRwPendingFlag(lPend + cPend)}</td><td class="num">${fdRwLb(lLb + cLb)}</td></tr>
+                </tbody></table></div>`;
+    }
+
     function fdRwVarianceHtml() {
         const { varRows } = fdRwBuild();
         const names = Object.keys(varRows).sort();
@@ -34843,6 +34864,9 @@ ${ranchBlocks}
             Set it on the item (Feed → Items) or these pounds silently never reach Redwing.
             Shown here rather than dropped, for exactly that reason.</div>` : '';
 
+        // Cost centres print with the Feed Application now; an old 'centres'
+        // pick lands on that combined sheet.
+        if (fdRwOnly === 'centres') fdRwOnly = 'feed';
         const want = id => !fdRwOnly || fdRwOnly === id;
         // Pounds that left inventory for a destination no section covers.
         // Listing them is the whole point: a posting that silently omits feed
@@ -34855,15 +34879,12 @@ ${ranchBlocks}
 
         $('fdRwContent').innerHTML = warn + orphanWarn + fdRwTieHtml() +
             `<div class="muted" style="font-size:12px;">Period ${period}</div>` +
-            (want('feed') ? fdRwSection('feed', 'Feed Application — bulk commodities',
-                'One block per lot, in the order of the Redwing Feed Application screen. Type the $ box and the lbs box from the same row.',
-                fdRwApplicationHtml('feed')) : '') +
+            (want('feed') ? fdRwSection('feed', 'Feed Application + Cost centres',
+                'One sheet for the feed posting. First one block per lot, in the order of the Redwing Feed Application screen &mdash; type the $ box and the lbs box from the same row. Then each cost centre (Cow/Calf Wip and the like) as a journal entry against its own account, never a lot. The last table shows where every pound went.',
+                fdRwFeedPostingHtml()) : '') +
             (want('mineral') ? fdRwSection('mineral', 'Mineral Application — from consumption',
                 'Mineral is not fed off a ticket; nobody records a bag going to a pasture. These pounds come from the physical count, allocated across open lots by head-days, which is what a mineral count variance means.',
                 fdRwApplicationHtml('mineral')) : '') +
-            (want('centres') ? fdRwSection('centres', 'Cost centres — journal entry',
-                'Feed that really left the barn for something that is not a stocker lot — the cowherd, the bulls. It posts against the centre&rsquo;s own account and charges no lot.',
-                fdRwCentresHtml()) : '') +
             (want('variance') ? fdRwSection('variance', 'Variance account — shrink and found feed',
                 'Never charged to a lot. Barn shrink is the cost of handling feed, not of feeding a particular set of cattle.',
                 fdRwVarianceHtml()) : '') +
@@ -34877,7 +34898,7 @@ ${ranchBlocks}
     // printed sheet and the screen it came from cannot disagree. The three
     // buttons differ only in where the table ends up.
     const FD_RW_TITLES = {
-        feed:     'Feed Application — bulk commodities',
+        feed:     'Feed Application + Cost centres',
         mineral:  'Mineral Application — from consumption',
         centres:  'Cost centres — journal entry',
         variance: 'Variance account — shrink and found feed',
@@ -34893,7 +34914,7 @@ ${ranchBlocks}
     }
 
     function fdRwSectionHtml(id) {
-        return id === 'feed'     ? fdRwApplicationHtml('feed')
+        return id === 'feed'     ? fdRwFeedPostingHtml()
              : id === 'mineral'  ? fdRwApplicationHtml('mineral')
              : id === 'centres'  ? fdRwCentresHtml()
              : id === 'variance' ? fdRwVarianceHtml()
@@ -34944,7 +34965,12 @@ ${ranchBlocks}
         const host = document.createElement('div');
         host.innerHTML = fdRwSectionHtml(id);
         let y = 27;
-        host.querySelectorAll('table').forEach((tbl, n) => {
+        host.querySelectorAll('h4.fd-rw-part, table').forEach(tbl => {
+            if (tbl.matches('h4')) {
+                if (y > 260) { doc.addPage(); y = 16; }
+                doc.setFontSize(12); doc.text(tbl.textContent.trim().replace(/—/g, '-'), 14, y + 2); y += 8;
+                return;
+            }
             const cap = tbl.previousElementSibling;
             if (cap && !cap.matches('table')) {
                 doc.setFontSize(10);
@@ -34973,9 +34999,10 @@ ${ranchBlocks}
         const host = document.createElement('div');
         host.innerHTML = fdRwSectionHtml(id);
         const lines = [];
-        host.querySelectorAll('table').forEach(tbl => {
+        host.querySelectorAll('h4.fd-rw-part, table').forEach(tbl => {
+            if (tbl.matches('h4')) { lines.push(tbl.textContent.trim().toUpperCase(), ''); return; }
             const cap = tbl.previousElementSibling;
-            if (cap && !cap.matches('table')) lines.push(cap.textContent.trim());
+            if (cap && !cap.matches('table, h4')) lines.push(cap.textContent.trim());
             tbl.querySelectorAll('tr').forEach(tr =>
                 lines.push([...tr.children].map(fdRwCellText).join('\t')));
             lines.push('');
