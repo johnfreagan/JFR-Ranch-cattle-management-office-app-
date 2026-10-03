@@ -1753,33 +1753,34 @@ catalog still reads $0.4056 and the ID tags still value at $2,429.14.
 
 John: *"We need to build a pdf for a checkout record from med room. Name, date,
 list of main doctoring meds and couple 3 blank lines for written meds to keep
-list simple. Maximize how many can fit on page."*
+list simple."* Then, on the first cut: *"Don't want landscape, needs larger
+print and only need 6-8 records per page."*
 
 `docs/worksheets/2026-10-03_med-room-checkout-sheet.pdf`, built from the `.html`
-beside it (Chromium, `--print-to-pdf`, letter landscape). **27 checkout lines on
-one page**, which is what "maximize" settled: the drugs are COLUMNS and each
-line is one man drawing once, so a page holds 27 draws rather than three or four
-name-blocks. Row height 0.258 in — 28 lines spills to a second page, which is
-how the number was found rather than guessed.
+beside it (Chromium `--print-to-pdf`). **Letter portrait, 7 checkout blocks a
+page**, inside the 6-8 he asked for.
 
-**The eight named drugs are the ones actually given**, off `doctoring_event_meds`
-rather than off an opinion:
+The first cut was a 27-line landscape grid, drugs as columns — maximum records,
+smallest print. Wrong instinct: this sheet lives on a wall in a medicine room
+and gets written on with a pen, often by somebody in a hurry, so **readable
+beats dense**. The block layout is also what "couple 3 blank lines" described in
+the first place.
 
-| drug | times given | on hand, med room |
-|---|---|---|
-| Enroflox (Baytril) 500 mL | 1,012 | 11,672 mL |
-| Excede 250 mL / 100 mL | 1,004 | 3,107 mL across both |
-| Resflor 500 mL | 246 | 5,846 mL |
-| Draxxin KP 250 mL | — (replaced Draxxin 500, 35) | 375 mL |
-| Biomycin 500 mL | 2 | 500 mL |
-| Thiamine 100 mL | 4 | 200 mL |
-| Vitamin K 100 mL | — | 100 mL |
+Each block is a man drawing once: **Name / Date / Init.** on a 11.5pt line, then
+six named drugs and three write-in lines as 10pt chips with a box to write the
+count in. Three across, three rows.
 
-Excede gets **two columns**, one a size, because the place carries both and the
-app now records the size that left the room — printing the size in the header
-means the crew writes only a count and the office cannot guess wrong. Dectomax
-and Cydectin are stocked but have never been given in a doctoring event, so they
-are not printed; they are what the four blank columns are for.
+**The six named drugs are the ones actually given**, off `doctoring_event_meds`
+rather than off an opinion: Enroflox 500 mL (1,012 times), Excede 250 mL and
+100 mL (1,004 between them), Resflor 500 mL (246), Draxxin KP 250 mL (which
+replaced the Draxxin 500 at 35), Biomycin 500 mL. Thiamine and Vitamin K came
+off the printed list in the rewrite — 4 doses and none — and are what the blank
+lines are for, along with Dectomax and Cydectin, which are stocked but have
+never been given in a doctoring event.
 
-The blanks are **columns with a write-on header**, not rows: a drug written in
-the header once covers the whole sheet below it.
+**Excede keeps two chips, one a size.** The place carries both and the app
+records the size that left the room, so printing the size means the crew writes
+only a count and the office cannot guess wrong.
+
+The footer is `position: fixed`, so it prints at the bottom of every page rather
+than stealing a block from the first one.
