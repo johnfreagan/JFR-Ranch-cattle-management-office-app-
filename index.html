@@ -877,6 +877,80 @@
             margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--border, #e5e5ea);
             font-size: 12px; color: var(--text-muted, #6b6b70); line-height: 1.6;
         }
+        /* ---- Help dock (owner + office): the task card beside the screen ----
+           Desktop: a 340px panel on the right; the app slides left so both
+           show. Phone: a one-line bar at the bottom with the current step;
+           tap it for the whole card. The yellow outline (.help-glow) appears
+           only after a step is tapped. Cards come from HELP_CARDS, which
+           scripts/help-cards/build.py writes from scripts/help-cards/cards.py. */
+        #helpFab, #helpDock { display: none; }
+        body.help-ok #helpFab {
+            display: block; position: fixed; right: 16px; bottom: 16px; z-index: 900;
+            padding: 8px 14px; border-radius: 20px; border: none; cursor: pointer;
+            background: var(--accent); color: #fff; font-weight: 700; font-size: 14px;
+            box-shadow: 0 2px 8px rgba(0,0,0,.25);
+        }
+        body.help-ok.help-open #helpFab { display: none; }
+        body.help-ok.help-open #helpDock {
+            display: flex; flex-direction: column; position: fixed; top: 0; right: 0; bottom: 0;
+            width: 340px; z-index: 900; background: var(--surface);
+            border-left: 1px solid var(--border); box-shadow: -2px 0 10px rgba(0,0,0,.08);
+        }
+        body.help-ok.help-open #appShell { padding-right: 340px; }
+        .help-head { display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); background: #f6f4ee; }
+        .help-head select { flex: 1; min-width: 0; margin: 0; font-size: 13px; padding: 4px 6px; }
+        .help-head button { border: none; background: none; font-size: 18px; line-height: 1; padding: 2px 6px; cursor: pointer; color: var(--text-muted); }
+        #helpMin { display: none; }
+        .help-bar { display: none; }
+        .help-body { flex: 1; overflow-y: auto; padding: 10px 14px 16px; font-size: 14px; line-height: 1.4; }
+        .help-body h3 { margin: 0 0 2px; font-size: 17px; }
+        .help-when { color: var(--text-muted); font-size: 13px; margin: 0 0 8px; }
+        .help-steps { list-style: none; padding: 0; margin: 0 0 8px; counter-reset: hs; }
+        .help-steps li {
+            counter-increment: hs; position: relative; padding: 6px 6px 6px 32px; margin: 0 -6px;
+            border-radius: 6px; cursor: pointer; border-bottom: 1px solid #eee;
+        }
+        .help-steps li::before {
+            content: counter(hs); position: absolute; left: 6px; top: 7px; width: 20px; height: 20px;
+            border-radius: 50%; background: #2d4373; color: #fff; font-weight: 800; font-size: 12px;
+            text-align: center; line-height: 20px;
+        }
+        .help-steps li:hover { background: #f6f4ee; }
+        .help-steps li.cur { background: #fff6cc; }
+        .help-steps li.cur::before { background: #b88a00; }
+        .help-steps .help-miss { display: block; font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+        .help-btn {
+            display: inline-block; font-weight: 700; border: 1.3px solid #2d4373; color: #2d4373;
+            border-radius: 4px; padding: 0 4px; line-height: 1.3; background: #fff;
+        }
+        .help-box { border-radius: 6px; padding: 6px 9px; margin-top: 8px; font-size: 13px; }
+        .help-box b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+        .help-box ul { margin: 0; padding-left: 16px; }
+        .help-done { background: #e8f3ea; border-left: 4px solid #1b7a34; }
+        .help-watch { background: #fdf3e1; border-left: 4px solid #b26a00; }
+        .help-tip { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+        .help-glow {
+            outline: 3px solid #f5c400 !important; outline-offset: 2px;
+            box-shadow: 0 0 0 7px rgba(245, 196, 0, .35) !important;
+            animation: helpPulse 1.4s ease-in-out 3;
+        }
+        @keyframes helpPulse { 50% { box-shadow: 0 0 0 11px rgba(245, 196, 0, .15); } }
+        @media (max-width: 700px) {
+            body.help-ok.help-open #appShell { padding-right: 0; padding-bottom: 56px; }
+            body.help-ok.help-open #helpDock {
+                top: auto; left: 0; width: auto; max-height: 72vh;
+                border-left: none; border-top: 2px solid var(--accent); box-shadow: 0 -2px 10px rgba(0,0,0,.15);
+            }
+            body.help-open:not(.help-full) #helpDock .help-head,
+            body.help-open:not(.help-full) #helpDock .help-body { display: none; }
+            body.help-open:not(.help-full) #helpDock .help-bar {
+                display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 14px;
+                cursor: pointer; background: #fff6cc; min-height: 48px;
+            }
+            .help-bar .help-bar-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .help-bar .help-bar-n { font-weight: 800; color: #8a5200; white-space: nowrap; }
+            #helpMin { display: inline; }
+        }
 </style>
 </head>
 <body>
@@ -900,6 +974,17 @@
     </div>
 </div>
 
+<!-- Help dock: owner + office only (JS sets body.help-ok). See .help-* in <style>. -->
+<button id="helpFab" type="button" title="Show the task card for this screen">? Help</button>
+<aside id="helpDock" aria-label="Help">
+    <div class="help-head">
+        <select id="helpPick" aria-label="Task card"></select>
+        <button id="helpMin" type="button" title="Show less">▾</button>
+        <button id="helpClose" type="button" title="Close help">✕</button>
+    </div>
+    <div class="help-bar" id="helpBar" role="button" tabindex="0"></div>
+    <div class="help-body" id="helpBody"></div>
+</aside>
 <div id="appShell" class="hidden">
     <header>
         <div class="brand">
@@ -6465,6 +6550,7 @@ window.addEventListener('unhandledrejection', function(e) {
         currentProfile=profile;
         // Drives the CSS role gate. See the ROLE GATE block in <style>.
         document.body.dataset.role=profile.role;
+        helpRoleChanged();
         $('userName').textContent=profile.full_name;
         $('userRole').textContent=profile.role;
         $('userRole').className='role-badge '+profile.role;
@@ -6477,6 +6563,7 @@ window.addEventListener('unhandledrejection', function(e) {
     function showLoginScreen(){
         currentUser=null;currentProfile=null;
         delete document.body.dataset.role;
+        helpRoleChanged();
         $('appShell').classList.add('hidden');
         $('loginScreen').classList.remove('hidden');
         $('loginEmail').value='';$('loginPassword').value='';
@@ -38495,6 +38582,739 @@ ${ranchBlocks}
     ['invRepFrom', 'invRepTo'].forEach(id => $(id).addEventListener('change', loadInvReport));
     $('invRepCopyBtn').addEventListener('click', copyInvReportRows);
     $('invRepPrintBtn').addEventListener('click', printInvReport);
+
+    // ==========================================================
+    // HELP DOCK (owner + office): the office task cards beside the screen
+    // ==========================================================
+    // HELP_CARDS:BEGIN (generated by scripts/help-cards/build.py; edit cards.py, not this)
+    const HELP_CARDS = [
+{
+"id": "A1",
+"group": "Every morning",
+"title": "Approve field entries",
+"when": "Every morning, after the crew's phones have synced.",
+"steps": [
+"Tap [[Approvals]] at the top. The [[Field entries]] list opens. The red numbers update when you come back to the app; [[Refresh]] reloads everything.",
+"Look at the top of the list. Rows under [[Needs info]] cannot be approved yet. Fix them with the pencil (see card A2) or send them back.",
+"Check each day's rows: tag, action, medicine, date.",
+"Tick the rows that are right, or tap [[Select all]] for a whole day.",
+"Tap [[Approve selected]].",
+"Read the box that pops up (how many doctorings, deaths, moves). Tap OK."
+],
+"done": "Green message: “N entries posted to the books.” The rows leave the list.",
+"watch": [
+"If the pop-up says a medicine is unpriced, tap Cancel and tell John. It would post at $0 and cannot be fixed later.",
+"A death posts with no cause. Fill the cause in later on the lot (⚠ + Record deaths → tap the death).",
+"If it says “rolled back — nothing was posted”, nothing changed. Read the reason and fix that row."
+],
+"screens": [
+"appr:field"
+]
+},
+{
+"id": "A2",
+"group": "Every morning",
+"title": "Fix or send back a field entry",
+"when": "A field entry is wrong, or sits under Needs info.",
+"steps": [
+"In [[Approvals]] → [[Field entries]], find the row.",
+"Wrong date only: tap the date box on the row and pick the right day. It saves by itself.",
+"Wrong pasture, lot, tag, medicine or head: tap the pencil [[✎]] on the row, fix it, tap [[Save correction]].",
+"Cannot fix it (cowboy must redo it): tap [[✖ Send back]], type why, tap OK. The cowboy sees your reason."
+],
+"done": "“Correction saved.”, “Moved to (date).” or “Entry rejected and sent back.” The row shows “edited” after a correction.",
+"watch": [
+"A red message saying nothing was changed means someone else already approved or rejected it. Refresh the list.",
+"A pasture count that does not match the books cannot be approved. A death, sale or move is missing. Find it first."
+],
+"screens": [
+"appr:field"
+]
+},
+{
+"id": "A3",
+"group": "Every morning",
+"title": "Approve the PB feed report",
+"when": "Every morning, once the PB report has come in.",
+"steps": [
+"Tap [[Approvals]] → [[Feed]].",
+"Each waiting day is a card. Check the pens: “PB pen → our pasture”, pounds fed.",
+"Any red problem must be fixed first (card A4). [[Approve & post]] stays grey until then.",
+"Check the line under “Charges to”. It should say the pounds tie.",
+"Tap [[Approve & post]]."
+],
+"done": "Green message: “(date) approved and posted to the lots.” The day shrinks to one line with your name and the time.",
+"watch": [
+"There is no OK box. One tap posts the feed to the lots. Only John can undo it.",
+"“No PB report for (dates)” means a day is missing. Tell John.",
+"Use [[PB email]] to open the original email if numbers look wrong."
+],
+"screens": [
+"appr:feed"
+]
+},
+{
+"id": "A4",
+"group": "Every morning",
+"title": "Fix a pen on the PB feed report",
+"when": "A PB pen went to a different pasture, to two pastures, to a pen waiting for cattle, or to the cows.",
+"steps": [
+"In [[Approvals]] → [[Feed]], find the pen row on the day's card.",
+"Went to one other pasture: tap [[Move]], pick the pasture, tap [[Move]] in the box.",
+"Went to two or more pastures: tap [[Split]]. Pick each pasture and type its pounds. Use [[+ Pasture]] for more. When the line shows ✓, tap [[Save split]].",
+"Feed went into an empty pen before cattle arrive: tap [[Prefeed]]. The first lot to move in pays. Tap [[Undo prefeed]] to take it back.",
+"Feed went to the cows (not a lot): tap [[Cost centre]], pick it, tap [[Charge to cost centre]].",
+"Then approve the day (card A3)."
+],
+"done": "The pen shows “(moved for this day)”, “split”, “Prefeed - first lot in pays” or the cost centre tag.",
+"watch": [
+"Each fix is for that one day only.",
+"A split must add up exactly to PB's pounds for the pen.",
+"Whole day wrong? Tap [[Reject]], type why, tap [[Reject day]]."
+],
+"screens": [
+"appr:feed"
+]
+},
+{
+"id": "A5",
+"group": "Every morning",
+"title": "Post a Bar J medicine invoice",
+"when": "Approvals shows a number on Meds.",
+"steps": [
+"Tap [[Approvals]] → [[Meds]].",
+"On the invoice card, tap [[Review & post]]. The purchase screen opens, filled in.",
+"Pick [[Received to]] (where the medicine went). Required.",
+"Any line without a medicine: pick it. Brand-new medicine: tap [[New medication]].",
+"Check the tie line says “ties”.",
+"Tap [[Post purchase]]."
+],
+"done": "“Purchase posted: N line(s), $X.” The invoice moves to “Recently posted or rejected”.",
+"watch": [
+"It will not post until the lines add up to the invoice total (within 2¢).",
+"Not ours, or wrong? Tap [[Reject]] on the card and type why."
+],
+"screens": [
+"appr:meds",
+"invMedPurchaseEntryView"
+]
+},
+{
+"id": "B1",
+"group": "Cattle coming in",
+"title": "Start a new lot",
+"when": "A new set of cattle is bought.",
+"steps": [
+"On [[Lots]], tap [[+ New lot]].",
+"Type the [[Lot number]].",
+"Check the [[Arrival date]] (today is filled in).",
+"Type the [[Estimated purchase weight]] per head. Required.",
+"Fill source, sex/class and notes if you have them.",
+"Tap [[Save lot]]."
+],
+"done": "“Lot … created.” The lot opens on its Purchases tab, ready for the invoice and load out.",
+"watch": [
+"Do not type the tag range here. It goes on the load out (card B3)."
+],
+"screens": [
+"lotsView"
+]
+},
+{
+"id": "B2",
+"group": "Cattle coming in",
+"title": "Enter the purchase invoice",
+"when": "The bill for the cattle arrives.",
+"steps": [
+"Open the lot (tap it on [[Lots]]). Tap the [[Purchases]] tab. A lot you just made is already there.",
+"Tap [[📄 + Invoice]].",
+"Fill [[Invoice date]], [[Head count]], [[Total weight (lbs)]] and [[Total cost ($)]]. All required.",
+"Check the [[Receiving protocol]]. It is picked for you from the lot (or the only Receiving protocol).",
+"Tap [[Save invoice]].",
+"To tie the invoice to its load outs: tap the invoice again, tick the load outs under [[Reconcile load outs]], tap [[Save invoice]]."
+],
+"done": "“Invoice saved.” It shows in the Invoices card.",
+"watch": [
+"“DUPLICATE INVOICE — not saved” means this invoice is already in. Open the one that is there.",
+"“None (no processing cost)” means no processing cost is charged. Only pick it on purpose."
+],
+"screens": [
+"lot:purchases"
+]
+},
+{
+"id": "B3",
+"group": "Cattle coming in",
+"title": "Enter a load out (cattle delivered)",
+"when": "A truck of cattle is unloaded.",
+"steps": [
+"Open the lot → [[Purchases]] tab → [[🚛 + Load Out]].",
+"Check the [[Load out date]]. Type the [[Head count]].",
+"Type [[Start tag]] and [[End tag]]. List any gaps in [[Missing tags]].",
+"Pick the ranch, then the pasture they went into. Split across pastures with [[+ Add pasture]].",
+"Check the [[Receiving protocol]] (picked for you from the lot).",
+"Tap [[Save load out]]."
+],
+"done": "Green message: “Load out saved: N head in, N tag(s) registered.”",
+"watch": [
+"Tag count must equal head count.",
+"“DUPLICATE LOAD OUT — not saved” means it is already in. Do not enter it twice.",
+"If tags belong to another lot, a box opens. [[Skip conflicting tags]] or [[Register anyway]] (needs a reason). Ask John if unsure.",
+"After saving, only protocol, invoice and notes can change. Wrong head, tags, date or pasture: delete the load out and enter it again."
+],
+"screens": [
+"lot:purchases"
+]
+},
+{
+"id": "B4",
+"group": "Cattle coming in",
+"title": "Print the receiving sheet",
+"when": "Before the crew works new cattle.",
+"steps": [
+"Tap [[Settings]]. The Protocols list opens.",
+"Tap the protocol.",
+"Tap [[🖨 Receiving Sheet]].",
+"Type the average weight of the cattle.",
+"Tap [[🖨 Print]], or [[📱 Text PDF]] to send it to a phone."
+],
+"done": "The print window opens.",
+"watch": [
+"Write lot, date and head on the sheet by hand."
+],
+"screens": [
+"protocolsView",
+"protocolDetailView"
+]
+},
+{
+"id": "C1",
+"group": "Health",
+"title": "Enter doctoring from a paper list",
+"when": "Several head got the same treatment and it was not entered in the field app.",
+"steps": [
+"Tap [[Animal Health]] → [[Doctoring Entry (bulk)]].",
+"Check the [[Date]].",
+"Pick the action under Action / protocol. The tag box opens.",
+"Type a tag and press Enter. Repeat for every head.",
+"Check each row's pasture and doses.",
+"Tap [[Save batch]]."
+],
+"done": "Green message: “Saved N doctoring event(s).”",
+"watch": [
+"Deaths are not entered here. Use ⚠ + Record deaths (card C3).",
+"A tag that is dead, sold or not on an open lot is refused.",
+"Changing the action clears the rows. [[Clear batch]] empties the list."
+],
+"screens": [
+"doctoringEntryView"
+]
+},
+{
+"id": "C2",
+"group": "Health",
+"title": "Enter one doctoring",
+"when": "One animal was treated.",
+"steps": [
+"Tap [[Animal Health]] → [[Single Doctoring]].",
+"In the tag box, type the tag and press Enter. The entry opens on the right lot.",
+"No tag: tick [[NT animal (no tag)]], pick the lot, tap [[Open entry]].",
+"Pick the action. Check medicine and doses.",
+"Tap [[Save]]."
+],
+"done": "“Saved. Ready for the next tag.” (“Closed without saving.” means it did not save.)",
+"watch": [
+"Deaths go on ⚠ + Record deaths, not here."
+],
+"screens": [
+"doctoringSingleView"
+]
+},
+{
+"id": "C3",
+"group": "Health",
+"title": "Record a death",
+"when": "An animal dies.",
+"steps": [
+"Open the lot → [[Animal Health]] tab.",
+"Tap [[⚠ + Record deaths]].",
+"Check the [[Date]]. Type the cause if known.",
+"Type the [[Tag #]]. Pick the pasture it died in. Head is 1.",
+"More than one? Tap [[+ Add row]].",
+"Tap [[Save]]."
+],
+"done": "Green message: “Recorded N death event(s).” The tag is retired.",
+"watch": [
+"Only John can delete a death. If one is wrong, tell him.",
+"If the lot reaches 0 head the app asks to close the lot."
+],
+"screens": [
+"lot:health"
+]
+},
+{
+"id": "C4",
+"group": "Health",
+"title": "Write off missing, or a stray came back",
+"when": "Head are gone with no carcass, or a lost head turned up.",
+"steps": [
+"Open the lot → [[Animal Health]] tab.",
+"Tap [[− Write off missing]] or [[+ Stray returned]].",
+"Check the [[Date]]. Type the [[Head]].",
+"Pick the pasture. Check it is the right one.",
+"Tap [[Save]]."
+],
+"done": "Green message saying how many head were written off or added back.",
+"watch": [
+"Missing is not a death. Only John can reverse one."
+],
+"screens": [
+"lot:health"
+]
+},
+{
+"id": "C5",
+"group": "Health",
+"title": "Send cattle to the feed pen",
+"when": "Sick or poor-doing head go to the feed pen.",
+"steps": [
+"Open the lot → [[Moves]] tab.",
+"Tap [[🩹 Send to feed pen]].",
+"On the line: pick the pasture they came from, type the head, pick the pen they went to.",
+"Tap [[Save transfer]]."
+],
+"done": "Green message: “Sent to the feed pen.”",
+"watch": [
+"Check the “to” pasture. It starts on the pasture they left."
+],
+"screens": [
+"lot:moves"
+]
+},
+{
+"id": "C6",
+"group": "Health",
+"title": "Feed pen: sold, butchered, died or gone",
+"when": "A head leaves the feed pen.",
+"steps": [
+"Open the feed pen lot → [[Feed pen]] tab.",
+"Tap [[+ Record removal]].",
+"Pick what happened. Check the date and pen.",
+"Sold: type the proceeds. Type how many head.",
+"Tap [[Save removal]]."
+],
+"done": "Green message: “Removal recorded (Sold).” (or Butchered, Died, Disappeared)",
+"watch": [
+"Sold or butchered shows the withdrawal warning if any tag is still in withdrawal. Read the tags before you confirm."
+],
+"screens": [
+"lot:feedpen"
+]
+},
+{
+"id": "D1",
+"group": "Moving and selling",
+"title": "Move cattle between pastures",
+"when": "Cattle were moved and it was not entered in the field app.",
+"steps": [
+"Tap [[Moves]] at the top.",
+"On the ticket: pick the lot (the pasture they left fills in when the lot is in one pasture), type the head, pick the pasture they went to.",
+"More moves? Tap [[+ Move ticket]].",
+"Check the date on each ticket.",
+"Tap [[Save moves]], then OK."
+],
+"done": "Green message: “N move(s) recorded.”",
+"watch": [
+"If any one ticket fails, none are saved. Read the reason."
+],
+"screens": [
+"movesView"
+]
+},
+{
+"id": "D2",
+"group": "Moving and selling",
+"title": "Undo a wrong move",
+"when": "A move was entered by mistake.",
+"steps": [
+"Open the lot → [[Moves]] tab → move history.",
+"On the wrong move, tap [[Reverse]]. Tap OK."
+],
+"done": "Green message: “Move reversed.” The old move shows “Reversed”; both stay in the history.",
+"watch": [
+"It refuses if the cattle have moved, died or sold since. Ask John."
+],
+"screens": [
+"lot:moves"
+]
+},
+{
+"id": "D3",
+"group": "Moving and selling",
+"title": "Ship cattle (sale)",
+"when": "Cattle are sold and shipped.",
+"steps": [
+"Tap [[Sales]] → [[+ New shipment]]. (From a lot, [[💲 + Sale]] opens the same screen with the lot filled in.)",
+"Set the [[Sale date]] first. Type the buyer.",
+"On each load: head, gross pounds, and the lot (its pasture fills in when the lot is in one pasture).",
+"Type the [[$ per cwt]] and any shrink. Check deductions.",
+"Wait for “Ready to save. Everything ties.”",
+"Tap [[Save shipment]], then OK."
+],
+"done": "Green message: “Shipment saved: N head … to the books.”",
+"watch": [
+"A withdrawal box lists tags still in withdrawal. Make sure none are on the truck before [[Confirm — save anyway]].",
+"Only John can delete a shipment."
+],
+"screens": [
+"salesView",
+"shipmentEntryView",
+"lot:sales"
+]
+},
+{
+"id": "D4",
+"group": "Moving and selling",
+"title": "Copy a shipment into Redwing",
+"when": "After a shipment is saved.",
+"steps": [
+"Tap [[Sales]] → [[Accounting Report]] (or [[Accounting report]] on the shipment).",
+"Pick the shipment.",
+"Type the [[Production Year]]. It is decided for each sale.",
+"Check the banner says the rows tie.",
+"Tap [[Copy rows]] and paste into Redwing."
+],
+"done": "“N row(s) copied — paste into your accounting grid.”",
+"watch": [
+"A red banner means the rows do not tie. Do not post. Tell John."
+],
+"screens": [
+"salesReportView"
+]
+},
+{
+"id": "D5",
+"group": "Moving and selling",
+"title": "Check the head count",
+"when": "Every morning, and after any big day.",
+"steps": [
+"On [[Lots]], look at the Head count tile at the top.",
+"Green = every lot ties. Red = at least one lot does not.",
+"Red: tap the tile. Lots marked OFF are at the top. Tap one to open it."
+],
+"done": "Nothing to save. Green is good.",
+"watch": [
+"Books higher than pastures: some head have no pasture. Place them with ↔ + Move on the lot.",
+"Pastures higher than books: a death, sale or move was not entered. Find it, or tell John."
+],
+"screens": [
+"lotsView"
+]
+},
+{
+"id": "D6",
+"group": "Moving and selling",
+"title": "Settle a pasture count",
+"when": "The crew counted a pasture and the lot split is off.",
+"steps": [
+"Tap [[Settings]] → [[Locations]] → the ranch → the pasture.",
+"Tap [[Settle counts]].",
+"Type the head counted for every lot (0 if none).",
+"For each lot that changed, pick the other pasture the head came from or went to.",
+"Tap [[Record the count]]."
+],
+"done": "Green message: “(pasture) settled” or “verified against the count”.",
+"watch": [
+"The total counted must match the books. If not, a death, sale or move is missing."
+],
+"screens": [
+"pastureDetailView",
+"ranchDetailView",
+"locationsView"
+]
+},
+{
+"id": "E1",
+"group": "Feed and medicine",
+"title": "Enter a feed delivery",
+"when": "A load of feed arrives.",
+"steps": [
+"Tap [[Inventory]] → [[Purchases]] → [[+ Delivery]].",
+"If it was ordered, pick it under Against which order? (fills most of it).",
+"Check the date. Pick the item, where it went, and the vendor.",
+"Type the pounds (or amount) and the price, or tick [[Price not known yet]].",
+"Type the scale ticket number if you have it.",
+"Tap [[Save delivery]]."
+],
+"done": "Green message: “Delivery recorded.”",
+"watch": [
+"Always pick the vendor, or the bill cannot be matched later."
+],
+"screens": [
+"invPurchasesView",
+"feedReceiptsView"
+]
+},
+{
+"id": "E2",
+"group": "Feed and medicine",
+"title": "Enter feed fed by hand",
+"when": "Feed went out that is not on the PB report.",
+"steps": [
+"Tap [[Inventory]] → [[Feed Out]].",
+"Switch the mode to [[Single rows]] (first time only; it remembers).",
+"Check the period start and end.",
+"On each row: item, where it came out of, lot (or cost centre), [[Pounds fed]]. More rows with [[+ Row]].",
+"Tap [[Save feed-out]]."
+],
+"done": "Green message: “Saved N feed-out row(s).”",
+"watch": [
+"An overlap warning means feed for that period is already in. Ask John before saving again."
+],
+"screens": [
+"feedUsageView"
+]
+},
+{
+"id": "E3",
+"group": "Feed and medicine",
+"title": "Medicine checkout or return",
+"when": "A man takes medicine from the med room, or brings it back.",
+"steps": [
+"Tap [[Inventory]] → [[Meds]] → [[Checkouts]].",
+"Pick who it goes to under [[Goes to]].",
+"Pick each medicine and the bottles.",
+"Tap [[Record checkout]] (or [[Record return]])."
+],
+"done": "“Checkout recorded …” or “Return recorded …”, and it shows in the log.",
+"watch": [
+"Picking another pool (not a man) moves the stock. The button then reads Move stock."
+],
+"screens": [
+"invCheckoutsView"
+]
+},
+{
+"id": "E4",
+"group": "Feed and medicine",
+"title": "Count the medicine",
+"when": "Monthly count.",
+"steps": [
+"Tap [[Inventory]] → [[Meds]] → [[Counts]] → [[+ New count]].",
+"Type what is in the barn and with the crew for each medicine.",
+"Stop part way? Tap [[Save draft]] and come back later.",
+"When done, tap [[Post count]], then OK."
+],
+"done": "“Count posted: N counted, N short, N over.”",
+"watch": [
+"A blank line is skipped, not zero. Type 0 if none.",
+"A posted count cannot be changed. Only John can un-post."
+],
+"screens": [
+"invCountsView",
+"invCountEntryView"
+]
+},
+{
+"id": "E5",
+"group": "Feed and medicine",
+"title": "Count a feed bay",
+"when": "A bay is due for a count (it shows on Needs Attention).",
+"steps": [
+"Tap [[Inventory]]. On Needs Attention, tap the “Count overdue” row. (Or Settings ▾ → [[Counts]] → [[+ Count a bay]].)",
+"Check the date and location.",
+"Type what is there for each line. Empty bay: tick [[Bay is empty — zero every line]].",
+"Tap [[Post count]]."
+],
+"done": "Green message: “Count posted. …”",
+"watch": [
+"If it asks about tons typed as pounds, check your numbers."
+],
+"screens": [
+"feedCountsView",
+"invNeedsView"
+]
+},
+{
+"id": "F1",
+"group": "Reports",
+"title": "Send the daily report",
+"when": "End of the day.",
+"steps": [
+"Tap [[Reports]] → [[Daily Report]].",
+"Use [[Today]] or the arrows to pick the day.",
+"Tap [[Text / share PDF]] to send it, [[Copy text]] to paste it, or [[Print]]."
+],
+"done": "The share sheet or print window opens, or “Report copied …”.",
+"watch": [
+"[[Email]] only opens your mail app. You still pick who and tap Send."
+],
+"screens": [
+"reportDailyView"
+]
+}
+];
+    // HELP_CARDS:END
+    let helpCardId = null;     // card on show
+    let helpStep = -1;         // tapped step (-1 = none yet; the card then follows the screen)
+    let helpGlowEl = null;
+    let helpLastKeys = '';
+    function helpAllowed() {
+        const r = document.body.dataset.role;
+        return r === 'owner' || r === 'office';
+    }
+    function helpRoleChanged() {
+        document.body.classList.toggle('help-ok', helpAllowed());
+        if (!helpAllowed()) { helpClearGlow(); return; }
+        let open = false;
+        try { open = localStorage.getItem('jfr.helpOpen') === '1'; } catch (e) {}
+        document.body.classList.toggle('help-open', open);
+        if (open) helpSync(true);
+    }
+    function helpSetOpen(open) {
+        document.body.classList.toggle('help-open', open);
+        document.body.classList.remove('help-full');
+        try { localStorage.setItem('jfr.helpOpen', open ? '1' : '0'); } catch (e) {}
+        if (open) helpSync(true); else helpClearGlow();
+    }
+    // What is on screen, in the keys cards.py SCREENS uses: a view id,
+    // 'appr:<pane>' on Approvals, 'lot:<sub-tab>' on a lot.
+    function helpScreenKeys() {
+        const keys = [];
+        document.querySelectorAll('main [id$="View"]').forEach(v => {
+            if (v.classList.contains('hidden') || !v.getClientRects().length) return;
+            if (v.id === 'detailView') keys.push('lot:' + currentLotSubtab);
+            else if (v.id === 'approvalsView') keys.push('appr:' + apprPane);
+            else keys.push(v.id);
+        });
+        return keys;
+    }
+    function helpCardsFor(keys) {
+        return HELP_CARDS.filter(c => c.screens.some(s => keys.includes(s)));
+    }
+    function helpFmt(t) {
+        return escapeHtml(t).replace(/\[\[(.+?)\]\]/g, '<span class="help-btn">$1</span>');
+    }
+    function helpSync(force) {
+        if (!helpAllowed() || !document.body.classList.contains('help-open')) return;
+        const keys = helpScreenKeys();
+        const kstr = keys.join('|');
+        const here = helpCardsFor(keys);
+        // Follow the screen until a step is tapped; after that the card stays put.
+        if (helpStep < 0 && (kstr !== helpLastKeys || !helpCardId)) {
+            if (here.length && !here.some(c => c.id === helpCardId)) helpCardId = here[0].id;
+            if (!helpCardId) helpCardId = HELP_CARDS[0].id;
+        }
+        if (!force && kstr === helpLastKeys && $('helpPick').dataset.card === helpCardId) return;
+        helpLastKeys = kstr;
+        const hereIds = here.map(c => c.id);
+        const opt = c => `<option value="${c.id}"${c.id === helpCardId ? ' selected' : ''}>${c.id} · ${escapeHtml(c.title)}</option>`;
+        let h = '';
+        if (here.length) h += `<optgroup label="This screen">${here.map(opt).join('')}</optgroup>`;
+        const groups = [];
+        HELP_CARDS.forEach(c => { if (!groups.includes(c.group)) groups.push(c.group); });
+        groups.forEach(g => {
+            const cs = HELP_CARDS.filter(c => c.group === g && !hereIds.includes(c.id));
+            if (cs.length) h += `<optgroup label="${escapeHtml(g)}">${cs.map(opt).join('')}</optgroup>`;
+        });
+        $('helpPick').innerHTML = h;
+        $('helpPick').dataset.card = helpCardId;
+        helpRender();
+    }
+    function helpRender() {
+        const c = HELP_CARDS.find(x => x.id === helpCardId);
+        if (!c) return;
+        $('helpBody').innerHTML =
+            `<h3>${escapeHtml(c.title)}</h3>
+             <p class="help-when"><b>When:</b> ${helpFmt(c.when)}</p>
+             <ol class="help-steps">${c.steps.map((s, i) =>
+                `<li data-i="${i}" class="${i === helpStep ? 'cur' : ''}" tabindex="0">${helpFmt(s)}</li>`).join('')}</ol>
+             <div class="help-box help-done"><b>Done when</b>${helpFmt(c.done)}</div>
+             ${c.watch.length ? `<div class="help-box help-watch"><b>Watch for</b><ul>${c.watch.map(w => `<li>${helpFmt(w)}</li>`).join('')}</ul></div>` : ''}
+             <p class="help-tip">Tap a step to outline its button on the screen.</p>`;
+        const n = c.steps.length;
+        $('helpBar').innerHTML = helpStep >= 0
+            ? `<span class="help-bar-n">${helpStep + 1}/${n}</span><span class="help-bar-txt">${helpFmt(c.steps[helpStep])}</span><span>▴</span>`
+            : `<span class="help-bar-n">${c.id}</span><span class="help-bar-txt">${escapeHtml(c.title)}: tap for the steps</span><span>▴</span>`;
+    }
+    function helpClearGlow() {
+        if (helpGlowEl) helpGlowEl.classList.remove('help-glow');
+        helpGlowEl = null;
+    }
+    function helpVisible(el) {
+        return el.getClientRects().length > 0 && !el.closest('#helpDock') && !el.closest('.hidden');
+    }
+    function helpNorm(t) { return (t || '').replace(/\s+/g, ' ').trim(); }
+    // The control a [[Label]] names: a button, tab or link whose text is the
+    // label (a badge count after it is fine), the field a <label> points at,
+    // or failing that any visible element with exactly that text.
+    function helpFindTarget(label) {
+        const want = helpNorm(label);
+        const own = el => helpNorm(Array.from(el.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent).join(' '));
+        const clickables = Array.from(document.querySelectorAll('button, a, .sub-tab, .nav-tab, [role="button"], summary')).filter(helpVisible);
+        let el = clickables.find(b => helpNorm(b.textContent) === want) || clickables.find(b => own(b) === want);
+        if (el) return el;
+        for (const lab of document.querySelectorAll('label')) {
+            if (!helpVisible(lab) || (helpNorm(lab.textContent) !== want && own(lab) !== want)) continue;
+            const f = lab.htmlFor ? $(lab.htmlFor) : lab.querySelector('input, select, textarea');
+            if (f && f.getClientRects().length) return f;
+            const alt = f && f.nextElementSibling;   // flatpickr's visible alt input
+            if (alt && alt.matches('input') && alt.getClientRects().length) return alt;
+            return lab;
+        }
+        return Array.from(document.querySelectorAll('main *')).find(x => helpVisible(x) && x.children.length === 0 && helpNorm(x.textContent) === want) || null;
+    }
+    function helpPickStep(i) {
+        const c = HELP_CARDS.find(x => x.id === helpCardId);
+        if (!c) return;
+        helpClearGlow();
+        helpStep = i;
+        helpRender();
+        const labels = (c.steps[i].match(/\[\[(.+?)\]\]/g) || []).map(m => m.slice(2, -2));
+        let el = null;
+        for (const l of labels) { el = helpFindTarget(l); if (el) break; }
+        const li = $('helpBody').querySelector(`li[data-i="${i}"]`);
+        if (!el) {
+            if (li && labels.length) li.insertAdjacentHTML('beforeend', '<span class="help-miss">Not on this screen. Do the step before it first.</span>');
+            return;
+        }
+        helpGlowEl = el;
+        el.classList.add('help-glow');
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        document.body.classList.remove('help-full');   // phone: get the sheet out of the way
+    }
+    $('helpFab').addEventListener('click', () => helpSetOpen(true));
+    $('helpClose').addEventListener('click', () => { helpStep = -1; helpSetOpen(false); });
+    $('helpMin').addEventListener('click', () => document.body.classList.remove('help-full'));
+    $('helpBar').addEventListener('click', () => document.body.classList.add('help-full'));
+    $('helpBar').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.body.classList.add('help-full'); } });
+    $('helpPick').addEventListener('change', () => {
+        helpCardId = $('helpPick').value;
+        helpStep = -1;
+        helpClearGlow();
+        $('helpPick').dataset.card = helpCardId;
+        helpRender();
+    });
+    $('helpBody').addEventListener('click', e => {
+        const li = e.target.closest('.help-steps li');
+        if (li) helpPickStep(+li.dataset.i);
+    });
+    $('helpBody').addEventListener('keydown', e => {
+        const li = e.target.closest('.help-steps li');
+        if (li && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); helpPickStep(+li.dataset.i); }
+    });
+    // Tapping the outlined control moves the card on to the next step (no new
+    // outline until that step is tapped); any tap re-reads which screen is up.
+    document.addEventListener('click', e => {
+        if (!document.body.classList.contains('help-open') || e.target.closest('#helpDock')) return;
+        if (helpGlowEl && (helpGlowEl === e.target || helpGlowEl.contains(e.target))) {
+            const c = HELP_CARDS.find(x => x.id === helpCardId);
+            helpClearGlow();
+            if (c && helpStep < c.steps.length - 1) helpStep++;
+            helpRender();
+        }
+        setTimeout(() => helpSync(false), 350);
+    }, true);
 
     checkSession();
 </script>
