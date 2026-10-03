@@ -1816,32 +1816,35 @@ catalog still reads $0.4056 and the ID tags still value at $2,429.14.
 
 John: *"We need to build a pdf for a checkout record from med room. Name, date,
 list of main doctoring meds and couple 3 blank lines for written meds to keep
-list simple."* Then, on the first cut: *"Don't want landscape, needs larger
-print and only need 6-8 records per page."*
+list simple."* Then twice over, which is the useful part of the record:
+
+1. *"Don't want landscape, needs larger print and only need 6-8 records per
+   page."*
+2. *"Let's try 3 rows two columns, with check box immediately in front of name
+   not trailing, that was confusing."*
 
 `docs/worksheets/2026-10-03_med-room-checkout-sheet.pdf`, built from the `.html`
-beside it (Chromium `--print-to-pdf`). **Letter portrait, 7 checkout blocks a
-page**, inside the 6-8 he asked for.
+beside it (Chromium `--print-to-pdf`). **Letter portrait, six blocks a page, two
+across and three down.**
 
-The first cut was a 27-line landscape grid, drugs as columns — maximum records,
-smallest print. Wrong instinct: this sheet lives on a wall in a medicine room
-and gets written on with a pen, often by somebody in a hurry, so **readable
-beats dense**. The block layout is also what "couple 3 blank lines" described in
-the first place.
+The first cut was a 27-line landscape grid with the drugs as columns — maximum
+records, smallest print. Wrong instinct, and worth writing down: this sheet
+hangs in a medicine room and gets written on with a pen by somebody in a hurry.
+**Readable beats dense**, and the count box belongs where the hand lands first.
 
-Each block is a man drawing once: **Name / Date / Init.** on a 11.5pt line, then
-six named drugs and three write-in lines as 10pt chips with a box to write the
-count in. Three across, three rows.
+So each block is one man drawing once: **Name**, then **Date / Init.**, then
+nine lines, each a **box first and the drug after it**. Six named drugs and
+three write-in lines. Trailing boxes read as though they belonged to the next
+drug down, which is exactly the confusion John named.
 
 **The six named drugs are the ones actually given**, off `doctoring_event_meds`
 rather than off an opinion: Enroflox 500 mL (1,012 times), Excede 250 mL and
 100 mL (1,004 between them), Resflor 500 mL (246), Draxxin KP 250 mL (which
-replaced the Draxxin 500 at 35), Biomycin 500 mL. Thiamine and Vitamin K came
-off the printed list in the rewrite — 4 doses and none — and are what the blank
-lines are for, along with Dectomax and Cydectin, which are stocked but have
-never been given in a doctoring event.
+replaced the Draxxin 500 at 35), Biomycin 500 mL. Thiamine (4) and Vitamin K
+(none) are what the blank lines are for, along with Dectomax and Cydectin —
+stocked, but never given in a doctoring event.
 
-**Excede keeps two chips, one a size.** The place carries both and the app
+**Excede keeps two lines, one a size.** The place carries both and the app
 records the size that left the room, so printing the size means the crew writes
 only a count and the office cannot guess wrong.
 
