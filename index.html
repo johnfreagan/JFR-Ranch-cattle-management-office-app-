@@ -26373,8 +26373,7 @@ ${ranchBlocks}
                 pasture_id: d.pasture_id,
                 head_count: d.head_count
             }));
-            // Show edit-mode hint about destinations
-            $('receiptDestHint').textContent = 'Edits to destinations here update the load out record but do NOT move cattle. Use "Move" on the lot to relocate.';
+            $('receiptDestHint').textContent = 'Date, head, tags and destination pastures are locked on a saved load out (changing them here never moved cattle). To change them, delete this load out, which puts everything back, and enter it again.';
 
             // Show attachments section + load existing attachments
             $('receiptAttachmentsSection').classList.remove('hidden');
@@ -26390,6 +26389,17 @@ ${ranchBlocks}
         }
 
         renderReceiptDestinations();
+        // Saved load out: only protocol, invoice link and notes can change
+        // (2026-10-03). Head, tags, date and pastures are what the pasture head
+        // and tag registry were built from; editing them never followed through.
+        const lockLoadOut = !!receipt;
+        ['receiptDate', 'receiptHead', 'receiptTagStart', 'receiptTagEnd', 'receiptMissing'].forEach(fid => {
+            const el = $(fid);
+            el.disabled = lockLoadOut;
+            if (el._flatpickr && el._flatpickr.altInput) el._flatpickr.altInput.disabled = lockLoadOut;
+        });
+        $('addReceiptDestBtn').classList.toggle('hidden', lockLoadOut);
+        $('receiptDestList').querySelectorAll('input, select, button').forEach(el => { el.disabled = lockLoadOut; });
         updateReceiptTagPreview();
         showModal('receiptModal');
     }
@@ -26728,143 +26738,55 @@ ${ranchBlocks}
     // The actual save logic, parameterized so it can be called from direct-save or override flows
     async function actuallySaveLoadOut(payload, isNew, id, validDests, tagsToRegister, conflictsToRetire, overrideReason) {
         let receiptId;
-        if (id) {
-            const result = await supabase.from('delivery_receipts').update(payload).eq('id', id).select().single();
-            if (result.error) throw result.error;
+        if (!isNew) {
+            // Edit: only protocol, invoice link and notes (the rest is locked
+            // in openReceiptModal). Row-checked so a refused update is said.
+            const { data: upd, error: updErr } = await supabase.from('delivery_receipts')
+                .update({
+                    receiving_protocol_id: payload.receiving_protocol_id,
+                    invoice_id: payload.invoice_id,
+                    notes: payload.notes
+                })
+                .eq('id', id).select('id');
+            if (updErr) throw updErr;
+            if (!upd || upd.length === 0) throw new Error('Nothing was saved: the load out could not be updated (it may have been deleted, or your login cannot change it).');
             receiptId = id;
-
-            // Replace destinations rows in the load_out_destinations table.
-            const { error: delErr } = await supabase.from('load_out_destinations').delete().eq('receipt_id', receiptId);
-            if (delErr) throw delErr;
         } else {
-            payload.created_by = currentUser.id;
-            const result = await supabase.from('delivery_receipts').insert(payload).select().single();
-            if (result.error) throw result.error;
-            receiptId = result.data.id;
-        }
-
-        // The shelf. An edit reverses first, so a changed head count does not
-        // leave the original draw standing alongside the new one.
-        await invRecordProcessingDraw(receiptId, !isNew);
-
-        // Insert destination rows
-        if (validDests.length > 0) {
-            const destPayload = validDests.map(d => ({
-                receipt_id: receiptId,
-                pasture_id: d.pasture_id,
-                head_count: Number(d.head_count)
-            }));
-            const { error: destErr } = await supabase.from('load_out_destinations').insert(destPayload);
-            if (destErr) throw destErr;
-        }
-
-        // Auto-create lot_pasture_assignments — only on create, not on edit
-        // Phase 12+: enforce one open row per (lot, pasture). For each destination:
-        // if an open row already exists for this (lot, pasture), ADD the head count
-        // to that row. Otherwise insert a new row.
-        //
-        // Phase 13 fix: if this fails, we DO NOT return early — tag registration
-        // below should still run. We just collect the warning and surface at end.
-        let pastureAssignFailureMsg = null;
-        if (isNew && validDests.length > 0) {
-            try {
-                for (const d of validDests) {
-                    const { data: existing } = await supabase
-                        .from('lot_pasture_assignments')
-                        .select('id, head_count')
-                        .eq('lot_id', currentLot.id)
-                        .eq('pasture_id', d.pasture_id)
-                        .is('moved_out', null)
-                        .maybeSingle();
-                    if (existing) {
-                        const { error: addErr } = await supabase
-                            .from('lot_pasture_assignments')
-                            .update({ head_count: Number(existing.head_count) + Number(d.head_count) })
-                            .eq('id', existing.id);
-                        if (addErr) throw addErr;
-                    } else {
-                        const { error: insErr } = await supabase
-                            .from('lot_pasture_assignments')
-                            .insert({
-                                lot_id: currentLot.id,
-                                pasture_id: d.pasture_id,
-                                head_count: Number(d.head_count),
-                                moved_in: payload.receipt_date,
-                                notes: 'Auto from load out',
-                                recorded_by: currentUser.id
-                            });
-                        if (insErr) throw insErr;
-                    }
-                }
-            } catch (assignErr) {
-                // Capture the failure but continue — tag registration is still important
-                pastureAssignFailureMsg = 'Pasture auto-assign failed: ' + assignErr.message + '. Tag registration will still run. Check Yard Sheet for the pasture-sum anomaly after save.';
-                console.warn(pastureAssignFailureMsg);
-            }
-        }
-
-        // ========================================
-        // TAG REGISTRATION (only for new load-outs)
-        // ========================================
-        if (isNew && tagsToRegister.length > 0 && currentLot.fiscal_year) {
-            // Step 1: retire conflicting registrations (override case)
-            if (conflictsToRetire.length > 0 && overrideReason) {
-                const conflictIds = conflictsToRetire.map(c => c.tag_number);
-                // Look up the lot_tags row IDs for these conflicts
-                const { data: existing, error: lookupErr } = await supabase
-                    .from('lot_tags')
-                    .select('id, tag_number, lot_id')
-                    .eq('fiscal_year', currentLot.fiscal_year)
-                    .eq('status', 'active')
-                    .in('tag_number', conflictIds);
-                if (lookupErr) {
-                    showAlert('receiptModalAlert', 'Load out saved, but tag conflict resolution failed: ' + lookupErr.message);
-                    return;
-                }
-                // Filter: only retire registrations from OTHER lots (not the current lot)
-                const toRetire = (existing || []).filter(x => x.lot_id !== currentLot.id).map(x => x.id);
-                if (toRetire.length > 0) {
-                    const { error: retireErr } = await supabase
-                        .from('lot_tags')
-                        .update({
-                            status: 'retired',
-                            retired_at: new Date().toISOString(),
-                            retired_reason: 'Override on registration to lot ' + currentLot.lot_number + ': ' + overrideReason
-                        })
-                        .in('id', toRetire);
-                    if (retireErr) {
-                        showAlert('receiptModalAlert', 'Load out saved, but failed to retire previous registrations: ' + retireErr.message);
-                        return;
-                    }
-                }
-            }
-
-            // Step 2: register all tags as active for this lot
-            const tagPayload = tagsToRegister.map(t => ({
-                tag_number: t,
-                lot_id: currentLot.id,
-                delivery_receipt_id: receiptId,
-                fiscal_year: currentLot.fiscal_year,
-                status: 'active',
-                registered_by: currentUser.id,
-                notes: overrideReason ? ('Override registration: ' + overrideReason) : null
-            }));
-            const { error: tagErr } = await supabase.from('lot_tags').insert(tagPayload);
-            if (tagErr) {
-                // Schema might not be deployed; surface the warning but don't fail
-                console.warn('Tag registration failed:', tagErr.message);
-                showAlert('receiptModalAlert', 'Load out saved, but tag registration failed: ' + tagErr.message + ' (Phase 7 schema may not be deployed yet — that is OK, load-out is saved)');
-                $('receiptSaveBtn').disabled = false;
-                return;
-            }
+            // New: receipt, destinations, pasture head and tags in ONE
+            // transaction (record_load_out, docs/sql/2026-10-03c). Any failure
+            // saves nothing. It replaces five separate calls, one of which let
+            // the receipt save with its head in no pasture.
+            const { data, error } = await supabase.rpc('record_load_out', {
+                p_lot_id: currentLot.id,
+                p_receipt_date: payload.receipt_date,
+                p_head_count: payload.head_count,
+                p_tag_start: payload.tag_start,
+                p_tag_end: payload.tag_end,
+                p_missing_tags: payload.missing_tags || [],
+                p_receiving_protocol_id: payload.receiving_protocol_id,
+                p_invoice_id: payload.invoice_id,
+                p_notes: payload.notes,
+                p_destinations: validDests.map(d => ({ pasture_id: d.pasture_id, head_count: Number(d.head_count) })),
+                p_register_tags: tagsToRegister || [],
+                p_override_reason: overrideReason || null
+            });
+            if (error) throw new Error('Load out NOT saved, nothing was changed: ' + error.message);
+            receiptId = data.receipt_id;
         }
 
         $('receiptSaveBtn').disabled = false;
         hideModal('receiptModal');
         expandCardOnNextRender('receiptsCard');
-        if (pastureAssignFailureMsg) {
-            showAlert('globalAlert', '⚠ Load out saved and tags registered, but pasture auto-assign failed. ' + pastureAssignFailureMsg, 'warning');
-        }
+        showAlert('globalAlert', isNew
+            ? `Load out saved: ${fmtNum(payload.head_count)} head in, ${fmtNum((tagsToRegister || []).length)} tag(s) registered.`
+            : 'Load out updated.', 'success');
+
+        // The shelf (processing medicine). Separate on purpose: inventory, not
+        // head math, and it reports its own failure - after the success line,
+        // so a draw problem replaces it rather than being hidden by it. An
+        // edit reverses first, so a changed protocol does not leave the old
+        // draw standing.
+        await invRecordProcessingDraw(receiptId, !isNew);
         showLotDetail(currentLot.id);
     }
 
