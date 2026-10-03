@@ -478,3 +478,55 @@ refusal word for word, a 36-27 move into Goat Hill the next day charging
 27,146.24 and clearing the banner, and Unpost putting every pound back
 (every layer equal to the snapshot). It also checks iPhone and iPad widths
 and saves screenshots.
+
+### Cost centre drops (Cow/Calf Wip) — 2026-10-03
+
+Some pastures hold the cow herd, not stocker lots (Nichols Front Trap, John 2026-10-02). PB feed
+dropped there belongs on a cost centre — **Cow/Calf Wip** — the same destination hand-entered cow
+feed already uses (`feed_usage.destination_type = 'cost_center'`). It never touches a lot's cost of
+gain and lands in the Redwing export's cost-centre section. Migration
+`docs/sql/2026-10-03_pb_drop_cost_center.sql` (applied); `2026-10-03b_pb_split_keeps_cost_center.sql`
+is **not applied yet** (see below).
+
+- **Feed tab:** every pen row has a **Cost centre** button beside Move / Split / Prefeed. It opens a
+  picker of active cost centres (`cost_centers.is_active`); saving calls
+  `pb_set_cost_center(date, pen, name)`. The pen shows a "Cost centre · Cow/Calf Wip" tag and the
+  button turns to **Undo cost centre** (`pb_set_cost_center(date, pen, NULL)`). "Charges to" lists
+  the cost centre with its items between the lots and any prefeed, and the total includes it.
+- **Per pen, per pending day**, like Move and Prefeed. A drop is a lot charge, a prefeed hold or a
+  cost-centre charge, never two: setting a cost centre clears Prefeed and marking Prefeed clears the
+  cost centre. Re-staging a different email for the day rebuilds the lines and drops it, as it drops
+  moves. There is no standing pasture → cost centre setting yet; John asked for the button only.
+- **Posting:** `pb_posting_plan(report)` replaced `pb_plan` for `approve_pb_report` and
+  `pb_report_charges`. It is `pb_plan` plus a `cost_center_id` column; a cost-centre drop takes its
+  whole share of each ingredient with no head split. Approve posts those rows as destination
+  `cost_center`, source `pb_import`, key `pbmail:<date>:L<load>:<item>:cc<id>`, so Unpost backs them
+  out with the rest of the day. A cost-centre drop needs no lot standing, is skipped by the
+  hand-entered-double check, and an inactive cost centre is a problem. `pb_plan` is still in the
+  database, unchanged and unused; see the connector note.
+- **Supabase connector note (2026-10-03):** `apply_migration` and `execute_sql` stall for 60 s and
+  apply nothing when the SQL contains `DROP` or `DELETE` — even a rolled-back `DROP FUNCTION` with a
+  5 s lock timeout. That is why `pb_plan` was not dropped (its result columns could not change in
+  place) and why `2026-10-03b` (Split keeps the cost centre; its body deletes the pen's old lines) is
+  not applied: paste that file into the dashboard SQL editor. Until then a Split clears the pen's cost
+  centre, the "no lot standing" problem comes back and blocks Approve, and the office taps Cost centre
+  again — nothing mis-posts. The full `rls_verify` script also contains `DELETE`; its assertions were
+  run as separate selects.
+- **Tested** on the scratch copy with the real 10/1 email (Corner 4 and Nichols Trap → Front Trap):
+  Cost centre → 36-27 4,890 lb + Cow/Calf Wip 7,970 lb = 12,860 (the ingredient pounds); Approve posts
+  `cost_center` 7,970 and `lot` 4,890, inventory down exactly 12,860; Unpost restores every layer;
+  Undo cost centre brings the "no lot standing" problem back; Prefeed and Cost centre clear each other;
+  a bad cost-centre name is refused; with 10-03b, a split keeps it on both pieces. The 9/28 prefeed
+  numbers are unchanged (7,293.76 to lots, 27,146.24 held). `run-local.js` covers it in its fourth
+  suite (template `cc_ui_base`: feed_base + `local/05_cc_seed.sql` + the 10/1 email staged and moved
+  + the 10-03 migration).
+- **Cow/Calf Wip** has no Redwing account or production centre filled in (`cost_centers`), the same
+  as for the hand-entered draws John already makes against it.
+- **Redwing: Feed Application + Cost centres is one sheet (2026-10-03, John: "both on one report so
+  we don't have to check each one when we post").** Inventory → Reports → *Feed Application + Cost
+  centres* shows the lot blocks for the Feed Application screen, then each cost centre's journal
+  block (Cow/Calf Wip …), then "Feed posted this period": lots, cost centres, total. One Print / PDF /
+  Copy covers all three parts; Copy rows marks the two parts with upper-case headings. The separate
+  Cost centres menu entry is gone (an old pick of it opens this sheet). Mineral, Variance and the
+  roll-forward stay separate. `run-local.js` suite 5 checks it on the approved 10/1 day: 36-27
+  4,890 lb + Cow/Calf Wip 7,970 lb = 12,860 lb on one sheet and in the copied rows.

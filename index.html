@@ -741,6 +741,8 @@
         .pb-tbl td.num, .pb-tbl th.num { white-space: nowrap; }
         .pb-tbl tr:has(+ .pb-actrow) td { border-bottom: 0; }
         .pb-tbl td.pb-btns { text-align: right; padding-top: 0; }
+        .pb-btnrow { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+        .pb-card .pb-btnrow button.pb-sm { margin-left: 0; }
         @media (max-width: 600px) {
             .pb-tbl table { font-size: 13px; }
             .pb-tbl th, .pb-tbl td { padding-left: 4px; padding-right: 4px; }
@@ -755,6 +757,10 @@
         .pb-tag { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 8px; white-space: nowrap;
                   background: #eef0f2; color: #3a3a3c; text-transform: uppercase; }
         .pb-tag.pre { background: #e3ebe4; color: #2f6b3a; text-transform: none; }
+        .pb-tag.cc, .pb-tag.pre { white-space: normal; display: inline-block; }
+        .pb-tag.cc { background: #e6eaf4; color: #2d4373; text-transform: none; }
+        h4.fd-rw-part { margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+        .pb-cclot b { color: #2d4373; }
         #apprFeedPane button, #apprFeedPane select, #apprFeedPane input { min-height: 40px; }
         .pb-card button.pb-sm { padding: 6px 12px; font-size: 13px; font-weight: 600; margin-left: 6px; }
         .pb-card button.pb-sm:first-child { margin-left: 0; }
@@ -957,9 +963,8 @@
                 <div class="sub-group" data-group="reports" data-material="feed">
                     <button type="button" class="sub-tab group-btn">Reports <span class="caret">▾</span></button>
                     <div class="group-menu">
-                        <button class="sub-tab" data-subtab="redwing" data-rw="feed"     data-material="feed">Feed Application</button>
+                        <button class="sub-tab" data-subtab="redwing" data-rw="feed"     data-material="feed">Feed Application + Cost centres</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw="mineral"  data-material="feed">Mineral Application</button>
-                        <button class="sub-tab" data-subtab="redwing" data-rw="centres"  data-material="feed">Cost centres</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw="variance" data-material="feed">Variance account</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw="roll"     data-material="feed">Inventory roll-forward</button>
                         <button class="sub-tab" data-subtab="redwing" data-rw=""         data-material="feed">Everything together</button>
@@ -11884,6 +11889,7 @@ window.addEventListener('unhandledrejection', function(e) {
     let pbMeta = {};            // report_date -> { gmail_message_id, staged_at }
     let pbPostFrom = null;      // ranch_settings.pb_email_post_from
     let pbPastures = null;      // [{ ranch, pasture }], active, sorted
+    let pbCostCenters = null;   // active cost centre names, sorted (Cow/Calf Wip, ...)
     let pbOpen = null;          // { kind: 'move'|'split'|'reject'|'unpost', date, pen }
     let pbSplitRows = [];       // [{ ix: pasture index or '', lb: string }]
     let pbExpanded = new Set(); // reviewed report_dates opened from their one-line row
@@ -11932,16 +11938,18 @@ window.addEventListener('unhandledrejection', function(e) {
         if (!apprCanFeed()) { $('pbContent').innerHTML = ''; return; }
         const since = new Date(ranchToday() + 'T12:00:00');
         since.setDate(since.getDate() - 45);
-        const [list, wait, meta, rs, pas] = await Promise.all([
+        const [list, wait, meta, rs, pas, ccs] = await Promise.all([
             supabase.rpc('pb_report_list', { p_days: 30 }),
             supabase.rpc('prefeed_waiting'),
             supabase.from('pb_daily_reports').select('report_date, gmail_message_id, staged_at, status')
                 .gte('report_date', since.toISOString().slice(0, 10)),
             supabase.from('ranch_settings').select('pb_email_post_from').limit(1),
             pbPastures ? Promise.resolve({ data: null })
-                       : supabase.from('pastures').select('name, ranches(name)').eq('is_active', true)
+                       : supabase.from('pastures').select('name, ranches(name)').eq('is_active', true),
+            pbCostCenters ? Promise.resolve({ data: null })
+                          : supabase.from('cost_centers').select('name').eq('is_active', true).order('name')
         ]);
-        const err = list.error || wait.error || meta.error || rs.error || pas.error;
+        const err = list.error || wait.error || meta.error || rs.error || pas.error || ccs.error;
         if (err) {
             $('pbContent').innerHTML = `<div class="alert error">Could not load PB reports: ${escapeHtml(err.message)}</div>`;
             return;
@@ -11958,6 +11966,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 .sort((a, b) => a.ranch.localeCompare(b.ranch) ||
                                 a.pasture.localeCompare(b.pasture, undefined, { numeric: true }));
         }
+        if (ccs.data) pbCostCenters = ccs.data.map(c => c.name);
         updatePbBadge(pbList.filter(r => r.status === 'pending').length);
         renderPbReports();
     }
@@ -12047,22 +12056,38 @@ window.addEventListener('unhandledrejection', function(e) {
             const last = !all.slice(ix + 1).some(q => q.pen === p.pen);
             const penAttr = escapeHtml(p.pen);
             const pre = all.some(q => q.pen === p.pen && q.prefeed);
+            const cc = (all.find(q => q.pen === p.pen && q.cost_center) || {}).cost_center || null;
             let act = '';
             if (canAct && first) {
                 act = `<button class="pb-sm" data-pb="move" data-date="${d}" data-pen="${penAttr}" data-write>Move</button><button
                     class="pb-sm" data-pb="split" data-date="${d}" data-pen="${penAttr}" data-write>Split</button><button
                     class="pb-sm${pre ? ' on' : ''}" data-pb="prefeed" data-on="${pre ? '0' : '1'}" data-date="${d}" data-pen="${penAttr}"
-                    data-write>${pre ? 'Undo prefeed' : 'Prefeed'}</button>`;
+                    data-write>${pre ? 'Undo prefeed' : 'Prefeed'}</button>${cc
+                    ? `<button class="pb-sm on" data-pb="cc-undo" data-date="${d}" data-pen="${penAttr}" data-write>Undo cost centre</button>`
+                    : `<button class="pb-sm" data-pb="cc" data-date="${d}" data-pen="${penAttr}" data-write>Cost centre</button>`}`;
             }
             const where = p.pasture ? (p.moved ? `<b>${escapeHtml(p.pasture)}</b> <span class="pb-muted">(moved for this day)</span>`
                                                : escapeHtml(p.pasture))
                                     : '<span class="pb-bad">no match</span>';
             let row = `<tr><td>${penAttr}<br><span class="pb-muted">→</span> ${where}${p.split && penRows[p.pen] > 1
                     ? ' <span class="pb-tag">split</span>' : ''}${p.prefeed
-                    ? ' <span class="pb-tag pre">Prefeed - first lot in pays</span>' : ''}</td>
+                    ? ' <span class="pb-tag pre">Prefeed - first lot in pays</span>' : ''}${p.cost_center
+                    ? ` <span class="pb-tag cc">Cost centre · ${escapeHtml(p.cost_center)}</span>` : ''}</td>
                 <td class="num">${pbLb(p.target_lb)}</td><td class="num">${pbLb(p.fed_lb)}</td>
                 <td class="num">${pbPct(p.fed_lb, p.target_lb)}</td></tr>${act
-                ? `<tr class="pb-actrow"><td colspan="4" class="pb-btns">${act}</td></tr>` : ''}`;
+                ? `<tr class="pb-actrow"><td colspan="4" class="pb-btns"><div class="pb-btnrow">${act}</div></td></tr>` : ''}`;
+            if (canAct && last && pbIsOpen('cc', d, p.pen)) {
+                const names = pbCostCenters || [];
+                row += `<tr><td colspan="4"><div class="pb-panel"><b>Charge ${penAttr} to a cost centre for ${pbMd(d)}</b>
+                    <div class="pb-muted">The whole drop goes to the cost centre, not to any lot standing in the pasture,
+                        the same way hand-entered cow feed posts. This day only.</div>
+                    ${names.length ? `<div class="pb-row"><select class="pb-ccsel" aria-label="Cost centre">${names.map(n =>
+                        `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}</select>
+                        <button class="primary" data-pb="cc-save" data-date="${d}" data-pen="${penAttr}" data-write>Charge to cost centre</button>
+                        <button data-pb="cancel">Cancel</button></div>`
+                      : `<div class="pb-bad">There are no active cost centres in the app.</div>
+                        <div class="pb-row"><button data-pb="cancel">Cancel</button></div>`}</div></td></tr>`;
+            }
             if (canAct && last && pbIsOpen('move', d, p.pen)) {
                 row += `<tr><td colspan="4"><div class="pb-panel"><b>Move ${penAttr} for ${pbMd(d)} only</b>
                     <div class="pb-row">${pbPastureSelect('')}
@@ -12106,7 +12131,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
     function pbChargesHtml(r) {
         const c = r.charges || {};
-        const lots = c.lots || [], pre = c.prefeed || [];
+        const lots = c.lots || [], pre = c.prefeed || [], ccs = c.cost_centers || [];
         const items = list => (list || []).map(i => `${escapeHtml(i.item)} ${pbLb(i.lb)}`).join(' · ');
         const lotRows = lots.map(l => `<div class="pb-lot"><b>${escapeHtml(l.lot)}</b><span class="num">${pbLb(l.lb)} lb</span>
             <div class="pb-items">${items(l.items)}</div></div>`).join('');
@@ -12114,6 +12139,8 @@ window.addEventListener('unhandledrejection', function(e) {
             <div class="pb-items"><span class="pb-state">${escapeHtml(PB_PRE_STATE[p.state] || p.state)}${p.state === 'charged' && p.charged_on
                 ? ' on ' + escapeHtml(fmtDate(p.charged_on)) : ''}</span> · ${items(p.items)}</div>
             ${p.error ? `<div class="pb-items pb-bad">${escapeHtml(p.error)}</div>` : ''}</div>`).join('');
+        const ccRows = ccs.map(x => `<div class="pb-lot pb-cclot"><b>Cost centre · ${escapeHtml(x.cost_center)}</b><span class="num">${pbLb(x.lb)} lb</span>
+            <div class="pb-items">${items(x.items)}</div></div>`).join('');
         // What has nowhere to go = ingredient pounds PB fed minus what the
         // database says will post. Display only; both numbers are the RPC's.
         const fed = Number(r.ingredient_fed_lb) || 0, tot = Number(c.total_lb) || 0;
@@ -12123,9 +12150,9 @@ window.addEventListener('unhandledrejection', function(e) {
                    : short === 0 ? '<div class="pb-items">Ties to ingredient pounds fed.</div>' : '';
         return `<div class="pb-sec"><h4>Charges to</h4>
             <div class="pb-muted">${c.basis === 'posted' ? 'What posted' : 'What will post on Approve'}, split by head standing in
-                each pasture. Test and closed lots are never charged.</div>
-            ${lotRows}${preRows}
-            ${!lotRows && !preRows ? '<div class="pb-muted">Nothing charged.</div>' : ''}
+                each pasture. Test and closed lots are never charged. A pen sent to a cost centre goes there whole.</div>
+            ${lotRows}${ccRows}${preRows}
+            ${!lotRows && !preRows && !ccRows ? '<div class="pb-muted">Nothing charged.</div>' : ''}
             <div class="pb-lot pb-total"><b>Total</b><span class="num"><b>${pbLb(tot)} lb</b></span>${tail}</div></div>`;
     }
 
@@ -12268,6 +12295,16 @@ window.addEventListener('unhandledrejection', function(e) {
             case 'split-del': pbSplitRows.splice(Number(b.dataset.i), 1); break;
             case 'prefeed':
                 pbRun(date, 'pb_mark_prefeed', { p_report_date: date, p_pb_pen: pen, p_on: b.dataset.on === '1' });
+                return;
+            case 'cc': pbOpen = pbIsOpen('cc', date, pen) ? null : { kind: 'cc', date, pen }; break;
+            case 'cc-save': {
+                const sel = b.parentElement.querySelector('.pb-ccsel');
+                if (!sel || !sel.value) { pbErr[date] = 'Pick the cost centre.'; break; }
+                pbRun(date, 'pb_set_cost_center', { p_report_date: date, p_pb_pen: pen, p_cost_center: sel.value });
+                return;
+            }
+            case 'cc-undo':
+                pbRun(date, 'pb_set_cost_center', { p_report_date: date, p_pb_pen: pen, p_cost_center: null });
                 return;
             case 'approve': {
                 const note = ($('pbNote-' + date) || {}).value;
@@ -34714,6 +34751,27 @@ ${ranchBlocks}
             any lot&rsquo;s cost of gain &mdash; <code>lot_feed_daily</code> reads lot feed-outs only.</p>`;
     }
 
+    // The feed posting as ONE sheet: lot blocks for the Feed Application
+    // screen, then the cost-centre journal (Cow/Calf Wip and the like), then
+    // what went where. Posted together so nobody has to check two reports.
+    function fdRwFeedPostingHtml() {
+        const { lots, centres } = fdRwBuild();
+        let lLb = 0, lUsd = 0, lPend = 0, cLb = 0, cUsd = 0, cPend = 0;
+        Object.values(lots).forEach(L => Object.values(L.feed).forEach(v => { lLb += v.lb; lUsd += v.usd; lPend += v.pending; }));
+        Object.values(centres).forEach(C => { cLb += C.lb; cUsd += C.usd; cPend += C.pending; });
+        return `<h4 class="fd-rw-part">Feed Application &mdash; production centres (lots)</h4>` + fdRwApplicationHtml('feed') +
+            `<h4 class="fd-rw-part">Cost centres &mdash; journal entry</h4>` + fdRwCentresHtml() +
+            `<div style="margin-bottom:16px;">
+                <div style="font-weight:600; margin-bottom:4px;">Feed posted this period</div>
+                <table><thead><tr><th>To</th><th class="num">$</th><th class="num">lbs</th></tr></thead>
+                <tbody>
+                <tr><td>Lots &mdash; Feed Application</td><td class="num">${fdRwUsd(lUsd)}${fdRwPendingFlag(lPend)}</td><td class="num">${fdRwLb(lLb)}</td></tr>
+                <tr><td>Cost centres</td><td class="num">${fdRwUsd(cUsd)}${fdRwPendingFlag(cPend)}</td><td class="num">${fdRwLb(cLb)}</td></tr>
+                <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);"><td>Total</td>
+                    <td class="num">${fdRwUsd(lUsd + cUsd)}${fdRwPendingFlag(lPend + cPend)}</td><td class="num">${fdRwLb(lLb + cLb)}</td></tr>
+                </tbody></table></div>`;
+    }
+
     function fdRwVarianceHtml() {
         const { varRows } = fdRwBuild();
         const names = Object.keys(varRows).sort();
@@ -34807,6 +34865,9 @@ ${ranchBlocks}
             Set it on the item (Feed → Items) or these pounds silently never reach Redwing.
             Shown here rather than dropped, for exactly that reason.</div>` : '';
 
+        // Cost centres print with the Feed Application now; an old 'centres'
+        // pick lands on that combined sheet.
+        if (fdRwOnly === 'centres') fdRwOnly = 'feed';
         const want = id => !fdRwOnly || fdRwOnly === id;
         // Pounds that left inventory for a destination no section covers.
         // Listing them is the whole point: a posting that silently omits feed
@@ -34819,15 +34880,12 @@ ${ranchBlocks}
 
         $('fdRwContent').innerHTML = warn + orphanWarn + fdRwTieHtml() +
             `<div class="muted" style="font-size:12px;">Period ${period}</div>` +
-            (want('feed') ? fdRwSection('feed', 'Feed Application — bulk commodities',
-                'One block per lot, in the order of the Redwing Feed Application screen. Type the $ box and the lbs box from the same row.',
-                fdRwApplicationHtml('feed')) : '') +
+            (want('feed') ? fdRwSection('feed', 'Feed Application + Cost centres',
+                'One sheet for the feed posting. First one block per lot, in the order of the Redwing Feed Application screen &mdash; type the $ box and the lbs box from the same row. Then each cost centre (Cow/Calf Wip and the like) as a journal entry against its own account, never a lot. The last table shows where every pound went.',
+                fdRwFeedPostingHtml()) : '') +
             (want('mineral') ? fdRwSection('mineral', 'Mineral Application — from consumption',
                 'Mineral is not fed off a ticket; nobody records a bag going to a pasture. These pounds come from the physical count, allocated across open lots by head-days, which is what a mineral count variance means.',
                 fdRwApplicationHtml('mineral')) : '') +
-            (want('centres') ? fdRwSection('centres', 'Cost centres — journal entry',
-                'Feed that really left the barn for something that is not a stocker lot — the cowherd, the bulls. It posts against the centre&rsquo;s own account and charges no lot.',
-                fdRwCentresHtml()) : '') +
             (want('variance') ? fdRwSection('variance', 'Variance account — shrink and found feed',
                 'Never charged to a lot. Barn shrink is the cost of handling feed, not of feeding a particular set of cattle.',
                 fdRwVarianceHtml()) : '') +
@@ -34841,7 +34899,7 @@ ${ranchBlocks}
     // printed sheet and the screen it came from cannot disagree. The three
     // buttons differ only in where the table ends up.
     const FD_RW_TITLES = {
-        feed:     'Feed Application — bulk commodities',
+        feed:     'Feed Application + Cost centres',
         mineral:  'Mineral Application — from consumption',
         centres:  'Cost centres — journal entry',
         variance: 'Variance account — shrink and found feed',
@@ -34857,7 +34915,7 @@ ${ranchBlocks}
     }
 
     function fdRwSectionHtml(id) {
-        return id === 'feed'     ? fdRwApplicationHtml('feed')
+        return id === 'feed'     ? fdRwFeedPostingHtml()
              : id === 'mineral'  ? fdRwApplicationHtml('mineral')
              : id === 'centres'  ? fdRwCentresHtml()
              : id === 'variance' ? fdRwVarianceHtml()
@@ -34908,7 +34966,12 @@ ${ranchBlocks}
         const host = document.createElement('div');
         host.innerHTML = fdRwSectionHtml(id);
         let y = 27;
-        host.querySelectorAll('table').forEach((tbl, n) => {
+        host.querySelectorAll('h4.fd-rw-part, table').forEach(tbl => {
+            if (tbl.matches('h4')) {
+                if (y > 260) { doc.addPage(); y = 16; }
+                doc.setFontSize(12); doc.text(tbl.textContent.trim().replace(/—/g, '-'), 14, y + 2); y += 8;
+                return;
+            }
             const cap = tbl.previousElementSibling;
             if (cap && !cap.matches('table')) {
                 doc.setFontSize(10);
@@ -34937,9 +35000,10 @@ ${ranchBlocks}
         const host = document.createElement('div');
         host.innerHTML = fdRwSectionHtml(id);
         const lines = [];
-        host.querySelectorAll('table').forEach(tbl => {
+        host.querySelectorAll('h4.fd-rw-part, table').forEach(tbl => {
+            if (tbl.matches('h4')) { lines.push(tbl.textContent.trim().toUpperCase(), ''); return; }
             const cap = tbl.previousElementSibling;
-            if (cap && !cap.matches('table')) lines.push(cap.textContent.trim());
+            if (cap && !cap.matches('table, h4')) lines.push(cap.textContent.trim());
             tbl.querySelectorAll('tr').forEach(tr =>
                 lines.push([...tr.children].map(fdRwCellText).join('\t')));
             lines.push('');

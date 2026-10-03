@@ -4,12 +4,19 @@
 // ranch (see docs/feed-pb-import.md, "Testing the Feed tab"). Never points
 // at Supabase. Needs the scratch server on /tmp:5499 with databases
 // feed_base (9/28 staged, untouched) and feed (recreated from it here).
+// The cost-centre suite at the end runs on cc_ui (recreated from cc_ui_base:
+// feed_base + local/05_cc_seed.sql + the real 10/1 email staged, Nichols Trap
+// moved to Nichols Front Trap + docs/sql/2026-10-03_pb_drop_cost_center.sql).
+// Set PB_BASE to run the 9/28 suite on another template (e.g. one with the
+// 10-03 migration applied).
 //   NODE_PATH=$(npm root -g) node scripts/pb-feed-harness/run-local.js [shots-dir]
 const { chromium } = require('playwright');
 const { spawnSync } = require('child_process');
 const fs = require('fs'), path = require('path');
 const SHOTS = process.argv[2] || '/tmp';
-const DB = 'feed';
+let DB = 'feed';
+let TODAY = '2026-09-29';   // ranch_today() for the 9/28 suite; the 10/1 suite moves it to 10/2
+const BASE = process.env.PB_BASE || 'feed_base';
 const U = { owner: 'ff89f282-7c9d-40e5-abe7-e4899dce7122', office: '7cf00eec-3786-4316-bf7f-b329478e8e43',
             crew: '24d1b1f0-652c-4c9f-944b-188111f1b1bc' };
 const D = '2026-09-28';
@@ -17,7 +24,7 @@ const PG = ['-h', '/tmp', '-p', '5499', '-U', 'postgres'];
 
 function sql(q, uid) {
   const r = spawnSync('psql', [...PG, '-d', DB, '-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1'], { encoding: 'utf8',
-    input: `begin;\nset local request.jwt.claim.sub = '${uid || ''}';\nset local jfr.today = '2026-09-29';\n${q};\ncommit;\n` });
+    input: `begin;\nset local request.jwt.claim.sub = '${uid || ''}';\nset local jfr.today = '${TODAY}';\n${q};\ncommit;\n` });
   if (r.status) {
     const m = /ERROR:\s+([\s\S]*?)(?:\n(?:CONTEXT|DETAIL|HINT|LINE|psql:)|\s*$)/.exec(r.stderr);
     throw new Error(m ? m[1].trim() : r.stderr);
@@ -43,13 +50,34 @@ function from(uid, q) {
         return { data: J(`select coalesce(jsonb_agg(jsonb_build_object('report_date', report_date, 'gmail_message_id', gmail_message_id,
           'staged_at', staged_at, 'status', status)), '[]') from pb_daily_reports where report_date >= ${lit(f['gte:report_date'])}`), error: null };
       case 'ranch_settings': return { data: J(`select coalesce(jsonb_agg(jsonb_build_object('pb_email_post_from', pb_email_post_from)), '[]') from ranch_settings`), error: null };
-      case 'pastures': return { data: J(`select jsonb_agg(jsonb_build_object('name', p.name, 'ranches', jsonb_build_object('name', r.name)))
+      case 'cost_centers': return { data: J(`select coalesce(jsonb_agg(to_jsonb(c) order by name), '[]') from cost_centers c
+          ${q.filters.some(f => f[0] === 'eq' && f[1] === 'is_active') ? 'where is_active' : ''}`), error: null };
+      case 'pastures': return { data: J(`select jsonb_agg(jsonb_build_object('id', p.id, 'ranch_id', p.ranch_id, 'name', p.name, 'ranches', jsonb_build_object('name', r.name)))
           from pastures p join ranches r on r.id = p.ranch_id where p.is_active`), error: null };
-      default: return { data: q.single ? null : [], error: null, count: 0 };
+      default:
+        if (GENERIC.includes(q.table)) return { data: generic(q), error: null };
+        return { data: q.single ? null : [], error: null, count: 0 };
     }
   } catch (e) { return { data: null, error: { message: e.message } }; }
 }
 
+// Plain reads the Inventory > Reports (Redwing) screen makes: eq / gte / lte /
+// is-null filters, order and range, select * only.
+const GENERIC = ['feed_items', 'feed_storage_locations', 'ranches', 'lots', 'feed_usage_detail', 'feed_receipts', 'feed_usage'];
+function generic(q) {
+  const where = [], order = []; let lim = '', off = '';
+  for (const [op, a, b] of q.filters) {
+    const col = /^[a-z_]+$/.test(String(a)) ? a : null;
+    if (op === 'eq' && col) where.push(`${col} = ${lit(b)}`);
+    else if (op === 'gte' && col) where.push(`${col} >= ${lit(b)}`);
+    else if (op === 'lte' && col) where.push(`${col} <= ${lit(b)}`);
+    else if (op === 'is' && col && b === null) where.push(`${col} is null`);
+    else if (op === 'order' && col) order.push(col + (b && b.ascending === false ? ' desc' : ''));
+    else if (op === 'range') { off = ` offset ${Number(a)}`; lim = ` limit ${Number(b) - Number(a) + 1}`; }
+    else if (op === 'limit') lim = ` limit ${Number(a)}`;
+  }
+  return J(`select coalesce(jsonb_agg(to_jsonb(t)), '[]') from (select * from ${q.table}${where.length ? ' where ' + where.join(' and ') : ''}${order.length ? ' order by ' + order.join(', ') : ''}${lim}${off}) t`);
+}
 const fake = fs.readFileSync(__dirname + '/fake-local.js', 'utf8');
 async function open(b, role, vp) {
   const p = await b.newPage({ viewport: vp || { width: 1000, height: 1400 } });
@@ -84,7 +112,7 @@ const inv0 = () => {
 };
 
 (async () => {
-  const r = spawnSync('bash', ['-c', `dropdb ${PG.join(' ')} --if-exists ${DB} && createdb ${PG.join(' ')} -T feed_base ${DB}`], { encoding: 'utf8' });
+  const r = spawnSync('bash', ['-c', `dropdb ${PG.join(' ')} --if-exists ${DB} && createdb ${PG.join(' ')} -T ${BASE} ${DB}`], { encoding: 'utf8' });
   if (r.status) { console.error(r.stderr); process.exit(2); }
   inv0();
   const base = invTotal();
@@ -225,6 +253,82 @@ const inv0 = () => {
   ok((await txt(p, '#apprFeedCount')) === '1', 'feed count back to 1');
 
   for (const [n, e] of [['owner', O.errs], ['office', F.errs], ['crew', W.errs]]) ok(!e.length, `no page errors (${n}) ${e.join(' / ')}`);
+
+  // ---- 4. cost centre: the real 10/1 day, Nichols Trap -> Cow/Calf Wip ----
+  DB = 'cc_ui'; TODAY = '2026-10-02';
+  const r2 = spawnSync('bash', ['-c', `dropdb ${PG.join(' ')} --if-exists ${DB} && createdb ${PG.join(' ')} -T cc_ui_base ${DB}`], { encoding: 'utf8' });
+  if (r2.status) { console.error(r2.stderr); process.exit(2); }
+  sql(`drop table if exists _inv0; create table _inv0 as select id, qty_lb_remaining from feed_receipts`);
+  const base2 = invTotal();
+  const C = await open(b, 'owner');
+  const cp = C.p, c1 = `.pb-card[data-date="2026-10-01"]`;
+  await feed(cp);
+  ok(/No real lot is standing in Nichols Front Trap/.test(await txt(cp, `${c1} .pb-problem`)) && await cp.isDisabled(`${c1} [data-pb=approve]`), '10/1: Front Trap blocked before cost centre');
+  await cp.click(`${c1} [data-pb=cc][data-pen="Nichols Trap"]`); await settle(cp);
+  ok((await cp.$$eval(`${c1} .pb-ccsel option`, o => o.map(x => x.value))).join('|') === 'Cow/Calf Wip', 'cost centre picker lists Cow/Calf Wip');
+  await cp.click(`${c1} [data-pb=cc-save]`); await cp.waitForTimeout(1200);
+  const pens2 = await txt(cp, `${c1} .pb-sec:has(h4:text-is("Pens"))`);
+  ok(/Cost centre · Cow\/Calf Wip/.test(pens2) && /Undo cost centre/.test(pens2), 'tag + Undo cost centre shown');
+  ok(!(await cp.$(`${c1} .pb-problem`)) && !(await cp.isDisabled(`${c1} [data-pb=approve]`)), 'problem gone, Approve enabled');
+  let ch2 = await txt(cp, `${c1} .pb-sec:has(h4:text-is("Charges to"))`);
+  console.log('     charges: ' + ch2);
+  ok(/36-27 4,890 lb/.test(ch2) && /Cost centre · Cow\/Calf Wip 7,970 lb/.test(ch2) && /Total 12,860 lb Ties to ingredient pounds fed/.test(ch2), 'charges: 36-27 4,890 + Cow/Calf Wip 7,970 = 12,860');
+  for (const [name, vp] of [['iphone', { width: 390, height: 844 }]]) {
+    await cp.setViewportSize(vp); await cp.waitForTimeout(200);
+    const wide = await cp.evaluate(() => [...document.querySelectorAll('#apprFeedPane *')]
+      .filter(e => e.offsetParent && !e.closest('.pb-tbl') && e.getBoundingClientRect().right > window.innerWidth + 1).length);
+    ok(!wide, `${name}: cost-centre card fits the screen`);
+    const clipped = await cp.evaluate(() => [...document.querySelectorAll('#apprFeedPane .pb-btnrow button')]
+      .filter(e => e.offsetParent && e.getBoundingClientRect().right > e.closest('.pb-tbl').getBoundingClientRect().right + 1).map(e => e.textContent));
+    ok(!clipped.length, `${name}: pen buttons all visible ${clipped.join(', ')}`);
+    await cp.screenshot({ path: `${SHOTS}/feed-${name}-costcentre.png`, fullPage: true });
+  }
+  await cp.setViewportSize({ width: 1000, height: 1400 });
+  await cp.click(`${c1} [data-pb=approve]`); await cp.waitForTimeout(1500);
+  const posted = sql(`select string_agg(destination_type || '=' || s, ' ' order by destination_type) from (select destination_type, sum(qty_lb)::numeric(14,2) s from feed_usage where pb_row_key like 'pbmail:2026-10-01:%' group by 1) x`);
+  console.log('     posted: ' + posted);
+  ok(posted === 'cost_center=7970.00 lot=4890.00', 'DB: cost_center 7,970 + lot 4,890');
+  ok(Math.round((Number(base2) - Number(invTotal())) * 100) / 100 === 12860, 'DB: inventory down exactly 12,860');
+  await cp.click(`.pb-mini[data-date="2026-10-01"]`); await settle(cp);
+  ch2 = await txt(cp, `${c1} .pb-sec:has(h4:text-is("Charges to"))`);
+  ok(/What posted/.test(ch2) && /Cost centre · Cow\/Calf Wip 7,970 lb/.test(ch2), 'approved card: posted to Cow/Calf Wip 7,970');
+  await cp.click(`${c1} [data-pb=unpost]`); await settle(cp);
+  await cp.fill('#pbReason', 'harness cc unpost');
+  await cp.click(`${c1} [data-pb=unpost-save]`); await cp.waitForTimeout(1500);
+  const off2 = sql(`select count(*) from feed_receipts f full join _inv0 i using (id) where f.qty_lb_remaining is distinct from i.qty_lb_remaining`);
+  ok(off2 === '0' && sql(`select count(*) from feed_usage where pb_row_key like 'pbmail:2026-10-01:%'`) === '0', 'unpost puts every pound back');
+  await cp.click(`${c1} [data-pb=cc-undo][data-pen="Nichols Trap"]`); await cp.waitForTimeout(1200);
+  ok(/No real lot is standing in Nichols Front Trap/.test(await txt(cp, `${c1} .pb-problem`)) && (await txt(cp, `${c1} [data-pb=cc][data-pen="Nichols Trap"]`)) === 'Cost centre', 'Undo cost centre: problem back, button reads Cost centre');
+  ok(!C.errs.length, 'no page errors (cost centre) ' + C.errs.join(' / '));
+
+  // ---- 5. Redwing: Feed Application + Cost centres on ONE sheet ----
+  DB = 'cc_rw'; TODAY = '2026-10-02';
+  const r3 = spawnSync('bash', ['-c', `dropdb ${PG.join(' ')} --if-exists ${DB} && createdb ${PG.join(' ')} -T cc_ui_base ${DB}`], { encoding: 'utf8' });
+  if (r3.status) { console.error(r3.stderr); process.exit(2); }
+  sql(`select pb_set_cost_center('2026-10-01', 'Nichols Trap', 'Cow/Calf Wip'); select approve_pb_report('2026-10-01', 'harness redwing')`, U.owner);
+  const R = await open(b, 'owner');
+  const rp = R.p;
+  await rp.evaluate(() => { window.__copied = null; try { navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); }; } catch (e) {} });
+  await rp.click('#navInventory'); await rp.waitForTimeout(800);
+  ok((await rp.$$('[data-subtab="redwing"][data-rw="centres"]')).length === 0, 'Reports menu: no separate Cost centres entry');
+  await rp.$eval('[data-subtab="redwing"][data-rw="feed"]', el => el.click()); await rp.waitForTimeout(800);
+  ok(/Feed Application \+ Cost centres/.test(await rp.$eval('[data-subtab="redwing"][data-rw="feed"]', el => el.textContent)), 'menu entry reads Feed Application + Cost centres');
+  await rp.fill('#fdRwFrom', '2026-09-28'); await rp.fill('#fdRwTo', '2026-10-04');
+  await rp.click('#fdRwRunBtn'); await rp.waitForTimeout(2000);
+  const rw = await txt(rp, '#fdRwContent');
+  console.log('     redwing: ' + rw.slice(0, 1400));
+  ok((await rp.$$('#fdRwContent [data-fd-rw-print]')).length === 1 && /Feed Application \+ Cost centres/.test(rw), 'one sheet, one Print / PDF / Copy');
+  ok(/Production Center 36-27/.test(rw) && /Cow\/Calf Wip/.test(rw), 'sheet has the 36-27 lot block and the Cow/Calf Wip block');
+  ok(/Total to Cow\/Calf Wip \$[\d,.]+ 7,970\.00/.test(rw), 'Cow/Calf Wip total 7,970.00 lb');
+  ok(/Lots — Feed Application \$[\d,.]+ 4,890\.00/.test(rw) && /Cost centres \$[\d,.]+ 7,970\.00/.test(rw) && /Total \$[\d,.]+ 12,860\.00/.test(rw), 'summary: lots 4,890 + cost centres 7,970 = 12,860');
+  ok(!/feed-out rows? (cannot be posted|belong to no posting)/.test(rw), 'no unmapped or orphan rows');
+  ok(/Ties to feed_usage_detail/.test(rw), 'lot tie-out still ties');
+  await rp.click('#fdRwContent [data-fd-rw-copy="feed"]'); await rp.waitForTimeout(400);
+  const copied = await rp.evaluate(() => window.__copied || '');
+  ok(/FEED APPLICATION/.test(copied) && /COST CENTRES/.test(copied) && /Cow\/Calf Wip/.test(copied) && /Total\t[^\n]*12,860\.00/.test(copied), 'Copy rows carries both parts and the 12,860 total');
+  await rp.setViewportSize({ width: 390, height: 844 }); await rp.waitForTimeout(200);
+  await rp.screenshot({ path: `${SHOTS}/redwing-feed-costcentre-iphone.png`, fullPage: true });
+  ok(!R.errs.length, 'no page errors (redwing) ' + R.errs.join(' / '));
   await b.close();
   console.log(fails ? `${fails} FAILED` : 'ALL PASS');
   process.exitCode = fails ? 1 : 0;
