@@ -3118,8 +3118,8 @@
                         <input type="text" id="acctProfitCenter" placeholder="Stockers">
                     </div>
                     <div>
-                        <label for="acctProductionYear">Production Year <span class="muted" style="font-size: 11px;">(calendar year of the sale date)</span></label>
-                        <input type="number" id="acctProductionYear" step="1" placeholder="2026">
+                        <label for="acctProductionYear">Production Year * <span class="muted" style="font-size: 11px;">(decided per sale; type it each time)</span></label>
+                        <input type="number" id="acctProductionYear" step="1" placeholder="type the year">
                     </div>
                 </div>
                 <p class="muted" style="font-size: 11px; margin: 4px 0 0 0;">
@@ -14062,9 +14062,9 @@ window.addEventListener('unhandledrejection', function(e) {
 
         acctReportCache = { shipment: shp, rows, shipDays: [...new Set((loads || []).map(l => l.load_date).filter(Boolean))].sort() };
 
-        // Re-derived for every shipment: the CALENDAR year of the sale date.
-        // Typing over it changes this report only.
-        $('acctProductionYear').value = shp.sale_date ? String(shp.sale_date).slice(0, 4) : '';
+        // Blank for every shipment: the Production Year is decided per sale
+        // (John, 2026-10-03), so it is typed, not guessed or carried over.
+        $('acctProductionYear').value = '';
         renderAcctReport();
     }
 
@@ -14187,8 +14187,19 @@ window.addEventListener('unhandledrejection', function(e) {
         return `JFR-sales-${s.sale_date}-${who}.${ext}`;
     }
 
+    // John, 2026-10-03: "We decide production year individually depending on
+    // timing of lot sale." So it is typed for each shipment, never guessed,
+    // and nothing leaves this screen without it.
+    function acctNeedYear() {
+        if (/^\d{4}$/.test($('acctProductionYear').value.trim())) return false;
+        alert('Type the Production Year for this sale first (it is decided per sale).');
+        $('acctProductionYear').focus();
+        return true;
+    }
+
     function acctPrint() {
         if (!acctReportCache) return;
+        if (acctNeedYear()) return;
         const { shipment: s, rows } = acctReportCache;
         const k = acctConstants();
         const t = acctTotals(rows);
@@ -14247,6 +14258,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
     async function acctPdf() {
         if (!acctReportCache) return;
+        if (acctNeedYear()) return;
         if (!window.jspdf || !window.jspdf.jsPDF) { alert('PDF library did not load. Try Print instead.'); return; }
         const { shipment: s, rows } = acctReportCache;
         const k = acctConstants();
@@ -14296,6 +14308,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     // accept on paste. Saves keying twelve columns by hand.
     async function acctCopy() {
         if (!acctReportCache) return;
+        if (acctNeedYear()) return;
         const k = acctConstants();
         const text = [ACCT_COLUMNS.join('\t')]
             .concat(acctReportCache.rows.map(r => acctRowCells(r, k).join('\t')))
@@ -30997,10 +31010,12 @@ ${ranchBlocks}
         } catch (err) {
             // A header with no loads would sit on the list forever reading
             // "does not tie". Take it back out.
+            let leftover = '';
             if (newInvoiceId) {
-                await supabase.from('supply_invoices').delete().eq('id', newInvoiceId);
+                const { data: gone } = await supabase.from('supply_invoices').delete().eq('id', newInvoiceId).select('id');
+                if (!gone || !gone.length) leftover = ' The invoice header could not be removed and will show as "does not tie" on Needs Attention; delete it from there.';
             }
-            showAlert('invInvoiceModalAlert', err.message || String(err));
+            showAlert('invInvoiceModalAlert', (err.message || String(err)) + leftover);
         } finally {
             $('invInvSaveBtn').disabled = false;
         }
@@ -33626,15 +33641,22 @@ ${ranchBlocks}
             const linesRes = await supabase.from('feed_count_lines').insert(lineRows).select();
             if (linesRes.error) {
                 // Leave nothing half-built behind.
-                await supabase.from('feed_counts').delete().eq('id', countId);
-                showAlert('fdCountModalAlert', linesRes.error.message);
+                const { data: gone } = await supabase.from('feed_counts').delete().eq('id', countId).select('id');
+                showAlert('fdCountModalAlert', linesRes.error.message +
+                    ((!gone || !gone.length) ? ' (An empty draft count could not be removed.)' : ''));
                 return;
             }
 
             const post = await supabase.rpc('post_feed_count', { p_count_id: countId });
             if (post.error) {
+                // Nothing posted: take the draft back out, so a retry is not a
+                // second count of the same bay.
+                const { data: gone } = await supabase.from('feed_counts').delete()
+                    .eq('id', countId).eq('status', 'draft').select('id');
                 showAlert('fdCountModalAlert',
-                    'The count saved but posting the adjustments failed: ' + post.error.message);
+                    'Count NOT posted: ' + post.error.message +
+                    ((gone && gone.length) ? ' Nothing was saved; fix it and post again.'
+                                          : ' A draft count was left behind and could not be removed.'));
                 return;
             }
 
@@ -36467,7 +36489,10 @@ ${ranchBlocks}
             const { error: lErr } = await supabase.from('med_purchase_lines').insert(rows);
             if (lErr) {
                 // Do not leave a header with no lines behind.
-                await supabase.from('med_purchases').delete().eq('id', pur.id);
+                const { data: gone } = await supabase.from('med_purchases').delete().eq('id', pur.id).select('id');
+                if (!gone || !gone.length) {
+                    throw new Error(lErr.message + ' An empty purchase header could not be removed; the owner can delete it from Purchases.');
+                }
                 throw lErr;
             }
 
@@ -37130,9 +37155,14 @@ ${ranchBlocks}
         if (!confirm(`Delete the draft count for ${when}?\n\nA draft has posted nothing, so no stock moves and nothing is un-done. The counted figures on it are lost.`)) return;
         const { error } = await supabase.from('med_count_lines').delete().eq('count_id', countId);
         if (error) { showAlert('globalAlert', 'Could not delete the count lines: ' + error.message, 'error'); return; }
-        const { error: e2 } = await supabase.from('med_counts')
-            .delete().eq('id', countId).eq('status', 'draft');
+        const { data: gone, error: e2 } = await supabase.from('med_counts')
+            .delete().eq('id', countId).eq('status', 'draft').select('id');
         if (e2) { showAlert('globalAlert', 'Could not delete the count: ' + e2.message, 'error'); return; }
+        if (!gone || !gone.length) {
+            showAlert('globalAlert', 'Draft count NOT deleted: nothing was removed (it may have been posted, or your login cannot delete it).', 'error');
+            loadInvCounts();
+            return;
+        }
         showAlert('globalAlert', 'Draft count deleted.', 'success');
         loadInvCounts();
     }
@@ -37152,7 +37182,14 @@ ${ranchBlocks}
             $('invCountBy').value = c.counted_by || '';
             $('invCountOpening').checked = !!c.is_opening;
             invCountState = { id: c.id, status: c.status, lines: [] };
+            // A posted count is read-only here (un-post is the owner's, from
+            // the list). Showing Save draft / Post on it saved nothing while
+            // saying "Draft saved".
+            $('invCountSaveDraftBtn').classList.toggle('hidden', c.status === 'posted');
+            $('invCountPostBtn').classList.toggle('hidden', c.status === 'posted');
         } else {
+            $('invCountSaveDraftBtn').classList.remove('hidden');
+            $('invCountPostBtn').classList.remove('hidden');
             $('invCountEntryTitle').textContent = 'New count';
             $('invCountDate').value = ranchToday();
             $('invCountBy').value = '';
@@ -37406,17 +37443,19 @@ ${ranchBlocks}
                 if (error) throw error;
                 invCountState.id = data.id;
             } else {
-                const { error } = await supabase.from('med_counts').update({
+                const { data: upd, error } = await supabase.from('med_counts').update({
                     count_date: $('invCountDate').value || ranchToday(),
                     counted_by: $('invCountBy').value || null,
                     is_opening: $('invCountOpening').checked
-                }).eq('id', invCountState.id).eq('status', 'draft');
+                }).eq('id', invCountState.id).eq('status', 'draft').select('id');
                 if (error) throw error;
+                if (!upd || !upd.length) throw new Error('This count is no longer a draft (it may have been posted). Nothing was saved.');
             }
 
             // Rewrite the lines rather than diffing them: there are a couple
             // of dozen and a diff is more ways to be wrong.
-            await supabase.from('med_count_lines').delete().eq('count_id', invCountState.id);
+            const { error: delErr } = await supabase.from('med_count_lines').delete().eq('count_id', invCountState.id);
+            if (delErr) throw delErr;
             const rows = invCountState.lines
                 .filter(l => invCountedUnits(l) != null)
                 .map(l => ({
