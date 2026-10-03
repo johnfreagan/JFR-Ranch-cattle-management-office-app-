@@ -5000,14 +5000,6 @@
                     </select>
                 </div>
                 <div>
-                    <label for="startTag">Start tag</label>
-                    <input type="number" id="startTag">
-                </div>
-                <div>
-                    <label for="endTag">End tag</label>
-                    <input type="number" id="endTag">
-                </div>
-                <div>
                     <label for="targetAdg">Target ADG (lb/day)</label>
                     <input type="number" id="targetAdg" step="0.01" placeholder="e.g. 2.50">
                 </div>
@@ -9639,8 +9631,6 @@ window.addEventListener('unhandledrejection', function(e) {
         setDateValue('arrivalDate', arrivalVal);
         $('source').value=seed?.source||'';
         $('sexClass').value=seed?.sex_class||'';
-        $('startTag').value=mode==='duplicate'?'':(seed?.start_tag||'');
-        $('endTag').value=mode==='duplicate'?'':(seed?.end_tag||'');
         $('targetAdg').value=seed?.target_adg||'';
         $('lotNotes').value=mode==='duplicate'?'':(seed?.notes||'');
         $('lotEstWeight').value = mode==='duplicate' ? '' : (seed?.est_purchase_weight_lb ?? '');
@@ -9737,8 +9727,9 @@ window.addEventListener('unhandledrejection', function(e) {
             arrival_date:$('arrivalDate').value,
             source:$('source').value.trim()||null,
             sex_class:$('sexClass').value||null,
-            start_tag:$('startTag').value?parseInt($('startTag').value):null,
-            end_tag:$('endTag').value?parseInt($('endTag').value):null,
+            // No start_tag / end_tag: a lot's tags come from its load outs
+            // (receipt range -> lot_tags). Leaving them out also means an
+            // edit keeps whatever an older lot already holds.
             target_adg:$('targetAdg').value?parseFloat($('targetAdg').value):null,
             notes:$('lotNotes').value.trim()||null,
             est_purchase_weight_lb: estWt,
@@ -38713,9 +38704,7 @@ ${ranchBlocks}
 "Tap [[Save lot]]."
 ],
 "done": "“Lot … created.” The lot opens on its Purchases tab, ready for the invoice and load out.",
-"watch": [
-"Do not type the tag range here. It goes on the load out (card B3)."
-],
+"watch": [],
 "screens": [
 "lotsView"
 ]

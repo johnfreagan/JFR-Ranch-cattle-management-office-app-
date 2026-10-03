@@ -94,7 +94,7 @@ dict(id="B1", group="Cattle coming in", title="Start a new lot",
   "Tap [[Save lot]].",
  ],
  done="“Lot … created.” The lot opens on its Purchases tab, ready for the invoice and load out.",
- watch=["Do not type the tag range here. It goes on the load out (card B3)."]),
+ watch=[]),
 dict(id="B2", group="Cattle coming in", title="Enter the purchase invoice",
  when="The bill for the cattle arrives.",
  steps=[
