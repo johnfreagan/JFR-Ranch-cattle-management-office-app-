@@ -1,5 +1,12 @@
--- STATUS: written 2026-10-03 on John's approval ("Option 1", then "A").
--- Not yet applied. Fill in the applied date and md5(prosrc) once verified.
+-- STATUS: Applied 2026-10-03 on John's approval ("Option 1", then "A"; move
+-- guard added on his "1. Yes"). apply_migration timed out twice without
+-- reaching the database, so John ran this file himself in the Supabase SQL
+-- Editor. Verified afterwards (05:27 CT): md5(prosrc) matches this file for
+-- all three (delete_death_event a42f2d0edbefabddaf780d78c99b4965,
+-- delete_head_adjustment 739d4b0a7681f71f3f4508da42c989eb, delete_move_event
+-- 38d077d4a6c18a18aa92c4300c252a79); all still SECURITY INVOKER with
+-- search_path public, pg_catalog; EXECUTE only authenticated, postgres,
+-- service_role; rls_verify passes; lot_head_tieout 8 of 8 open lots tie.
 
 -- Owner-only DELETE guard for the three reversal functions: delete_death_event,
 -- delete_head_adjustment (lot_events) and delete_move_event (lot_movements).
