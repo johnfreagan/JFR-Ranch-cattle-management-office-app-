@@ -1837,12 +1837,19 @@ nine lines, each a **box first and the drug after it**. Six named drugs and
 three write-in lines. Trailing boxes read as though they belonged to the next
 drug down, which is exactly the confusion John named.
 
-**The six named drugs are the ones actually given**, off `doctoring_event_meds`
-rather than off an opinion: Enroflox 500 mL (1,012 times), Excede 250 mL and
-100 mL (1,004 between them), Resflor 500 mL (246), Draxxin KP 250 mL (which
-replaced the Draxxin 500 at 35), Biomycin 500 mL. Thiamine (4) and Vitamin K
-(none) are what the blank lines are for, along with Dectomax and Cydectin —
-stocked, but never given in a doctoring event.
+**Four named drugs, John's final call** (2026-10-03): Enroflox 500 mL, Excede
+250 mL, Excede 100 mL, Resflor 500 mL. The usage counts say why that is the
+right four — Enroflox 1,012 times and Excede 1,004 between its two sizes are the
+sheet, Resflor 246 earns its line, and **Draxxin KP and Biomycin came off**: 35
+between them, with Biomycin's 2 doses last given in April. Thiamine, Vitamin K,
+Dectomax and Cydectin were never on it. All of them are what the blank lines are
+for.
+
+**No captions on the blank lines and no initials column**, also his call. A
+ruled line after a box says "write here" without being told, and the caption was
+one more thing to read on a sheet whose whole point is that it can be filled in
+without reading it. Initials were my addition, not his, and custody is already
+in the app the moment the sheet is entered.
 
 **Excede keeps two lines, one a size.** The place carries both and the app
 records the size that left the room, so printing the size means the crew writes
