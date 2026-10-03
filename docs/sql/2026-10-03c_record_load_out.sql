@@ -1,4 +1,8 @@
--- STATUS: written 2026-10-03 on John's approval ("Do all 4"). Not yet applied.
+-- STATUS: Applied 2026-10-03 on John's approval ("Do all 4"). John ran it in
+-- the Supabase SQL Editor ("Success"). Verified afterwards: md5(prosrc)
+-- 51f5bf6d07544ab575f201665aba1236 matches this file; SECURITY INVOKER,
+-- search_path public, pg_catalog; anon cannot execute, authenticated can;
+-- rls_verify passes; lot_head_tieout all open lots tie.
 
 -- record_load_out: a NEW load out (delivery receipt) in one transaction.
 --
