@@ -6815,6 +6815,24 @@ window.addEventListener('unhandledrejection', function(e) {
     let currentLotSubtab = 'current';
     let auditLogLoadedFor = null;   // lot id the audit log was last rendered for; it loads on demand
     let feedPenLoadedFor  = null;   // same, for the feed pen section
+    // Feed pen lots show "Feed pen" instead of Purchases and Closeout.
+    // Called from showLotSubtab AND again once showLotDetail has loaded the
+    // lot: showLotSubtab first runs before the new lot is in currentLot, so
+    // opening a pen from the list used to show the previous lot's tabs until
+    // some tab was clicked (found by the office tap test, 2026-10-03).
+    function applyLotPenTabs() {
+        const isPen = !!(currentLot && currentLot.is_feed_pen);
+        const bar = $('lotDetailSubtabs');
+        if (bar) {
+            const tab = name => bar.querySelector(`.sub-tab[data-lot-subtab="${name}"]`);
+            [['feedpen', isPen], ['purchases', !isPen], ['closeout', !isPen]].forEach(([name, show]) => {
+                const b = tab(name);
+                if (b) b.classList.toggle('hidden', !show);
+            });
+        }
+        return isPen;
+    }
+
     function showLotSubtab(subtab) {
         if (subtab === 'activity') subtab = 'current';   // older call sites
         if (!LOT_SECTIONS.includes(subtab)) subtab = 'current';
@@ -6828,15 +6846,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // Toggling .hidden is safe against the data-perm CSS, which is
         // display:none !important and wins regardless: removing .hidden from
         // an office-only tab still shows crew nothing.
-        const isPen = !!(currentLot && currentLot.is_feed_pen);
-        const bar = $('lotDetailSubtabs');
-        if (bar) {
-            const tab = name => bar.querySelector(`.sub-tab[data-lot-subtab="${name}"]`);
-            [['feedpen', isPen], ['purchases', !isPen], ['closeout', !isPen]].forEach(([name, show]) => {
-                const b = tab(name);
-                if (b) b.classList.toggle('hidden', !show);
-            });
-        }
+        const isPen = applyLotPenTabs();
         if (isPen && (subtab === 'purchases' || subtab === 'closeout')) subtab = 'feedpen';
         if (!isPen && subtab === 'feedpen') subtab = 'current';
 
@@ -7065,6 +7075,10 @@ window.addEventListener('unhandledrejection', function(e) {
 
         currentLot=lotRes.data;
         currentStatus=statusRes.data;
+        // Now that the lot is known, set its tabs (and leave a tab a pen
+        // does not have).
+        if (applyLotPenTabs() && (currentLotSubtab === 'purchases' || currentLotSubtab === 'closeout')) showLotSubtab('feedpen');
+        else if (!currentLot.is_feed_pen && currentLotSubtab === 'feedpen') showLotSubtab('current');
         // Phase 15: realized ADG + head-days
         currentRealizedAdg = realizedAdgRes && realizedAdgRes.data ? realizedAdgRes.data : null;
         currentLotAnchor = (anchorRes && !anchorRes.error && anchorRes.data) ? anchorRes.data : null;
@@ -12300,6 +12314,14 @@ window.addEventListener('unhandledrejection', function(e) {
         }
         pbOpen = null;
         await loadPbReports();
+        // Say it saved (2026-10-03): Approve & post had no confirm and no
+        // message, so one tap posted feed with nothing on screen saying so.
+        const done = {
+            approve_pb_report: `${pbMd(date)} approved and posted to the lots.`,
+            reject_pb_report:  `${pbMd(date)} rejected.`,
+            unpost_pb_report:  `${pbMd(date)} unposted — back to pending.`
+        }[rpc];
+        if (done) showAlert('globalAlert', done, 'success');
     }
 
     function pbOnClick(e) {
@@ -15855,7 +15877,10 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         if (error) { showAlert('ltAlert', 'Could not save the transfer: ' + error.message); return; }
 
         hideModal('lotTransferModal');
+        const ltKind = ltState && ltState.kind;
         ltState = null;
+        showAlert('globalAlert', ltKind === 'feed_pen' ? 'Sent to the feed pen.'
+            : ltKind === 'fold_in' ? 'Lot merged.' : 'Transfer saved.', 'success');
         showLotDetail(currentLot.id);
     }
 
@@ -16611,6 +16636,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         hideModal('feedPenRemovalModal');
         fpState = null;
         feedPenLoadedFor = null;
+        showAlert('globalAlert', `Removal recorded (${(FP_METHODS[m] || {}).label || m}).`, 'success');
         showLotDetail(currentLot.id);
     }
 
@@ -31107,8 +31133,12 @@ ${ranchBlocks}
     }
 
     // Everything the delivery modal needs that is not already loaded.
+    // Items and bays too (2026-10-03): opened from Purchases on a fresh page,
+    // nothing had loaded them yet, so Item and Into came up empty (found by
+    // the office tap test).
     async function fdPrepReceiptModal() {
-        await Promise.all([invLoadVendors(), fdLoadOpenOrderLines()]);
+        const [refErr] = await Promise.all([fdLoadRefs(), invLoadVendors(), fdLoadOpenOrderLines()]);
+        if (refErr) showAlert('globalAlert', 'Could not load feed items and locations: ' + (refErr.message || refErr), 'error');
     }
 
     // ==========================================================
