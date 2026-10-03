@@ -25954,7 +25954,7 @@ ${ranchBlocks}
         $('moveLotTitle').textContent = isFirstMove
             ? `Assign lot ${currentLot.lot_number} to pasture(s)`
             : `Move lot ${currentLot.lot_number}`;
-        $('moveDate').value = new Date().toISOString().slice(0, 10);
+        setDateValue('moveDate', ranchToday());
         if ($('moveNotes')) $('moveNotes').value = '';
 
         if (currentMoveAssignments.length === 0) {
@@ -26108,7 +26108,7 @@ ${ranchBlocks}
         $('moveLotSaveBtn').disabled = true;
 
         try {
-            const moveDate = $('moveDate').value || new Date().toISOString().slice(0, 10);
+            const moveDate = $('moveDate').value || ranchToday();
 
             const validDests = moveDestinations.filter(d => d.pasture_id && d.head_count > 0);
             if (validDests.length === 0) {
@@ -26132,77 +26132,12 @@ ${ranchBlocks}
                 }
             }
 
-            // ===== Source-side adjustments =====
-            // Phase 12 model: each (lot, pasture) has at most one active row.
-            // For non-virtual sources, decrement head_count by sel.head_to_move.
-            // If decrement reaches zero, close the row (set moved_out).
-            for (let i = 0; i < moveOutSelections.length; i++) {
-                const sel = moveOutSelections[i];
-                if (sel.head_to_move <= 0) continue;
-                const a = currentMoveAssignments[i];
-                if (a.__virtual) continue;
-
-                const newHead = a.head_count - sel.head_to_move;
-                if (newHead < 0) {
-                    throw new Error(`Internal: negative head count on ${a.ranch_name}/${a.pasture_name}.`);
-                }
-                if (newHead === 0) {
-                    // Close fully
-                    const { error: closeErr } = await supabase
-                        .from('lot_pasture_assignments')
-                        .update({ moved_out: moveDate })
-                        .eq('id', a.id);
-                    if (closeErr) throw closeErr;
-                } else {
-                    // Decrement
-                    const { error: updErr } = await supabase
-                        .from('lot_pasture_assignments')
-                        .update({ head_count: newHead })
-                        .eq('id', a.id);
-                    if (updErr) throw updErr;
-                }
-            }
-
-            // ===== Destination-side adjustments =====
-            // For each destination, either add to existing open row at that pasture
-            // OR insert a new row if none exists. Unique index enforces one open
-            // row per (lot, pasture).
-            for (const d of validDests) {
-                const head = Number(d.head_count);
-                const { data: existing } = await supabase
-                    .from('lot_pasture_assignments')
-                    .select('id, head_count')
-                    .eq('lot_id', currentLot.id)
-                    .eq('pasture_id', d.pasture_id)
-                    .is('moved_out', null)
-                    .maybeSingle();
-
-                if (existing) {
-                    const { error: addErr } = await supabase
-                        .from('lot_pasture_assignments')
-                        .update({ head_count: existing.head_count + head })
-                        .eq('id', existing.id);
-                    if (addErr) throw addErr;
-                } else {
-                    const { error: insErr } = await supabase
-                        .from('lot_pasture_assignments')
-                        .insert({
-                            lot_id: currentLot.id,
-                            pasture_id: d.pasture_id,
-                            head_count: head,
-                            moved_in: moveDate,
-                            recorded_by: currentUser.id
-                        });
-                    if (insErr) throw insErr;
-                }
-            }
-
-            // ===== Audit log: write one lot_movements row per (source, destination) pair =====
-            // For simple cases (one source → one destination), this is one row.
-            // For multi-source/multi-dest, we record allocation in source-then-destination order.
-            // Allocation: walk sources in order, fill destinations in order, record paired moves.
+            // ===== Pair sources with destinations =====
+            // One move per (source, destination) pair: walk the sources in
+            // order and fill the destinations in order. A single source to a
+            // single destination is one move.
             const userNotes = ($('moveNotes') ? $('moveNotes').value.trim() : '') || null;
-            const movementRows = [];
+            const pairs = [];
             const sources = moveOutSelections
                 .map((sel, idx) => ({ sel, a: currentMoveAssignments[idx] }))
                 .filter(x => x.sel.head_to_move > 0);
@@ -26213,17 +26148,12 @@ ${ranchBlocks}
                 while (destNeed > 0 && srcIdx < sources.length) {
                     const portion = Math.min(srcRemaining, destNeed);
                     if (portion > 0) {
-                        // Compose notes: prefer user input, else add the auto-context for unassigned
                         const autoNote = sources[srcIdx].a.__virtual ? 'From unassigned (initial placement)' : null;
-                        const finalNote = [userNotes, autoNote].filter(Boolean).join(' / ') || null;
-                        movementRows.push({
-                            lot_id: currentLot.id,
-                            move_date: moveDate,
+                        pairs.push({
                             from_pasture_id: sources[srcIdx].a.__virtual ? null : sources[srcIdx].a.pasture_id,
                             to_pasture_id: d.pasture_id,
                             head_count: portion,
-                            recorded_by: currentUser.id,
-                            notes: finalNote
+                            notes: [userNotes, autoNote].filter(Boolean).join(' / ') || null
                         });
                         srcRemaining -= portion;
                         destNeed -= portion;
@@ -26234,11 +26164,43 @@ ${ranchBlocks}
                     }
                 }
             }
-            if (movementRows.length > 0) {
-                const { error: logErr } = await supabase
-                    .from('lot_movements')
-                    .insert(movementRows);
-                if (logErr) throw logErr;
+
+            // ===== Post each pair through record_move_with_pasture =====
+            // The RPC writes the lot_movements row and both pasture sides in
+            // one transaction, so a single move can never land half-done.
+            // (This screen used to write the assignments and the movement row
+            // as separate calls with no rollback.) A NULL source is the
+            // unassigned head: the RPC adds to the destination only.
+            const posted = [];
+            try {
+                for (const p of pairs) {
+                    const { data, error } = await supabase.rpc('record_move_with_pasture', {
+                        p_lot_id: currentLot.id,
+                        p_from_pasture_id: p.from_pasture_id,
+                        p_to_pasture_id: p.to_pasture_id,
+                        p_head_count: p.head_count,
+                        p_move_date: moveDate,
+                        p_notes: p.notes,
+                        p_recorded_by: currentUser.id
+                    });
+                    if (error) throw error;
+                    posted.push(data);
+                }
+            } catch (postErr) {
+                // Several pairs and one failed: undo the ones already posted,
+                // newest first. delete_move_event is owner-only and refuses
+                // (changing nothing) for office, so say plainly what is left.
+                const stuck = [];
+                for (const id of posted.slice().reverse()) {
+                    const { error: undoErr } = await supabase.rpc('delete_move_event', { p_movement_id: id });
+                    if (undoErr) stuck.push(id);
+                }
+                if (stuck.length) {
+                    throw new Error(`Move NOT finished: ${postErr.message} ` +
+                        `${stuck.length} of the ${pairs.length} legs were already recorded and could not be undone ` +
+                        `(only the owner can delete a move). Open Move history and Reverse them, or ask John.`);
+                }
+                throw new Error(`Move NOT saved, nothing was changed: ${postErr.message}`);
             }
 
             $('moveLotSaveBtn').disabled = false;
