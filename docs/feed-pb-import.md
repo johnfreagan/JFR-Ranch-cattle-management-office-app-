@@ -61,6 +61,31 @@ feed_counts · feed_count_lines ───────────┘   physical 
   `pb_row_key` upserts a re-run of the same invoice; running Aug 17-26 then
   Aug 20-31 double-feeds four days under different keys.
 
+### Counts: book as of the count date, and removing a count (live 2026-10-03)
+
+Migration: `docs/sql/2026-10-03e_feed_count_remove_and_as_of.sql`.
+
+- **Book on a count is the book at the START of the count date**, not at the
+  moment of posting (John, 2026-10-03: the count is taken before the truck
+  loads). `feed_book_as_of(location, date)` is today's layers, plus what usage
+  dated that day or later drew, minus receipts dated that day or later. The
+  count sheet and `post_feed_count` both read it, so a count keyed days late
+  still compares to the right number. Rows dated ON the count date that still
+  count as before it: `count` usage, `count_adjustment` and `opening_balance`
+  receipts. A weekly hand entry is all-before or all-after by its `usage_date`.
+- **A posted count is removed with `void_feed_count(count_id, reason)`, owner
+  only.** Usage goes back through `delete_feed_usage` (exact layers), found
+  layers come off through `delete_feed_receipt` (refuses if any was fed). The
+  count row stays, `status = 'voided'`, with who, when and why. Edit is remove
+  and re-enter. The latest count at a location must come out first.
+- The lot-split consumption rows are not linked from the count line. They are
+  matched on `source = 'count'`, location, item and `created_at = posted_at`
+  (one transaction, one `now()`), and the function proves the pounds tie to
+  the lines before it reverses anything.
+- **Never raw-delete a posted count.** A trigger refuses; only a draft deletes.
+- **A PB daily email showing 0 lb fed means the ranch did not feed.** It is not
+  a capture failure and not a reason for a count variance.
+
 ### Design decisions taken 2026-08-28 — read `docs/feed-design-decisions.md`
 
 Twenty-five decisions, DECIDED NOT YET BUILT. The full record with the reasoning

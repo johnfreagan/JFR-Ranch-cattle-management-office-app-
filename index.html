@@ -4254,8 +4254,9 @@
 
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0 0 10px 0;">
             <p class="muted" style="font-size:12px; margin:0; flex:1; min-width:220px;">
-                Book shows what the layers say is there. Type what is actually there. Anything you leave
-                blank is skipped &mdash; not treated as zero.
+                Book is what the layers held at the <b>start of the count date</b>: feed and deliveries dated
+                that day or later are left out, so a count keyed late still compares to the right number.
+                Type what was actually there. Anything you leave blank is skipped &mdash; not treated as zero.
             </p>
             <button type="button" id="fdCtZeroAllBtn">Bay is empty &mdash; zero every line</button>
         </div>
@@ -33358,8 +33359,10 @@ ${ranchBlocks}
             return;
         }
 
+        const isOwner = currentProfile && currentProfile.role === 'owner';
         $('fdCtContent').innerHTML = counts.map(c => {
             const lines = (c.feed_count_lines || []);
+            const voided = c.status === 'voided';
             const body = lines.map(l => `
                 <tr>
                     <td>${escapeHtml((l.feed_items || {}).name || '—')}</td>
@@ -33369,19 +33372,51 @@ ${ranchBlocks}
                     <td class="num" ${Number(l.variance_lb) ? 'style="color:#b58900;"' : ''}>
                         ${l.variance_lb == null ? '—' : (Number(l.variance_lb) > 0 ? '+' : '') + fmtNum(l.variance_lb) + ' lb'}</td>
                 </tr>`).join('');
-            return `<div class="card" style="padding:12px; margin-bottom:12px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            // A removed count stays on the list: its adjustments are reversed,
+            // but what was keyed and why it came out is the audit trail.
+            return `<div class="card" style="padding:12px; margin-bottom:12px;${voided ? ' opacity:0.6;' : ''}">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
                     <div><strong>${escapeHtml((c.feed_storage_locations || {}).name || '—')}</strong>
                         <span class="muted"> &middot; ${fmtDate(c.count_date)}</span></div>
-                    <span class="muted" style="font-size:12px;">${c.status === 'posted' ? 'posted' : 'draft'}</span>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span class="muted" style="font-size:12px;">${voided ? 'removed &mdash; adjustments reversed'
+                            : (c.status === 'posted' ? 'posted' : 'draft')}</span>
+                        ${(c.status === 'posted' && isOwner)
+                            ? `<button type="button" data-fd-ct-void="${c.id}" data-write>Remove count</button>` : ''}
+                    </div>
                 </div>
                 ${lines.length ? `<table>
                     <thead><tr><th>Item</th><th>Method</th><th class="num">Book</th>
                         <th class="num">Counted</th><th class="num">Variance</th></tr></thead>
                     <tbody>${body}</tbody></table>` : '<div class="muted" style="font-size:12px;">No lines.</div>'}
-                ${c.notes ? `<div class="muted" style="font-size:12px; margin-top:8px;">${escapeHtml(c.notes)}</div>` : ''}
+                ${c.notes ? `<div class="muted" style="font-size:12px; margin-top:8px; white-space:pre-line;">${escapeHtml(c.notes)}</div>` : ''}
             </div>`;
         }).join('');
+        $('fdCtContent').querySelectorAll('[data-fd-ct-void]').forEach(b => {
+            b.onclick = () => removeFdCount(b.dataset.fdCtVoid);
+        });
+    }
+
+    // Edit is remove and re-enter. void_feed_count puts every pound the
+    // count wrote off back on the layer it came from and takes found feed
+    // back off, so there is no edit-in-place path to keep in step with FIFO.
+    async function removeFdCount(countId) {
+        const reason = prompt(
+            'Remove this count?\n\n'
+            + 'Every adjustment it posted is reversed: pounds it wrote off go back on the layers they '
+            + 'came from, and feed it found comes off. The count stays on this list, marked removed.\n\n'
+            + 'Why is it being removed?');
+        if (reason === null) return;
+        if (!reason.trim()) { showAlert('fdCtAlert', 'Count NOT removed: a reason is required.'); return; }
+        const { data, error } = await supabase.rpc('void_feed_count',
+            { p_count_id: countId, p_reason: reason.trim() });
+        if (error) { showAlert('fdCtAlert', 'Count NOT removed: ' + error.message); return; }
+        await loadFeedCounts();
+        const d = data || {};
+        showAlert('globalAlert',
+            `Count removed. ${fmtNum(Number(d.usage_lb) || 0)} lb put back on the books`
+            + `${Number(d.found_lb) ? `, ${fmtNum(Number(d.found_lb))} lb of found feed taken off` : ''}. `
+            + 'Enter the corrected count with "+ Count a bay".', 'success');
     }
 
     async function openFdCountModal(locId) {
@@ -33404,29 +33439,53 @@ ${ranchBlocks}
         const locId = $('fdCtLocation').value;
         if (!locId) { $('fdCtLines').innerHTML = '<div class="empty">Pick a location.</div>'; fdCountState = null; return; }
 
-        await fdLoadOnHand();
-        const here = fdOnHand.filter(o => o.location_id === locId);
+        // Book at the START of the count date, from the same function
+        // post_feed_count uses. Reading on-hand "now" compared a count taken
+        // on the 1st to a book that had moved on by the 3rd.
+        const date = $('fdCtDate').value || ranchToday();
+        const asOf = await supabase.rpc('feed_book_as_of', { p_location_id: locId, p_count_date: date });
+        if (asOf.error) {
+            showAlert('fdCountModalAlert', `Could not read the book for ${date}: ${asOf.error.message}`);
+            $('fdCtLines').innerHTML = '<div class="empty">Book not loaded.</div>';
+            fdCountState = null;
+            return;
+        }
+        const here = (asOf.data || [])
+            .filter(b => Number(b.book_qty_lb) || Number(b.current_qty_lb))
+            .map(b => Object.assign({}, b, { item_name: (fdItem(b.item_id) || {}).name || '—' }))
+            .sort((a, b) => a.item_name.localeCompare(b.item_name));
         const loc = fdLoc(locId);
 
-        // Items already in this bay come first, with their book figure.
-        // Every other active item is offered too, because a count is also
-        // how feed nobody recorded gets found.
-        const onHandIds = new Set(here.map(o => o.item_id));
-        const others = fdItems.filter(i => i.is_active && !onHandIds.has(i.id));
+        // Changing the date re-reads the book. Keep what was already typed.
+        const prev = (fdCountState && fdCountState.location_id === locId) ? fdCountState.lines : [];
+        const kept = id => prev.find(x => x.item_id === id) || {};
 
         fdCountState = {
             location_id: locId,
             lines: here.map(o => ({
                 item_id: o.item_id,
                 item_name: o.item_name,
-                book_qty_lb: Number(o.qty_lb) || 0,
-                counted: '',
-                counted_units: '',
-                method: (loc && loc.is_bulk) ? 'estimated' : 'counted_bags',
+                book_qty_lb: Number(o.book_qty_lb) || 0,
+                current_qty_lb: Number(o.current_qty_lb) || 0,
+                later_usage_lb: Number(o.later_usage_lb) || 0,
+                later_receipt_lb: Number(o.later_receipt_lb) || 0,
+                counted: kept(o.item_id).counted || '',
+                counted_units: kept(o.item_id).counted_units || '',
+                method: kept(o.item_id).method || ((loc && loc.is_bulk) ? 'estimated' : 'counted_bags'),
                 bags: '',
-                note: ''
+                note: kept(o.item_id).note || ''
             }))
         };
+        // Lines added by hand for something not on the books stay too.
+        prev.filter(x => !fdCountState.lines.some(l => l.item_id === x.item_id))
+            .forEach(x => fdCountState.lines.push(Object.assign({}, x, {
+                book_qty_lb: 0, current_qty_lb: 0, later_usage_lb: 0, later_receipt_lb: 0 })));
+
+        // Items already in this bay come first, with their book figure.
+        // Every other active item is offered too, because a count is also
+        // how feed nobody recorded gets found.
+        const onHandIds = new Set(fdCountState.lines.map(o => o.item_id));
+        const others = fdItems.filter(i => i.is_active && !onHandIds.has(i.id));
 
         const rowHtml = l => {
             const item = fdItem(l.item_id);
@@ -33439,18 +33498,22 @@ ${ranchBlocks}
                     <div class="muted" style="font-size:11px;">${consumes
                         ? 'short of book &rarr; <b>consumption</b>, split to lots by head-days'
                         : 'short of book &rarr; <b>shrink</b>, charged to no lot'}</div></td>
-                <td class="num">${u ? `<b>${fmtNum(l.book_qty_lb / u.per, 2)}</b> ${u.label}<br>` : ''}<span class="muted">${fmtNum(l.book_qty_lb)} lb</span></td>
+                <td class="num">${u ? `<b>${fmtNum(l.book_qty_lb / u.per, 2)}</b> ${u.label}<br>` : ''}<span class="muted">${fmtNum(l.book_qty_lb)} lb</span>
+                    ${(l.later_usage_lb || l.later_receipt_lb)
+                        ? `<div class="muted" style="font-size:11px;">now ${fmtNum(l.current_qty_lb)} lb; left out: `
+                          + `${fmtNum(l.later_usage_lb)} lb fed, ${fmtNum(l.later_receipt_lb)} lb received that day or later</div>` : ''}</td>
                 <td><select data-fd-ct-method="${l.item_id}">
                         <option value="estimated"${l.method === 'estimated' ? ' selected' : ''}>Estimated</option>
                         <option value="counted_bags"${l.method === 'counted_bags' ? ' selected' : ''}>Counted (bags)</option>
                         <option value="measured"${l.method === 'measured' ? ' selected' : ''}>Measured</option>
                     </select></td>
                 <td>${u ? `<input type="number" step="0.01" min="0" data-fd-ct-units="${l.item_id}"
+                        value="${escapeHtml(String(l.counted_units || ''))}"
                         placeholder="${u.label}" style="max-width:92px;">
                         <div class="muted" style="font-size:11px;">${u.label}</div>`
                       : '<span class="muted" style="font-size:11px;">&mdash;</span>'}</td>
-                <td><input type="number" step="0.01" min="0" data-fd-ct-qty="${l.item_id}" placeholder="lb" style="max-width:106px;"></td>
-                <td><input type="text" data-fd-ct-note="${l.item_id}" placeholder="how it was judged" style="max-width:140px;"></td>
+                <td><input type="number" step="0.01" min="0" data-fd-ct-qty="${l.item_id}" value="${escapeHtml(String(l.counted || ''))}" placeholder="lb" style="max-width:106px;"></td>
+                <td><input type="text" data-fd-ct-note="${l.item_id}" value="${escapeHtml(String(l.note || ''))}" placeholder="how it was judged" style="max-width:140px;"></td>
             </tr>`;
         };
 
@@ -33603,8 +33666,8 @@ ${ranchBlocks}
             const ok = confirm(
                 `These look like ${suspect.length === 1 ? 'a count' : 'counts'} entered in the wrong unit:\n\n`
                 + names
-                + `\n\nPosting as typed writes the difference off as shrink and it cannot be undone from `
-                + `the app. Press Cancel to go back and use the tons/bags box instead.\n\n`
+                + `\n\nPosting as typed writes the difference off as shrink, and only the owner can take a `
+                + `posted count back out. Press Cancel to go back and use the tons/bags box instead.\n\n`
                 + `Post anyway?`);
             if (!ok) return;
         }
@@ -33952,6 +34015,7 @@ ${ranchBlocks}
 
     $('fdNewCountBtn').addEventListener('click', openFdCountModal);
     $('fdCtLocation').addEventListener('change', fdRenderCountLines);
+    $('fdCtDate').addEventListener('change', fdRenderCountLines);
     $('fdCtCancelBtn').addEventListener('click', () => hideModal('fdCountModal'));
     $('fdCtPostBtn').addEventListener('click', postFdCount);
 
