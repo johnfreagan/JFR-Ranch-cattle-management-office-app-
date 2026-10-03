@@ -1320,7 +1320,7 @@
                 <div class="card">
                     <div class="card-header">
                         <h3>Sales</h3>
-                        <button class="primary card-add-btn" onclick="document.getElementById('newSaleBtn').click()">💲 + Sale</button>
+                        <button class="primary card-add-btn" onclick="openShipmentForLot()" title="Opens a new shipment with this lot filled in">💲 + Sale</button>
                     </div>
                     <div id="salesContent"><div class="empty">No sales yet.</div></div>
                 </div>
@@ -5579,7 +5579,7 @@
             </div>
 
             <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <button type="button" id="saleDeleteBtn" data-perm="office" class="hidden" style="color: var(--danger);" data-write>Delete sale</button>
+                <button type="button" id="saleDeleteBtn" data-perm="owner" class="hidden" style="color: var(--danger);" data-write>Delete sale</button>
                 <div>
                     <button type="button" id="saleCancelBtn">Cancel</button>
                     <button type="submit" class="primary" id="saleSaveBtn" data-perm="office" data-write>Save sale</button>
@@ -13278,6 +13278,22 @@ window.addEventListener('unhandledrejection', function(e) {
         await loadShipmentInventory();
         renderWeightGroups();
         renderDeductions();
+    }
+
+    // Lot detail "💲 + Sale" lands here (2026-10-03). The old single-lot sale
+    // modal moved head with separate unchecked calls and no rollback; the
+    // shipment screen has the overdraw check, the withdrawal warning and full
+    // rollback, so every new sale goes through it. Fills the first line with
+    // this lot, and its pasture when the lot stands in exactly one.
+    async function openShipmentForLot() {
+        if (!currentLot) return;
+        const lotId = currentLot.id;
+        await openShipmentEntry();
+        const line = shipmentState.groups[0].loads[0].lines[0];
+        line.lot_id = lotId;
+        const here = (shipmentInventory || []).filter(i => i.lot_id === lotId && Number(i.head_count) > 0);
+        if (here.length === 1) line.pasture_id = here[0].pasture_id;
+        renderWeightGroups();
     }
 
     // ---- SAVE ------------------------------------------------------------
@@ -29035,7 +29051,12 @@ ${ranchBlocks}
         $('salesContent').querySelectorAll('tr.clickable').forEach(r => {
             r.addEventListener('click', () => {
                 const sale = currentLotSalesCache.find(x => x.id === r.dataset.saleId);
-                if (sale) openSaleModal(sale);
+                if (!sale) return;
+                // A shipment's sale rows carry its allocated money and pay
+                // weight; the lot modal would rebuild them without it. Change
+                // them from the shipment.
+                if (sale.shipment_id) showShipmentDetail(sale.shipment_id);
+                else openSaleModal(sale);
             });
         });
     }
@@ -29124,6 +29145,18 @@ ${ranchBlocks}
         }
 
         renderSaleSources();
+        // Editing an older lot sale changes money and paperwork only. Head
+        // and source pastures are locked: changing them here never moved
+        // cattle, so it broke the head tie-out. To change head, the owner
+        // deletes the sale (which puts the head back) and it is re-entered
+        // as a shipment.
+        const locked = !!sale;
+        $('saleHead').disabled = locked;
+        $('addSaleSourceBtn').classList.toggle('hidden', locked);
+        $('saleSourceList').querySelectorAll('input, select, button').forEach(el => { el.disabled = locked; });
+        $('saleSourceSummary').textContent = locked
+            ? 'Head and source pastures are locked on a saved sale. Only the owner can delete it, which puts the head back.'
+            : $('saleSourceSummary').textContent;
         updateSaleTagPreview();
         updateSaleShrinkPreview();
         showModal('saleModal');
@@ -29362,9 +29395,11 @@ ${ranchBlocks}
         try {
             if (!head || head <= 0) throw new Error('Head count is required.');
 
-            // Sources validation
-            let validSources;
-            if (saleSources.length === 1) {
+            // Sources validation (new sales only; an edit keeps its sources)
+            let validSources = [];
+            if (!isNew) {
+                // locked on edit, see openSaleModal
+            } else if (saleSources.length === 1) {
                 const src = saleSources[0];
                 if (!src.pasture_id) throw new Error('Pick a source pasture.');
                 validSources = [{ pasture_id: src.pasture_id, head_count: head }];
@@ -29509,9 +29544,6 @@ ${ranchBlocks}
                 const result = await supabase.from('sales').update(payload).eq('id', id).select().single();
                 if (result.error) throw result.error;
                 saleId = id;
-                // Rebuild sources
-                const { error: delErr } = await supabase.from('sale_sources').delete().eq('sale_id', saleId);
-                if (delErr) throw delErr;
             } else {
                 payload.created_by = currentUser.id;
                 const result = await supabase.from('sales').insert(payload).select().single();
@@ -29519,14 +29551,16 @@ ${ranchBlocks}
                 saleId = result.data.id;
             }
 
-            // Insert sources
-            const srcPayload = validSources.map(s => ({
-                sale_id: saleId,
-                pasture_id: s.pasture_id,
-                head_count: Number(s.head_count)
-            }));
-            const { error: srcErr } = await supabase.from('sale_sources').insert(srcPayload);
-            if (srcErr) throw srcErr;
+            // Insert sources (new sales only; an edit keeps its sources)
+            if (isNew) {
+                const srcPayload = validSources.map(s => ({
+                    sale_id: saleId,
+                    pasture_id: s.pasture_id,
+                    head_count: Number(s.head_count)
+                }));
+                const { error: srcErr } = await supabase.from('sale_sources').insert(srcPayload);
+                if (srcErr) throw srcErr;
+            }
 
             // Decrement lot_pasture_assignments for the sources (only on create — edits don't move cattle).
             // Phase 12+: each (lot, pasture) has at most one open row. Decrement head_count.
@@ -29602,16 +29636,24 @@ ${ranchBlocks}
         }
     });
 
+    // Owner only (2026-10-03). This used to raw-delete the sales row and leave
+    // the head off the pastures. delete_sale_with_reversal puts the head back
+    // on the pastures the sale came from, un-retires its tags (trigger) and
+    // reopens the lot if the sale had emptied it. A shipment's sales never
+    // open this modal; they are reversed by deleting the shipment.
     $('saleDeleteBtn').addEventListener('click', async () => {
         const id = $('saleId').value;
         if (!id) return;
-        if (!confirm('Delete this sale? This cannot be undone. Note: this does NOT restore cattle to pastures.')) return;
+        if (!confirm('Delete this sale and put the cattle back?\n\n' +
+            'The head go back on the pastures they were sold out of, and their tags become active again. ' +
+            'If the cattle have been moved since, this will refuse rather than guess.')) return;
         $('saleDeleteBtn').disabled = true;
-        const { error } = await supabase.from('sales').delete().eq('id', id);
+        const { data, error } = await supabase.rpc('delete_sale_with_reversal', { p_sale_id: id });
         $('saleDeleteBtn').disabled = false;
-        if (error) { showAlert('saleModalAlert', error.message); return; }
+        if (error) { showAlert('saleModalAlert', 'Sale NOT deleted, nothing was changed: ' + error.message); return; }
         hideModal('saleModal');
-        showAlert('globalAlert', 'Sale deleted.', 'success');
+        showAlert('globalAlert', `Sale deleted — ${fmtNum(data.head_restored)} head back on the pastures` +
+            (data.lot_reopened ? '; the lot was reopened.' : '.'), 'success');
         showLotDetail(currentLot.id);
     });
 
