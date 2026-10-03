@@ -5627,7 +5627,7 @@
                 <div>
                     <label for="invProtocol">Receiving protocol</label>
                     <select id="invProtocol">
-                        <option value="">— Use lot's default —</option>
+                        <option value="">— None (no processing cost) —</option>
                     </select>
                 </div>
             </div>
@@ -5718,7 +5718,7 @@
             <div style="margin-bottom: 14px;">
                 <label for="receiptProtocol">Receiving protocol</label>
                 <select id="receiptProtocol">
-                    <option value="">— Use lot's default —</option>
+                    <option value="">— None (no processing cost) —</option>
                 </select>
             </div>
 
@@ -6976,7 +6976,7 @@ window.addEventListener('unhandledrejection', function(e) {
     }
 
     let lastDetailLotId = null;
-    async function showLotDetail(lotId){
+    async function showLotDetail(lotId, startSubtab){
         $('lotsView').classList.add('hidden');
         $('detailView').classList.remove('hidden');
         // Same lot again = an action just posted; stay put. A different lot
@@ -6986,7 +6986,7 @@ window.addEventListener('unhandledrejection', function(e) {
         lastDetailLotId = lotId;
         auditLogLoadedFor = null;
         feedPenLoadedFor  = null;
-        showLotSubtab(sameLot ? currentLotSubtab : 'current');
+        showLotSubtab(sameLot ? currentLotSubtab : (startSubtab || 'current'));
         $('lotStatsTier1').innerHTML='';
         $('lotStatsTier2').innerHTML='';
         $('invoicesContent').innerHTML='<div class="empty">Loading…</div>';
@@ -9676,7 +9676,10 @@ window.addEventListener('unhandledrejection', function(e) {
         $('lotSaveBtn').disabled=false;
         if(result.error){showAlert('lotModalAlert',result.error.message);return;}
         hideModal('lotModal');
-        if(id) showLotDetail(id); else showLotDetail(result.data.id);
+        showAlert('globalAlert', id ? 'Lot saved.' : `Lot ${payload.lot_number} created. Next: + Invoice or + Load Out.`, 'success');
+        // A new lot opens on Purchases: the next job is always + Invoice or
+        // + Load Out (saves a tap). The feed pen has no Purchases tab.
+        if(id) showLotDetail(id); else showLotDetail(result.data.id, result.data.is_feed_pen ? 'current' : 'purchases');
     });
 
     // ---- CLOSE / RE-OPEN ----
@@ -9730,6 +9733,27 @@ window.addEventListener('unhandledrejection', function(e) {
     });
 
     // ---- INVOICE ----
+    // The protocol a new invoice or load out on this lot most likely uses:
+    // the one already on the lot's latest load out or invoice, else the only
+    // active Receiving protocol. Pre-picked to save a tap; it is a normal
+    // dropdown and can be changed. Blank means no processing cost.
+    async function lotDefaultProtocolId(lotId, protos) {
+        const active = new Set((protos || []).map(p => p.id));
+        const [rc, inv] = await Promise.all([
+            supabase.from('delivery_receipts').select('receiving_protocol_id, receipt_date')
+                .eq('lot_id', lotId).not('receiving_protocol_id', 'is', null)
+                .order('receipt_date', { ascending: false }).limit(1),
+            supabase.from('invoices').select('receiving_protocol_id, invoice_date')
+                .eq('lot_id', lotId).not('receiving_protocol_id', 'is', null)
+                .order('invoice_date', { ascending: false }).limit(1)
+        ]);
+        const used = [...(rc.data || []), ...(inv.data || [])]
+            .map(r => r.receiving_protocol_id).find(id => active.has(id));
+        if (used) return used;
+        const receiving = (protos || []).filter(p => p.protocol_type === 'receiving');
+        return receiving.length === 1 ? receiving[0].id : '';
+    }
+
     async function openInvoiceModal(invoice = null) {
         if(!currentLot) return;
         clearAlert('invoiceModalAlert');
@@ -9739,7 +9763,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
         // Populate protocol dropdown
         const protoSel = $('invProtocol');
-        protoSel.innerHTML = '<option value="">— Use lot\'s default —</option>';
+        protoSel.innerHTML = '<option value="">— None (no processing cost) —</option>';
         const { data: protos } = await supabase
             .from('protocols')
             .select('id, name, version_label, protocol_type, sex_class')
@@ -9773,6 +9797,7 @@ window.addEventListener('unhandledrejection', function(e) {
             await loadInvoiceAttachments(invoice.id);
         } else {
             $('invoiceModalTitle').textContent = 'Add invoice';
+            $('invProtocol').value = await lotDefaultProtocolId(currentLot.id, protos);
             $('invoiceDeleteBtn').classList.add('hidden');
             // Hide reconcile section for new invoices (need an id first)
             $('invoiceReconcileSection').classList.add('hidden');
@@ -9983,6 +10008,7 @@ window.addEventListener('unhandledrejection', function(e) {
             $('invoiceSaveBtn').disabled=false;
             hideModal('invoiceModal');
             expandCardOnNextRender('invoicesCard');
+            showAlert('globalAlert', id ? 'Invoice updated.' : 'Invoice saved.', 'success');
             showLotDetail(currentLot.id);
         } catch (err) {
             $('invoiceSaveBtn').disabled=false;
@@ -12930,6 +12956,12 @@ window.addEventListener('unhandledrejection', function(e) {
             if (line.lot_id && line.pasture_id && !shpPairExists(line.lot_id, line.pasture_id)) {
                 line.pasture_id = null;
             }
+            // Lot standing in exactly one pasture: that is where they ship
+            // from. Fill it in (saves a pick per line).
+            if (line.lot_id && !line.pasture_id) {
+                const here = (shipmentInventory || []).filter(i => i.lot_id === line.lot_id && Number(i.head_count) > 0);
+                if (here.length === 1) line.pasture_id = here[0].pasture_id;
+            }
             rewireLinePair(g, ld, ln, line);
             recomputeShipment();
         }));
@@ -14527,6 +14559,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             if (t.lot_id && t.from_pasture_id && !mvPairExists(t.lot_id, t.from_pasture_id)) {
                 t.from_pasture_id = null;
             }
+            // A lot standing in exactly one pasture can only move out of that
+            // one: fill it in (saves a pick).
+            if (t.lot_id && !t.from_pasture_id) {
+                const here = moveInventory.filter(i => i.lot_id === t.lot_id && i.head_count > 0);
+                if (here.length === 1) t.from_pasture_id = here[0].pasture_id;
+            }
             renderMoveTickets();
         }));
         c.querySelectorAll('.mv-from').forEach(el => el.addEventListener('change', e => {
@@ -15192,8 +15230,24 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('navSettings').addEventListener('click', () => showSettingsTab('protocols'));
     $('navReports').addEventListener('click', () => showReportsTab('active-lots'));
     $('navApprovals').addEventListener('click', showApprovalsTab);
-    $('approvalsRefreshBtn').addEventListener('click', () =>
-        apprPane === 'feed' ? loadPbReports() : apprPane === 'meds' ? loadMedIntake() : loadApprovals());
+    // Refresh reloads the pane on screen AND every badge, so the other two
+    // panes' counts are never stale (2026-10-03).
+    $('approvalsRefreshBtn').addEventListener('click', () => {
+        (apprPane === 'feed' ? loadPbReports() : apprPane === 'meds' ? loadMedIntake() : loadApprovals());
+        apprRefreshCounts();
+    });
+    // Coming back to the app (another tab, phone unlocked) re-reads the badge
+    // counts, so new field syncs, PB days and Bar J invoices show without a
+    // tap. The open pane is NOT reloaded: that would drop ticked rows or a
+    // half-typed split. Not more than once a minute.
+    let apprLastAutoRefresh = 0;
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible' || !currentProfile) return;
+        if (!['owner', 'office', 'accountant'].includes(currentProfile.role)) return;
+        if (Date.now() - apprLastAutoRefresh < 60000) return;
+        apprLastAutoRefresh = Date.now();
+        apprRefreshCounts();
+    });
     $('apprPaneTabs').addEventListener('click', e => {
         const b = e.target.closest('[data-appr-pane]');
         if (b) showApprovalsPane(b.dataset.apprPane);
@@ -26461,7 +26515,7 @@ ${ranchBlocks}
 
         // Populate protocol dropdown — active protocols only
         const protoSel = $('receiptProtocol');
-        protoSel.innerHTML = '<option value="">— Use lot\'s default —</option>';
+        protoSel.innerHTML = '<option value="">— None (no processing cost) —</option>';
         const { data: protos } = await supabase
             .from('protocols')
             .select('id, name, version_label, protocol_type, sex_class')
@@ -26520,6 +26574,7 @@ ${ranchBlocks}
             await loadReceiptAttachments(receipt.id);
         } else {
             $('receiptModalTitle').textContent = 'New load out';
+            $('receiptProtocol').value = await lotDefaultProtocolId(currentLot.id, protos);
             setDateValue('receiptDate', ranchToday());
             $('receiptDeleteBtn').classList.add('hidden');
             receiptDestinations = [{ pasture_id: '', head_count: '' }];
@@ -27054,6 +27109,7 @@ ${ranchBlocks}
     let currentLotDoctoringCache = [];
     let allMedsForDoctoringCache = [];
     let allActionsForDoctoringCache = [];
+    let doctoringJustSaved = false;   // set by a successful Save, read by Single Doctoring
     let doctoringDatePicker = null;
 
     async function loadDoctoring(lotId) {
@@ -28167,6 +28223,7 @@ ${ranchBlocks}
             $('doctoringTagNumber').dispatchEvent(new Event('input'));
         }
 
+        doctoringJustSaved = false;
         // When modal closes, restore currentLot. We hook into the form submit AND the
         // cancel button to detect close. Simpler: poll until modal hidden.
         const modal = $('doctoringModal');
@@ -28184,8 +28241,11 @@ ${ranchBlocks}
                 $('docSingleNT').checked = false;
                 onDocSingleNTToggle();
                 $('docSingleResolutionPreview').style.display = 'none';
-                // Brief success indicator
-                showAlert('doctoringSingleAlert', 'Modal closed — ready for next entry.', 'success');
+                // Say what actually happened: "Modal closed" showed after
+                // Cancel too, so it never proved a save (2026-10-03).
+                if (doctoringJustSaved) showAlert('doctoringSingleAlert', 'Saved. Ready for the next tag.', 'success');
+                else showAlert('doctoringSingleAlert', 'Closed without saving.', 'info');
+                doctoringJustSaved = false;
                 setTimeout(() => clearAlert('doctoringSingleAlert'), 2500);
                 setTimeout(() => $('docSingleTag').focus(), 100);
             }
@@ -28672,6 +28732,7 @@ ${ranchBlocks}
             }
 
             $('doctoringSaveBtn').disabled = false;
+            doctoringJustSaved = true;
             hideModal('doctoringModal');
             await refreshDoctoringContext();
             // If the user is on lot detail (not the cross-lot search), expand the card so they see the new event
@@ -33955,7 +34016,15 @@ ${ranchBlocks}
         await fdLoadOnHand();
         fdApplyUsageMode();
     });
+    // Remember the Feed Out mode per browser (2026-10-03): hand entry needed
+    // the mode switched on every visit. A convenience only; wrapped because
+    // storage can throw.
+    try {
+        const m = localStorage.getItem('jfr.fdUsMode');
+        if (m && [...$('fdUsMode').options].some(o => o.value === m)) $('fdUsMode').value = m;
+    } catch (e) { /* storage unavailable: default mode */ }
     $('fdUsMode').addEventListener('change', () => {
+        try { localStorage.setItem('jfr.fdUsMode', $('fdUsMode').value); } catch (e) { /* ignore */ }
         // Carry what is typed across the switch: the matrix writes into the
         // same sheet the row list renders, so a half-typed week is not lost
         // by looking at it the other way round.
