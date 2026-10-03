@@ -3113,7 +3113,7 @@
                         <input type="text" id="acctProfitCenter" placeholder="Stockers">
                     </div>
                     <div>
-                        <label for="acctProductionYear">Production Year</label>
+                        <label for="acctProductionYear">Production Year <span class="muted" style="font-size: 11px;">(calendar year of the sale date)</span></label>
                         <input type="number" id="acctProductionYear" step="1" placeholder="2026">
                     </div>
                 </div>
@@ -10751,7 +10751,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <span class="appr-action">${r.kind === 'count' ? 'Count' : 'Test weight'}</span>
                 <span class="appr-detail">${body}</span>
                 <input type="date" class="appr-date" data-id="${r.entry.id}"
-                       value="${escapeHtml(String(r.entry.event_datetime || '').slice(0, 10))}"
+                       value="${escapeHtml(entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10))}"
                        ${r.entry.status === 'pending' ? '' : 'disabled'}>
                 <span class="appr-when"></span>
                 <span class="appr-who">${escapeHtml(raw.recordedBy || '')}</span>
@@ -10761,7 +10761,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <button type="button" class="appr-edit" data-id="${r.entry.id}" data-perm="office"
                         title="Set the lot, the true shrink, and what this sample stands for"
                         ${r.entry.status === 'pending' ? '' : 'disabled'}>✎</button>
-                <button type="button" class="appr-reject" data-id="${r.entry.id}" title="Reject and send back to the cowboy">✖</button>
+                <button type="button" class="appr-reject" data-id="${r.entry.id}" data-perm="office" data-write title="Reject and send back to the cowboy">✖ Send back</button>
                 ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
                 ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
             </div>`;
@@ -10789,7 +10789,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <span class="appr-action">${escapeHtml((r.action && r.action.name) || raw.treatmentType || (isMove ? 'Move' : ''))}</span>
                 <span class="appr-detail">${detail}</span>
                 <input type="date" class="appr-date" data-id="${r.entry.id}"
-                       value="${escapeHtml(String(r.entry.event_datetime || '').slice(0, 10))}"
+                       value="${escapeHtml(entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10))}"
                        title="The day the work happened. Saved on its own; corrects a record entered on the wrong day."
                        ${r.entry.status === 'pending' ? '' : 'disabled'}>
                 <span class="appr-when">${escapeHtml(when)}</span>
@@ -10802,7 +10802,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <button type="button" class="appr-edit" data-id="${r.entry.id}" data-perm="office"
                         title="Correct this entry — lot, pasture, action, meds, head count"
                         ${r.entry.status === 'pending' ? '' : 'disabled'}>✎</button>
-                <button type="button" class="appr-reject" data-id="${r.entry.id}" title="Reject and send back to the cowboy">✖</button>
+                <button type="button" class="appr-reject" data-id="${r.entry.id}" data-perm="office" data-write title="Reject and send back to the cowboy">✖ Send back</button>
                 ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
                 ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
             </div>`;
@@ -10887,7 +10887,9 @@ window.addEventListener('unhandledrejection', function(e) {
             p_head_count: 1,                    // a tagged death is one animal
             p_tag_number: r.tag || null,
             p_cause: null,                      // office fills cause in later
-            p_event_date: String(r.entry.event_datetime || '').slice(0, 10),
+            // The cowboy's day (raw), the same day the row is shown and grouped
+            // under. event_datetime is UTC and drifts a day on evenings/winter.
+            p_event_date: entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10),
             p_notes: noteBits.join(' · '),
             p_created_by: currentUser.id
         });
@@ -10914,7 +10916,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 p_from_pasture_id: r.pasture.id,
                 p_to_pasture_id: r.toPasture.id,
                 p_head_count: leg.head,
-                p_move_date: String(r.entry.event_datetime || '').slice(0, 10),
+                p_move_date: entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10),
                 p_notes: note,
                 p_recorded_by: currentUser.id
             });
@@ -10934,7 +10936,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // verified marker the Anomalies check reads, or it does not tie and never
     // reached here — resolveApprovalEntry blocks it.
     async function postCountEntry(r) {
-        const day = String(r.entry.event_datetime || '').slice(0, 10);
+        const day = entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10);
         const note = [r.raw.notes, `counted by ${r.raw.recordedBy || 'field'}`].filter(Boolean).join(' · ');
         const stamp = `[counted ${day}]` + (note ? ' ' + note : '');
         const { data: asg, error } = await supabase
@@ -10959,7 +10961,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // office's shrink, and the two are stored separately so a later true-up
     // calibrates on gross rather than on an already-shrunk number.
     async function postWeightEntry(r) {
-        const day = String(r.entry.event_datetime || '').slice(0, 10);
+        const day = entryDayKey(r) || String(r.entry.event_datetime || '').slice(0, 10);
         const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(r.entry.id);
         const rows = r.drafts.map((d, i) => {
             const gross = Number(d.grossLb) || 0;
@@ -11127,9 +11129,19 @@ window.addEventListener('unhandledrejection', function(e) {
         const reason = prompt('Why is this being rejected?\n\nThe cowboy sees this in the field app.');
         if (reason === null) return;
         if (!reason.trim()) { showAlert('globalAlert', 'A reason is required to reject.', 'error'); return; }
-        const { error } = await supabase.from('pending_field_entries')
-            .update({ status: 'rejected', review_notes: reason.trim() }).eq('id', id);
+        // The reason goes first (the cowboy reads it); any earlier office note,
+        // such as a date correction, is kept after it rather than overwritten.
+        const row = (approvalsCache.entries || []).find(r => String(r.entry.id) === String(id));
+        const prior = row && row.entry.review_notes ? ' · ' + row.entry.review_notes : '';
+        const { data, error } = await supabase.from('pending_field_entries')
+            .update({ status: 'rejected', review_notes: reason.trim() + prior })
+            .eq('id', id).eq('status', 'pending').select('id');
         if (error) { showAlert('globalAlert', 'Could not reject: ' + error.message, 'error'); return; }
+        if (!data || !data.length) {
+            showAlert('globalAlert', 'Not rejected: nothing was changed. The entry may already have been approved or rejected, or your login cannot change it.', 'error');
+            loadApprovals();
+            return;
+        }
         showAlert('globalAlert', 'Entry rejected and sent back.', 'success');
         loadApprovals();
     }
@@ -11236,7 +11248,7 @@ window.addEventListener('unhandledrejection', function(e) {
                 <td><strong>${escapeHtml(r.lot_number)}</strong></td>
                 <td class="num">${r.book}</td>
                 <td><input type="number" class="settle-count" data-lot="${r.lot_id}" min="0" step="1"
-                           value="${r.counted != null ? r.counted : r.book}" style="width:90px; text-align:right;"></td>
+                           value="${r.counted != null ? r.counted : ''}" placeholder="count" style="width:90px; text-align:right;"></td>
                 <td class="settle-delta" data-lot="${r.lot_id}"></td>
                 <td class="settle-cp" data-lot="${r.lot_id}"></td>
             </tr>`).join('');
@@ -11285,12 +11297,20 @@ window.addEventListener('unhandledrejection', function(e) {
                 return;
             }
             const keep = cEl.querySelector('select') ? cEl.querySelector('select').value : '';
-            cEl.innerHTML = `<select class="settle-cp-sel" data-lot="${r.lot_id}" style="max-width:230px;">${opts}</select>
+            cEl.innerHTML = `<select class="settle-cp-sel" data-lot="${r.lot_id}" style="max-width:230px;"><option value="">— pick the other pasture —</option>${opts}</select>
                              <div class="muted" style="font-size:11px;">${delta > 0 ? 'bring ' + delta + ' from' : 'send ' + (-delta) + ' to'}</div>`;
             if (keep) { const sel = cEl.querySelector('select'); if ([...sel.options].some(o => o.value === keep)) sel.value = keep; }
         });
 
         const el = $('settlePastureTotals');
+        // Counted starts blank (2026-10-03). Prefilled with the books number,
+        // one tap on Record the count marked a pasture counted that nobody
+        // had counted.
+        const blanks = rows.filter(r => r.counted == null).length;
+        if (blanks) {
+            el.innerHTML = `<span class="muted">Type the head you counted for ${blanks === rows.length ? 'each lot' : blanks + ' more lot' + (blanks === 1 ? '' : 's')} (0 if none).</span>`;
+            return;
+        }
         if (countTotal === bookTotal) {
             const changed = rows.filter(r => (r.counted || 0) !== r.book).length;
             el.innerHTML = changed
@@ -11334,7 +11354,12 @@ window.addEventListener('unhandledrejection', function(e) {
             const delta = r.counted - r.book;
             if (delta === 0) continue;
             const sel = document.querySelector(`.settle-cp-sel[data-lot="${r.lot_id}"]`);
-            if (!sel || !sel.value) {
+            if (sel && !sel.value) {
+                showAlert('settlePastureAlert',
+                    `Pick the other pasture for ${r.lot_number}: where the ${Math.abs(delta)} head ${delta > 0 ? 'came from' : 'went'}.`, 'error');
+                return;
+            }
+            if (!sel) {
                 showAlert('settlePastureAlert',
                     `${r.lot_number} is ${Math.abs(delta)} head ${delta > 0 ? 'short on the books' : 'over on the books'} ` +
                     `and has no other pasture to ${delta > 0 ? 'draw from' : 'send them to'}. ` +
@@ -11772,7 +11797,8 @@ window.addEventListener('unhandledrejection', function(e) {
             return;
         }
         const oldStamp = String(row.entry.event_datetime || '');
-        const oldDay = oldStamp.slice(0, 10);
+        // The day shown on the row (the cowboy's raw day), not the UTC slice.
+        const oldDay = entryDayKey(row) || oldStamp.slice(0, 10);
         if (oldDay === newDay) return;
 
         // event_datetime is UTC; shift it by whole days so the time of day
@@ -11784,22 +11810,32 @@ window.addEventListener('unhandledrejection', function(e) {
 
         // raw.dateTime is the cowboy's local "YYYY-MM-DDTHH:MM:SS"; swap only
         // the date half so his recorded time of day is preserved verbatim.
+        // Moves, counts and weights keep their day in raw.date, doctoring and
+        // deaths in raw.dateTime; update whichever the entry carries, or the
+        // row keeps showing (and grouping under) the old day.
         const rawStamp = String((row.raw && row.raw.dateTime) || '');
         const newRaw = Object.assign({}, row.raw);
+        if (row.raw && row.raw.date) newRaw.date = newDay;
         if (rawStamp.includes('T')) newRaw.dateTime = newDay + 'T' + rawStamp.split('T')[1];
-        else newRaw.dateTime = newDay;
+        else if (rawStamp || !(row.raw && row.raw.date)) newRaw.dateTime = newDay;
 
         const prior = row.entry.review_notes ? row.entry.review_notes + ' · ' : '';
-        const { error } = await supabase.from('pending_field_entries')
+        const { data, error } = await supabase.from('pending_field_entries')
             .update({
                 event_datetime: shifted,
                 raw: newRaw,
                 review_notes: `${prior}date corrected ${oldDay} → ${newDay} by ${currentProfile.full_name}`
             })
             .eq('id', id)
-            .eq('status', 'pending');   // never rewrite something already posted
+            .eq('status', 'pending')    // never rewrite something already posted
+            .select('id');
         if (error) {
             showAlert('globalAlert', 'Could not change the date: ' + error.message, 'error');
+            return;
+        }
+        if (!data || !data.length) {
+            showAlert('globalAlert', 'Date NOT changed: the entry may already have been approved or rejected, or your login cannot change it.', 'error');
+            loadApprovals();
             return;
         }
         showAlert('globalAlert', `Moved to ${newDay}.`, 'success');
@@ -11809,9 +11845,12 @@ window.addEventListener('unhandledrejection', function(e) {
     // Notes save on their own so a "leave it for tomorrow" note survives
     // without approving or rejecting anything.
     async function saveApprovalNote(id, value) {
-        const { error } = await supabase.from('pending_field_entries')
-            .update({ review_notes: value.trim() || null }).eq('id', id);
-        if (error) showAlert('globalAlert', 'Note not saved: ' + error.message, 'error');
+        const { data, error } = await supabase.from('pending_field_entries')
+            .update({ review_notes: value.trim() || null })
+            .eq('id', id).eq('status', 'pending').select('id');
+        if (error) { showAlert('globalAlert', 'Note not saved: ' + error.message, 'error'); return; }
+        if (!data || !data.length) { showAlert('globalAlert', 'Note NOT saved: the entry may already have been approved or rejected, or your login cannot change it.', 'error'); return; }
+        showAlert('globalAlert', 'Note saved.', 'success');
     }
 
     function showApprovalsTab() {
@@ -12549,7 +12588,7 @@ window.addEventListener('unhandledrejection', function(e) {
         const t = st.totals;
         const lines = shpAllocate();
 
-        if (!$('shpDate').value) errs.push('Settlement date is required.');
+        if (!$('shpDate').value) errs.push('Sale date is required.');
         if (!shipmentState.groups.length) errs.push('Add at least one weight group.');
 
         shipmentState.groups.forEach(g => {
@@ -13229,7 +13268,8 @@ window.addEventListener('unhandledrejection', function(e) {
          'shpFreightLoads','shpFreightTotal','shpPricePerCwt','shpGrossAmount'
         ].forEach(id => { $(id).value = ''; });
         $('shpJfrPaysFreight').checked = false;
-        $('shpDate').value = today;
+        setDateValue('shpDate', today);
+        shpSheetDate = today;
 
         const { data: past } = await supabase.from('shipments').select('buyer, destination');
         const buyers = [...new Set((past || []).map(p => p.buyer).filter(Boolean))].sort();
@@ -13839,6 +13879,22 @@ window.addEventListener('unhandledrejection', function(e) {
         shipmentState.deductions.push({ tempId: shpTempId(), label: '', basis: 'flat', rate: '', amount: '' });
         renderDeductions();
     });
+    // Sale date carries down to the loads (2026-10-03). Each load keeps its
+    // own date because a sheet can span days, but a load still on the old
+    // sheet date (or blank) follows the sheet. Before this, back-dating the
+    // sheet left every load on today, and the sales rows and moved_out were
+    // booked on the load date.
+    let shpSheetDate = '';
+    $('shpDate').addEventListener('change', () => {
+        const nu = $('shpDate').value;
+        if (!shipmentState || !nu || nu === shpSheetDate) { shpSheetDate = nu || shpSheetDate; return; }
+        let moved = 0;
+        shipmentState.groups.forEach(g => g.loads.forEach(l => {
+            if (!l.date || l.date === shpSheetDate) { l.date = nu; moved++; }
+        }));
+        shpSheetDate = nu;
+        if (moved) renderWeightGroups();
+    });
     ['shpPricePerCwt', 'shpGrossAmount', 'shpFreightMiles', 'shpFreightRate',
      'shpFreightLoads', 'shpFreightTotal', 'shpJfrPaysFreight'].forEach(id => {
         $(id).addEventListener('input', recomputeShipment);
@@ -13870,14 +13926,14 @@ window.addEventListener('unhandledrejection', function(e) {
         catch (e) { saved = {}; }
         $('acctAccount').value = saved.account ?? ACCT_DEFAULTS.account;
         $('acctProfitCenter').value = saved.profitCenter ?? ACCT_DEFAULTS.profitCenter;
-        if (saved.productionYear) $('acctProductionYear').value = saved.productionYear;
+        // Production Year is NOT remembered (2026-10-03): it belongs to the
+        // shipment, and a remembered one carried last year's value forward.
     }
     function acctSaveConstants() {
         try {
             localStorage.setItem(ACCT_LS_KEY, JSON.stringify({
                 account: $('acctAccount').value,
-                profitCenter: $('acctProfitCenter').value,
-                productionYear: $('acctProductionYear').value
+                profitCenter: $('acctProfitCenter').value
             }));
         } catch (e) { /* storage unavailable; the report still works */ }
     }
@@ -13969,9 +14025,9 @@ window.addEventListener('unhandledrejection', function(e) {
 
         acctReportCache = { shipment: shp, rows, shipDays: [...new Set((loads || []).map(l => l.load_date).filter(Boolean))].sort() };
 
-        if (!$('acctProductionYear').value && shp.sale_date) {
-            $('acctProductionYear').value = String(shp.sale_date).slice(0, 4);
-        }
+        // Re-derived for every shipment: the CALENDAR year of the sale date.
+        // Typing over it changes this report only.
+        $('acctProductionYear').value = shp.sale_date ? String(shp.sale_date).slice(0, 4) : '';
         renderAcctReport();
     }
 
@@ -16413,6 +16469,17 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const m = $('fprMethod').value;
         const money = !!(FP_METHODS[m] || {}).money;
         const weight = parseFloat($('fprWeight').value);
+
+        // Cattle leaving to be sold or eaten get the same withdrawal warning
+        // as a shipment (2026-10-03). It warns and lists the tags; it never
+        // blocks. Checked against the pen and every lot the head came off.
+        if (m === 'sold' || m === 'butchered') {
+            const date = $('fprDate').value;
+            const lotIds = [currentLot.id, ...fpState.lines
+                .filter(l => (Number(l.head) || 0) > 0 && l.src).map(l => l.src)];
+            const lotDates = [...new Set(lotIds)].map(id => ({ lot_id: id, date }));
+            if (!(await withdrawalConfirm(lotDates, m === 'sold' ? 'this sale' : 'this butchering'))) return;
+        }
 
         $('fprSaveBtn').disabled = true;
         const { error } = await supabase.rpc('record_feed_pen_removal', {
@@ -22966,6 +23033,23 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         let result;
         try {
             if (id) {
+                // Editing a protocol in use re-prices processing on every
+                // receipt that points at it, back to the first one (CLAUDE.md:
+                // never edit a protocol in place to change cost from a date).
+                // Say so before saving, and point at ⎘ Duplicate. 2026-10-03.
+                const [{ count: nRc, error: eRc }, { count: nInv, error: eInv }] = await Promise.all([
+                    supabase.from('delivery_receipts').select('id', { count: 'exact', head: true }).eq('receiving_protocol_id', id),
+                    supabase.from('invoices').select('id', { count: 'exact', head: true }).eq('receiving_protocol_id', id)
+                ]);
+                if (eRc || eInv) throw (eRc || eInv);
+                if ((nRc || 0) + (nInv || 0) > 0 && !confirm(
+                    `This protocol is on ${nRc || 0} load out(s) and ${nInv || 0} invoice(s).\n\n` +
+                    `Changing its medicines or doses re-prices processing on ALL of them, including closed lots and past years.\n\n` +
+                    `To change cost from a date, Cancel and use ⎘ Duplicate to make a new version instead.\n\n` +
+                    `OK = edit this protocol anyway (name, notes or a true correction).`)) {
+                    $('protocolSaveBtn').disabled = false;
+                    return;
+                }
                 result = await supabase.from('protocols').update(payload).eq('id', id).select().single();
             } else {
                 if (mode === 'duplicate' && $('protocolSeedId').value) {
@@ -23312,18 +23396,21 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
 
         let pastQ = supabase
             .from('pastures')
-            .select('id, ranch_id, name, acres, is_active, forage_types(name)')
+            .select('id, ranch_id, name, acres, total_acres, is_active, forage_types(name)')
             .order('name');
         if (!includeInactive) pastQ = pastQ.eq('is_active', true);
         const { data: pastures, error: pErr } = await pastQ;
         if (pErr) throw pErr;
 
-        // Pull current head per pasture from pasture_status view
-        const { data: status } = await supabase
+        // Current head per pasture. The column is current_head_total; this
+        // read asked for head_current (which does not exist) and ignored the
+        // error, so every pasture printed 0 head (fixed 2026-10-03).
+        const { data: status, error: sErr } = await supabase
             .from('pasture_status')
-            .select('pasture_id, head_current');
+            .select('pasture_id, current_head_total');
+        if (sErr) throw sErr;
         const headByPasture = {};
-        (status || []).forEach(s => { headByPasture[s.pasture_id] = s.head_current || 0; });
+        (status || []).forEach(s => { headByPasture[s.pasture_id] = s.current_head_total || 0; });
 
         // Group pastures under their ranches
         const ranchMap = new Map();
@@ -23334,7 +23421,8 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
                 r.pastures.push({
                     id: p.id,
                     name: p.name,
-                    acres: p.acres,
+                    // The pasture form writes total_acres; acres is the older column.
+                    acres: p.total_acres ?? p.acres,
                     forage: p.forage_types?.name || '',
                     head: headByPasture[p.id] || 0,
                     active: p.is_active
@@ -23380,7 +23468,7 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
                     return `<tr><td>${escapeHtml(p.name)}${inactiveStr}</td><td class="meta">${escapeHtml(meta)}</td></tr>`;
                 }).join('');
                 return `<div class="ranch-block">
-                    <h2>${escapeHtml(r.name)}${r.active === false ? ' [retired]' : ''}</h2>
+                    <h2>${escapeHtml(r.name)}${r.is_active === false ? ' [retired]' : ''}</h2>
                     <p class="ranch-summary">${escapeHtml(ranchSummary)}${r.owner ? ' · ' + escapeHtml(r.owner) : ''}</p>
                     <table>${pastureRows}</table>
                 </div>`;
@@ -29922,9 +30010,16 @@ ${ranchBlocks}
         $('invTabRow').classList.remove('hidden');
         invApplyMaterial();
 
-        // A sub-tab hidden by the chip cannot be the active one.
-        const btn = $('feedSubtabs').querySelector(`.sub-tab[data-subtab="${subtab}"]`);
-        if (!btn || btn.classList.contains('hidden')) subtab = 'needs';
+        // A sub-tab hidden by the chip cannot be the active one. Feed and Meds
+        // both have a "counts" button, so look for a VISIBLE one; taking the
+        // first match found the hidden Meds button and sent Feed > Counts to
+        // Needs Attention (2026-10-03). Orders, invoices and deliveries have
+        // no button of their own but are real screens (reached from
+        // Purchases and Needs rows), so they are not bounced either.
+        const visibleBtn = [...$('feedSubtabs').querySelectorAll(`.sub-tab[data-subtab="${subtab}"]`)]
+            .some(b => !b.classList.contains('hidden'));
+        const buttonless = ['orders', 'invoices'].includes(subtab) || (subtab === 'receipts' && invMaterial === 'feed');
+        if (!visibleBtn && !buttonless) subtab = 'needs';
         $('feedSubtabs').querySelectorAll('.sub-tab').forEach(b => {
             if (b.classList.contains('group-btn')) return;
             b.classList.toggle('active',
@@ -30591,6 +30686,7 @@ ${ranchBlocks}
             hideModal('invOrderModal');
             showAlert('globalAlert', id ? 'Order updated.' : 'Order saved.', 'success');
             loadInvOrders();
+            if (!$('invPurchasesView').classList.contains('hidden')) loadInvPurchases();
             invRefreshBadge();
         } catch (err) {
             showAlert('invOrderModalAlert', err.message || String(err));
@@ -30859,6 +30955,7 @@ ${ranchBlocks}
                 ? 'Invoice recorded. It tied exactly — nothing was re-priced.'
                 : 'Invoice recorded. The difference was allocated; feed already fed keeps its frozen cost.', 'success');
             loadInvInvoices();
+            if (!$('invPurchasesView').classList.contains('hidden')) loadInvPurchases();
             invRefreshBadge();
         } catch (err) {
             // A header with no loads would sit on the list forever reading
@@ -32154,6 +32251,7 @@ ${ranchBlocks}
                 hideModal('fdReceiptModal');
                 showAlert('globalAlert', 'Delivery recorded.', 'success');
                 loadFeedReceipts();
+                if (!$('invPurchasesView').classList.contains('hidden')) loadInvPurchases();
                 invRefreshBadge();
                 return;
             }
@@ -32196,11 +32294,14 @@ ${ranchBlocks}
             await fdLoadOnHand();
             loadFeedReceipts();
             invRefreshBadge();
-            if (filled > 0) {
-                showAlert('fdRcAlert',
-                    `Priced. ${filled} feed-out line${filled === 1 ? '' : 's'} that were waiting on this load now carry a cost.`,
-                    'success');
-            }
+            // Edits are opened from Purchases and Needs rows, where the
+            // Deliveries view is hidden, so say it in globalAlert and refresh
+            // whichever list is on screen.
+            if (!$('invPurchasesView').classList.contains('hidden')) loadInvPurchases();
+            if (!$('invNeedsView').classList.contains('hidden')) loadInvNeeds();
+            showAlert('globalAlert', filled > 0
+                ? `Delivery updated. ${filled} feed-out line${filled === 1 ? '' : 's'} that were waiting on this load now carry a cost.`
+                : 'Delivery updated.', 'success');
         } finally {
             $('fdRcSaveBtn').disabled = false;
         }
@@ -33504,7 +33605,9 @@ ${ranchBlocks}
             await fdLoadOnHand();
             loadFeedCounts();
             const n = post.data || 0;
-            showAlert('fdCtAlert',
+            // globalAlert, not the Counts view's own box: a count opened from a
+            // Needs Attention row posts while that view is hidden.
+            showAlert('globalAlert',
                 n ? `Count posted. ${n} adjustment${n === 1 ? '' : 's'} written to the ledger.`
                   : 'Count posted. Everything tied to the books exactly.', 'success');
         } finally {
