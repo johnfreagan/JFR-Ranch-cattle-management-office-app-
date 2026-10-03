@@ -1748,3 +1748,38 @@ snapshot each existing tag layer carries, so the shelf does not show a mix.
 Label only: `cost_per_unit` is `bottle_cost / bottle_size` and cares nothing
 for the word, which the migration's verify proves by asserting the Lot Tag
 catalog still reads $0.4056 and the ID tags still value at $2,429.14.
+
+### The paper checkout sheet (2026-10-03)
+
+John: *"We need to build a pdf for a checkout record from med room. Name, date,
+list of main doctoring meds and couple 3 blank lines for written meds to keep
+list simple. Maximize how many can fit on page."*
+
+`docs/worksheets/2026-10-03_med-room-checkout-sheet.pdf`, built from the `.html`
+beside it (Chromium, `--print-to-pdf`, letter landscape). **27 checkout lines on
+one page**, which is what "maximize" settled: the drugs are COLUMNS and each
+line is one man drawing once, so a page holds 27 draws rather than three or four
+name-blocks. Row height 0.258 in — 28 lines spills to a second page, which is
+how the number was found rather than guessed.
+
+**The eight named drugs are the ones actually given**, off `doctoring_event_meds`
+rather than off an opinion:
+
+| drug | times given | on hand, med room |
+|---|---|---|
+| Enroflox (Baytril) 500 mL | 1,012 | 11,672 mL |
+| Excede 250 mL / 100 mL | 1,004 | 3,107 mL across both |
+| Resflor 500 mL | 246 | 5,846 mL |
+| Draxxin KP 250 mL | — (replaced Draxxin 500, 35) | 375 mL |
+| Biomycin 500 mL | 2 | 500 mL |
+| Thiamine 100 mL | 4 | 200 mL |
+| Vitamin K 100 mL | — | 100 mL |
+
+Excede gets **two columns**, one a size, because the place carries both and the
+app now records the size that left the room — printing the size in the header
+means the crew writes only a count and the office cannot guess wrong. Dectomax
+and Cydectin are stocked but have never been given in a doctoring event, so they
+are not printed; they are what the four blank columns are for.
+
+The blanks are **columns with a write-on header**, not rows: a drug written in
+the header once covers the whole sheet below it.
