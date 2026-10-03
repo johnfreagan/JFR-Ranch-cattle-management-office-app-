@@ -625,6 +625,69 @@ Function that takes the PDF and returns the same block — same format, same gri
 no paste. That is real infrastructure (a function, a stored secret, a deploy path
 this repo does not have yet), so it waits until volume asks for it.
 
+### Emailed invoices: Approvals > Meds (Bar J, 2026-10-02)
+
+John, 2026-10-02: "For medicines the only vendor is Bar J for now. Put into the
+approvals first. Must-answer box on location in approvals. Ask on new meds but
+be prepared to build item. 4am triage for now."
+
+Bar J Vet Supply sends a Lightspeed receipt by email (to Lauren, who forwards
+it). The 4am triage run finds it and calls `stage_med_invoice(message_id, body)`
+with the plain-text body verbatim. The database parses it
+(`med_parse_barj_invoice`) into `med_invoice_intake`: invoice number, date,
+total, and one line per product with qty, $ a bottle, line total and the bottle
+size when the item name states one ("250 ml", "100ml"). Anything that does not
+add up is written to `problems` and shown in red; the parser never fixes it.
+Staging is idempotent on (vendor, invoice number), so the direct and the
+forwarded copy stage once. Migration: `docs/sql/2026-10-02n_med_invoice_intake.sql`.
+
+**Approvals > Meds** (owner, office, accountant can see it; owner and office
+can act) lists every staged invoice that has no purchase yet, one card each,
+with the recently posted or rejected ones collapsed below. The Approvals badge
+counts them with the field and feed queues.
+
+- **Review & post** opens the same Purchases grid as a hand-entered or pasted
+  invoice. There is no second grid. Date, vendor, invoice number, total and the
+  lines are filled from the intake: bottles = qty, $ a bottle = line total ÷
+  qty, bottle size = the remembered pick's size, else the size on the invoice,
+  else blank.
+- **Received to starts blank** ("— choose where it went —") and Post refuses
+  until it is chosen. A plain New purchase still defaults to Ranch.
+- **Matching:** a remembered pick for that vendor and item name first, then the
+  exact catalog name. Never a near match. An unmatched line stays red with the
+  picker and a **New medication** button, which opens the medication form
+  pre-filled from the line (name, bottle size, mL, bottle cost = $ a bottle).
+  Category and withdrawal are left for John. On save the new med joins the
+  pickers and lands on that line.
+- The tie-out still gates Post, and `med_settle_uncovered` still runs after.
+- **Post** writes `med_purchases.intake_id`. A partial unique index on it means
+  one invoice posts once; a second try shows "this invoice is already posted".
+  Deleting the purchase puts the invoice back in the queue.
+- After the post, every line John matched **by hand** is remembered through
+  `med_alias_learn(vendor, item name, medication, bottle size)` in
+  `med_name_aliases`, so the next invoice with that item name matches by
+  itself. A line that matched by exact name is not remembered. A remembered
+  pick that John changes is overwritten. A failure here is shown and does not
+  undo the post.
+- **Reject** asks for a reason and calls `reject_med_invoice`, which refuses
+  if the invoice is posted.
+- **Back / Cancel** from a staged invoice return to Approvals > Meds with
+  nothing written.
+
+The bottle size on the purchase line is the invoice's, not the catalog's: Bar
+J #6654 is a 250 mL Macrosyn and the catalog "Macrosyn(Draxxin)" is set up at
+500 mL. The line carries 250 and the catalog is left alone.
+
+Only Bar J is parsed. Another vendor needs its own parser; do not widen this
+one by guessing at a layout.
+
+**Testing.** `scripts/med-intake-harness/run.js` drives the real `index.html` in
+headless Chromium against an in-memory stand-in for Supabase loaded with the
+#6654 intake: queue, blank location refused, both lines unmatched, New
+medication pre-filled, the $237.69 tie, Cancel, then a full post into the
+stand-in only (intake id, location, 250 mL line, both picks remembered, the
+second post refused). It never touches the live database.
+
 ---
 
 ## The Redwing report
