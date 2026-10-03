@@ -24,7 +24,7 @@
          margin-bottom: 6px; }
 
   /* Three across. Everything steps down a size to keep the longest drug
-     on one line - "Draxxin KP 250 mL" is the one that sets the width. */
+     on one line - "Enroflox 500 mL" is the one that sets the width now. */
   body.cols-3 .rec     { flex: 0 0 32.6%; padding: 5px 6px 4px 6px; }
   body.cols-3 .who     { font-size: 10pt; }
   body.cols-3 .chip    { gap: 6px; }
@@ -43,7 +43,6 @@
   .chip .nm { font-size: 10.5pt; flex: 1 1 auto; white-space: nowrap; }
   .chip .nm i { font-style: normal; font-size: 8.6pt; color: #333; }
   .chip.write .nm { border-bottom: 1.1px solid #777; height: 0.20in; }
-  .chip.write .nm small { font-size: 6.8pt; color: #666; }
 
   /* ---- footer ---------------------------------------------------- */
   .foot { font-size: 8pt; display: flex; justify-content: space-between;
@@ -71,12 +70,10 @@
 
 <script>
   var MEDS = [
-    ['Enroflox',   '500 mL'],
-    ['Excede',     '250 mL'],
-    ['Excede',     '100 mL'],
-    ['Resflor',    '500 mL'],
-    ['Draxxin KP', '250 mL'],
-    ['Biomycin',   '500 mL']
+    ['Enroflox', '500 mL'],
+    ['Excede',   '250 mL'],
+    ['Excede',   '100 mL'],
+    ['Resflor',  '500 mL']
   ];
   var BLANKS = 3;
   // Three rows, and two or three to a row: ?cols=3 for nine blocks a page.
@@ -92,14 +89,13 @@
     }).join('');
     for (var b = 0; b < BLANKS; b++) {
       chips += '<div class="chip write"><span class="box"></span>' +
-               '<span class="nm"><small>drug / size</small></span></div>';
+               '<span class="nm"></span></div>';
     }
     host.insertAdjacentHTML('beforeend',
       '<div class="rec">' +
         '<div class="who">' +
           '<div class="ln"><span class="lbl">Name</span><span class="fill"></span></div>' +
-          '<div class="ln"><span class="lbl">Date</span><span class="fill"></span>' +
-               '<span class="lbl">Init.</span><span class="fill" style="flex:0 0 0.62in"></span></div>' +
+          '<div class="ln"><span class="lbl">Date</span><span class="fill"></span></div>' +
         '</div>' +
         chips +
       '</div>');
