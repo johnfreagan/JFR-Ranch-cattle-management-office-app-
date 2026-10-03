@@ -1823,9 +1823,16 @@ list simple."* Then twice over, which is the useful part of the record:
 2. *"Let's try 3 rows two columns, with check box immediately in front of name
    not trailing, that was confusing."*
 
-`docs/worksheets/2026-10-03_med-room-checkout-sheet.pdf`, built from the `.html`
-beside it (Chromium `--print-to-pdf`). **Letter portrait, six blocks a page, two
-across and three down.**
+`docs/worksheets/2026-10-03_med-room-checkout-sheet_12-blocks.pdf`, built from
+the `.html` beside it (Chromium `--print-to-pdf`). **Letter portrait, twelve
+blocks a page, three across and four down** — John's pick once the drug list came
+down to four. The same source builds eight two-across (`?cols=3` switches it).
+
+Twelve only fits because the trim freed the room: seven lines a block instead of
+nine. Getting the fourth row on took a little more — the count box 0.25in to
+0.23in and the write-on lines 0.20in to 0.18in — and that is the floor. A fifth
+row is not there, and shrinking the type to find one would undo the point of
+going portrait in the first place.
 
 The first cut was a 27-line landscape grid with the drugs as columns — maximum
 records, smallest print. Wrong instinct, and worth writing down: this sheet
