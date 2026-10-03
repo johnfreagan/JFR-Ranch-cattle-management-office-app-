@@ -1,5 +1,9 @@
--- STATUS: written 2026-10-03 on John's approval ("Tackle database").
--- Not yet applied.
+-- STATUS: Applied 2026-10-03 on John's approval ("Tackle database"). John ran
+-- it in the Supabase SQL Editor ("Success"). Verified afterwards: md5(prosrc)
+-- matches this file (invoices_refuse_duplicate 367069aa134111d76a97e63a55532d63,
+-- delete_receipt_with_reversal 3fa2af2ba385c0d090b95ae847c15844); the seven
+-- office DELETE policies and the invoices_refuse_duplicate trigger exist;
+-- anon cannot execute either function; rls_verify passes; all open lots tie.
 
 -- Office tap audit, database batch. Four independent pieces, one transaction.
 --
