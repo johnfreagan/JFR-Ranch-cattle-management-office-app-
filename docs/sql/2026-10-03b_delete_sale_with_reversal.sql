@@ -1,5 +1,9 @@
--- STATUS: written 2026-10-03 on John's approval ("A": retire the lot sale
--- modal; Delete sale owner-only and puts the head back). Not yet applied.
+-- STATUS: Applied 2026-10-03 on John's approval ("A": retire the lot sale
+-- modal; Delete sale owner-only and puts the head back). John ran it in the
+-- Supabase SQL Editor ("Success"). Verified afterwards: md5(prosrc)
+-- 0a2d1aa76b93faae6be0268777f2e19e matches this file; SECURITY INVOKER,
+-- search_path public, pg_catalog; anon cannot execute, authenticated can;
+-- rls_verify passes.
 
 -- delete_sale_with_reversal(p_sale_id): owner-only reversal of ONE sale that
 -- was entered on the lot screen (shipment_id IS NULL).
