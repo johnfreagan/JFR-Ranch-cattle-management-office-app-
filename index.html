@@ -2723,6 +2723,7 @@
                     <div>
                         <label for="invRepWhich">Report</label>
                         <select id="invRepWhich">
+                            <option value="application">Medication Application — Redwing (weekly)</option>
                             <option value="rollforward">Roll-forward (beginning → ending)</option>
                             <option value="valuation">Valuation, in Redwing item order</option>
                         </select>
@@ -37675,9 +37676,19 @@ ${ranchBlocks}
     function initInvReports() {
         invFillLocationSelect('invRepLocation');
         if (!$('invRepFrom').value) {
-            const d = new Date();
-            $('invRepFrom').value = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
-            $('invRepTo').value = ranchToday();
+            // The Monday posting opens on the week that just finished; the
+            // other two open on the month so far. Opening the application
+            // report on a half-finished month would post a range nobody
+            // meant and look right doing it.
+            if ($('invRepWhich').value === 'application') {
+                const w = fdRwLastWeek();
+                $('invRepFrom').value = w.from;
+                $('invRepTo').value   = w.to;
+            } else {
+                const d = new Date();
+                $('invRepFrom').value = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+                $('invRepTo').value = ranchToday();
+            }
         }
         loadInvReport();
     }
@@ -37686,6 +37697,33 @@ ${ranchBlocks}
         const which = $('invRepWhich').value;
         const locId = $('invRepLocation').value;
         $('invReportsContent').innerHTML = '<div class="empty">Loading…</div>';
+
+        // ---- Medication Application, the Monday posting into Redwing ----
+        //
+        // The feed side has run this way for months: pull the week that
+        // just finished, post it, done. Medicine is the same job, so it is
+        // the same shape - a block a lot, the dollars that go in the box,
+        // and Copy rows so it is paste rather than retype.
+        //
+        // What it is NOT is the roll-forward. That one answers "where did
+        // the inventory go"; this one answers "what do I type into Redwing
+        // this morning", and mixing them makes a report that does neither.
+        if (which === 'application') {
+            const from = $('invRepFrom').value, to = $('invRepTo').value;
+            if (!from || !to) { $('invReportsContent').innerHTML = '<div class="empty">Pick both dates.</div>'; return; }
+            if (from > to) { $('invReportsContent').innerHTML = '<div class="empty">The start date is after the end date.</div>'; return; }
+            // Every location. A lot is charged for the drug that went in the
+            // cattle wherever the bottle was standing - the medicine room,
+            // the truck or Jake's shelf - so filtering by pool here would
+            // post a week that is short by whatever the buyer used.
+            const { data, error } = await supabase.from('med_usage_by_lot')
+                .select('*').gte('txn_date', from).lte('txn_date', to)
+                .order('lot_number', { nullsFirst: false })
+                .order('category').order('medication_name');
+            if (error) { $('invReportsContent').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; return; }
+            renderInvApplication(data || [], from, to);
+            return;
+        }
 
         if (which === 'valuation') {
             const { data, error } = await supabase.from('med_on_hand').select('*')
@@ -37773,6 +37811,115 @@ ${ranchBlocks}
             </tr>`;
         });
         html += '</tbody></table>';
+        $('invReportsContent').innerHTML = html;
+    }
+
+    // One block a lot, a line a medication, grouped processing then
+    // treatment. The grain is the medication rather than the category
+    // because a Redwing item is a medication, and a category subtotal is
+    // one sum away for whoever only needs the two numbers.
+    function renderInvApplication(rows, from, to) {
+        const money = n => '$' + (Number(n) || 0).toFixed(2);
+        const CAT = { processing: 'Processing', treatment: 'Treatment' };
+        const catName = c => CAT[c] || (c ? c.charAt(0).toUpperCase() + c.slice(1) : 'Other');
+
+        // lot -> category -> medication
+        const lots = {};
+        rows.forEach(r => {
+            const lot = r.lot_number || '— no lot —';
+            const cat = r.category || 'other';
+            const key = r.medication_id;
+            lots[lot] = lots[lot] || {};
+            lots[lot][cat] = lots[lot][cat] || {};
+            const b = lots[lot][cat][key] = lots[lot][cat][key] ||
+                { name: r.medication_name, code: r.redwing_item_code || '',
+                  unit: r.unit || '', qty: 0, usd: 0, unpriced: 0 };
+            b.qty += Number(r.qty_units) || 0;
+            b.usd += Number(r.total_cost) || 0;
+            if (r.cost_provisional) b.unpriced += 1;
+        });
+
+        const lotNames = Object.keys(lots).sort((a, b) =>
+            a === '— no lot —' ? 1 : b === '— no lot —' ? -1 : a.localeCompare(b));
+
+        invReportRows = [];
+        let gUsd = 0, gUnpriced = 0;
+
+        // An unpriced draw books at $0 and the dollars beside it are SHORT.
+        // Text, not an icon, so it survives Copy rows and the printout:
+        // whoever types the number into Redwing has to see it.
+        const flag = n => n > 0
+            ? ` <span style="color:#b58900; font-weight:600;">⚠ ${n} unpriced</span>` : '';
+
+        let html = `<p class="muted" style="font-size:12px;">
+            What went in the cattle from <strong>${escapeHtml(fmtDate(from))}</strong> to
+            <strong>${escapeHtml(fmtDate(to))}</strong>, a block a lot, for typing into Redwing.
+            Processing comes off the load outs, treatment off the doctoring. <strong>Copy rows</strong>
+            gives it tab-separated.</p>`;
+
+        if (!rows.length) {
+            html += '<div class="empty">No medicine used in this period.</div>';
+            $('invReportsContent').innerHTML = html;
+            return;
+        }
+
+        lotNames.forEach(lotNo => {
+            let lotUsd = 0, lotUnpriced = 0, body = '';
+            Object.keys(lots[lotNo]).sort().forEach(cat => {
+                const meds = lots[lotNo][cat];
+                const keys = Object.keys(meds).sort((a, b) => meds[a].name.localeCompare(meds[b].name));
+                let cUsd = 0, cUnpriced = 0;
+                const lines = keys.map(k => {
+                    const m = meds[k];
+                    cUsd += m.usd; cUnpriced += m.unpriced;
+                    invReportRows.push([lotNo, catName(cat), m.code, m.name,
+                        fmtNum(m.qty, 2), m.unit, m.usd.toFixed(2)]);
+                    return `<tr>
+                        <td>${m.code ? escapeHtml(m.code) + ' · ' : ''}${escapeHtml(m.name)}</td>
+                        <td class="num">${fmtNum(m.qty, 2)}</td>
+                        <td class="muted">${escapeHtml(m.unit)}</td>
+                        <td class="num">${money(m.usd)}${flag(m.unpriced)}</td>
+                    </tr>`;
+                }).join('');
+                lotUsd += cUsd; lotUnpriced += cUnpriced;
+                body += `<tr style="background:#f3f4f6;"><td colspan="3"><strong>${escapeHtml(catName(cat))}</strong></td>
+                         <td class="num"><strong>${money(cUsd)}</strong></td></tr>` + lines;
+            });
+            gUsd += lotUsd; gUnpriced += lotUnpriced;
+            html += `<div style="margin-bottom:16px;">
+                <div style="font-weight:600; margin-bottom:4px;">Production Center ${escapeHtml(lotNo)}</div>
+                <table><thead><tr><th>Medication</th><th class="num">Qty</th><th>Unit</th>
+                    <th class="num">$</th></tr></thead>
+                <tbody>${body}
+                <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                    <td colspan="3">Total medicine &mdash; ${escapeHtml(lotNo)}</td>
+                    <td class="num">${money(lotUsd)}${flag(lotUnpriced)}</td></tr>
+                </tbody></table></div>`;
+        });
+
+        html += `<div style="margin-bottom:12px;">
+            <div style="font-weight:600; margin-bottom:4px;">All lots</div>
+            <table><thead><tr><th>Lots</th><th class="num">$</th></tr></thead>
+            <tbody><tr style="font-weight:700;">
+                <td>${lotNames.length} lot${lotNames.length === 1 ? '' : 's'}</td>
+                <td class="num">${money(gUsd)}${flag(gUnpriced)}</td></tr>
+            </tbody></table></div>`;
+
+        if (lots['— no lot —']) {
+            html += `<div style="padding:8px 10px;border-left:3px solid #b45309;background:#fffbeb;font-size:12px;">
+                <strong>Usage with no lot on it</strong> is in the block above under &ldquo;no lot&rdquo;.
+                It is real drug out of the shelf, so it has to go somewhere in Redwing &mdash; find the lot
+                before posting if you can.</div>`;
+        }
+
+        // Shrink is NOT in here, and saying so is the point: a zero would
+        // read as "none". Shrink only exists once a count is posted, so a
+        // week that does not end on a count has no shrink to state yet.
+        html += `<div style="padding:8px 10px;border-left:3px solid #64748b;background:#f8fafc;font-size:12px;margin-top:10px;">
+            <strong>This is usage only.</strong> Shrink and write-offs are not in it &mdash; those only exist
+            once a count is posted, and a count is month end. Post those off the Roll-forward after the
+            monthly count rather than guessing a number here.</div>`;
+
         $('invReportsContent').innerHTML = html;
     }
 
@@ -38170,7 +38317,17 @@ ${ranchBlocks}
         if (b) purgeInvLocation(b.dataset.invPurge);
     });
     $('invEffRefreshBtn').addEventListener('click', loadInvEfficiency);
-    $('invRepWhich').addEventListener('change', loadInvReport);
+    // Switching to the Monday posting snaps the dates to the week that just
+    // finished, because that is the only range it is ever run for. Typing a
+    // different range still works - this fires on the switch, not on load.
+    $('invRepWhich').addEventListener('change', () => {
+        if ($('invRepWhich').value === 'application') {
+            const w = fdRwLastWeek();
+            $('invRepFrom').value = w.from;
+            $('invRepTo').value   = w.to;
+        }
+        loadInvReport();
+    });
     $('invRepLocation').addEventListener('change', loadInvReport);
     ['invRepFrom', 'invRepTo'].forEach(id => $(id).addEventListener('change', loadInvReport));
     $('invRepCopyBtn').addEventListener('click', copyInvReportRows);
