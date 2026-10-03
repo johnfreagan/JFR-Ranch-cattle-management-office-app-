@@ -486,7 +486,7 @@ dropped there belongs on a cost centre — **Cow/Calf Wip** — the same destina
 feed already uses (`feed_usage.destination_type = 'cost_center'`). It never touches a lot's cost of
 gain and lands in the Redwing export's cost-centre section. Migration
 `docs/sql/2026-10-03_pb_drop_cost_center.sql` (applied); `2026-10-03b_pb_split_keeps_cost_center.sql`
-is **not applied yet** (see below).
+(applied by John in the SQL editor the same day, md5 verified - a Split keeps the pen's cost centre).
 
 - **Feed tab:** every pen row has a **Cost centre** button beside Move / Split / Prefeed. It opens a
   picker of active cost centres (`cost_centers.is_active`); saving calls
@@ -508,9 +508,8 @@ is **not applied yet** (see below).
   apply nothing when the SQL contains `DROP` or `DELETE` — even a rolled-back `DROP FUNCTION` with a
   5 s lock timeout. That is why `pb_plan` was not dropped (its result columns could not change in
   place) and why `2026-10-03b` (Split keeps the cost centre; its body deletes the pen's old lines) is
-  not applied: paste that file into the dashboard SQL editor. Until then a Split clears the pen's cost
-  centre, the "no lot standing" problem comes back and blocks Approve, and the office taps Cost centre
-  again — nothing mis-posts. The full `rls_verify` script also contains `DELETE`; its assertions were
+  applied through the connector: John pasted that file into the dashboard SQL editor on 2026-10-03.
+  Use the SQL editor the same way for any future change that needs DROP or DELETE. The full `rls_verify` script also contains `DELETE`; its assertions were
   run as separate selects.
 - **Tested** on the scratch copy with the real 10/1 email (Corner 4 and Nichols Trap → Front Trap):
   Cost centre → 36-27 4,890 lb + Cow/Calf Wip 7,970 lb = 12,860 (the ingredient pounds); Approve posts

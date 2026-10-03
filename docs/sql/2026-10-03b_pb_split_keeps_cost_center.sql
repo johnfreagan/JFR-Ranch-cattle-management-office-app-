@@ -1,12 +1,10 @@
 -- Approvals > Feed: a Split keeps the pen's cost centre (follows 2026-10-03_pb_drop_cost_center.sql).
 --
--- NOT APPLIED YET. The Supabase connector stalls on any request containing DELETE, and this function
--- has to delete the pen's old drop lines before writing the split ones. Apply it by pasting this
--- whole file into the Supabase dashboard SQL editor (it is idempotent and runs in one transaction).
--- Afterwards: md5(prosrc) of pb_split_drop should be bba5d7b36af4269096f5edf3a757949e (the copy
--- tested locally 2026-10-03, scripts/pb-feed-harness/run-local.js and the SQL tests). Live today it is
--- b6af7f311c63c1d048b902ababbb4e33 (the 2026-09-29d version), which clears a pen's cost centre on a
--- split - the "no lot standing" problem then blocks Approve until Cost centre is tapped again.
+-- APPLIED 2026-10-03 by John in the Supabase dashboard SQL editor (the connector stalls on any request
+-- containing DELETE, and this function has to delete the pen's old drop lines before writing the
+-- split ones). Verified afterwards: md5(prosrc) of pb_split_drop = bba5d7b36af4269096f5edf3a757949e,
+-- the copy tested locally; anon cannot execute it, authenticated can. It replaced
+-- b6af7f311c63c1d048b902ababbb4e33 (the 2026-09-29d version), which cleared a pen's cost centre on a split.
 --
 -- The only change from 29d: v_cc carries max(cost_center_id) onto every line the split writes, as
 -- v_pre already carries Prefeed.
