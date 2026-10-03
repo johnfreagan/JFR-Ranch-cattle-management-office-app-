@@ -24466,17 +24466,31 @@ ${ranchBlocks}
             return;
         }
 
+        // A reversing move carries "[reverses <id>]" in its notes (see
+        // reverseMovementRow). That marker hides Reverse on the reversal
+        // itself and on the move it already reversed.
+        const reversedIds = new Set();
+        movements.forEach(m => {
+            const hit = /\[reverses ([0-9a-f-]{36})\]/.exec(m.notes || '');
+            if (hit) reversedIds.add(hit[1]);
+        });
         const histRows = movements.map(m => {
             const fromLabel = m.from_pasture_id ? escapeHtml(pastureLabel[m.from_pasture_id] || '?') : '<span class="muted">Unassigned</span>';
             const toLabel = escapeHtml(pastureLabel[m.to_pasture_id] || '?');
+            const isReversal = /\[reverses [0-9a-f-]{36}\]/.test(m.notes || '');
+            const canReverse = m.from_pasture_id && !isReversal && !reversedIds.has(m.id);
+            const reverseCell = canReverse
+                ? `<button type="button" class="move-row-reverse" data-movement-id="${m.id}" data-perm="office" data-write style="padding: 2px 8px; font-size: 11px;">Reverse</button>`
+                : (reversedIds.has(m.id) ? '<span class="muted" style="font-size: 11px;">Reversed</span>' : '');
             return `<tr>
                 <td>${fmtDate(m.move_date)}</td>
                 <td>${fromLabel}</td>
                 <td>${toLabel}</td>
                 <td class="num">${fmtNum(m.head_count)}</td>
                 <td class="muted" style="font-size: 13px;">${escapeHtml(m.notes || '')}</td>
-                <td>
-                    <button type="button" class="move-row-delete" data-movement-id="${m.id}" style="padding: 2px 8px; font-size: 11px; color: var(--danger);">Delete</button>
+                <td style="white-space: nowrap;">
+                    ${reverseCell}
+                    <button type="button" class="move-row-delete" data-movement-id="${m.id}" data-perm="owner" data-write style="padding: 2px 8px; font-size: 11px; color: var(--danger);">Delete</button>
                 </td>
             </tr>`;
         }).join('');
@@ -24485,15 +24499,52 @@ ${ranchBlocks}
                 <thead><tr><th>Date</th><th>From</th><th>To</th><th class="num">Head</th><th>Notes</th><th></th></tr></thead>
                 <tbody>${histRows}</tbody>
             </table>
-            <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">Deleting a move reverses it: the head go back where they came from, and if the move emptied and closed the source pasture, that pasture is reopened.</p>
+            <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">Reverse a wrong move: it records the opposite move on the same date, so the cattle spend no days in the wrong pasture and both moves stay in the history. Delete (owner only) erases the move instead.</p>
         `;
         const mc2 = document.getElementById('moveHistoryCount');
         if (mc2) mc2.textContent = `(${movements.length})`;
 
-        // Wire delete handlers (audit-only)
+        const byId = new Map(movements.map(m => [m.id, m]));
+        $('moveHistoryContent').querySelectorAll('.move-row-reverse').forEach(btn => {
+            btn.addEventListener('click', () => reverseMovementRow(byId.get(btn.dataset.movementId), pastureLabel));
+        });
         $('moveHistoryContent').querySelectorAll('.move-row-delete').forEach(btn => {
             btn.addEventListener('click', () => deleteMovementRow(btn.dataset.movementId));
         });
+    }
+
+    // Reverse = post the opposite move through record_move_with_pasture, on
+    // the ORIGINAL move date. Office cannot delete a move (lot_movements and
+    // lot_pasture_assignments DELETE are owner-only), and a reversal keeps the
+    // history: the wrong move and its correction both stay. Dating it the
+    // same day nets the wrong pasture's head-days to zero. The RPC refuses if
+    // the head are no longer standing in the pasture they were moved to.
+    async function reverseMovementRow(m, pastureLabel) {
+        if (!m || !m.from_pasture_id) return;
+        const fromName = pastureLabel[m.from_pasture_id] || '?';
+        const toName = pastureLabel[m.to_pasture_id] || '?';
+        if (!confirm(
+            `Reverse this move?\n\n` +
+            `  ${fmtNum(m.head_count)} head go back from ${toName} to ${fromName}, dated ${fmtDate(m.move_date)}.\n\n` +
+            `Both moves stay in the history. If the cattle have moved again, died or sold since, this will refuse.\n\n` +
+            `Feed from PB days already approved while they stood in ${toName} stays charged to this lot.`
+        )) return;
+
+        const { error } = await supabase.rpc('record_move_with_pasture', {
+            p_lot_id: currentLot.id,
+            p_from_pasture_id: m.to_pasture_id,
+            p_to_pasture_id: m.from_pasture_id,
+            p_head_count: m.head_count,
+            p_move_date: m.move_date,
+            p_notes: `Reverses the ${m.move_date} move ${fromName} → ${toName}, entered in error. [reverses ${m.id}]`,
+            p_recorded_by: currentUser.id
+        });
+        if (error) {
+            showAlert('globalAlert', 'Move NOT reversed, nothing was changed: ' + error.message, 'error');
+            return;
+        }
+        showAlert('globalAlert', `Move reversed — ${fmtNum(m.head_count)} head back in ${fromName} as of ${fmtDate(m.move_date)}.`, 'success');
+        showLotDetail(currentLot.id);
     }
 
     // Deleting a move REVERSES it. This used to raw-delete the lot_movements

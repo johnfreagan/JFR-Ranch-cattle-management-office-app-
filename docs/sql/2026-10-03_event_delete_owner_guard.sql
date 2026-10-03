@@ -1,7 +1,8 @@
 -- STATUS: written 2026-10-03 on John's approval ("Option 1", then "A").
 -- Not yet applied. Fill in the applied date and md5(prosrc) once verified.
 
--- Owner-only DELETE guard for the two lot_events reversal functions.
+-- Owner-only DELETE guard for the three reversal functions: delete_death_event,
+-- delete_head_adjustment (lot_events) and delete_move_event (lot_movements).
 --
 -- Problem (office tap audit, 2026-10-03, confirmed against the live catalog):
 --   lot_events DELETE is owner-only under RLS (lot_events_delete:
@@ -216,6 +217,110 @@ BEGIN
     GET DIAGNOSTICS v_deleted = ROW_COUNT;
     IF v_deleted = 0 THEN
         RAISE EXCEPTION 'Not deleted: only the owner can delete this event. Nothing was changed.'
+            USING ERRCODE = '42501';
+    END IF;
+    RETURN true;
+END;
+$function$;
+
+-- delete_move_event: same bug, added 2026-10-03 on John's approval. Its two
+-- DELETEs (lot_pasture_assignments, lot_movements) are both owner-only under
+-- RLS (lpa_delete, lot_movements_delete). Live prosrc md5 before this file:
+-- 3fd05350b8fc6bf4f8267b0a319e3120.
+CREATE OR REPLACE FUNCTION public.delete_move_event(p_movement_id uuid)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_catalog'
+AS $function$
+DECLARE
+    v_lot_id     UUID;
+    v_from_id    UUID;
+    v_to_id      UUID;
+    v_head       INTEGER;
+    v_move_date  DATE;
+    v_recorded   UUID;
+    v_assign     UUID;
+    v_assign_head INTEGER;
+    v_moved_in   DATE;
+    v_deleted    INTEGER;  -- 2026-10-03: rows the DELETE removed (0 = RLS refused it)
+BEGIN
+    SELECT lot_id, from_pasture_id, to_pasture_id, head_count, move_date, recorded_by
+      INTO v_lot_id, v_from_id, v_to_id, v_head, v_move_date, v_recorded
+    FROM public.lot_movements WHERE id = p_movement_id;
+
+    IF v_lot_id IS NULL THEN
+        RAISE EXCEPTION 'Movement % not found.', p_movement_id;
+    END IF;
+
+    -- --- undo the destination ---
+    SELECT id, head_count, moved_in INTO v_assign, v_assign_head, v_moved_in
+    FROM public.lot_pasture_assignments
+    WHERE lot_id = v_lot_id AND pasture_id = v_to_id AND moved_out IS NULL;
+
+    IF v_assign IS NULL THEN
+        RAISE EXCEPTION 'Cannot reverse move %: no open assignment at the destination.', p_movement_id;
+    END IF;
+    IF v_assign_head < v_head THEN
+        RAISE EXCEPTION 'Cannot reverse move %: destination holds % head, fewer than the % moved.',
+            p_movement_id, v_assign_head, v_head;
+    END IF;
+
+    IF v_assign_head = v_head AND v_moved_in = v_move_date THEN
+        -- This move created the row; remove it rather than leave a zero.
+        DELETE FROM public.lot_pasture_assignments WHERE id = v_assign;
+        GET DIAGNOSTICS v_deleted = ROW_COUNT;
+        IF v_deleted = 0 THEN
+            RAISE EXCEPTION 'Not deleted: only the owner can delete a move. Nothing was changed.'
+                USING ERRCODE = '42501';
+        END IF;
+    ELSE
+        UPDATE public.lot_pasture_assignments
+           SET head_count = v_assign_head - v_head
+         WHERE id = v_assign;
+    END IF;
+
+    -- --- put the head back at the source ---
+    IF v_from_id IS NOT NULL THEN
+        SELECT id, head_count INTO v_assign, v_assign_head
+        FROM public.lot_pasture_assignments
+        WHERE lot_id = v_lot_id AND pasture_id = v_from_id AND moved_out IS NULL;
+
+        IF v_assign IS NOT NULL THEN
+            UPDATE public.lot_pasture_assignments
+               SET head_count = v_assign_head + v_head
+             WHERE id = v_assign;
+        ELSE
+            -- The move emptied and closed the source. Reopen it, same as
+            -- delete_death_event does.
+            SELECT id, head_count INTO v_assign, v_assign_head
+            FROM public.lot_pasture_assignments
+            WHERE lot_id = v_lot_id AND pasture_id = v_from_id AND moved_out >= v_move_date
+            ORDER BY moved_out ASC LIMIT 1;
+
+            IF v_assign IS NOT NULL THEN
+                -- Reopen with exactly the head coming back, NOT the stored
+                -- value plus it. When an assignment is emptied it is closed
+                -- with its last head_count left in place as a historical
+                -- record, so that number is stale the moment moved_out is
+                -- set. Adding to it double-counts the herd.
+                UPDATE public.lot_pasture_assignments
+                   SET moved_out = NULL, head_count = v_head
+                 WHERE id = v_assign;
+            ELSE
+                INSERT INTO public.lot_pasture_assignments (
+                    lot_id, pasture_id, head_count, moved_in, notes, recorded_by
+                ) VALUES (
+                    v_lot_id, v_from_id, v_head, v_move_date,
+                    'Auto-created on move reversal', v_recorded
+                );
+            END IF;
+        END IF;
+    END IF;
+
+    DELETE FROM public.lot_movements WHERE id = p_movement_id;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    IF v_deleted = 0 THEN
+        RAISE EXCEPTION 'Not deleted: only the owner can delete a move. Nothing was changed.'
             USING ERRCODE = '42501';
     END IF;
     RETURN true;
