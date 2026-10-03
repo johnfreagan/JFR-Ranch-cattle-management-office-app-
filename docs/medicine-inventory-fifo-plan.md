@@ -1850,3 +1850,67 @@ only a count and the office cannot guess wrong.
 
 The footer is `position: fixed`, so it prints at the bottom of every page rather
 than stealing a block from the first one.
+
+### The Monday posting: Medication Application (2026-10-03)
+
+John: *"We need a medication usage report in the inventory section for redwing
+similar to the feed application report for feeds. We will probably run and enter
+on mondays similar to feeds."*
+
+**Inventory → Meds → Reports → "Medication Application — Redwing (weekly)"**, the
+first option in the picker, beside the roll-forward and the valuation. It shares
+that screen's date range, Copy rows and Print rather than growing a second one.
+
+**It opens on the week that just finished** — the same `fdRwLastWeek()` the feed
+report uses, last completed Monday–Sunday. Switching to it snaps the dates;
+typing a different range still works. Opening the Monday posting on a
+half-finished month would post a range nobody meant and look right doing it.
+
+**What it shows**: a block a lot — *Production Center 32-26* — then Processing
+and Treatment, each a line a medication with quantity, unit and dollars, a
+category subtotal, a lot total, and an all-lots total. The Redwing item code
+prints ahead of the name where one is set (none are yet: all 32 medications have
+`redwing_item_code` NULL).
+
+The grain is the **medication**, not the category, because a Redwing item is a
+medication and a category subtotal is one sum away for whoever only needs two
+numbers. Copy rows gives: lot, category, item code, medication, qty, unit, $.
+
+**`med_usage_by_lot`** (`docs/sql/2026-10-03_med_usage_by_lot.sql`) is what made
+it possible. `med_txns` carries a `ref_kind` and a `ref_id` and stops there, so
+nothing answered "which lot". The view resolves it:
+
+| ref_kind | resolves through | category |
+|---|---|---|
+| `delivery_receipt` | `delivery_receipts.lot_id` | **processing** |
+| `doctoring_event` | `doctoring_events.lot_id` | **treatment** |
+
+The category comes off the **reference**, not off `med_txns.reason`. A reason is
+free text somebody typed; the reference is what the row is attached to, and the
+two must not be able to disagree about whether a bottle was processing or
+doctoring.
+
+Three things it deliberately does **not** do:
+
+- **No location filter.** A lot is charged for the drug that went in the cattle
+  wherever the bottle stood — the medicine room, the truck or Jake's shelf — so
+  filtering by pool would post a week short by whatever the buyer used.
+- **Transfers are not usage.** A move between pools is an adjustment; the drug
+  has not gone into cattle yet, and posting it as consumption would charge it
+  twice when it finally is.
+- **No shrink.** It says so on screen rather than printing a zero that reads as
+  "none": shrink only exists once a count is posted, and counts are month end.
+  Those go off the roll-forward after the monthly count.
+
+Usage that resolves to no lot gets its own block rather than being dropped — it
+is real drug off the shelf and has to land somewhere in Redwing. The verify
+asserts every usage row in the ledger appears exactly once in the view and that
+the view's dollars equal the ledger's, because a posting that reads light is
+invisible until somebody reconciles.
+
+**The one thing still unknown is Redwing's own screen.** The feed report mirrors
+Redwing's Feed Application boxes field for field, because those were in hand.
+Nobody here has seen the medication entry screen, so this posts by medication
+and lot, which every version of that screen will need. If it turns out to have
+named boxes like the feed one, that is a mapping column on `medications` and a
+regrouping — the data underneath does not change.
