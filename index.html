@@ -59,6 +59,46 @@
         header .role-badge.crew { background: #888; }
         header .role-badge.accountant { background: #6a5acd; }
         header .nav-tabs { display: flex; gap: 4px; }
+        header .brand { flex-direction: column; gap: 0; line-height: 1.15; white-space: nowrap; }
+        header .brand .ranch { font-size: 16px; }
+        header .brand .app { font-size: 12px; }
+        header .nav-tab { white-space: nowrap; }
+        header { gap: 16px; position: relative; z-index: 950; }
+        header .user-info { position: relative; }
+        #userMenuBtn {
+            display: flex; align-items: center; gap: 4px; white-space: nowrap; margin: 0;
+            padding: 7px 12px; border-radius: var(--radius); border: 1px solid var(--border);
+            background: var(--surface); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+        }
+        #userMenuBtn:hover, .user-info:has(#navSettings.active) #userMenuBtn { background: #ebeae3; }
+        .user-menu-list {
+            position: absolute; right: 0; top: calc(100% + 6px); min-width: 190px; padding: 6px;
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+            box-shadow: 0 6px 20px rgba(0,0,0,.15); display: flex; flex-direction: column; gap: 2px;
+        }
+        .user-menu-list.hidden { display: none; }
+        .user-menu-role { font-size: 12px; color: var(--text-muted); padding: 4px 8px 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; white-space: nowrap; }
+        .user-menu-list button { text-align: left; width: 100%; margin: 0; }
+        .user-menu-list #logoutBtn {
+            padding: 8px 14px; border: 1px solid transparent; background: transparent; border-radius: var(--radius);
+            font: inherit; font-size: 14px; color: var(--danger); cursor: pointer;
+        }
+        .user-menu-list #logoutBtn:hover { background: #ebeae3; }
+        /* Narrow screens: brand and name menu on the first line, the tabs on
+           their own full-width line that swipes sideways. The page itself
+           never scrolls sideways because of the header. */
+        @media (max-width: 1000px) {
+            header { flex-wrap: wrap; padding: 10px 16px 0; row-gap: 8px; }
+            header .nav-tabs {
+                order: 3; flex: 1 0 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+                scrollbar-width: none; padding-bottom: 8px;
+            }
+            header .nav-tabs::-webkit-scrollbar { display: none; }
+            header .nav-tab { padding: 7px 12px; }
+        }
+        /* The lots list is the start page: on a phone its table swipes inside
+           the card instead of pushing the whole page sideways. */
+        #lotsContent { overflow-x: auto; }
         header .nav-tab {
             padding: 8px 14px;
             border-radius: var(--radius);
@@ -987,24 +1027,27 @@
 </aside>
 <div id="appShell" class="hidden">
     <header>
-        <div class="brand">
-            <span class="ranch">JFR Ranch Co. Ltd.</span>
+        <div class="brand" title="JFR Ranch Co. Ltd.">
+            <span class="ranch">JFR Ranch</span>
             <span class="app">Cattle Office</span>
         </div>
         <div class="nav-tabs">
             <button class="nav-tab active" id="navLots">Lots</button>
-            <button class="nav-tab" id="navAnimalHealth">Animal Health</button>
-            <button class="nav-tab" id="navSales" data-perm="office">Sales</button>
-            <button class="nav-tab" id="navMoves" data-perm="office">Moves</button>
+            <button class="nav-tab" id="navAnimalHealth">Health</button>
+            <button class="nav-tab" id="navSales" data-perm="office">Moves &amp; Sales</button>
             <button class="nav-tab" id="navInventory" data-perm="office">Inventory <span id="navInvCount" class="approvals-badge hidden">0</span></button>
             <button class="nav-tab" id="navReports">Reports</button>
             <button class="nav-tab" id="navApprovals" data-perm="office">Approvals <span id="navApprovalsCount" class="approvals-badge hidden">0</span></button>
-            <button class="nav-tab" id="navSettings">Settings</button>
         </div>
-        <div class="user-info">
-            <span id="userName"></span>
-            <span id="userRole" class="role-badge"></span>
-            <button id="logoutBtn">Sign out</button>
+        <!-- Name menu: role, Settings and Sign out live here so the tab row
+             fits. Opened by #userMenuBtn; any other tap closes it. -->
+        <div class="user-info" id="userMenu">
+            <button type="button" id="userMenuBtn" aria-haspopup="true" aria-expanded="false"><span id="userName"></span> ▾</button>
+            <div class="user-menu-list hidden" id="userMenuList">
+                <div class="user-menu-role">Signed in as <span id="userRole" class="role-badge"></span></div>
+                <button type="button" class="nav-tab" id="navSettings">Settings</button>
+                <button type="button" id="logoutBtn">Sign out</button>
+            </div>
         </div>
     </header>
 
@@ -1027,7 +1070,8 @@
             <button class="sub-tab" data-subtab="users" data-perm="owner">Users</button>
         </div>
         <div class="sub-tabs hidden" id="salesSubtabs" data-perm="office">
-            <button class="sub-tab active" data-subtab="shipments">Shipments</button>
+            <button class="sub-tab active" data-subtab="moves">Moves</button>
+            <button class="sub-tab" data-subtab="shipments">Shipments</button>
             <button class="sub-tab" data-subtab="accounting">Accounting Report</button>
             <button class="sub-tab" data-subtab="positions">Positions</button>
         </div>
@@ -6581,6 +6625,16 @@ window.addEventListener('unhandledrejection', function(e) {
             showAlert('loginAlert', 'Unexpected error: ' + (e.message || e));
         }
     });
+    function userMenuShow(open) {
+        $('userMenuList').classList.toggle('hidden', !open);
+        $('userMenuBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    $('userMenuBtn').addEventListener('click', e => {
+        e.stopPropagation();
+        userMenuShow($('userMenuList').classList.contains('hidden'));
+    });
+    document.addEventListener('click', e => { if (!e.target.closest('#userMenuBtn')) userMenuShow(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') userMenuShow(false); });
     $('logoutBtn').addEventListener('click',async()=>{await supabase.auth.signOut();showLoginScreen();});
 
     // ---- USERS (Settings → Users, owner only) ----
@@ -10151,7 +10205,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // Helper: clear active state on top nav and sub-tabs
     function clearAllNavActive() {
         if (typeof drillBackClear === 'function') drillBackClear();
-        ['navLots', 'navAnimalHealth', 'navSales', 'navMoves', 'navInventory', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
+        ['navLots', 'navAnimalHealth', 'navSales', 'navInventory', 'navSettings', 'navReports', 'navApprovals'].forEach(id => {
             const el = $(id); if (el) el.classList.remove('active');
         });
         ['animalHealthSubtabs', 'salesSubtabs', 'invTabRow', 'settingsSubtabs', 'reportsSubtabs'].forEach(id => {
@@ -14029,7 +14083,11 @@ window.addEventListener('unhandledrejection', function(e) {
     }
 
     // ---- WIRING ----------------------------------------------------------
-    $('navSales').addEventListener('click', showSalesTab);
+    $('navSales').addEventListener('click', () => {
+        let sub = 'moves';
+        try { sub = localStorage.getItem('jfr.movesSalesSub') || 'moves'; } catch (e) {}
+        showMovesSalesSub(sub);
+    });
     $('newShipmentBtn').addEventListener('click', openShipmentEntry);
     $('shipmentBackBtn').addEventListener('click', showSalesTab);
     $('shipmentCancelBtn').addEventListener('click', showSalesTab);
@@ -14458,12 +14516,19 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     }
 
     // ---- wiring ----------------------------------------------------------
+    // Moves & Sales: one top tab over Moves, Shipments, Accounting Report and
+    // Positions. The tab reopens on the sub-tab last picked (Moves at first).
+    function showMovesSalesSub(sub) {
+        if (sub === 'accounting') showSalesReportTab();
+        else if (sub === 'positions') showPositionsTab();
+        else if (sub === 'shipments') showSalesTab();
+        else showMovesTab();
+    }
     $('salesSubtabs').addEventListener('click', (e) => {
         const btn = e.target.closest('.sub-tab');
         if (!btn) return;
-        if (btn.dataset.subtab === 'accounting') showSalesReportTab();
-        else if (btn.dataset.subtab === 'positions') showPositionsTab();
-        else showSalesTab();
+        try { localStorage.setItem('jfr.movesSalesSub', btn.dataset.subtab); } catch (err) {}
+        showMovesSalesSub(btn.dataset.subtab);
     });
     $('acctShipment').addEventListener('change', () => loadAcctReport($('acctShipment').value));
     ['acctAccount', 'acctProfitCenter', 'acctProductionYear'].forEach(id => {
@@ -14916,7 +14981,11 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     async function showMovesTab() {
         hideAllViews();
         clearAllNavActive();
-        $('navMoves').classList.add('active');
+        $('navSales').classList.add('active');
+        $('salesSubtabs').classList.remove('hidden');
+        $('salesSubtabs').querySelectorAll('.sub-tab').forEach(b => {
+            b.classList.toggle('active', b.dataset.subtab === 'moves');
+        });
         $('movesView').classList.remove('hidden');
 
         if (!moveState) moveState = { tickets: [] };
@@ -14929,7 +14998,6 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     }
 
     // ---- WIRING ----------------------------------------------------------
-    $('navMoves').addEventListener('click', showMovesTab);
     $('mvAddTicketBtn').addEventListener('click', () => {
         // A new ticket inherits the last one's date - a batch is normally one
         // day's work - and its from-pasture, since working a pasture usually
@@ -38761,7 +38829,7 @@ ${ranchBlocks}
 "title": "Print the receiving sheet",
 "when": "Before the crew works new cattle.",
 "steps": [
-"Tap [[Settings]]. The Protocols list opens.",
+"Tap your name (top right) → [[Settings]]. The Protocols list opens.",
 "Tap the protocol.",
 "Tap [[🖨 Receiving Sheet]].",
 "Type the average weight of the cattle.",
@@ -38782,7 +38850,7 @@ ${ranchBlocks}
 "title": "Enter doctoring from a paper list",
 "when": "Several head got the same treatment and it was not entered in the field app.",
 "steps": [
-"Tap [[Animal Health]] → [[Doctoring Entry (bulk)]].",
+"Tap [[Health]] → [[Doctoring Entry (bulk)]].",
 "Check the [[Date]].",
 "Pick the action under Action / protocol. The tag box opens.",
 "Type a tag and press Enter. Repeat for every head.",
@@ -38805,7 +38873,7 @@ ${ranchBlocks}
 "title": "Enter one doctoring",
 "when": "One animal was treated.",
 "steps": [
-"Tap [[Animal Health]] → [[Single Doctoring]].",
+"Tap [[Health]] → [[Single Doctoring]].",
 "In the tag box, type the tag and press Enter. The entry opens on the right lot.",
 "No tag: tick [[NT animal (no tag)]], pick the lot, tap [[Open entry]].",
 "Pick the action. Check medicine and doses.",
@@ -38906,7 +38974,7 @@ ${ranchBlocks}
 "title": "Move cattle between pastures",
 "when": "Cattle were moved and it was not entered in the field app.",
 "steps": [
-"Tap [[Moves]] at the top.",
+"Tap [[Moves & Sales]]. It opens on [[Moves]] (tap that sub-tab if it does not).",
 "On the ticket: pick the lot (the pasture they left fills in when the lot is in one pasture), type the head, pick the pasture they went to.",
 "More moves? Tap [[+ Move ticket]].",
 "Check the date on each ticket.",
@@ -38943,7 +39011,7 @@ ${ranchBlocks}
 "title": "Ship cattle (sale)",
 "when": "Cattle are sold and shipped.",
 "steps": [
-"Tap [[Sales]] → [[+ New shipment]]. (From a lot, [[💲 + Sale]] opens the same screen with the lot filled in.)",
+"Tap [[Moves & Sales]] → [[Shipments]] → [[+ New shipment]]. (From a lot, [[💲 + Sale]] opens the same screen with the lot filled in.)",
 "Set the [[Sale date]] first. Type the buyer.",
 "On each load: head, gross pounds, and the lot (its pasture fills in when the lot is in one pasture).",
 "Type the [[$ per cwt]] and any shrink. Check deductions.",
@@ -38967,7 +39035,7 @@ ${ranchBlocks}
 "title": "Copy a shipment into Redwing",
 "when": "After a shipment is saved.",
 "steps": [
-"Tap [[Sales]] → [[Accounting Report]] (or [[Accounting report]] on the shipment).",
+"Tap [[Moves & Sales]] → [[Accounting Report]] (or [[Accounting report]] on the shipment).",
 "Pick the shipment.",
 "Type the [[Production Year]]. It is decided for each sale.",
 "Check the banner says the rows tie.",
@@ -39006,7 +39074,7 @@ ${ranchBlocks}
 "title": "Settle a pasture count",
 "when": "The crew counted a pasture and the lot split is off.",
 "steps": [
-"Tap [[Settings]] → [[Locations]] → the ranch → the pasture.",
+"Tap your name (top right) → [[Settings]] → [[Locations]] → the ranch → the pasture.",
 "Tap [[Settle counts]].",
 "Type the head counted for every lot (0 if none).",
 "For each lot that changed, pick the other pasture the head came from or went to.",
@@ -39251,6 +39319,8 @@ ${ranchBlocks}
             if (alt && alt.matches('input') && alt.getClientRects().length) return alt;
             return lab;
         }
+        // Settings (and Sign out) sit in the closed name menu: outline the name.
+        if (Array.from(document.querySelectorAll('#userMenuList button')).some(b => helpNorm(b.textContent) === want)) return $('userMenuBtn');
         return Array.from(document.querySelectorAll('main *')).find(x => helpVisible(x) && x.children.length === 0 && helpNorm(x.textContent) === want) || null;
     }
     function helpPickStep(i) {

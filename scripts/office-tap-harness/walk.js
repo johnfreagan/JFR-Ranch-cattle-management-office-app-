@@ -135,6 +135,7 @@ async function run(name, fn, browser) {
   }
   if (process.env.BATCH === 'B') {
   await run('B4 Receiving sheet', async (p, c) => {
+    await c.tap(p.locator('#userMenuBtn'), 'name menu');
     await c.tap(p.locator('#navSettings'), 'Settings');
     await p.waitForTimeout(500);
     await c.tap(p.getByText('Receiving', { exact: false }).locator('xpath=ancestor-or-self::tr').first(), 'protocol row');
@@ -144,7 +145,7 @@ async function run(name, fn, browser) {
   }, browser);
 
   await run('C2 Single doctoring', async (p, c) => {
-    await c.tap(p.locator('#navAnimalHealth'), 'Animal Health');
+    await c.tap(p.locator('#navAnimalHealth'), 'Health');
     await c.tap(p.locator('[data-subtab="doctoring-single"]'), 'Single Doctoring');
     await p.fill('#docSingleTag', '101'); await p.press('#docSingleTag', 'Enter'); c.fields++;
     await p.waitForTimeout(800);
@@ -179,7 +180,8 @@ async function run(name, fn, browser) {
   }, browser);
 
   await run('D3 Ship cattle', async (p, c) => {
-    await c.tap(p.locator('#navSales'), 'Sales');
+    await c.tap(p.locator('#navSales'), 'Moves & Sales');
+    await c.tap(p.locator('#salesSubtabs [data-subtab="shipments"]'), 'Shipments');
     await c.tap(p.locator('#newShipmentBtn'), '+ New shipment');
     await p.waitForTimeout(500);
     await c.type('#shpBuyer', 'Buyer A', 'Buyer');
@@ -233,7 +235,7 @@ async function run(name, fn, browser) {
   }
   if (process.env.BATCH === 'C') {
   await run('D4 Redwing rows', async (p, c) => {
-    await c.tap(p.locator('#navSales'), 'Sales');
+    await c.tap(p.locator('#navSales'), 'Moves & Sales');
     await c.tap(p.locator('#salesSubtabs [data-subtab="accounting"]'), 'Accounting Report');
     await p.waitForTimeout(700);
     await c.tap(p.locator('#acctCopyBtn'), 'Copy rows (no year yet)');
@@ -245,6 +247,7 @@ async function run(name, fn, browser) {
   }, browser);
 
   await run('D6 Settle counts', async (p, c) => {
+    await c.tap(p.locator('#userMenuBtn'), 'name menu');
     await c.tap(p.locator('#navSettings'), 'Settings');
     await c.tap(p.locator('#settingsSubtabs [data-subtab="locations"]'), 'Locations');
     await p.waitForTimeout(500);
@@ -361,7 +364,7 @@ async function run(name, fn, browser) {
   }, browser);
 
   await run('D1 Moves tab', async (p, c) => {
-    await c.tap(p.locator('#navMoves'), 'Moves');
+    await c.tap(p.locator('#navSales'), 'Moves & Sales (opens on Moves)');
     await p.waitForTimeout(500);
     await c.pick('.mv-lot', 'lot-1', 'lot');
     await p.waitForTimeout(200);
@@ -384,7 +387,7 @@ async function run(name, fn, browser) {
   }, browser);
 
   await run('C1 Bulk doctoring', async (p, c) => {
-    await c.tap(p.locator('#navAnimalHealth'), 'Animal Health');
+    await c.tap(p.locator('#navAnimalHealth'), 'Health');
     await c.tap(p.locator('[data-subtab="doctoring-entry"]'), 'Doctoring Entry (bulk)');
     await p.waitForTimeout(400);
     await c.pick('#docEntryAction', 'act-1', 'action');
