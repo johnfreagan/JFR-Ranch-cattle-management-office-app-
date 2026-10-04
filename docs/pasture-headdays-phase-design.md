@@ -67,6 +67,7 @@ included, into the destination lot.
 | D41 | (C12) Phase feed split by head share | **Keep the pasture on every posted feed row from go-live.** The PB report is per pen (pen = pasture), so no new input. Phase feed comes from the pastures the calves stood in that day; the head-share split remains only where one pasture holds precon and grower calves the same day, and the Phases drill-down counts those days | Precon feed is the cost D1 wants most and was the most assumed number. Moves "feed rows keep the pasture" off the Later list into the build |
 | D42 | (C13) Season dates or a label change mid-season | **Season dates change only from a season start** (tightens D9). **Labels change on any date** (D8); head-days follow the label day by day. Budget lines are not edited; the difference lands in the true-up and variance (D36); the pasture report notes the change on that pasture's row | A mid-season date change would split one budget line and re-cut charges already posted to lots and Redwing. Label changes are real events on the land |
 | D43 | (C14) Lots with no precon phase | **One checkbox on the lot: "No precon phase (arrived preconditioned)"**, off by default. When on, head-days go straight to the pasture buckets from day 1 and the lot is left out of precon baselines. The feed pen is always treated this way (D29) | One click at lot setup; keeps D3's single 75-day window for lots that have a precon phase |
+| D44 | (C15) Test lots | **Keep them for testing; live costs never apply.** Use the existing `lots.is_test` flag (TEST_DOC1, TEST_DOC2 and Test-1 already carry it; PB feed posting and the head tie-out already skip it, `2026-09-29_pb_plan_exclude_test_lots.sql`). Every part of this design skips `is_test` lots: pasture head-days, utilization, budget charges, true-up, phase baselines, Redwing exports | John: they are for testing app improvements. Checked 2026-10-04: TEST_DOC1 holds 100 head in Front beside 37 real head; TEST_DOC2 holds 50 in Goat Hill beside 230 head of 36-27. Without the skip they would take most of Front's use |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -119,8 +120,8 @@ John asked for a harsh critique before building. Checked against the live databa
 | C12 | Phase CoG = allocated feed ÷ projected gain; feed split by head share assumes precon and grower calves eat alike; whole-lot weights blend loads | **Feed: settled by D41.** Weights: stands as D26 (marked projected) |
 | C13 | Season-date change (D9) or label change (D8) mid-season: what happens to the budget line and capacity | **Settled by D42** |
 | C14 | No "not preconditioned" lot setting | **Partly settled by D33** ("most cattle"): **Settled by D43** |
-| C15 | Test lots TEST_DOC1 / TEST_DOC2 carry head-days and assignments in production; they would take true-up | Q42 |
-| C16 | All 63 pastures have no acres; none has capacity; only 1 is marked crop ground | open (data entry) |
+| C15 | Test lots TEST_DOC1 / TEST_DOC2 carry head-days and assignments in production; they would take true-up | **Settled by D44** |
+| C16 | All 63 pastures have no acres; none has capacity; only 1 is marked crop ground | Q43 |
 | C17 | Input load understated | open |
 | C18 | Build order puts the import at step 4 though D12 wanted the CSV this month | open |
 
@@ -144,9 +145,8 @@ Q30 (approve build order) is on hold until the critique items are settled.
 
 Knock-on edit from D36, to make when the doc is consolidated: D24's season-close rows = one row per open lot (its true-up) plus one row to the pasture variance account (the closed lots' shares).
 
-**Q42 (C15). TEST_DOC1 and TEST_DOC2 are test lots in the live database (created 2026-04-29). They hold 100 head in **Front** and 50 head in **Goat Hill** as open pasture assignments. From go-live those fake head would count as use of those two pastures and take budget charges and true-up shares. What do we do?**
-- A. **Close both lots before go-live**, through the normal close path, with an audit note. Their records stay; their head-days and open assignments end on the close date.
-- B. Delete them (and their rows) through the atomic delete paths.
-- C. Leave them and add a "test lot" flag that every report skips.
+**Q43 (C16). All 63 pastures have no acres, and only 1 is marked crop ground. Capacity, $/acre and head-days per acre need acres and a label on every pasture. How do they get entered?**
+- A. **One grid in the office app**: every active pasture on a row with usable acres and label (Crop / Grass pasture / Growyard / Other), typed once. Acres come from whatever John has (FSA maps, JD Operations Center field boundaries, the lease). A pasture with no acres still counts head-days but shows "no acres" instead of capacity and per-acre figures, so nothing is silently zero.
+- B. Enter acres only for pastures in use at go-live; the rest as they come into use.
 
-Recommended: **A**, after I show you what else they hold (doctoring rows, feed charges, tags), read-only. Closing keeps the records and needs no new code. Deleting is irreversible and should wait on what they hold. A test flag is a permanent special case every future report has to remember. Nothing changes until you approve the exact step.
+Recommended: **A**, with the "no acres" fallback so go-live does not wait on all 63. Labels are needed on every pasture from day one (head-days cannot be bucketed without one), and acres are one column in the same grid. Who enters them and from which source is your call; mark it pending if the source is not ready.
