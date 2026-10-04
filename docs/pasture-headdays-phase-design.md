@@ -66,6 +66,7 @@ included, into the destination lot.
 | D40 | (C11) What does the pasture report show per pasture until costs are coded to pastures? | **Narrowed D27.** Per pasture: usable acres, capacity, expected and actual head-days, utilization %, head-days per acre, $ charged to lots, idle head-days. Booked $, $/acre and budget miss on the **label total rows only**. Per-pasture dollar columns switch on by themselves once costs coded to a pasture exist (lease by acre, JD passes) | Identical $/acre on every row would read as a finding when it is not. Use per acre is the real per-pasture signal now |
 | D41 | (C12) Phase feed split by head share | **Keep the pasture on every posted feed row from go-live.** The PB report is per pen (pen = pasture), so no new input. Phase feed comes from the pastures the calves stood in that day; the head-share split remains only where one pasture holds precon and grower calves the same day, and the Phases drill-down counts those days | Precon feed is the cost D1 wants most and was the most assumed number. Moves "feed rows keep the pasture" off the Later list into the build |
 | D42 | (C13) Season dates or a label change mid-season | **Season dates change only from a season start** (tightens D9). **Labels change on any date** (D8); head-days follow the label day by day. Budget lines are not edited; the difference lands in the true-up and variance (D36); the pasture report notes the change on that pasture's row | A mid-season date change would split one budget line and re-cut charges already posted to lots and Redwing. Label changes are real events on the land |
+| D43 | (C14) Lots with no precon phase | **One checkbox on the lot: "No precon phase (arrived preconditioned)"**, off by default. When on, head-days go straight to the pasture buckets from day 1 and the lot is left out of precon baselines. The feed pen is always treated this way (D29) | One click at lot setup; keeps D3's single 75-day window for lots that have a precon phase |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -117,8 +118,8 @@ John asked for a harsh critique before building. Checked against the live databa
 | C11 | Per-acre spread of one bucket lump sum gives every pasture the same $/acre; per-pasture budget miss impossible; D27 over-promises | **Settled by D40** |
 | C12 | Phase CoG = allocated feed ÷ projected gain; feed split by head share assumes precon and grower calves eat alike; whole-lot weights blend loads | **Feed: settled by D41.** Weights: stands as D26 (marked projected) |
 | C13 | Season-date change (D9) or label change (D8) mid-season: what happens to the budget line and capacity | **Settled by D42** |
-| C14 | No "not preconditioned" lot setting | **Partly settled by D33** ("most cattle"): whether an exception setting is needed: Q41 |
-| C15 | Test lots TEST_DOC1 / TEST_DOC2 carry head-days and assignments in production; they would take true-up | open |
+| C14 | No "not preconditioned" lot setting | **Partly settled by D33** ("most cattle"): **Settled by D43** |
+| C15 | Test lots TEST_DOC1 / TEST_DOC2 carry head-days and assignments in production; they would take true-up | Q42 |
 | C16 | All 63 pastures have no acres; none has capacity; only 1 is marked crop ground | open (data entry) |
 | C17 | Input load understated | open |
 | C18 | Build order puts the import at step 4 though D12 wanted the CSV this month | open |
@@ -143,9 +144,9 @@ Q30 (approve build order) is on hold until the critique items are settled.
 
 Knock-on edit from D36, to make when the doc is consolidated: D24's season-close rows = one row per open lot (its true-up) plus one row to the pasture variance account (the closed lots' shares).
 
-**Q41 (C14). D33 says precon applies to "most" cattle. What about the rest (bought already preconditioned, yearlings)?**
-- A. **One checkbox on the lot: "No precon phase (arrived preconditioned)"**, off by default. When on, the lot's head-days go straight to the pasture buckets from day 1, and the lot is left out of precon baselines. The feed pen is always treated this way (D29).
-- B. A per-lot number of precon days (default 75).
-- C. No setting; every lot gets 75 days.
+**Q42 (C15). TEST_DOC1 and TEST_DOC2 are test lots in the live database (created 2026-04-29). They hold 100 head in **Front** and 50 head in **Goat Hill** as open pasture assignments. From go-live those fake head would count as use of those two pastures and take budget charges and true-up shares. What do we do?**
+- A. **Close both lots before go-live**, through the normal close path, with an audit note. Their records stay; their head-days and open assignments end on the close date.
+- B. Delete them (and their rows) through the atomic delete paths.
+- C. Leave them and add a "test lot" flag that every report skips.
 
-Recommended: **A**. It handles the exception with one click at lot setup and keeps D3 (same 75-day window for every lot that has a precon phase). B invites lots with 60 or 90 days, and the precon baseline stops comparing like with like. C puts preconditioned cattle into the precon baseline and drags it.
+Recommended: **A**, after I show you what else they hold (doctoring rows, feed charges, tags), read-only. Closing keeps the records and needs no new code. Deleting is irreversible and should wait on what they hold. A test flag is a permanent special case every future report has to remember. Nothing changes until you approve the exact step.
