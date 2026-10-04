@@ -1,8 +1,7 @@
 # Phases, pasture head-days and pasture cost — design interview (in progress)
 
 Started 2026-10-04 with John, one question at a time, each with a recommended answer. Decisions
-below are John's answers; the reason is recorded so it is not re-litigated. **Status: design only,
-nothing built.** Continue from "Open question" at the bottom.
+below are John's answers; the reason is recorded so it is not re-litigated. **Status: design complete (D1–D48), build order approved (D47), nothing built.** Start from "Handoff" at the bottom.
 
 ## The goal
 
@@ -54,7 +53,7 @@ included, into the destination lot.
 | D28 | Transferred head: whose 75-day clock? | **The clock travels with the cattle.** Transferred head keep their source arrival date (source lot's weighted arrival; per load where the source had one load). Head-days before the transfer stay with the source lot | Same rule as D4 and as the withdrawal clock. Restarting or adopting the destination's clock would give calves more or fewer than 75 precon days |
 | D29 | Deaths and found strays | **Deaths** leave head-days on the death date (already true in `lot_daily_head`); no clock effect. **Found strays** return to the feed pen at $0 (existing rule); feed-pen head-days count in pasture head-days so pastures tie; the feed pen is left out of phase baselines | Proposed defaults, accepted by John |
 | D30 | How is the day-75 notice delivered? | **A row on the office app's Needs Attention list**, e.g. "Corner 1: last calves reach day 75 on 10/28 (lot 36-27) — weigh within 7 days to measure precon gain (optional)". Appears 7 days before, clears itself when the date passes; no acknowledging. The D25 season-still-open nudge uses the same list | The office works Needs Attention daily; no new place to look, no extra click |
-| D31 | Repair history first? | **No. Build going forward.** Closed and nearly closed lots are not gone back to. Head-days, charges and phases start from a go-live date (date: open) | John. The FY 2027 gap (lot head-days 134,749 vs assignment head-days 84,800 on 2026-10-04; 37X, 60X, 47-26 the biggest) is history and stays as is |
+| D31 | Repair history first? | **No. Build going forward.** Closed and nearly closed lots are not gone back to. Head-days, charges and phases start from a go-live date (Nov 1, 2026: D48) | John. The FY 2027 gap (lot head-days 134,749 vs assignment head-days 84,800 on 2026-10-04; 37X, 60X, 47-26 the biggest) is history and stays as is |
 | D32 | Source of head-days by pasture | **Pasture assignments**, from go-live. John: "A calf can't be here now without a pasture assignment." A daily tie-out (sum of open assignments = `head_current`, the D8 rule) goes on Anomalies so a gap shows the day it starts | One source. Assignments are the only data that know the pasture. Checked 2026-10-04: every open lot's open assignments equal `head_current` today (36-27 702/702, 32-26 109/109, remnants tie too), so the go-forward start is clean |
 | D33 | Lots that are not preconditioned | **Precon still applies to most cattle, even when started on oats.** The 75-day clock overrides the pasture label (as D2) | John |
 | D34 | (C3) Pasture inside the $0.50 non-feed placeholder | **A new dated non-feed rate without pasture from go-live**; pasture reaches lots only through the head-day charge. The placeholder itself is replaced this month when John brings in the accounting data; it will likely become a **budget for breakevens that trues up with real numbers over time** (the same budget-then-true-up pattern as pasture, D12) | One pasture number, not two. Dated, never edited in place, so pre-go-live closeouts do not move |
@@ -71,6 +70,7 @@ included, into the destination lot.
 | D45 | (C16) Entering acres and labels | **One grid in the office app**: every active pasture on a row, usable acres and label, typed once. Acres from whatever source John has (FSA maps, JD Operations Center boundaries, leases). A pasture with no acres still counts head-days but shows "no acres" where capacity and per-acre figures would be; nothing silently zero. Who enters and from which source: John's call | Labels are needed on every pasture from day one; acres are one column in the same grid; go-live does not wait on all 63 |
 | D46 | (C17) The office input list | **Accepted as listed** in "Office inputs" below. Goes into `docs/USER-ADMIN-GUIDE.md` when built | Every row traces to a decision; daily work adds nothing |
 | D47 | (C18) Build order | **Approved as revised** (see "Proposed build order"). Approval of the order is not approval to build: nothing is built until John says so | John |
+| D48 | Go-live date (D31) | **Nov 1, 2026.** Head-days, buckets, charges and feed-by-pasture start that day. Grass·winter starts clean. **Crop·winter is budgeted for its whole season cost**, including what accrues before Nov 1 (seed, planting), spread over head-days from Nov 1: John, "winter crops accrue their cost, won't be stocked till after 11-1 anyway." Grass·summer 2026 is never budgeted. If build steps 1–3 slip past Nov 1, go-live is the day they ship | One clean season boundary; no part-season budget needed, because crop·winter has no grazing before Nov 1 |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -155,13 +155,14 @@ Every step: migration file in `docs/sql/`, RLS and policies on new tables, `secu
 7. **Redwing WIP allocation report** (D23, D24), with the C9 answer from step 4.
 8. **Later list.**
 
-## Open question (resume here)
+## Handoff (design closed 2026-10-04)
 
-Pending, on John: C9 and C10 (settle on the real Redwing data in build step 4).
+Every design question is answered. Still pending, settled during the build:
+- **C9** (allocation rows coming back in the import) and **C10** (re-import rules): on the real Redwing sample export, build step 4. John sends the sample the week of 2026-10-05.
+- Stocking rates, season budgets, the new non-feed rate, acres: John's numbers, entered through the screens step 1 builds.
 
-**Q46. Go-live date (D31)?** Head-days, buckets, charges and feed-by-pasture all start on it.
-- A. **Nov 1, 2026**, if build steps 1–3 are ready by then. Grass·winter starts that day, so grass gets a clean season. Crop·winter (running since Sep 1) gets a budget for Nov 1 – May 15 only. Grass·summer ends Oct 31, so it is never budgeted for 2026.
-- B. The day steps 1–3 ship, whatever date that is. Every running season gets a part-season budget from that day.
-- C. Wait for a full crop season: Sep 1, 2027.
+**Start with build step 1** (settings), then step 2 (feed rows keep the pasture), aiming for steps 1–3 live by **Nov 1, 2026** (D48).
 
-Recommended: **A**. One clean season boundary, one part-season budget (crop·winter), and it is close enough that the first baselines exist by spring. B gives two part-seasons and a date nobody chose. C waits 11 months for data that could start in 4 weeks. If steps 1–3 slip past Nov 1, fall back to B.
+Rules for the build, from CLAUDE.md: investigate before changing; schema changes need John's explicit approval of the migration; migrations are idempotent files in `docs/sql/`; RLS on every new table, `security_invoker` views, `rls_verify` after; `ranch_today()` not `CURRENT_DATE`; never edit a rate in place (new dated rows); crew never sees dollars; `is_test` lots skipped (D44); after any `index.html` edit run `node scripts/validate.js index.html`.
+
+Superseded or amended decisions, so nobody builds the old version: D5 (notice per lot, D37), D9 (season dates change only from a season start, D42), D17 (lots pay the budget rate incl. planned idle, D35), D18 (amended by D36), D19 (superseded by D36), D27 (narrowed by D40), D15 (season from account + Production Year, D38/D39).
