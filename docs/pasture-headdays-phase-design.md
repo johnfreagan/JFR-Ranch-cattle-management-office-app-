@@ -64,6 +64,7 @@ included, into the destination lot.
 | D38 | (C8) How does a Redwing row name its season? | **WIP account + its Production Year.** John: the WIP accounts carry a production year. Each bucket has one season per year (crop·winter, crop·summer, grass·winter, grass·summer are separate buckets), so account + Production Year names exactly one bucket-season. The critique's "cannot name a season crossing Jul 1" was wrong: the summers sit inside one calendar year, and only the winters span two | Coding already exists in the books; no new Profit Centers or date rules |
 | D39 | Which Production Year does a winter season carry? | **Hard rule: Production Year = the year the season ends** (crop·winter Sep 2026 – May 2027 = PY 2027). Accounting follows the rule. A row whose account + PY matches no season lands on the unmapped list | John. Matches the FY naming rule (named for the year it ends) |
 | D40 | (C11) What does the pasture report show per pasture until costs are coded to pastures? | **Narrowed D27.** Per pasture: usable acres, capacity, expected and actual head-days, utilization %, head-days per acre, $ charged to lots, idle head-days. Booked $, $/acre and budget miss on the **label total rows only**. Per-pasture dollar columns switch on by themselves once costs coded to a pasture exist (lease by acre, JD passes) | Identical $/acre on every row would read as a finding when it is not. Use per acre is the real per-pasture signal now |
+| D41 | (C12) Phase feed split by head share | **Keep the pasture on every posted feed row from go-live.** The PB report is per pen (pen = pasture), so no new input. Phase feed comes from the pastures the calves stood in that day; the head-share split remains only where one pasture holds precon and grower calves the same day, and the Phases drill-down counts those days | Precon feed is the cost D1 wants most and was the most assumed number. Moves "feed rows keep the pasture" off the Later list into the build |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -81,9 +82,7 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 - Cost buckets for crop·summer and growyard.
 - Labor and overhead (option C of D10) with the accounting-expense integration.
 - ~~Closed lots and the true-up (D19)~~: resolved by D36; closed lots' shares go to the ranch pasture variance account.
-- Feed rows do not keep the pasture once posted to a lot; PB knows it at plan time (pb_posting_plan)
-  and `post_feed_usage` takes `p_pasture_id`, so per-pasture feed could be recorded going forward
-  if a later question needs it.
+- ~~Feed rows keep the pasture~~: moved into the build by D41.
 
 ## Data already in place
 
@@ -115,8 +114,8 @@ John asked for a harsh critique before building. Checked against the live databa
 | C9 | Redwing loop: the D23 allocation journals come back in the next ledger CSV as WIP credits | **Pending real data** (John: figure out with the first real exports, no guessing). Options on file: marker in Notation matched to what was sent; debits only; separate contra account |
 | C10 | "Re-import replaces the month": no transaction ID, back-dated rows into closed seasons, reversals | **Pending real data** (sample export) |
 | C11 | Per-acre spread of one bucket lump sum gives every pasture the same $/acre; per-pasture budget miss impossible; D27 over-promises | **Settled by D40** |
-| C12 | Phase CoG = allocated feed ÷ projected gain; feed split by head share assumes precon and grower calves eat alike; whole-lot weights blend loads | Q39 |
-| C13 | Season-date change (D9) or label change (D8) mid-season: what happens to the budget line and capacity | open |
+| C12 | Phase CoG = allocated feed ÷ projected gain; feed split by head share assumes precon and grower calves eat alike; whole-lot weights blend loads | **Feed: settled by D41.** Weights: stands as D26 (marked projected) |
+| C13 | Season-date change (D9) or label change (D8) mid-season: what happens to the budget line and capacity | Q40 |
 | C14 | No "not preconditioned" lot setting | **Partly settled by D33** ("most cattle"): whether an exception setting is needed is open |
 | C15 | Test lots TEST_DOC1 / TEST_DOC2 carry head-days and assignments in production; they would take true-up | open |
 | C16 | All 63 pastures have no acres; none has capacity; only 1 is marked crop ground | open (data entry) |
@@ -143,10 +142,8 @@ Q30 (approve build order) is on hold until the critique items are settled.
 
 Knock-on edit from D36, to make when the doc is consolidated: D24's season-close rows = one row per open lot (its true-up) plus one row to the pasture variance account (the closed lots' shares).
 
-**Q39 (C12). Phase feed is lot feed split by head share, which assumes precon and grower calves eat alike. Fix it?**
+**Q40 (C13). What happens when season dates or a pasture's label change in the middle of a season?**
+- A. **Season dates change only from the next season** (D9 tightened: the effective date must be a season start). **A label can change on any date** (D8): head-days follow the label day by day, so days before go to the old bucket and days after to the new one. Budget lines are not edited; the difference lands in the true-up and variance (D36), and the pasture report notes the label change on that pasture's row.
+- B. Allow mid-season season-date changes too; the running season is re-cut and its budget line re-split.
 
-The PB report is per pen, and a pen is a pasture, so the pasture of every feed drop is known when it posts. Posted feed rows just do not keep it.
-- A. **Keep the pasture on every posted feed row from go-live.** No new input; PB already supplies it. Phase feed then comes from the pastures the calves stood in that day. The head-share split remains only where one pasture holds precon and grower calves on the same day, and those days are counted on the Phases drill-down so you can see how much is estimated.
-- B. Leave D26 as is: head-share split everywhere, marked as an estimate.
-
-Recommended: **A**. Precon feed is the cost D1 wants most, and today it is the most assumed number in the design. A turns most of it into a measurement for the price of one stored column. This moves the "feed rows keep the pasture" item off the Later list and into the build.
+Recommended: **A**. A season-date change mid-season would split one budget line into two seasons and re-cut charges already posted to lots and to Redwing. Label changes are real events on the land (a field planted, a trap turned into a pen), so they must be allowed any day; the budget absorbing the difference is what the true-up exists for.
