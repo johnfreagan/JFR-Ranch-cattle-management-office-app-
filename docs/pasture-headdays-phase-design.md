@@ -41,8 +41,8 @@ included, into the destination lot.
 | D15 | How does a ledger row find its bucket and season? | **By Redwing coding.** One-time map in the app: Account (plus Profit Center when needed) → bucket; season from Redwing's Production Year. Rows that do not map (no map, or Production Year blank) land on an "unmapped" list for the office to sort | Coding happens once, in the books. Date alone mis-sorts costs paid ahead (August oat seed belongs to crop·winter) |
 | D16 | Ranch-wide bucket rate, or per pasture? | **Per pasture, eventually.** Spread bucket cost to pastures **by acre**, then charge lots by head-days in each pasture. Start ranch-wide (D11); per-acre is the target | John: "Straight hd days would allow productive pastures to hide ones that are dragging us down or not utilizing." Per-acre is the only way to see pasture efficiency and utilization |
 | D17 | With per-acre cost, who pays for under-used days? | **Capacity rate plus idle cost.** Pasture rate = pasture $ ÷ capacity head-days; a lot pays that rate × its head-days there. The rest is **idle pasture cost**, shown against the pasture. **At season end the idle cost must be charged somewhere** (where: Q19) | Lot closeout measures the cattle; the pasture report measures the land and stocking decisions; neither hides the other. John: the under-utilization "has to be charged somewhere" so the books tie |
-| D18 | At season end, where does the leftover land? | **One season-end true-up per bucket-season, ranch-wide.** Leftover = booked $ (Redwing) − $ charged at the capacity rate. It is spread over every lot that grazed that bucket that season, by its head-days there. It shows as its own closeout line, "Pasture true-up". The pasture report splits it into idle cost and budget miss per pasture. Lots closed before season end: Q20 | Lot totals tie to the books (D1 pricing). Own line keeps cattle-only comparisons possible. Charging only the lots on the idle pasture would punish them for a stocking decision |
-| D19 | A lot closed before season end grazed that bucket: its true-up share? | **The open lots absorb it.** The season-end true-up spreads over the lots still open, by their head-days in that bucket-season. Closed lots are never re-opened or adjusted | John's call. Closing before season end should be rare. **On the Later list:** revisit the Redwing distribution for closed lots, because the goal is to merge small leftover groups into other lots (lot transfers), which closes the source lot mid-season |
+| D18 | *(superseded by D36)* At season end, where does the leftover land? | **One season-end true-up per bucket-season, ranch-wide.** Leftover = booked $ (Redwing) − $ charged at the capacity rate. It is spread over every lot that grazed that bucket that season, by its head-days there. It shows as its own closeout line, "Pasture true-up". The pasture report splits it into idle cost and budget miss per pasture. Lots closed before season end: Q20 | Lot totals tie to the books (D1 pricing). Own line keeps cattle-only comparisons possible. Charging only the lots on the idle pasture would punish them for a stocking decision |
+| D19 | *(superseded by D36)* A lot closed before season end grazed that bucket: its true-up share? | **The open lots absorb it.** The season-end true-up spreads over the lots still open, by their head-days in that bucket-season. Closed lots are never re-opened or adjusted | John's call. Closing before season end should be rare. **On the Later list:** revisit the Redwing distribution for closed lots, because the goal is to merge small leftover groups into other lots (lot transfers), which closes the source lot mid-season |
 | D20 | How are capacity head-days set? | **Usable acres × a stocking rate.** One stocking rate (head per usable acre) per label and season, in the season-dates settings spot (D7). Capacity = `usable_acres` × rate × days in the season. Optional per-pasture override for odd ground. Next season's rate starts from last season's actual head-days per acre | Four or five numbers a year; acres already in `pastures`. Capacity must be what the land could carry, not what was used, or idle cost is zero by definition |
 | D21 | Growyard and Other: capacity and idle cost? | **No capacity, no idle cost.** Cost coded to them spreads by actual head-days at a plain rate per FY (budget $ ÷ budget head-days), trued up to booked $ at FY end under D18/D19 | Growyard cost is mostly feed, already charged by PB. Other is the catch-all so head-days tie. A pen stocking rate adds input and tells little |
 | D22 | How does the closeout show phases? | **A Phases table, reached as a drill-down from one simple label on the closeout.** Rows per bucket the lot used; columns head-days, feed $, pasture $, true-up $, total $, $/hd-day; total ties to the closeout. Same columns ranch-wide on a "Phase baselines" view. The closeout itself may move this month to **its own header and section** (an accounting page), still reachable from the lot | John: keep the lot screen simple; the detail is accounting |
@@ -59,6 +59,7 @@ included, into the destination lot.
 | D33 | Lots that are not preconditioned | **Precon still applies to most cattle, even when started on oats.** The 75-day clock overrides the pasture label (as D2) | John |
 | D34 | (C3) Pasture inside the $0.50 non-feed placeholder | **A new dated non-feed rate without pasture from go-live**; pasture reaches lots only through the head-day charge. The placeholder itself is replaced this month when John brings in the accounting data; it will likely become a **budget for breakevens that trues up with real numbers over time** (the same budget-then-true-up pattern as pasture, D12) | One pasture number, not two. Dated, never edited in place, so pre-go-live closeouts do not move |
 | D35 | (C4) Which rate do lots pay day to day? | **Budget rate**: budget $ ÷ expected head-days per pasture (or bucket) and season. Capacity is used only on the pasture report, to measure idle. **Set the budget aggressively**: John would rather over-charge than be surprised at season end. Changes D17: lots carry planned idle; unplanned shortfall goes to the true-up | Same budget-then-true-up pattern as D34. Lots carry near-real cost monthly, so the D24 allocation means something and season close is a small correction |
+| D36 | (C5, C6) Where does the true-up go? | **Ranch level, never to lots.** Lot cost = budget rate × head-days, final. At season close (D25) the leftover WIP, credit or charge, posts in Redwing to one ranch **pasture variance** account. The pasture report shows it by pasture as idle and budget miss; it sets next season's budget. **Supersedes D18 and D19** | Lot baselines stop depending on who is open at season close; the leftover always has a home; it posts once in the FY the season closes, no reported FY reopened; an aggressive budget (D35) keeps lot cost conservative for pricing and breakevens. Lot totals no longer equal booked $ to the dollar; the ranch total does |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -75,9 +76,7 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 - Agronomic passes per field (fertilizer, seed, spray, planting) from **John Deere Operations Center**.
 - Cost buckets for crop·summer and growyard.
 - Labor and overhead (option C of D10) with the accounting-expense integration.
-- **Closed lots and the true-up (D19):** revisit how Redwing distributes cost for lots closed before
-  season end. Merging small leftover groups into other lots closes the source mid-season, so this
-  will come up.
+- ~~Closed lots and the true-up (D19)~~: resolved by D36; the true-up never reaches lots.
 - Feed rows do not keep the pasture once posted to a lot; PB knows it at plan time (pb_posting_plan)
   and `post_feed_usage` takes `p_pasture_id`, so per-pasture feed could be recorded going forward
   if a later question needs it.
@@ -105,9 +104,9 @@ John asked for a harsh critique before building. Checked against the live databa
 | C2 | Two sources of head-days (`lot_daily_head` vs assignments) | **Settled by D32** |
 | C3 | The $0.50/hd-day non-feed placeholder already includes pasture (`cog-design-decisions.md`): pasture would be charged twice | **Settled by D34** |
 | C4 | Charge rate defined twice (budget $ ÷ budget hd in D12; pasture $ ÷ capacity hd in D17/D20). Capacity > use, so lots are always under-charged and the true-up dominates | **Settled by D35** |
-| C5 | D19 undoes D17: open lots absorb idle cost and closed-lot shares, so lot baselines depend on timing | Q33 |
-| C6 | True-up gaps: "open" as of when; no home when every grazer is closed; true-up lump lands in the wrong FY for seasons crossing Jul 1 | Q33 |
-| C7 | Assignments hold head counts, not loads: which trap holds the precon calves of a two-load lot is unknown, so D5's per-trap notice cannot be computed | open |
+| C5 | D19 undoes D17: open lots absorb idle cost and closed-lot shares, so lot baselines depend on timing | **Settled by D36** |
+| C6 | True-up gaps: "open" as of when; no home when every grazer is closed; true-up lump lands in the wrong FY for seasons crossing Jul 1 | **Settled by D36** |
+| C7 | Assignments hold head counts, not loads: which trap holds the precon calves of a two-load lot is unknown, so D5's per-trap notice cannot be computed | Q34 |
 | C8 | Production Year cannot name a season that crosses Jul 1; not confirmed the bookkeeper fills it | open (pending bookkeeper) |
 | C9 | Redwing loop: the D23 allocation journals come back in the next ledger CSV as WIP credits | open |
 | C10 | "Re-import replaces the month": no transaction ID, back-dated rows into closed seasons, reversals | open (pending sample) |
@@ -138,16 +137,10 @@ The closeout's move to its own accounting section (D22) is separate work John ex
 
 Q30 (approve build order) is on hold until the critique items are settled.
 
-**Q33 (C5, C6). With an aggressive budget (D35), the true-up is usually a credit. Where does it go?**
+Knock-on edits from D36, to make when the doc is consolidated: D22's Phases table drops the "true-up $" column; D24's season-close rows become one row to the pasture variance account, not rows per lot.
 
-Under D18/D19 a credit goes to whichever lots are open at season close, including the over-charge paid by lots already closed and sold. Lots open at the right moment get a refund they did not earn.
-- A. **Keep D18/D19.** Spread the true-up, credit or charge, over the open lots that grazed the bucket.
-- B. **The true-up stays at ranch level.** Lot cost = budget rate × head-days, final. At season close the leftover WIP (credit or charge) posts in Redwing to one ranch **pasture variance** account, not to lots. The pasture report shows it by pasture as idle and budget miss, and it sets next season's budget.
+**Q34 (C7). Moves record head counts, not loads. Which pasture holds the precon calves of a two-load lot?**
+- A. **Prorate, with one cheap rule.** Each pasture holding a lot gets the lot's loads in proportion, limited to the loads that had arrived by that move's move-in date (head moved in before load 2 landed must be load 1). No new input. The day-75 notice becomes per lot, naming its pastures: "36-27: last calves reach day 75 on 11/23 (Corner 1, Corner 2)".
+- B. **Record the load on each move.** Whoever enters a move picks which load(s) went. Exact per trap, but a new input on every move, in the field app too.
 
-Recommended: **B**. It settles C5 and C6 together:
-- Lot baselines stop depending on who is open when the season closes.
-- There is always a home, even when every grazing lot is closed.
-- The variance posts in the FY where the season is closed, as one ranch line, with no reported FY reopened.
-- An aggressive budget means lot costs lean conservative, which is what pricing a calf (D1) and breakevens need.
-
-The cost: lot totals no longer equal booked $ to the dollar; the ranch total does. This replaces D18/D19 and the closed-lot item on the Later list.
+Recommended: **A**. You ruled out per-calf and per-group tracking for precon (D2). Proration only matters while a lot is mid-precon with two loads split across traps, a few weeks per lot. The move-in rule catches the common case: first load already in traps when the second arrives.
