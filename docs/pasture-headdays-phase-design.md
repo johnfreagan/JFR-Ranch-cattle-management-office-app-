@@ -58,6 +58,7 @@ included, into the destination lot.
 | D32 | Source of head-days by pasture | **Pasture assignments**, from go-live. John: "A calf can't be here now without a pasture assignment." A daily tie-out (sum of open assignments = `head_current`, the D8 rule) goes on Anomalies so a gap shows the day it starts | One source. Assignments are the only data that know the pasture. Checked 2026-10-04: every open lot's open assignments equal `head_current` today (36-27 702/702, 32-26 109/109, remnants tie too), so the go-forward start is clean |
 | D33 | Lots that are not preconditioned | **Precon still applies to most cattle, even when started on oats.** The 75-day clock overrides the pasture label (as D2) | John |
 | D34 | (C3) Pasture inside the $0.50 non-feed placeholder | **A new dated non-feed rate without pasture from go-live**; pasture reaches lots only through the head-day charge. The placeholder itself is replaced this month when John brings in the accounting data; it will likely become a **budget for breakevens that trues up with real numbers over time** (the same budget-then-true-up pattern as pasture, D12) | One pasture number, not two. Dated, never edited in place, so pre-go-live closeouts do not move |
+| D35 | (C4) Which rate do lots pay day to day? | **Budget rate**: budget $ ÷ expected head-days per pasture (or bucket) and season. Capacity is used only on the pasture report, to measure idle. **Set the budget aggressively**: John would rather over-charge than be surprised at season end. Changes D17: lots carry planned idle; unplanned shortfall goes to the true-up | Same budget-then-true-up pattern as D34. Lots carry near-real cost monthly, so the D24 allocation means something and season close is a small correction |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -103,9 +104,9 @@ John asked for a harsh critique before building. Checked against the live databa
 | C1 | History: 37% of FY 2027 head-days have no pasture assignment; closed lots 31-26 / 32-26 have assignments left open | **Settled by D31** (going forward only) |
 | C2 | Two sources of head-days (`lot_daily_head` vs assignments) | **Settled by D32** |
 | C3 | The $0.50/hd-day non-feed placeholder already includes pasture (`cog-design-decisions.md`): pasture would be charged twice | **Settled by D34** |
-| C4 | Charge rate defined twice (budget $ ÷ budget hd in D12; pasture $ ÷ capacity hd in D17/D20). Capacity > use, so lots are always under-charged and the true-up dominates | Q32 |
-| C5 | D19 undoes D17: open lots absorb idle cost and closed-lot shares, so lot baselines depend on timing | open |
-| C6 | True-up gaps: "open" as of when; no home when every grazer is closed; true-up lump lands in the wrong FY for seasons crossing Jul 1 | open |
+| C4 | Charge rate defined twice (budget $ ÷ budget hd in D12; pasture $ ÷ capacity hd in D17/D20). Capacity > use, so lots are always under-charged and the true-up dominates | **Settled by D35** |
+| C5 | D19 undoes D17: open lots absorb idle cost and closed-lot shares, so lot baselines depend on timing | Q33 |
+| C6 | True-up gaps: "open" as of when; no home when every grazer is closed; true-up lump lands in the wrong FY for seasons crossing Jul 1 | Q33 |
 | C7 | Assignments hold head counts, not loads: which trap holds the precon calves of a two-load lot is unknown, so D5's per-trap notice cannot be computed | open |
 | C8 | Production Year cannot name a season that crosses Jul 1; not confirmed the bookkeeper fills it | open (pending bookkeeper) |
 | C9 | Redwing loop: the D23 allocation journals come back in the next ledger CSV as WIP credits | open |
@@ -137,8 +138,16 @@ The closeout's move to its own accounting section (D22) is separate work John ex
 
 Q30 (approve build order) is on hold until the critique items are settled.
 
-**Q32 (C4). Which rate do lots pay day to day?**
-- A. **Budget rate**: budget $ ÷ **expected** head-days for that pasture (or bucket) and season. Capacity is used only on the pasture report, to measure idle against what the land could carry. The true-up then holds only the misses: booked $ vs budget $, and actual use vs expected use.
-- B. **Capacity rate** (D17 as written): $ ÷ capacity head-days. Lots are always under-charged and the true-up carries the gap.
+**Q33 (C5, C6). With an aggressive budget (D35), the true-up is usually a credit. Where does it go?**
 
-Recommended: **A**. It is the same pattern as D34: budget, charge, true up. Lots carry close to their real cost every month, so the D24 monthly Redwing allocation means something and season close is a small correction, not a lump. Planned idle (you expect to run a field at 60% of capacity) is a real cost of running cattle there, so lots carry it. The stocking decision still shows: the pasture report puts actual and expected use against capacity. This changes D17: lots no longer escape idle cost entirely; they pay the planned share, and unplanned shortfall lands in the true-up.
+Under D18/D19 a credit goes to whichever lots are open at season close, including the over-charge paid by lots already closed and sold. Lots open at the right moment get a refund they did not earn.
+- A. **Keep D18/D19.** Spread the true-up, credit or charge, over the open lots that grazed the bucket.
+- B. **The true-up stays at ranch level.** Lot cost = budget rate × head-days, final. At season close the leftover WIP (credit or charge) posts in Redwing to one ranch **pasture variance** account, not to lots. The pasture report shows it by pasture as idle and budget miss, and it sets next season's budget.
+
+Recommended: **B**. It settles C5 and C6 together:
+- Lot baselines stop depending on who is open when the season closes.
+- There is always a home, even when every grazing lot is closed.
+- The variance posts in the FY where the season is closed, as one ranch line, with no reported FY reopened.
+- An aggressive budget means lot costs lean conservative, which is what pricing a calf (D1) and breakevens need.
+
+The cost: lot totals no longer equal booked $ to the dollar; the ranch total does. This replaces D18/D19 and the closed-lot item on the Later list.
