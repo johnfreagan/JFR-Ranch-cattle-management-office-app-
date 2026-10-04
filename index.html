@@ -2560,6 +2560,9 @@
                     write a note, and they clear themselves when the number is typed.
                 </p>
                 <div id="invNeedsAlert"></div>
+                <!-- Cattle: a lot's last calves reaching day 75 of precon (pasture
+                     head-days design D30, D37). Shows 7 days ahead, clears itself. -->
+                <div id="invNeedsCattle"></div>
                 <div id="invNeedsSummary"></div>
                 <div id="invNeedsContent"><div class="empty">Loading&hellip;</div></div>
             </div>
@@ -17535,6 +17538,36 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             }
         });
 
+        // Pasture head log (2026-10-04c): an assignment whose logged head no
+        // longer sums to what the row holds. Pasture head-days are read from
+        // that log, so a gap here means the pasture split for this lot is off
+        // from the day it started (the lot's total still ties to the books).
+        // Crew reads the view too; an error is shown, never taken as "none".
+        {
+            const { data: logRows, error: logErr } = await supabase.from('pasture_head_log_check')
+                .select('assignment_id, lot_id, pasture_id, head_now, log_head');
+            if (logErr) {
+                // no lot to file it under, so it goes in the page alert
+                showAlert('globalAlert', 'Anomalies: the pasture head log check could not be read: ' + logErr.message);
+            } else {
+                const byLot = {};
+                (logRows || []).forEach(r => { if (!isTestById[r.lot_id]) (byLot[r.lot_id] = byLot[r.lot_id] || []).push(r); });
+                Object.keys(byLot).forEach(lid => {
+                    const st = (statusRes.data || []).find(x => x.lot_id === lid);
+                    const rs = byLot[lid];
+                    findings.push({
+                        lot_id: lid,
+                        lot_number: st ? st.lot_number : '?',
+                        severity: 'medium',
+                        type: 'pasture_log_drift',
+                        title: 'Pasture head log out of step',
+                        detail: rs.map(r => `assignment holds ${fmtNum(r.head_now)}, log says ${fmtNum(r.log_head)}`).join(' · ') +
+                                ' — head-days by pasture for this lot are scaled to the books until it is put right.'
+                    });
+                });
+            }
+        }
+
         // Add receipt tag mismatches
         receiptsWithBadTags.forEach(r => {
             const s = (statusRes.data || []).find(x => x.lot_id === r.lot_id);
@@ -30939,8 +30972,40 @@ ${ranchBlocks}
         return await q;
     }
 
+    // Day-75 rows (D30, D37): read from precon_day75_notices(), which lists
+    // open lots whose last load reaches its last precon day within 7 days.
+    // Not filtered by the feed/med chip: it is about cattle, and the office
+    // works this list daily. A read error is shown, never taken as "none".
+    async function loadInvNeedsCattle() {
+        const el = $('invNeedsCattle');
+        if (!el) return;
+        const { data, error } = await supabase.rpc('precon_day75_notices', { p_days_ahead: 7 });
+        if (error) {
+            el.innerHTML = `<div class="alert error">Could not read the day-75 list: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+        const rows = data || [];
+        if (!rows.length) { el.innerHTML = ''; return; }
+        el.innerHTML = `
+            <table style="margin-bottom:14px;">
+                <thead><tr><th>What</th><th>Lot</th><th>Detail</th><th class="num">In</th></tr></thead>
+                <tbody>${rows.map(r => `
+                    <tr class="clickable" data-day75-lot="${escapeHtml(r.lot_id)}">
+                        <td><span class="needs-sev warn">Day 75</span></td>
+                        <td><strong>${escapeHtml(r.lot_number)}</strong></td>
+                        <td class="muted" style="font-size:12px;">
+                            Last calves reach day 75 on ${fmtDate(r.last_precon_day)}${r.pastures ? ' (' + escapeHtml(r.pastures) + ')' : ''}.
+                            Weigh within 7 days to measure precon gain (optional).</td>
+                        <td class="num">${r.days_until === 0 ? 'today' : r.days_until + 'd'}</td>
+                    </tr>`).join('')}</tbody>
+            </table>`;
+        el.querySelectorAll('tr[data-day75-lot]').forEach(tr =>
+            tr.addEventListener('click', () => showLotDetail(tr.dataset.day75Lot)));
+    }
+
     async function loadInvNeeds() {
         clearAlert('invNeedsAlert');
+        loadInvNeedsCattle();
         $('invNeedsContent').innerHTML = '<div class="empty">Loading…</div>';
         const { data, error } = await invFetchNeeds();
         if (error) {

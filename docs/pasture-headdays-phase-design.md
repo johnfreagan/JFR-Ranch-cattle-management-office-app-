@@ -227,3 +227,42 @@ Migration `docs/sql/2026-10-04b_feed_rows_keep_pasture.sql`. No app change.
   drop and a test lot. Every pound posted (2,000 of 2,000), lot rows carry their pasture, the test lot got
   nothing, the roll-up equals the old per-lot totals, a prefeed charged later carries its pasture, and a
   second run of the file changes nothing.
+
+### Step 3 — head-day buckets (built 2026-10-04, migration not yet applied)
+
+Migration `docs/sql/2026-10-04c_pasture_headday_buckets.sql`. App: day-75 rows on Inventory → Needs
+Attention, a "Pasture head log out of step" finding on Anomalies.
+
+- **Finding that changes D32's mechanism.** `lot_pasture_assignments` does not keep history: a death or
+  a partial move overwrites `head_count` on the open row (two head-math RPCs, about twenty other writers
+  and direct office writes). So head per pasture per day cannot be read from it afterwards. Fix: an
+  append-only **`pasture_head_log`** written by a trigger on every insert, update and removal of an
+  assignment row, whoever writes it. Head per lot, pasture and day = the running sum of the log. The
+  trigger is the one SECURITY DEFINER function (only it may write the log; no client role can).
+  `record_death_with_pasture` and `record_move_with_pasture` gained one line so a late entry is logged
+  on its event day; every other writer logs on the day it is entered. The log started on its install
+  day (`ranch_settings.pasture_head_log_from`), seeded with every open assignment.
+- **Head-days tie to the books.** A lot's bucket head-days on a day always add to `lot_daily_head`.
+  The pasture split comes from the log; where the log's total for the lot differs from the books (a late
+  entry by a path that does not carry its date, an office correction, head not placed in any pasture),
+  each pasture's share is scaled to the books and the row is marked scaled; head with no pasture goes to
+  `unplaced`. The existing Anomalies check "Pasture sum ≠ head current" shows today's gap;
+  `pasture_head_log_check` (view, on Anomalies) shows an assignment whose log no longer sums to its head.
+- **Functions:** `lot_loads()` (receipts, plus transfers in at the source lot's receipt-weighted arrival,
+  D28), `lot_precon_last_day()` (the 75-day rule in one place), `pasture_head_recorded(from, to)`,
+  `pasture_bucket_on(pasture, day)`, `pasture_headday_buckets(from, to)` (lot × pasture × day × bucket,
+  from go-live, test lots skipped, feed pen and `no_precon` lots never precon, D37 proration by the day
+  head last came into the pasture), `precon_day75_notices(days_ahead)`.
+- **Buckets:** precon, crop_winter, crop_summer, grass_winter, grass_summer, growyard, other,
+  unlabeled, unplaced.
+- **Open question for John:** the 75 days. Built as the arrival day plus 74 (exactly 75 precon days,
+  arrival = day 1). The D4 example "8/11 load: precon through 10/25" is arrival + 75 (76 days). One
+  constant in `lot_precon_last_day()`.
+- **Known approximations:** a reversal done by a direct write or an RPC that does not set the event day
+  is logged on the day it is entered; the scaling keeps the lot total right and only the pasture split is
+  off for those days. D37 proration treats returning head as newly arrived for that pasture's load mix.
+- Tested on a scratch PostgreSQL with the live bodies of both RPCs (their md5 reproduced exactly): late
+  death and late move land on their event days; an office edit without a date is scaled and marked;
+  removing an assignment, closing and reopening, and correcting a move-in day all leave
+  `pasture_head_log_check` empty; the test lot is never counted; a client role cannot write the log;
+  the file runs twice without change.
