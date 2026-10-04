@@ -1,7 +1,7 @@
 # Phases, pasture head-days and pasture cost — design interview (in progress)
 
 Started 2026-10-04 with John, one question at a time, each with a recommended answer. Decisions
-below are John's answers; the reason is recorded so it is not re-litigated. **Status: design complete (D1–D48), build order approved (D47). Steps 1 and 2 built 2026-10-04 (see "Build log"); their migrations go to John before they are applied.** Start from "Handoff" at the bottom.
+below are John's answers; the reason is recorded so it is not re-litigated. **Status: design complete (D1–D49), build order approved (D47). Steps 1 and 2 built 2026-10-04 (see "Build log"); their migrations go to John before they are applied.** Start from "Handoff" at the bottom.
 
 ## The goal
 
@@ -71,6 +71,7 @@ included, into the destination lot.
 | D46 | (C17) The office input list | **Accepted as listed** in "Office inputs" below. Goes into `docs/USER-ADMIN-GUIDE.md` when built | Every row traces to a decision; daily work adds nothing |
 | D47 | (C18) Build order | **Approved as revised** (see "Proposed build order"). Approval of the order is not approval to build: nothing is built until John says so | John |
 | D48 | Go-live date (D31) | **Nov 1, 2026.** Head-days, buckets, charges and feed-by-pasture start that day. Grass·winter starts clean. **Crop·winter is budgeted for its whole season cost**, including what accrues before Nov 1 (seed, planting), spread over head-days from Nov 1: John, "winter crops accrue their cost, won't be stocked till after 11-1 anyway." Grass·summer 2026 is never budgeted. If build steps 1–3 slip past Nov 1, go-live is the day they ship | One clean season boundary; no part-season budget needed, because crop·winter has no grazing before Nov 1 |
+| D49 | (2026-10-04, after step 1 was drafted) Which acres? | **One acre number per pasture: farmed / maintained acres**, dated on the same row as the label. On crop pastures it is the oat (farmed) ground; on grass it is the maintained ground. It is what pasture cost is allocated by and what capacity is built on (acres × stocking rate). Labels stay Crop, Grass pasture, Growyard, Other (the "type of grass or crop"). **Narrows D45 and D20** | John: "drop the scope to type of grass or crop and stocking rates and farmable/maintained acres, this is what we will allocate by." Total acres per pasture, ranch (lease) acres, grazable acres and rotational paddocks were discussed and moved to the Later list as long-term. Dated because it drives cost: a change re-spreading charges already posted would break the never-edit-in-place rule |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -84,6 +85,7 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 ## Later list (John: "keep in mind what other costs would be important and how to structure the capture")
 
 - Lease broken out **by acre** per pasture (pastures already carry acres / usable_acres fields).
+- (D49) Total acres per pasture, leased acres per ranch (all ground is leased) with a "leased acres not in a pasture" tie-out, grazable acres, and rotational grazing systems tracked by paddock. Long-term; John 2026-10-04.
 - Agronomic passes per field (fertilizer, seed, spray, planting) from **John Deere Operations Center**.
 - Cost buckets for crop·summer and growyard.
 - Labor and overhead (option C of D10) with the accounting-expense integration.
@@ -176,13 +178,15 @@ accountant reads; crew never sees the tab, because it holds the non-feed rate) a
 
 - **Go-live** is `ranch_settings.pasture_go_live`, set to 2026-11-01 (D48). If steps 1–3 ship late, the
   office moves it to the ship day.
-- **Acres** are the existing `pastures.usable_acres`; no new column. **Labels** are `pasture_label_history`
-  (`crop`, `grass`, `growyard`, `other`; one row per pasture per date) and the view `pasture_label_periods`
-  adds each row's end date. A label row whose date has come cannot be changed (trigger); a future-dated
-  one can be corrected. The grid defaults a new label's date to go-live while go-live is ahead, else today.
+- **Labels and acres** (D49) are `pasture_label_history`: one row per pasture per date carrying the label
+  (`crop`, `grass`, `growyard`, `other`) and `maintained_acres` (farmed / maintained acres, NULL = not known).
+  A change to either is a new row with both. The view `pasture_label_periods` adds each row's end date. A
+  row whose date has come cannot be changed (trigger); a future-dated one can be corrected. The grid
+  defaults a change's date to go-live while go-live is ahead, else today. `pastures.usable_acres` and
+  `total_acres` are left as they are, for the Locations screens.
 - **Seasons and stocking rates** are `pasture_season_settings`: one row per label (crop, grass), season
   (winter, summer) and date, holding the season's start (month, day) and the stocking rate in head per
-  usable acre. A season ends the day before the other season of its label starts, so the two always tile
+  farmed/maintained acre. A season ends the day before the other season of its label starts, so the two always tile
   the year. A row's date must BE its season start (CHECK): D42 enforced. Seeded with the D7 dates, rates
   NULL. After go-live a new row may not be dated before today; a row in effect keeps its dates and its
   rate, except that a rate never set may be filled in (NULL to a number), because the seeds go in before
