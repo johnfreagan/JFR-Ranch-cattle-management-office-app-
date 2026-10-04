@@ -53,6 +53,7 @@ included, into the destination lot.
 | D27 | What does the pasture report look like? | **One table per season, one row per pasture, grouped by label, worst $/hd-day first.** Columns: usable acres, capacity head-days, actual head-days, utilization %, head-days per acre, booked $ (budget $ while open), $/acre, $/hd-day used, idle $, budget miss $, plus the same pasture's same-season figures last year. Season picker; a total row per label ties to the bucket's booked $. In the accounting section (D22), linked from Pastures. Crew sees head-days and utilization only, with an on-screen note that dollars are hidden for their role | Worst-first puts the draggers on top (D16). Last year in the row = baseline without a second report. Head-days per acre seeds next season's stocking rate (D20) |
 | D28 | Transferred head: whose 75-day clock? | **The clock travels with the cattle.** Transferred head keep their source arrival date (source lot's weighted arrival; per load where the source had one load). Head-days before the transfer stay with the source lot | Same rule as D4 and as the withdrawal clock. Restarting or adopting the destination's clock would give calves more or fewer than 75 precon days |
 | D29 | Deaths and found strays | **Deaths** leave head-days on the death date (already true in `lot_daily_head`); no clock effect. **Found strays** return to the feed pen at $0 (existing rule); feed-pen head-days count in pasture head-days so pastures tie; the feed pen is left out of phase baselines | Proposed defaults, accepted by John |
+| D30 | How is the day-75 notice delivered? | **A row on the office app's Needs Attention list**, e.g. "Corner 1: last calves reach day 75 on 10/28 (lot 36-27) — weigh within 7 days to measure precon gain (optional)". Appears 7 days before, clears itself when the date passes; no acknowledging. The D25 season-still-open nudge uses the same list | The office works Needs Attention daily; no new place to look, no extra click |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -89,13 +90,24 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 - `pastures` has acres, total_acres, usable_acres, is_crop_ground, current_crop, planting_date,
   expected_termination.
 
+## Proposed build order (awaiting John's approval — nothing built)
+
+Each step stands on the one before and is useful alone. Every step: migration file in `docs/sql/`, RLS and policies on new tables, `security_invoker` views, `rls_verify` after, crew never sees dollars.
+
+1. **Labels, seasons, stocking rates (settings).** Dated label history per pasture (D6, D8); season dates with forward-only changes (D7, D9); stocking rate per label·season with per-pasture override (D20). Input: John labels each pasture once.
+2. **Head-day buckets (no dollars).** One derived view: head-days per lot × pasture × day × bucket. Precon from each load's own 75-day clock (D2–D4), clock travels on transfers (D28), deaths and feed pen per D29. Gives utilization and head-days per acre at once (D11 "C" part). Day-75 Needs Attention row (D5, D30).
+3. **Budget lines and lot charges.** Budget $ and budget head-days per bucket·season, per FY for Growyard/Other (D12, D13, D21). Capacity rate (D17, D20) × head-days charged to lots. Phases drill-down from the closeout with gain and CoG (D22, D26).
+4. **Redwing ledger import.** Monthly transaction-detail CSV (D14), account → bucket map, Production Year → season, unmapped list (D15). Waits on John's sample export (week of 2026-10-05). Built once to also serve COG actuals (OPEN-ITEMS #21).
+5. **True-up, season close, pasture report.** Provisional and final true-up spread over open lots (D18, D19); one-click season close and late-row roll-forward (D25); pasture report (D27).
+6. **Redwing WIP allocation report.** Monthly date-ranged export, twelve Redwing columns, Production Center = lot (D23, D24).
+7. **Later list items** (lease by acre, JD Operations Center passes, labor/overhead, closed-lot distribution).
+
+The closeout's move to its own accounting section (D22) is separate work John expects this month; steps 3, 5 and 6 land in it.
+
 ## Open question (resume here)
 
-**Q29. How is the day-75 notice (D5) delivered?**
-- A. **A row on the office app's existing Needs Attention list**, e.g. "Corner 1: last calves reach day 75 on 10/28 (lot 36-27) — weigh within 7 days to measure precon gain (optional)". It appears 7 days before, stays until the date passes, then clears itself. No acknowledging needed.
-- B. A push or email notice.
-- C. A badge on the lot screen only.
+**Q30. Approve the build order above?**
+- A. **Yes, as written.** Steps 1–2 can start now (no dollars, no Redwing dependency). Step 4 starts when the sample export arrives.
+- B. Change the order (e.g. Redwing import first, to load the CSV this month as D12 hoped).
 
-Recommended: **A**. The office already works Needs Attention every day, so there is no new place to look. Self-clearing means no extra click. 7 days is enough to plan a weighing or a move. The same list can carry the season-still-open nudge from D25.
-
-After Q29: the design tree is fully walked. Next step is a build order for John to approve.
+Recommended: **A**. Steps 1–2 are the base for everything and need no outside data. The CSV import cannot be finished without the sample anyway. If the sample arrives early, step 4 can run beside step 3, since neither depends on the other.
