@@ -20,8 +20,9 @@
 --      day it was typed. Every other writer logs on ranch_today(); the books
 --      scaling in D covers the difference (see D).
 --   C. lot_loads()                    every load of every lot with its arrival
---      date: delivery receipts, plus transfers in at the source lot's
---      receipt-weighted arrival (D28: the clock travels with the cattle).
+--      date: delivery receipts (invoices where receipts cover fewer head than
+--      the invoices), plus transfers in at the source lot's receipt-weighted
+--      arrival (D28: the clock travels with the cattle).
 --   D. pasture_head_recorded(from, to)        head per lot, pasture and day, from the log.
 --      pasture_bucket_on(pasture, day)        label, season and bucket of a pasture on a day.
 --      pasture_headday_buckets(from, to)      lot x pasture x day x bucket head-days.
@@ -402,9 +403,24 @@ stable
 security invoker
 set search_path = public, pg_temp
 as $$
+    -- A lot's loads are its delivery receipts, unless its receipts cover fewer
+    -- head than its invoices (cattle invoiced before receipts were kept, e.g.
+    -- 37X: 361 head invoiced Dec 2025, one 8-head catch-up receipt 2026-09-03);
+    -- then its loads are its invoices. Using the receipts there would date most
+    -- of the lot's calves by a bookkeeping catch-up.
+    with tot as (
+        select l.id as lot_id,
+               (select coalesce(sum(r.head_count), 0) from delivery_receipts r where r.lot_id = l.id and r.head_count > 0) as rcpt,
+               (select coalesce(sum(i.head_count), 0) from invoices i where i.lot_id = l.id and i.head_count > 0) as inv
+          from lots l
+    )
     select r.lot_id, r.receipt_date, r.head_count, 'receipt'
-      from delivery_receipts r
-     where r.head_count > 0 and r.receipt_date is not null
+      from delivery_receipts r join tot on tot.lot_id = r.lot_id
+     where r.head_count > 0 and r.receipt_date is not null and tot.rcpt >= tot.inv
+    union all
+    select i.lot_id, i.invoice_date, i.head_count, 'invoice'
+      from invoices i join tot on tot.lot_id = i.lot_id
+     where i.head_count > 0 and i.invoice_date is not null and tot.rcpt < tot.inv
     union all
     -- D28: transferred head keep the source lot's clock: its receipt-weighted
     -- arrival (the load date itself when the source had one load), else the

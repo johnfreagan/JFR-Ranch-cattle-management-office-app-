@@ -248,8 +248,8 @@ Attention, a "Pasture head log out of step" finding on Anomalies.
   each pasture's share is scaled to the books and the row is marked scaled; head with no pasture goes to
   `unplaced`. The existing Anomalies check "Pasture sum ≠ head current" shows today's gap;
   `pasture_head_log_check` (view, on Anomalies) shows an assignment whose log no longer sums to its head.
-- **Functions:** `lot_loads()` (receipts, plus transfers in at the source lot's receipt-weighted arrival,
-  D28), `lot_precon_last_day()` (the 75-day rule in one place), `pasture_head_recorded(from, to)`,
+- **Functions:** `lot_loads()` (receipts, or the invoices when a lot's receipts cover fewer head than its
+  invoices, as on 37X; plus transfers in at the source lot's receipt-weighted arrival, D28), `lot_precon_last_day()` (the 75-day rule in one place), `pasture_head_recorded(from, to)`,
   `pasture_bucket_on(pasture, day)`, `pasture_headday_buckets(from, to)` (lot × pasture × day × bucket,
   from go-live, test lots skipped, feed pen and `no_precon` lots never precon, D37 proration by the day
   head last came into the pasture), `precon_day75_notices(days_ahead)`.
