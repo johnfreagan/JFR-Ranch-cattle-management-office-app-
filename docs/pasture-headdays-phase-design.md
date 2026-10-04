@@ -57,6 +57,7 @@ included, into the destination lot.
 | D31 | Repair history first? | **No. Build going forward.** Closed and nearly closed lots are not gone back to. Head-days, charges and phases start from a go-live date (date: open) | John. The FY 2027 gap (lot head-days 134,749 vs assignment head-days 84,800 on 2026-10-04; 37X, 60X, 47-26 the biggest) is history and stays as is |
 | D32 | Source of head-days by pasture | **Pasture assignments**, from go-live. John: "A calf can't be here now without a pasture assignment." A daily tie-out (sum of open assignments = `head_current`, the D8 rule) goes on Anomalies so a gap shows the day it starts | One source. Assignments are the only data that know the pasture. Checked 2026-10-04: every open lot's open assignments equal `head_current` today (36-27 702/702, 32-26 109/109, remnants tie too), so the go-forward start is clean |
 | D33 | Lots that are not preconditioned | **Precon still applies to most cattle, even when started on oats.** The 75-day clock overrides the pasture label (as D2) | John |
+| D34 | (C3) Pasture inside the $0.50 non-feed placeholder | **A new dated non-feed rate without pasture from go-live**; pasture reaches lots only through the head-day charge. The placeholder itself is replaced this month when John brings in the accounting data; it will likely become a **budget for breakevens that trues up with real numbers over time** (the same budget-then-true-up pattern as pasture, D12) | One pasture number, not two. Dated, never edited in place, so pre-go-live closeouts do not move |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -101,8 +102,8 @@ John asked for a harsh critique before building. Checked against the live databa
 |---|---|---|
 | C1 | History: 37% of FY 2027 head-days have no pasture assignment; closed lots 31-26 / 32-26 have assignments left open | **Settled by D31** (going forward only) |
 | C2 | Two sources of head-days (`lot_daily_head` vs assignments) | **Settled by D32** |
-| C3 | The $0.50/hd-day non-feed placeholder already includes pasture (`cog-design-decisions.md`): pasture would be charged twice | Q31 |
-| C4 | Charge rate defined twice (budget $ ÷ budget hd in D12; pasture $ ÷ capacity hd in D17/D20). Capacity > use, so lots are always under-charged and the true-up dominates | open |
+| C3 | The $0.50/hd-day non-feed placeholder already includes pasture (`cog-design-decisions.md`): pasture would be charged twice | **Settled by D34** |
+| C4 | Charge rate defined twice (budget $ ÷ budget hd in D12; pasture $ ÷ capacity hd in D17/D20). Capacity > use, so lots are always under-charged and the true-up dominates | Q32 |
 | C5 | D19 undoes D17: open lots absorb idle cost and closed-lot shares, so lot baselines depend on timing | open |
 | C6 | True-up gaps: "open" as of when; no home when every grazer is closed; true-up lump lands in the wrong FY for seasons crossing Jul 1 | open |
 | C7 | Assignments hold head counts, not loads: which trap holds the precon calves of a two-load lot is unknown, so D5's per-trap notice cannot be computed | open |
@@ -136,8 +137,8 @@ The closeout's move to its own accounting section (D22) is separate work John ex
 
 Q30 (approve build order) is on hold until the critique items are settled.
 
-**Q31 (C3). The $0.50/hd-day non-feed placeholder already covers "pasture, mineral, fuel and overhead". How do we avoid charging pasture twice?**
-- A. **From go-live, a new non-feed rate that excludes pasture**, entered as a new dated rate (never an edit of the old one). Pasture reaches lots only through the head-day charge. John sets the new figure (e.g. $0.50 less the pasture share).
-- B. Keep $0.50 all-in. The head-day pasture charge is shown as analysis only and is not added to lot cost.
+**Q32 (C4). Which rate do lots pay day to day?**
+- A. **Budget rate**: budget $ ÷ **expected** head-days for that pasture (or bucket) and season. Capacity is used only on the pasture report, to measure idle against what the land could carry. The true-up then holds only the misses: booked $ vs budget $, and actual use vs expected use.
+- B. **Capacity rate** (D17 as written): $ ÷ capacity head-days. Lots are always under-charged and the true-up carries the gap.
 
-Recommended: **A**. The head-day charge is the better pasture number (by bucket, by season, trued to the books). Keeping a flat guess beside it means two pasture figures that disagree. A dated new rate follows the never-edit-in-place rule, so closeouts before go-live do not move.
+Recommended: **A**. It is the same pattern as D34: budget, charge, true up. Lots carry close to their real cost every month, so the D24 monthly Redwing allocation means something and season close is a small correction, not a lump. Planned idle (you expect to run a field at 60% of capacity) is a real cost of running cattle there, so lots carry it. The stocking decision still shows: the pasture report puts actual and expected use against capacity. This changes D17: lots no longer escape idle cost entirely; they pay the planned share, and unplanned shortfall lands in the true-up.
