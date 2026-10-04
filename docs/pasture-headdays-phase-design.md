@@ -54,6 +54,9 @@ included, into the destination lot.
 | D28 | Transferred head: whose 75-day clock? | **The clock travels with the cattle.** Transferred head keep their source arrival date (source lot's weighted arrival; per load where the source had one load). Head-days before the transfer stay with the source lot | Same rule as D4 and as the withdrawal clock. Restarting or adopting the destination's clock would give calves more or fewer than 75 precon days |
 | D29 | Deaths and found strays | **Deaths** leave head-days on the death date (already true in `lot_daily_head`); no clock effect. **Found strays** return to the feed pen at $0 (existing rule); feed-pen head-days count in pasture head-days so pastures tie; the feed pen is left out of phase baselines | Proposed defaults, accepted by John |
 | D30 | How is the day-75 notice delivered? | **A row on the office app's Needs Attention list**, e.g. "Corner 1: last calves reach day 75 on 10/28 (lot 36-27) — weigh within 7 days to measure precon gain (optional)". Appears 7 days before, clears itself when the date passes; no acknowledging. The D25 season-still-open nudge uses the same list | The office works Needs Attention daily; no new place to look, no extra click |
+| D31 | Repair history first? | **No. Build going forward.** Closed and nearly closed lots are not gone back to. Head-days, charges and phases start from a go-live date (date: open) | John. The FY 2027 gap (lot head-days 134,749 vs assignment head-days 84,800 on 2026-10-04; 37X, 60X, 47-26 the biggest) is history and stays as is |
+| D32 | Source of head-days by pasture | **Pasture assignments**, from go-live. John: "A calf can't be here now without a pasture assignment." A daily tie-out (sum of open assignments = `head_current`, the D8 rule) goes on Anomalies so a gap shows the day it starts | One source. Assignments are the only data that know the pasture |
+| D33 | Lots that are not preconditioned | **Precon still applies to most cattle, even when started on oats.** The 75-day clock overrides the pasture label (as D2) | John |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -90,6 +93,31 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 - `pastures` has acres, total_acres, usable_acres, is_crop_ground, current_crop, planting_date,
   expected_termination.
 
+## Critique round (2026-10-04)
+
+John asked for a harsh critique before building. Checked against the live database (read-only). Items, with status:
+
+| # | Problem | Status |
+|---|---|---|
+| C1 | History: 37% of FY 2027 head-days have no pasture assignment; closed lots 31-26 / 32-26 have assignments left open | **Settled by D31** (going forward only) |
+| C2 | Two sources of head-days (`lot_daily_head` vs assignments) | **Settled by D32** |
+| C3 | The $0.50/hd-day non-feed placeholder already includes pasture (`cog-design-decisions.md`): pasture would be charged twice | Q31 |
+| C4 | Charge rate defined twice (budget $ ÷ budget hd in D12; pasture $ ÷ capacity hd in D17/D20). Capacity > use, so lots are always under-charged and the true-up dominates | open |
+| C5 | D19 undoes D17: open lots absorb idle cost and closed-lot shares, so lot baselines depend on timing | open |
+| C6 | True-up gaps: "open" as of when; no home when every grazer is closed; true-up lump lands in the wrong FY for seasons crossing Jul 1 | open |
+| C7 | Assignments hold head counts, not loads: which trap holds the precon calves of a two-load lot is unknown, so D5's per-trap notice cannot be computed | open |
+| C8 | Production Year cannot name a season that crosses Jul 1; not confirmed the bookkeeper fills it | open (pending bookkeeper) |
+| C9 | Redwing loop: the D23 allocation journals come back in the next ledger CSV as WIP credits | open |
+| C10 | "Re-import replaces the month": no transaction ID, back-dated rows into closed seasons, reversals | open (pending sample) |
+| C11 | Per-acre spread of one bucket lump sum gives every pasture the same $/acre; per-pasture budget miss impossible; D27 over-promises | open |
+| C12 | Phase CoG = allocated feed ÷ projected gain; feed split by head share assumes precon and grower calves eat alike; whole-lot weights blend loads | open |
+| C13 | Season-date change (D9) or label change (D8) mid-season: what happens to the budget line and capacity | open |
+| C14 | No "not preconditioned" lot setting | **Partly settled by D33** ("most cattle"): whether an exception setting is needed is open |
+| C15 | Test lots TEST_DOC1 / TEST_DOC2 carry head-days and assignments in production; they would take true-up | open |
+| C16 | All 63 pastures have no acres; none has capacity; only 1 is marked crop ground | open (data entry) |
+| C17 | Input load understated | open |
+| C18 | Build order puts the import at step 4 though D12 wanted the CSV this month | open |
+
 ## Proposed build order (awaiting John's approval — nothing built)
 
 Each step stands on the one before and is useful alone. Every step: migration file in `docs/sql/`, RLS and policies on new tables, `security_invoker` views, `rls_verify` after, crew never sees dollars.
@@ -106,8 +134,10 @@ The closeout's move to its own accounting section (D22) is separate work John ex
 
 ## Open question (resume here)
 
-**Q30. Approve the build order above?**
-- A. **Yes, as written.** Steps 1–2 can start now (no dollars, no Redwing dependency). Step 4 starts when the sample export arrives.
-- B. Change the order (e.g. Redwing import first, to load the CSV this month as D12 hoped).
+Q30 (approve build order) is on hold until the critique items are settled.
 
-Recommended: **A**. Steps 1–2 are the base for everything and need no outside data. The CSV import cannot be finished without the sample anyway. If the sample arrives early, step 4 can run beside step 3, since neither depends on the other.
+**Q31 (C3). The $0.50/hd-day non-feed placeholder already covers "pasture, mineral, fuel and overhead". How do we avoid charging pasture twice?**
+- A. **From go-live, a new non-feed rate that excludes pasture**, entered as a new dated rate (never an edit of the old one). Pasture reaches lots only through the head-day charge. John sets the new figure (e.g. $0.50 less the pasture share).
+- B. Keep $0.50 all-in. The head-day pasture charge is shown as analysis only and is not added to lot cost.
+
+Recommended: **A**. The head-day charge is the better pasture number (by bucket, by season, trued to the books). Keeping a flat guess beside it means two pasture figures that disagree. A dated new rate follows the never-edit-in-place rule, so closeouts before go-live do not move.
