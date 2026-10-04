@@ -50,6 +50,7 @@ included, into the destination lot.
 | D24 | How often is the WIP allocation report run? | **Date-ranged, run monthly.** One row per (WIP account, lot) = capacity rate × the lot's head-days in that bucket in the period. True-up rows appear only in the period in which the season is closed (Q25). Same date picker as the medicine report | Lot cost in Redwing keeps pace with the monthly ledger CSV and the closeouts. Season-end-only would leave WIP unallocated up to 8½ months |
 | D25 | When is a season's true-up final? | **The office closes the season with one click** once the books are in. Until then the true-up shows as "provisional" (booked to date − charged to date). The app nudges when a season has been over 30 days and is still open. A Redwing row coded to an already-closed season goes to the next season of the same bucket, flagged on the import | Only the office knows when a season's books are in. A fixed date closes too early or waits too long; never-final keeps posting corrections into Redwing. Closed seasons stay fixed, like closed lots |
 | D26 | Gain and CoG per phase without a day-75 weighing? | **Real weight when there is one, projection when not, and say which.** A phase boundary uses a whole-lot weighing within ±7 days if one exists, else `lot_projected_weight_detail()` that day. Phase gain = end − start; phase CoG = phase cost ÷ phase gain. Figures resting on a projected end are marked "projected"; the baseline view can filter to phases with real weights at both ends. The day-75 notice (D5) adds an optional "weigh within 7 days to measure precon gain" | No new input; real weighings sharpen it. A projected CoG is mostly the target ADG echoed back, hence the mark. Cost-only would give up the precon gain D1 asked for |
+| D27 | What does the pasture report look like? | **One table per season, one row per pasture, grouped by label, worst $/hd-day first.** Columns: usable acres, capacity head-days, actual head-days, utilization %, head-days per acre, booked $ (budget $ while open), $/acre, $/hd-day used, idle $, budget miss $, plus the same pasture's same-season figures last year. Season picker; a total row per label ties to the bucket's booked $. In the accounting section (D22), linked from Pastures. Crew sees head-days and utilization only, with an on-screen note that dollars are hidden for their role | Worst-first puts the draggers on top (D16). Last year in the row = baseline without a second report. Head-days per acre seeds next season's stocking rate (D20) |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -88,10 +89,17 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Open question (resume here)
 
-**Q27. What does the pasture report look like?**
-- A. **One table per season, one row per pasture, grouped by label**, ranked worst $/hd-day first. Columns: usable acres, capacity head-days, actual head-days, utilization % (actual ÷ capacity), head-days per acre, booked $ (or budget $ while the season is open), $/acre, $/hd-day used, idle $, budget miss $. Each row also shows the same pasture's figures from the same season last year. Season picker; a total row per label ties to the bucket's booked $. Lives in the new accounting section (D22); Pastures links to it. Crew sees head-days and utilization only, never dollars, with a note on screen that dollar columns are hidden for their role.
-- B. A per-pasture detail page only, no ranch-wide table.
+**Q28. Transferred head: whose 75-day clock?**
 
-Recommended: **A**. Ranked worst-first, the draggers John wants to find (D16) are at the top. Last year's figures in the row make it a baseline without a second report. Head-days per acre is also next season's stocking-rate starting point (D20).
+Merging a small leftover group into another lot (D19's note) moves head mid-life. The transfer already records "days on that lot before transfer" in its provenance.
+- A. **The clock travels with the cattle.** Transferred head keep their source arrival date (the source lot's weighted arrival date; per load where the source had one load). A calf 50 days in when moved spends 25 more precon days in the new lot, then grower. Their head-days before the transfer stay with the source lot.
+- B. The clock restarts on the transfer date (the new lot's day 0).
+- C. Transferred head take the destination lot's clock.
 
-Still to walk after Q27: how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
+Recommended: **A**. It is the same rule as D4 (each calf's own 75 days) and as the withdrawal clock, which already travels with the animal. B gives a calf more than 75 precon days; C gives some calves fewer. Either would spoil the precon baseline.
+
+Proposed defaults, no question unless John objects:
+- **Deaths:** dead head leave head-days on the death date (already true in `lot_daily_head`). No effect on anyone's clock.
+- **Strays found:** they return to the **feed pen at $0** (existing rule), whose cost is tracked, never charged back. Feed-pen head-days count in pasture head-days, so pastures tie. The feed pen is left out of phase baselines.
+
+Still to walk after Q28: how the day-75 notice is delivered.
