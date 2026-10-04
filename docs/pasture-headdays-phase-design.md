@@ -43,6 +43,7 @@ included, into the destination lot.
 | D17 | With per-acre cost, who pays for under-used days? | **Capacity rate plus idle cost.** Pasture rate = pasture $ ÷ capacity head-days; a lot pays that rate × its head-days there. The rest is **idle pasture cost**, shown against the pasture. **At season end the idle cost must be charged somewhere** (where: Q19) | Lot closeout measures the cattle; the pasture report measures the land and stocking decisions; neither hides the other. John: the under-utilization "has to be charged somewhere" so the books tie |
 | D18 | At season end, where does the leftover land? | **One season-end true-up per bucket-season, ranch-wide.** Leftover = booked $ (Redwing) − $ charged at the capacity rate. It is spread over every lot that grazed that bucket that season, by its head-days there. It shows as its own closeout line, "Pasture true-up". The pasture report splits it into idle cost and budget miss per pasture. Lots closed before season end: Q20 | Lot totals tie to the books (D1 pricing). Own line keeps cattle-only comparisons possible. Charging only the lots on the idle pasture would punish them for a stocking decision |
 | D19 | A lot closed before season end grazed that bucket: its true-up share? | **The open lots absorb it.** The season-end true-up spreads over the lots still open, by their head-days in that bucket-season. Closed lots are never re-opened or adjusted | John's call. Closing before season end should be rare. **On the Later list:** revisit the Redwing distribution for closed lots, because the goal is to merge small leftover groups into other lots (lot transfers), which closes the source lot mid-season |
+| D20 | How are capacity head-days set? | **Usable acres × a stocking rate.** One stocking rate (head per usable acre) per label and season, in the season-dates settings spot (D7). Capacity = `usable_acres` × rate × days in the season. Optional per-pasture override for odd ground. Next season's rate starts from last season's actual head-days per acre | Four or five numbers a year; acres already in `pastures`. Capacity must be what the land could carry, not what was used, or idle cost is zero by definition |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -76,11 +77,10 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Open question (resume here)
 
-**Q21. How are a pasture's capacity head-days set, with little input?**
-- A. **Acres × a stocking rate.** One stocking rate (head per usable acre) per label and season, in the same settings spot as the season dates (D7). Capacity = `usable_acres` × rate × days in the season. An optional per-pasture override covers odd ground.
-- B. The office types capacity head-days for each pasture each season.
-- C. Capacity = last season's actual head-days.
+**Q22. Growyard and Other: capacity and idle cost, or not?**
+- A. **No capacity, no idle cost.** Their cost (if any is coded to them) is spread by actual head-days at a plain rate, per FY: budget $ ÷ budget head-days, trued up to booked $ at FY end (D18 and D19 rules).
+- B. Capacity in head (pen or trap size) × days, with idle cost like grass and crop.
 
-Recommended: **A**. It is four or five numbers a year, and `pastures.usable_acres` already exists. Capacity has to be what the land could carry, not what was used. C would make idle cost zero by definition, and it would hide the under-use D16 is meant to show. D12's "build on actuals" applies to the budget $ and the stocking rate: last season's actual head-days per acre is the starting point for next season's rate.
+Recommended: **A**. Growyard cost is mostly feed, already charged exactly by PB (D10). Other is the catch-all (hospital traps, pens, odd ground), there so head-days tie, not to be measured. A stocking-rate number for a pen adds input and tells little.
 
-Still to walk after Q21: capacity for Growyard and Other (no acres-based grazing), where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
+Still to walk after Q22: where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
