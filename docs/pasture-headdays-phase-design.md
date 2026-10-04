@@ -1,7 +1,7 @@
 # Phases, pasture head-days and pasture cost — design interview (in progress)
 
 Started 2026-10-04 with John, one question at a time, each with a recommended answer. Decisions
-below are John's answers; the reason is recorded so it is not re-litigated. **Status: design complete (D1–D49), build order approved (D47). Steps 1 and 2 built 2026-10-04 (see "Build log"); their migrations go to John before they are applied.** Start from "Handoff" at the bottom.
+below are John's answers; the reason is recorded so it is not re-litigated. **Status: design complete (D1–D49), build order approved (D47). Steps 1 and 2 built and both migrations applied 2026-10-04 (see "Build log"); the app changes are on branch `claude/pasture-headdays-build-steps-cxixo3`, not yet on main.** Start from "Handoff" at the bottom.
 
 ## The goal
 

@@ -45,6 +45,13 @@
 -- 2026-10-03). Idempotent: re-running replaces the
 -- functions with the same bodies (the guard accepts the post-migration md5s).
 -- For apply_migration or the CLI, strip the begin;/commit; lines.
+-- Applied 2026-10-04 on John's approval through apply_migration (begin/commit
+-- stripped), after migration 2026-10-04. Verified live: md5(prosrc) equals a
+-- scratch build of this file for pb_posting_plan_by_pasture (7984896b...),
+-- pb_posting_plan (a49e4c27...), approve_pb_report (c07d70a4...),
+-- pb_charge_prefeeds (152ef672...). pb_posting_plan's output on the 9/28, 9/29
+-- and 10/1 reports is byte-identical before and after (row count, pounds and
+-- an md5 over every row). anon cannot execute the new function.
 begin;
 
 do $$

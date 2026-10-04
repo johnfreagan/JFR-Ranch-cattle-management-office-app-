@@ -38,6 +38,13 @@
 -- created inside guarded DO blocks instead of being replaced.
 --
 -- Idempotent. For apply_migration or the CLI, strip the begin;/commit; lines.
+-- Applied 2026-10-04 on John's approval through apply_migration (begin/commit
+-- stripped). Verified live: md5(prosrc) of the three guard functions equals a
+-- scratch build of this file (nonfeed_rates_guard 672e4824...,
+-- pasture_label_history_guard dee76abd..., pasture_season_settings_guard
+-- 4a836429...); 4 season rows, the $0.50 row from 2026-09-01, go-live
+-- 2026-11-01, 3 policies per table, guards enabled; rls_verify assertions
+-- 1, 2, 4-7 run as selects with zero findings.
 begin;
 
 -- =====================================================================
