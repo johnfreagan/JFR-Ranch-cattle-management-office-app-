@@ -40,6 +40,7 @@ included, into the destination lot.
 | D14 | What does the monthly CSV hold? | **Transaction detail** for the WIP accounts, exported from **Redwing** (the ranch's ag accounting software), as is. The app stores the rows and sums them per account per month. Re-importing a month replaces that month. John sends a sample export the week of 2026-10-05; columns are mapped to it then | Balances drop to zero when WIP is relieved; detail keeps the season total and the vendor/memo for per-pasture costing later. John: "can hold whatever we need and track." This is likely the same Redwing ledger OPEN-ITEMS #21 expects in October for COG actuals, so build one ledger import that serves both |
 | D15 | How does a ledger row find its bucket and season? | **By Redwing coding.** One-time map in the app: Account (plus Profit Center when needed) → bucket; season from Redwing's Production Year. Rows that do not map (no map, or Production Year blank) land on an "unmapped" list for the office to sort | Coding happens once, in the books. Date alone mis-sorts costs paid ahead (August oat seed belongs to crop·winter) |
 | D16 | Ranch-wide bucket rate, or per pasture? | **Per pasture, eventually.** Spread bucket cost to pastures **by acre**, then charge lots by head-days in each pasture. Start ranch-wide (D11); per-acre is the target | John: "Straight hd days would allow productive pastures to hide ones that are dragging us down or not utilizing." Per-acre is the only way to see pasture efficiency and utilization |
+| D17 | With per-acre cost, who pays for under-used days? | **Capacity rate plus idle cost.** Pasture rate = pasture $ ÷ capacity head-days; a lot pays that rate × its head-days there. The rest is **idle pasture cost**, shown against the pasture. **At season end the idle cost must be charged somewhere** (where: Q19) | Lot closeout measures the cattle; the pasture report measures the land and stocking decisions; neither hides the other. John: the under-utilization "has to be charged somewhere" so the books tie |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -70,12 +71,13 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Open question (resume here)
 
-**Q18. With per-acre cost, who pays for days a pasture sits under-used?**
+**Q19. At season end, where does the leftover land?**
 
-Example: a 100-acre oat field costs $10,000 for the winter and could carry 20,000 head-days. One lot uses it for 8,000 head-days.
-- A. **Pasture's own actual rate**: $10,000 ÷ 8,000 = $1.25/hd-day. The lot carries the whole field cost.
-- B. **Capacity rate plus idle cost**: rate = $10,000 ÷ 20,000 capacity head-days = $0.50/hd-day. The lot pays $4,000. The other $6,000 is **idle pasture cost**, shown against that pasture on a pasture report, not charged to any lot.
+Leftover for one bucket-season = booked $ (Redwing) − $ already charged to lots at the capacity rate. It has two parts: **idle cost** (empty capacity) and **budget miss** (booked $ ≠ budget $).
+- A. **One season-end true-up, spread over every lot that grazed that bucket in that season, by its head-days there**, ranch-wide. It shows as its own closeout line ("Pasture true-up"), apart from the head-day charge. The pasture report splits it into idle and budget miss per pasture.
+- B. Only to lots that stood on the under-used pasture.
+- C. To ranch overhead, never to lots.
 
-Recommended: **B**. A lot's closeout then measures the cattle, and the pasture report measures the land and the stocking decisions, so neither hides the other. Under A, a good lot put on a half-empty field looks bad, and lot baselines mix cattle performance with pasture use. Capacity head-days are the D12 budget head-days, set per pasture instead of per bucket.
+Recommended: **A**. Lot totals then tie to the books, which D1 needs for pricing a calf. Because the true-up is its own line, lot-to-lot comparisons can show the cattle number with or without it. B punishes the lots for a stocking decision, the problem D17 avoided. C leaves lot cost short of the books.
 
-Still to walk after Q18: how capacity head-days get set without much input (e.g. acres × a stocking rate per label and season), what happens to the charged-vs-booked variance, where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
+Still to walk after Q19: lots sold or closed before the season ends (they miss the true-up), how capacity head-days get set without much input (e.g. acres × a stocking rate per label and season), where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
