@@ -79,6 +79,6 @@ Today's rule (docs/architecture.md, strays): **a closed lot is never re-opened**
 - B. A late adjustment line on the closed lot's closeout, so its final cost changes after close.
 - C. The open lots absorb the closed lots' share as well.
 
-Recommended: **A**. It follows the never-reopen rule and the feed-pen precedent. Open lots are not charged for cattle that already left. Ranch-wide, the books still tie: lot charges + true-ups + closed-lot share + any idle not charged = booked $. B changes a reported FY. C charges current cattle for past cattle.
+Recommended: **A**. It follows the never-reopen rule and the feed-pen precedent. Open lots are not charged for cattle that already left. Ranch-wide, the books still tie: lot charges + open-lot true-ups + closed-lot share = booked $. B changes a reported FY. C charges current cattle for past cattle.
 
 Still to walk after Q20: how capacity head-days get set without much input (e.g. acres × a stocking rate per label and season), where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
