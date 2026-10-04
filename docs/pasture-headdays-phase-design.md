@@ -36,6 +36,7 @@ included, into the destination lot.
 | D10 | Which costs are charged by head-days | **Pasture costs only** (lease/rent, fertilizer, seed, spraying, planting/cultivation) | Feed is already charged exactly per drop by PB; labor and the non-feed rate are already per head-day in the closeout. Labor/overhead come with the accounting integration John is close to |
 | D11 | How to start, given the books are lump sums? | **A built on C.** First count head-days per bucket (automatic from moves). Then spread each WIP lump sum ranch-wide over all head-days in its bucket ($ ÷ bucket head-days = $/hd-day) and charge each lot by its days in that bucket. Per-pasture costs (lease by acre, JD passes) come later on the same head-days | Head-day counting needs no new input and gives utilization numbers now. Lump sums give every lot real pasture cost now. Per-pasture detail only sharpens the $/hd-day later. B means no baseline for a year; C leaves closeouts without pasture cost |
 | D12 | How do the lump sums become a $/hd-day? | **A budgeted rate, checked against the books.** Each bucket gets a budget $ and budget head-days; budget $ ÷ budget head-days = the rate. Lots are charged that rate × their actual head-days in the bucket. A **monthly CSV** from the books brings in the WIP accumulations (actual $) for the comparison: charged vs. booked. Actual $ and actual head-days become the base for the next year's budget. This year the head-days are budgeted too; later years build on actual head-days | John: "workout an estimation (budget for lack of a better word) and accumulate that by head day and compare to true bookkeeping and then use that as a base for future years." Lots carry pasture cost from day one without waiting for the books to close. The CSV is the one office input; goal is to load it this month (Oct 2026) |
+| D13 | What period does a budget line cover? | **Per bucket per season**: one line per bucket per season, e.g. "Crop·winter 2026-27 (Sep 1 – May 15): $X budget, Y budget head-days". Growyard and Other (no season) budget per FY | One season = one crop or grazing period. Crop·summer and grass·summer cross Jul 1; per-FY lines would split one crop by guesswork. Each day's charge lands in the FY of that day, so FY reports still tie |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -66,10 +67,10 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Open question (resume here)
 
-**Q15. What period does a budget line cover?** (Reframed after D12: budget lines, not booked lump sums.)
-- A. **Per bucket per season**, e.g. "Crop·winter 2026-27 (Sep 1 – May 15): $X budget, Y budget head-days".
-- B. **Per bucket per FY**, e.g. "Crop·winter FY 2027: $X, Y head-days".
+**Q16. What does the monthly CSV hold?**
+- A. **Transaction detail** for the WIP accounts (the general-ledger report for those accounts, exported as is): date, account, amount, vendor/memo. The app sums the costs posted per account per month.
+- B. **Month-end balance** per WIP account: account, balance.
 
-Recommended: **A**. One season is one crop or one grazing period, so its cost belongs to that window. Crop·summer (May 16 – Aug 31) and grass·summer (Apr 2 – Oct 31) cross Jul 1. Per-FY budgets would split one crop by guesswork. Each day's charge still lands in the FY of that day, so FY reports tie.
+Recommended: **A**. When the bookkeeper relieves WIP at season end, the balance drops to zero, so B loses the season's total. Detail keeps it, and it keeps vendor and memo for per-pasture costing later. It is a standard one-click export, so no retyping. Re-importing a month replaces that month, so a corrected export is safe.
 
-Still to walk after Q15: the monthly CSV (columns, which WIP accounts map to which bucket, cumulative or month-only), what happens to the charged-vs-booked variance (stays a ranch variance, or trued up to lots at season end), where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
+Still to walk after Q16: which WIP accounts map to which bucket and season, what happens to the charged-vs-booked variance (stays a ranch variance, or trued up to lots at season end), where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
