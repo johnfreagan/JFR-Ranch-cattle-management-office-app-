@@ -62,6 +62,7 @@ included, into the destination lot.
 | D36 | (C5, C6) Where does the true-up go? | **Split by head-days at season close (D25).** Every lot that grazed the bucket-season gets its share by its head-days there. **Open lots** carry their share as the "Pasture true-up" closeout line (credit or charge). **Closed lots'** shares post in Redwing to one ranch **pasture variance** account and feed the next season's budget. Closed lots are never re-opened. **Supersedes D19** (open lots no longer absorb closed lots' shares); D18 stands with that change | John: "open lots get their share at season end, closed lots share goes to the variance account for better true up next year." No lot gets a refund or a charge earned by other cattle; the leftover always has a home. "Open" means open on the day the season is closed |
 | D37 | (C7) Which pasture holds the precon calves of a two-load lot? | **Prorate.** Each pasture holding the lot gets the lot's loads in proportion, limited to loads that had arrived by that move's move-in date. No new input. The day-75 notice is per lot, naming its pastures: "36-27: last calves reach day 75 on 11/23 (Corner 1, Corner 2)" (amends D5) | D2 ruled out per-calf or per-group tracking. Proration matters only while a two-load lot is mid-precon and split across traps |
 | D38 | (C8) How does a Redwing row name its season? | **WIP account + its Production Year.** John: the WIP accounts carry a production year. Each bucket has one season per year (crop·winter, crop·summer, grass·winter, grass·summer are separate buckets), so account + Production Year names exactly one bucket-season. The critique's "cannot name a season crossing Jul 1" was wrong: the summers sit inside one calendar year, and only the winters span two | Coding already exists in the books; no new Profit Centers or date rules |
+| D39 | Which Production Year does a winter season carry? | **Hard rule: Production Year = the year the season ends** (crop·winter Sep 2026 – May 2027 = PY 2027). Accounting follows the rule. A row whose account + PY matches no season lands on the unmapped list | John. Matches the FY naming rule (named for the year it ends) |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -109,8 +110,8 @@ John asked for a harsh critique before building. Checked against the live databa
 | C5 | D19 undoes D17: open lots absorb idle cost and closed-lot shares, so lot baselines depend on timing | **Settled by D36** |
 | C6 | True-up gaps: "open" as of when; no home when every grazer is closed; true-up lump lands in the wrong FY for seasons crossing Jul 1 | **Settled by D36** |
 | C7 | Assignments hold head counts, not loads: which trap holds the precon calves of a two-load lot is unknown, so D5's per-trap notice cannot be computed | **Settled by D37** |
-| C8 | Production Year cannot name a season that crosses Jul 1; not confirmed the bookkeeper fills it | **Settled by D38** (critique was wrong); Q36 for the winter convention |
-| C9 | Redwing loop: the D23 allocation journals come back in the next ledger CSV as WIP credits | open |
+| C8 | Production Year cannot name a season that crosses Jul 1; not confirmed the bookkeeper fills it | **Settled by D38, D39** (critique was wrong) |
+| C9 | Redwing loop: the D23 allocation journals come back in the next ledger CSV as WIP credits | Q37 |
 | C10 | "Re-import replaces the month": no transaction ID, back-dated rows into closed seasons, reversals | open (pending sample) |
 | C11 | Per-acre spread of one bucket lump sum gives every pasture the same $/acre; per-pasture budget miss impossible; D27 over-promises | open |
 | C12 | Phase CoG = allocated feed ÷ projected gain; feed split by head share assumes precon and grower calves eat alike; whole-lot weights blend loads | open |
@@ -141,8 +142,9 @@ Q30 (approve build order) is on hold until the critique items are settled.
 
 Knock-on edit from D36, to make when the doc is consolidated: D24's season-close rows = one row per open lot (its true-up) plus one row to the pasture variance account (the closed lots' shares).
 
-**Q36. A winter season spans two calendar years (crop·winter Sep 2026 – May 2027). Which Production Year does Redwing put on it?**
-- A. **Don't encode a rule. The app keeps a small map: (WIP account, Production Year) → bucket-season.** The first time an import brings a new pair, it lands on the unmapped list and the office picks the season once (one click a season). Every later row with that pair maps itself.
-- B. Encode a fixed rule now (e.g. Production Year = the year the season ends).
+**Q37 (C9). The WIP allocation the app sends to Redwing (D23) comes back in next month's ledger CSV as credits on the WIP accounts. How does the import tell them apart from real costs and credits?**
+- A. **A fixed marker on every allocation row.** The export writes e.g. `JFR-ALLOC 2026-10` in Redwing's Notation column. On import, marked rows are not counted as cost; they are matched to what the app sent for that period, and any difference (edited, missing, posted twice) is flagged on the import review.
+- B. Import debits only; ignore all credits.
+- C. Post allocations to a separate "WIP allocated" contra account that the import never reads.
 
-Recommended: **A**. It works whatever convention the bookkeeper uses, and it survives a convention change. It is one click per account per season, about four a year. B guesses at a convention nobody has confirmed.
+Recommended: **A**. B silently drops real credits (returns, rebates, corrections) and overstates cost. C needs a new account in Redwing and still gives no check that what was sent is what got posted. A costs nothing to enter, and the match proves the books hold what the app allocated.
