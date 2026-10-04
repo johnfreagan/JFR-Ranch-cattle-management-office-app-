@@ -1,7 +1,7 @@
 # Phases, pasture head-days and pasture cost — design interview (in progress)
 
 Started 2026-10-04 with John, one question at a time, each with a recommended answer. Decisions
-below are John's answers; the reason is recorded so it is not re-litigated. **Status: design complete (D1–D49), build order approved (D47). Steps 1 and 2 built and both migrations applied 2026-10-04 (see "Build log"); the app changes are on branch `claude/pasture-headdays-build-steps-cxixo3`, not yet on main.** Start from "Handoff" at the bottom.
+below are John's answers; the reason is recorded so it is not re-litigated. **Status: design complete (D1–D49), build order approved (D47). Steps 1–3 built and their migrations applied 2026-10-04 (see "Build log"); the app changes are on branch `claude/pasture-headdays-build-steps-cxixo3`, not yet on main.** Start from "Handoff" at the bottom.
 
 ## The goal
 
@@ -228,7 +228,7 @@ Migration `docs/sql/2026-10-04b_feed_rows_keep_pasture.sql`. No app change.
   nothing, the roll-up equals the old per-lot totals, a prefeed charged later carries its pasture, and a
   second run of the file changes nothing.
 
-### Step 3 — head-day buckets (built 2026-10-04, migration not yet applied)
+### Step 3 — head-day buckets (built and applied 2026-10-04)
 
 Migration `docs/sql/2026-10-04c_pasture_headday_buckets.sql`. App: day-75 rows on Inventory → Needs
 Attention, a "Pasture head log out of step" finding on Anomalies.
@@ -253,11 +253,14 @@ Attention, a "Pasture head log out of step" finding on Anomalies.
   `pasture_bucket_on(pasture, day)`, `pasture_headday_buckets(from, to)` (lot × pasture × day × bucket,
   from go-live, test lots skipped, feed pen and `no_precon` lots never precon, D37 proration by the day
   head last came into the pasture), `precon_day75_notices(days_ahead)`.
-- **Buckets:** precon, crop_winter, crop_summer, grass_winter, grass_summer, growyard, other,
-  unlabeled, unplaced.
-- **Open question for John:** the 75 days. Built as the arrival day plus 74 (exactly 75 precon days,
-  arrival = day 1). The D4 example "8/11 load: precon through 10/25" is arrival + 75 (76 days). One
-  constant in `lot_precon_last_day()`.
+- **Phase and land use are two columns** (John, 2026-10-04, before applying: precon traps, growyards
+  and dual-use pastures carry different stocking rates and cost). Every head-day row has `phase`
+  (precon or grower, from the clock) and `bucket` (the pasture's land use that day: crop_winter,
+  crop_summer, grass_winter, grass_summer, growyard, other, unlabeled, unplaced). Pasture cost follows
+  the land; phase baselines follow the calf. This amends D11's bucket list, where precon was a bucket
+  beside the land buckets: precon calves on oats now carry oat land use.
+- **The 75 days:** arrival day plus 74, exactly 75 precon days with arrival = day 1. The D4 example
+  "8/11 load: precon through 10/25" (arrival + 75) was a drafting slip; John confirmed 2026-10-04.
 - **Known approximations:** a reversal done by a direct write or an RPC that does not set the event day
   is logged on the day it is entered; the scaling keeps the lot total right and only the pasture split is
   off for those days. D37 proration treats returning head as newly arrived for that pasture's load mix.

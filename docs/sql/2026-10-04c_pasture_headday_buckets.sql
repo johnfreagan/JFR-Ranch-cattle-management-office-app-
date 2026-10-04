@@ -40,13 +40,20 @@
 -- (D8, D32) shows today's gap; pasture_head_log_check shows a log that has lost
 -- track of an assignment.
 --
--- Buckets: precon, crop_winter, crop_summer, grass_winter, grass_summer,
--- growyard, other, unlabeled (pasture has no label that day), unplaced.
+-- Every head-day carries two things, kept apart (John 2026-10-04, after step 3
+-- was drafted: precon traps, growyards and dual-use pastures carry different
+-- stocking rates and different cost):
+--   phase  = precon or grower, from the 75-day clock (where the calf is in life);
+--   bucket = the land use of the pasture that day: crop_winter, crop_summer,
+--            grass_winter, grass_summer, growyard, other, unlabeled (pasture has
+--            no label that day), unplaced (head on the books in no pasture).
+-- Pasture cost follows the land (bucket); phase baselines follow the calf.
 --
 -- The 75-day clock (D4): a load's precon days are its arrival day and the 74
 -- days after it, so every calf gets exactly 75 precon days (arrival + 74 is the
--- last). The design's example ("8/11 load: precon through 10/25") counts one
--- day more; John to confirm. The rule lives in one place, lot_precon_last_day().
+-- last). The design's example ("8/11 load: precon through 10/25") counted one
+-- day more; it was a drafting slip, and John confirmed arrival + 74 stands
+-- (2026-10-04). The rule lives in one place, lot_precon_last_day().
 -- Precon applies wherever the calf stands (D2, D33) unless the lot is marked
 -- no_precon (D43) or is the feed pen (D29). A pasture holding a lot gets the
 -- lot's loads in proportion, limited to loads that had arrived by the day head
@@ -67,6 +74,13 @@
 -- No DROP or DELETE statement (connector note, docs/feed-pb-import.md
 -- 2026-10-03). Idempotent. For apply_migration or the CLI, strip the
 -- begin;/commit; lines.
+-- Applied 2026-10-04 on John's approval through apply_migration (begin/commit
+-- stripped). Verified live: md5(prosrc) of all nine functions equals a scratch
+-- build of this file (pasture_head_log_capture a24a137c..., record_death_with_pasture
+-- 9a0a6dc1..., record_move_with_pasture 006edbb9..., lot_loads be2b4cd9...,
+-- pasture_headday_buckets cbf347c3...); 24 open assignments seeded from
+-- 2026-10-04; pasture_head_log_check empty; trigger enabled; rls_verify
+-- assertions 1, 2, 4-7 run as selects with zero findings.
 begin;
 
 -- The two RPCs this file changes must be the bodies read on 2026-10-04.
@@ -497,7 +511,7 @@ as $$
 $$;
 
 create or replace function public.pasture_headday_buckets(p_from date, p_to date)
-returns table (lot_id uuid, pasture_id uuid, day date, bucket text, label text, season text,
+returns table (lot_id uuid, pasture_id uuid, day date, phase text, bucket text, label text, season text,
                head numeric, books_head integer, recorded_head integer, scaled boolean, is_feed_pen boolean)
 language sql
 stable
@@ -544,18 +558,19 @@ as $$
                            and ld.arrival <= coalesce(p.last_in, p.day)), 0)
                end as precon_frac
           from placed p join lots_in l on l.id = p.lot_id
-    ), split as (
-        select w.lot_id, w.pasture_id, w.day, 'precon'::text as bucket, null::text as label, null::text as season,
-               w.head * w.precon_frac as head, w.books_head, w.recorded_head, w.scaled, w.is_feed_pen
-          from withfrac w where w.precon_frac > 0
-        union all
-        select w.lot_id, w.pasture_id, w.day,
-               case when w.pasture_id is null then 'unplaced' else b.bucket end,
-               b.label, b.season,
-               w.head * (1 - w.precon_frac), w.books_head, w.recorded_head, w.scaled, w.is_feed_pen
+    ), landed as (
+        -- the land use of the pasture that day, whatever the phase
+        select w.*, case when w.pasture_id is null then 'unplaced' else b.bucket end as bucket, b.label, b.season
           from withfrac w
           left join lateral pasture_bucket_on(w.pasture_id, w.day) b on w.pasture_id is not null
-         where w.precon_frac < 1
+    ), split as (
+        select x.lot_id, x.pasture_id, x.day, 'precon'::text as phase, x.bucket, x.label, x.season,
+               x.head * x.precon_frac as head, x.books_head, x.recorded_head, x.scaled, x.is_feed_pen
+          from landed x where x.precon_frac > 0
+        union all
+        select x.lot_id, x.pasture_id, x.day, 'grower'::text, x.bucket, x.label, x.season,
+               x.head * (1 - x.precon_frac), x.books_head, x.recorded_head, x.scaled, x.is_feed_pen
+          from landed x where x.precon_frac < 1
     )
     select * from split where head > 0
 $$;
