@@ -111,9 +111,9 @@ John asked for a harsh critique before building. Checked against the live databa
 | C6 | True-up gaps: "open" as of when; no home when every grazer is closed; true-up lump lands in the wrong FY for seasons crossing Jul 1 | **Settled by D36** |
 | C7 | Assignments hold head counts, not loads: which trap holds the precon calves of a two-load lot is unknown, so D5's per-trap notice cannot be computed | **Settled by D37** |
 | C8 | Production Year cannot name a season that crosses Jul 1; not confirmed the bookkeeper fills it | **Settled by D38, D39** (critique was wrong) |
-| C9 | Redwing loop: the D23 allocation journals come back in the next ledger CSV as WIP credits | Q37 |
-| C10 | "Re-import replaces the month": no transaction ID, back-dated rows into closed seasons, reversals | open (pending sample) |
-| C11 | Per-acre spread of one bucket lump sum gives every pasture the same $/acre; per-pasture budget miss impossible; D27 over-promises | open |
+| C9 | Redwing loop: the D23 allocation journals come back in the next ledger CSV as WIP credits | **Pending real data** (John: figure out with the first real exports, no guessing). Options on file: marker in Notation matched to what was sent; debits only; separate contra account |
+| C10 | "Re-import replaces the month": no transaction ID, back-dated rows into closed seasons, reversals | **Pending real data** (sample export) |
+| C11 | Per-acre spread of one bucket lump sum gives every pasture the same $/acre; per-pasture budget miss impossible; D27 over-promises | Q38 |
 | C12 | Phase CoG = allocated feed ÷ projected gain; feed split by head share assumes precon and grower calves eat alike; whole-lot weights blend loads | open |
 | C13 | Season-date change (D9) or label change (D8) mid-season: what happens to the budget line and capacity | open |
 | C14 | No "not preconditioned" lot setting | **Partly settled by D33** ("most cattle"): whether an exception setting is needed is open |
@@ -142,9 +142,10 @@ Q30 (approve build order) is on hold until the critique items are settled.
 
 Knock-on edit from D36, to make when the doc is consolidated: D24's season-close rows = one row per open lot (its true-up) plus one row to the pasture variance account (the closed lots' shares).
 
-**Q37 (C9). The WIP allocation the app sends to Redwing (D23) comes back in next month's ledger CSV as credits on the WIP accounts. How does the import tell them apart from real costs and credits?**
-- A. **A fixed marker on every allocation row.** The export writes e.g. `JFR-ALLOC 2026-10` in Redwing's Notation column. On import, marked rows are not counted as cost; they are matched to what the app sent for that period, and any difference (edited, missing, posted twice) is flagged on the import review.
-- B. Import debits only; ignore all credits.
-- C. Post allocations to a separate "WIP allocated" contra account that the import never reads.
+**Q38 (C11). Until there are costs recorded per pasture, what does the pasture report show per pasture?**
 
-Recommended: **A**. B silently drops real credits (returns, rebates, corrections) and overstates cost. C needs a new account in Redwing and still gives no check that what was sent is what got posted. A costs nothing to enter, and the match proves the books hold what the app allocated.
+Today's books give one lump per bucket. Spread by acre, every pasture in a bucket gets the same $/acre, so per-pasture dollar columns would all match.
+- A. **Narrow D27 to what the data supports.** Per pasture: usable acres, capacity, expected and actual head-days, utilization %, head-days per acre, $ charged to lots, idle head-days. Booked $, $/acre and budget miss show on the **label total rows only**. Per-pasture dollar columns switch on by themselves once costs coded to a pasture exist (lease by acre, JD passes).
+- B. Keep D27 as written, identical $/acre on every row.
+
+Recommended: **A**. Columns that are the same on every row read as findings when they are not. The use numbers are the real per-pasture signal now, and they are what finds the pastures dragging you down: same cost per acre, fewer head-days per acre.
