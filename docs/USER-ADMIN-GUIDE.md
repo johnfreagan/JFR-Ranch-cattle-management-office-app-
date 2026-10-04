@@ -512,3 +512,19 @@ WHERE p.is_active = FALSE;
 SELECT policyname, cmd, qual, with_check
 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'lots';
 ```
+
+## 11. Pasture setup (office inputs for pasture head-days)
+
+Settings → **Pasture setup**, office and owner. From the pasture head-days design
+(`docs/pasture-headdays-phase-design.md`, D46). Daily work adds nothing; these are the only inputs.
+
+| When | Input | Where |
+|---|---|---|
+| Once | Usable acres and a label for every active pasture | Acres and labels grid |
+| Once a year | Season dates (only from a season start), stocking rate per label and season, non-feed rate | Seasons and stocking rates; Non-feed rate |
+| Once a season, per bucket | Budget $ and expected head-days; close the season | Later build steps |
+| Monthly | Redwing ledger import; WIP allocation report | Later build steps |
+| When it happens | A pasture's label changes (give the date); "No precon phase" on a new lot of preconditioned cattle | Grid; lot form |
+
+Every entry is dated and goes forward only. A row already in effect cannot be changed; add a newer one.
+Crew does not see this tab: the non-feed rate is a dollar figure.

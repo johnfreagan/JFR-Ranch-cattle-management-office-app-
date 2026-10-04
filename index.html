@@ -1066,6 +1066,7 @@
             <button class="sub-tab" data-subtab="locations">Locations</button>
             <button class="sub-tab" data-subtab="field-actions">Field Actions</button>
             <button class="sub-tab" data-subtab="field-protocols">Field Protocols</button>
+            <button class="sub-tab" data-subtab="pasture-setup" data-perm="office">Pasture setup</button>
             <button class="sub-tab" data-subtab="data-tools">Data Tools</button>
             <button class="sub-tab" data-subtab="users" data-perm="owner">Users</button>
         </div>
@@ -1702,6 +1703,110 @@
                     Default medications per action. Set a global default (applies to all lots), or override per lot. When crew picks an action in the field app, meds auto-fill from the matching protocol.
                 </p>
                 <div id="fieldProtocolsContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Pasture setup (Settings → Pasture setup). Build step 1 of the pasture
+             head-days design, docs/pasture-headdays-phase-design.md: acres and
+             labels (D45, D8), seasons and stocking rates (D7, D20, D42), the
+             dated non-feed rate (D34). Office and owner; accountant reads it.
+             Crew never sees this tab: the non-feed rate is dollars. -->
+        <div id="pastureSetupView" class="hidden">
+            <div class="card">
+                <h2 style="margin-bottom: 6px;">Pasture setup</h2>
+                <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
+                    What pasture head-days are sorted by. Nothing here charges a lot yet: head-days by pasture start on the
+                    go-live date, and pasture cost reaches lots in a later build step. Every change here is dated and
+                    goes forward only — a past day keeps the label, season and rate it had.
+                </p>
+                <div id="pastureSetupAlert"></div>
+                <div id="pastureSetupGoLive" style="font-size: 13px; margin-bottom: 4px;">Loading…</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>Acres and labels</h2>
+                    <button class="primary" id="pastureGridSaveBtn" data-perm="office" data-write>Save changes</button>
+                </div>
+                <p class="muted" style="font-size: 12px; margin-bottom: 10px;">
+                    Every active pasture: usable acres and its label — <strong>Crop</strong>, <strong>Grass pasture</strong>,
+                    <strong>Growyard</strong> or <strong>Other</strong> (hospital traps, pens, odd ground, so head-days always tie).
+                    A label change takes a "from" date; earlier days keep the old label. A pasture with no acres still counts
+                    head-days and shows "no acres" wherever capacity or a per-acre figure would be.
+                </p>
+                <div id="pastureGridSummary" class="muted" style="font-size: 12px; margin-bottom: 8px;"></div>
+                <div id="pastureGridContent"><div class="empty">Loading…</div></div>
+            </div>
+
+            <div class="card">
+                <h2 style="margin-bottom: 6px;">Seasons and stocking rates</h2>
+                <p class="muted" style="font-size: 12px; margin-bottom: 10px;">
+                    Crop and Grass pasture each have a winter and a summer season; Growyard and Other have none. A season
+                    ends the day before the other season of its label starts. The stocking rate (head per usable acre) sets
+                    each pasture's capacity for the utilization report. Season dates change only from a season start:
+                    a change is a new row from that start, never an edit of one already running. A rate never set may be
+                    filled in.
+                </p>
+                <div id="pastureSeasonContent"><div class="empty">Loading…</div></div>
+                <div data-perm="office" data-write style="margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius);">
+                    <h3 style="margin: 0 0 8px 0; font-size: 14px;">Change a season from its next start</h3>
+                    <div class="form-grid">
+                        <div>
+                            <label for="seasonNewKey">Season</label>
+                            <select id="seasonNewKey">
+                                <option value="crop|winter">Crop · winter</option>
+                                <option value="crop|summer">Crop · summer</option>
+                                <option value="grass|winter">Grass pasture · winter</option>
+                                <option value="grass|summer">Grass pasture · summer</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="seasonNewStart">Season starts on (and the change takes effect)</label>
+                            <input type="date" id="seasonNewStart">
+                        </div>
+                        <div>
+                            <label for="seasonNewRate">Stocking rate, head per usable acre</label>
+                            <input type="number" id="seasonNewRate" step="0.01" min="0" placeholder="blank = not set">
+                        </div>
+                    </div>
+                    <button class="primary" id="seasonNewSaveBtn" style="margin-top: 8px;">Add season row</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2 style="margin-bottom: 6px;">Non-feed rate</h2>
+                <p class="muted" style="font-size: 12px; margin-bottom: 10px;">
+                    The ranch non-feed cost of gain, $/head-day, charged on the closeout beside actual feed for every
+                    head-day after the feed cut-over. Each day is charged the rate in force that day. A lot's own rate on
+                    its closeout still overrides it. From go-live the rate should <strong>leave pasture out</strong>:
+                    pasture reaches lots only through the head-day charge, so a rate that still includes it would charge
+                    pasture twice. Rates are never edited; a new rate starts today or later.
+                </p>
+                <div id="nonfeedRatesContent"><div class="empty">Loading…</div></div>
+                <div data-perm="office" data-write style="margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius);">
+                    <h3 style="margin: 0 0 8px 0; font-size: 14px;">Add a dated rate</h3>
+                    <div class="form-grid">
+                        <div>
+                            <label for="nonfeedNewFrom">Charged from</label>
+                            <input type="date" id="nonfeedNewFrom">
+                        </div>
+                        <div>
+                            <label for="nonfeedNewRate">$ per head-day</label>
+                            <input type="number" id="nonfeedNewRate" step="0.0001" min="0" placeholder="e.g. 0.35">
+                        </div>
+                        <div>
+                            <label for="nonfeedNewNote">Note</label>
+                            <input type="text" id="nonfeedNewNote" placeholder="where the figure came from">
+                        </div>
+                    </div>
+                    <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; margin-top: 8px;">
+                        <input type="checkbox" id="nonfeedNewInclPasture" style="width: auto;"> This rate still includes pasture
+                    </label>
+                    <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; margin-top: 4px;">
+                        <input type="checkbox" id="nonfeedNewPlaceholder" style="width: auto;"> Placeholder (not yet a figure from the books)
+                    </label>
+                    <button class="primary" id="nonfeedNewSaveBtn" style="margin-top: 8px;">Add rate</button>
+                </div>
             </div>
         </div>
 
@@ -5058,6 +5163,16 @@
                     and medicine only: no cost of gain, labor, interest, death loss or budget.
                 </div>
             </div>
+            <div style="margin-bottom: 14px;" data-perm="office" id="lotNoPreconWrap">
+                <label style="font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                    <input type="checkbox" id="lotNoPrecon" style="width: auto;"> No precon phase (arrived preconditioned)
+                </label>
+                <div class="muted" style="font-size: 11px; margin-top: 3px;">
+                    Off for most lots: every calf's first 75 days count as preconditioning, wherever it
+                    stands. Tick it only for cattle bought already preconditioned — their head-days go
+                    straight to the pasture labels from day 1 and the lot is left out of precon baselines.
+                </div>
+            </div>
             <div>
                 <label for="lotEstWeight" id="lotEstWeightLabel">Estimated purchase weight (lb a head) *</label>
                 <input type="number" step="1" min="0" id="lotEstWeight" placeholder="e.g. 525">
@@ -6221,6 +6336,11 @@ window.addEventListener('unhandledrejection', function(e) {
     let feedDirectFrom = null;         // 'YYYY-MM-DD' or null
     let ranchNonFeedDefault = null;    // ranch_settings.nonfeed_cog_per_day, $/head-day after the boundary; a lot can override
     let ranchNonFeedNote = null;       // 'placeholder ...' until the ledger gives a real number
+    // The ranch non-feed rate is DATED since 2026-10-04 (nonfeed_rates, design
+    // D34): each head-day after the cut-over is charged the rate in force that
+    // day. Sorted oldest first. ranchNonFeedDefault is the one in force today.
+    let ranchNonFeedRates = [];
+    let currentNonFeedRanchCharge = null;   // $ for this lot's head-days after the boundary at the dated ranch rates; null = not computable
     let currentHeadDaysAfterBoundary = null;   // head-days on/after feedDirectFrom
     const $ = id => document.getElementById(id);
 
@@ -7302,11 +7422,12 @@ window.addEventListener('unhandledrejection', function(e) {
         // the whole life of the lot.
         currentHeadDaysAfterBoundary = null;
         currentFeedAfterBoundary = null;
+        currentNonFeedRanchCharge = null;
         await loadRanchSettings();
         if (feedDirectFrom) {
             const [hdRes, fdRes] = await Promise.all([
                 supabase.from('lot_daily_head')
-                    .select('head_on_hand')
+                    .select('as_of_date, head_on_hand')
                     .eq('lot_id', lotId)
                     .gte('as_of_date', feedDirectFrom)
                     .limit(1200),
@@ -7331,6 +7452,20 @@ window.addEventListener('unhandledrejection', function(e) {
                 // A lot open long enough to hit the cap would silently
                 // under-report. Better to know nothing than to know wrong.
                 if ((hdRes.data || []).length >= 1200) currentHeadDaysAfterBoundary = null;
+                // Each day at the ranch rate in force that day (dated rates,
+                // 2026-10-04). A head-day with no rate on file makes the sum
+                // unknowable, so it stays null and the flat rate is used.
+                if (currentHeadDaysAfterBoundary != null && ranchNonFeedRates.length) {
+                    let usd = 0, ok = true;
+                    (hdRes.data || []).forEach(r => {
+                        const head = Number(r.head_on_hand) || 0;
+                        if (!head) return;
+                        const rate = ranchNonFeedRateOn(String(r.as_of_date).slice(0, 10));
+                        if (!rate) { ok = false; return; }
+                        usd += head * Number(rate.rate_per_head_day);
+                    });
+                    if (ok) currentNonFeedRanchCharge = usd;
+                }
             }
         }
 
@@ -8415,6 +8550,31 @@ window.addEventListener('unhandledrejection', function(e) {
         feedDirectFrom = data.feed_direct_from || null;
         ranchNonFeedDefault = data.nonfeed_cog_per_day != null ? Number(data.nonfeed_cog_per_day) : null;
         ranchNonFeedNote = data.nonfeed_cog_note || null;
+        // Dated rates replace the single ranch_settings figure (kept there for
+        // audit). If the table cannot be read the single figure above stands,
+        // which is exactly what the closeout did before the dated rates.
+        const nf = await supabase.from('nonfeed_rates')
+            .select('effective_from, rate_per_head_day, includes_pasture, is_placeholder, notes')
+            .order('effective_from', { ascending: true });
+        if (!nf.error && (nf.data || []).length) {
+            ranchNonFeedRates = nf.data;
+            const now = ranchNonFeedRateOn(ranchToday());
+            ranchNonFeedDefault = now ? Number(now.rate_per_head_day) : null;
+            ranchNonFeedNote = now ? (now.is_placeholder ? 'placeholder' : (now.notes || '')) : null;
+        } else {
+            ranchNonFeedRates = [];
+        }
+    }
+
+    // The ranch non-feed rate row in force on a 'YYYY-MM-DD' day, or null.
+    function ranchNonFeedRateOn(day) {
+        let hit = null;
+        for (const r of ranchNonFeedRates) { if (r.effective_from <= day) hit = r; else break; }
+        return hit;
+    }
+    // The newest rate on file: what days still to come are charged at.
+    function ranchNonFeedLatest() {
+        return ranchNonFeedRates.length ? ranchNonFeedRates[ranchNonFeedRates.length - 1] : null;
     }
 
     // ---- ACTUAL TO DATE -------------------------------------------------
@@ -8515,7 +8675,21 @@ window.addEventListener('unhandledrejection', function(e) {
         // The non-feed rate is $/head-day and is its OWN step, not a second
         // "mode" of the COG rate (2026-09-11: per_day and per_head are gone,
         // every lot and budget is per_lb, the CHECKs refuse anything else).
-        const nonFeedRate = cogSplit ? (nonFeedCog != null ? nonFeedCog : 0) : null;
+        // The ranch rate is dated (2026-10-04): when this lot inherits it, the
+        // days after the boundary are charged day by day at the rate in force
+        // (currentNonFeedRanchCharge) and the rate shown is that charge per
+        // head-day. A lot's own or a typed rate stays flat, as before.
+        const ranchDated = boundaryActive && nonFeedSource === 'ranch' && currentNonFeedRanchCharge != null
+            && currentHeadDaysAfterBoundary > 0;
+        const ranchDatedUsd = ranchDated
+            ? currentNonFeedRanchCharge * Math.min(1, hdAfter / currentHeadDaysAfterBoundary) : null;
+        const nonFeedRate = !cogSplit ? null
+            : ranchDated ? (hdAfter > 0 ? ranchDatedUsd / hdAfter : (nonFeedCog != null ? nonFeedCog : 0))
+            : (nonFeedCog != null ? nonFeedCog : 0);
+        // Days still to come are charged at the newest ranch rate on file.
+        const latestNf = ranchNonFeedLatest();
+        const nonFeedFwdRate = (cogSplit && nonFeedSource === 'ranch' && latestNf)
+            ? Number(latestNf.rate_per_head_day) : nonFeedRate;
 
         // ---- GAIN TO DATE, for the per-pound method (2026-09-04) -------
         // A $/lb rate is charged on pounds gained, not on days run. Until
@@ -8571,7 +8745,7 @@ window.addEventListener('unhandledrejection', function(e) {
         if (boundaryActive) {
             // days before the boundary carry the assumed $/lb (feed inside
             // it); days after carry actual feed beside the non-feed $/head-day
-            cog = cogLbRate * gainOnDays(hdBefore) + nonFeedRate * hdAfter;
+            cog = cogLbRate * gainOnDays(hdBefore) + (ranchDated ? ranchDatedUsd : nonFeedRate * hdAfter);
         } else if (useNonFeedOnly) {
             // a non-feed rate typed but no boundary date to split on: the
             // whole life at the per-day rate, actual feed beside it
@@ -8665,7 +8839,7 @@ window.addEventListener('unhandledrejection', function(e) {
             // already inside operating, so it belongs here or the rows do
             // not sum to Total cost.
             medicine: processing + treatment + otherMed,
-            feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, nonFeedRate, cogLbRate, nonFeedCog, nonFeedSource,
+            feedPerHeadDay, feedLedger, feedInsideCog, cogSplit, nonFeedRate, nonFeedFwdRate, ranchDated, ranchDatedUsd, cogLbRate, nonFeedCog, nonFeedSource,
             soldGainLb, soldHeadDays, unsettledHeadDays, estGainLb, gainToDateLb, gainClamped, rawSoldGainLb, unweighedSoldHead,
             estAdg, estAdgSource, weighingAdg, soldWithWt,
             boundaryActive, splitUnavailable, hdBefore, hdAfter, nonFeedMissing, nonFeedCog,
@@ -8730,7 +8904,7 @@ window.addEventListener('unhandledrejection', function(e) {
         // Forward days are all after the boundary once it is active, so they
         // carry the non-feed $/head-day (actual feed rides beside it in
         // feedFwd); otherwise the $/lb rate on the gain still to come.
-        const cogFwd = actual.cogSplit ? (actual.nonFeedRate || 0) * forwardHeadDays
+        const cogFwd = actual.cogSplit ? (actual.nonFeedFwdRate || 0) * forwardHeadDays
                                        : actual.cogLbRate * gainFwdLb;
         const laborFwd = rates.laborMode === 'per_day'
             ? (rates.labor || 0) * forwardHeadDays
@@ -9064,33 +9238,27 @@ window.addEventListener('unhandledrejection', function(e) {
         }
         if ($('calc_nonfeed_hint')) {
             const defaultBit = ranchNonFeedDefault != null
-                ? ` · ranch default $${Number(ranchNonFeedDefault).toFixed(2)}/hd/day${ranchNonFeedNote && /placeholder/i.test(ranchNonFeedNote) ? ' <span style="color:#b58900;">(placeholder until the ledger)</span>' : ''}` +
-                  ` <a href="#" id="calc_nonfeed_setdefault" data-perm="office">set</a>`
-                : ' · <span style="color:#b58900;">no ranch default set</span> <a href="#" id="calc_nonfeed_setdefault" data-perm="office">set</a>';
+                ? ` · ranch rate today $${Number(ranchNonFeedDefault).toFixed(2)}/hd/day${ranchNonFeedNote && /placeholder/i.test(ranchNonFeedNote) ? ' <span style="color:#b58900;">(placeholder until the ledger)</span>' : ''}` +
+                  (ranchNonFeedLatest() && ranchNonFeedLatest().effective_from > ranchToday()
+                      ? `, $${Number(ranchNonFeedLatest().rate_per_head_day).toFixed(2)} from ${fmtDate(ranchNonFeedLatest().effective_from)}` : '') +
+                  ` <a href="#" id="calc_nonfeed_setdefault" data-perm="office">rates</a>`
+                : ' · <span style="color:#b58900;">no ranch rate set</span> <a href="#" id="calc_nonfeed_setdefault" data-perm="office">rates</a>';
             const usingBit = actual.nonFeedSource === 'ranch' ? 'Using the ranch default (blank = inherit). ' : actual.nonFeedSource === 'lot' ? 'This lot\'s own rate. ' : actual.nonFeedSource === 'typed' ? '' : '';
             $('calc_nonfeed_hint').innerHTML = usingBit + (actual.feedInsideCog
                 ? (actual.feedLedger > 0 ? `COG is one number. ${fmtMoney(actual.feedLedger)} of actual feed is on the ledger and shown as a memo, not added.` : 'COG is one number, feed included.')
                 : actual.boundaryActive
                 ? (actual.hdAfter > 0
                     ? `${fmtNum(Math.round(actual.hdAfter))} head-days since ${fmtDate(feedDirectFrom)}`
-                      + (rates.nonFeedCog != null ? ` × $${Number(rates.nonFeedCog).toFixed(4)} = ${fmtMoney(rates.nonFeedCog * actual.hdAfter)}` : ' — nothing charged on them yet')
+                      + (actual.ranchDated ? ` at the ranch rate in force each day = ${fmtMoney(actual.ranchDatedUsd)}`
+                         : rates.nonFeedCog != null ? ` × $${Number(rates.nonFeedCog).toFixed(4)} = ${fmtMoney(rates.nonFeedCog * actual.hdAfter)}` : ' — nothing charged on them yet')
                     : 'No head-days after the cut-over yet.')
                 : 'Replaces the assumed COG rate on this lot (no cut-over date set); actual feed is charged beside it.') + defaultBit;
             const sd = $('calc_nonfeed_setdefault');
-            if (sd) sd.addEventListener('click', async (e) => {
+            // The ranch rate is dated now (2026-10-04): a change is a new row
+            // from a date, made on Settings -> Pasture setup, never an edit here.
+            if (sd) sd.addEventListener('click', (e) => {
                 e.preventDefault();
-                const v = prompt('Ranch default non-feed cost of gain, $/head-day after ' + (feedDirectFrom ? fmtDate(feedDirectFrom) : 'the cut-over') + '.\nExcludes labor (its own line) and feed (charged beside it).', ranchNonFeedDefault != null ? String(ranchNonFeedDefault) : '0.50');
-                if (v == null) return;
-                const n = parseFloat(v);
-                if (isNaN(n) || n < 0) { showAlert('globalAlert', 'Enter a number, $/head-day.'); return; }
-                const note = confirm('Is this a real figure from the books?\n\nOK = real figure. Cancel = still a placeholder.')
-                    ? 'set ' + ranchToday() + ' from the books' : 'placeholder set ' + ranchToday() + ': replace with the ledger figure';
-                const { data, error } = await supabase.from('ranch_settings').update({ nonfeed_cog_per_day: n, nonfeed_cog_note: note, updated_at: new Date().toISOString() }).eq('id', true).select();
-                if (error) { showAlert('globalAlert', 'Could not save the ranch default: ' + friendlyDbError(error.message)); return; }
-                if (!data || !data.length) { showAlert('globalAlert', 'The ranch default was not saved — that is office and owner only.'); return; }
-                await loadRanchSettings(true);
-                showAlert('globalAlert', 'Ranch default non-feed rate saved: $' + n.toFixed(2) + '/hd/day.', 'success');
-                renderCloseoutCalculator();
+                showSettingsTab('pasture-setup');
             });
         }
         if ($('calc_labor_hint')) {
@@ -9703,6 +9871,9 @@ window.addEventListener('unhandledrejection', function(e) {
                and medicine only: no cost of gain, labor, interest, death loss or budget.`
             : `Set when the lot is created and not changeable afterwards — it decides whether cattle
                may arrive at $0 and whether the lot has a closeout at all.`;
+        // D43 (pasture head-days design): off by default; a duplicate copies
+        // it, because the copy is usually the next load of the same cattle.
+        $('lotNoPrecon').checked = mode === 'new' ? false : !!seed?.no_precon;
         $('lotForm').dataset.mode=mode;
         $('lotForm').dataset.seedId=mode==='duplicate'?(seed?.id||''):'';
         syncLotEstWeightRequired();
@@ -9726,6 +9897,8 @@ window.addEventListener('unhandledrejection', function(e) {
     function syncLotEstWeightRequired() {
         const mode = $('lotForm').dataset.mode || 'new';
         const pen = $('lotIsFeedPen').checked;
+        // The feed pen never has a precon phase (D29), so the box would only mislead.
+        $('lotNoPreconWrap').classList.toggle('hidden', pen);
         const need = mode !== 'edit' && !pen;
         $('lotEstWeight').required = need;
         $('lotEstWeightLabel').textContent =
@@ -9791,6 +9964,7 @@ window.addEventListener('unhandledrejection', function(e) {
             created_by:currentUser.id
         };
         if(mode==='new') payload.is_feed_pen=$('lotIsFeedPen').checked;
+        payload.no_precon = !$('lotIsFeedPen').checked && $('lotNoPrecon').checked;
         // Every insert names the mode: lots_cog_mode_check allows per_lb only, and a column default that says otherwise refuses the row.
         if(!id) payload.cog_mode='per_lb';
 
@@ -10186,7 +10360,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'protocolsView', 'protocolDetailView',
          'locationsView', 'pastureDetailView', 'ranchDetailView',
          'fieldActionsView', 'fieldProtocolsView',
-         'dataToolsView', 'usersView',
+         'dataToolsView', 'usersView', 'pastureSetupView',
          'doctoringPlaceholderView', 'doctoringEntryView', 'doctoringSingleView',
          'reportActiveLotsView', 'reportDailyView', 'reportYardSheetView', 'reportAnomaliesView', 'reportFeedPenView', 'reportPasturesView', 'reportDeathAnalysisView', 'reportProcessingView', 'reportFreshView', 'reportDoctoringView', 'reportHealthCurvesView', 'reportDeathCaptureView',
          'approvalsView', 'salesView', 'salesReportView', 'shipmentEntryView', 'movesView', 'positionsView',
@@ -10264,6 +10438,9 @@ window.addEventListener('unhandledrejection', function(e) {
         } else if (subtab === 'field-protocols') {
             $('fieldProtocolsView').classList.remove('hidden');
             loadFieldProtocols();
+        } else if (subtab === 'pasture-setup') {
+            $('pastureSetupView').classList.remove('hidden');
+            loadPastureSetup();
         } else if (subtab === 'data-tools') {
             $('dataToolsView').classList.remove('hidden');
             loadDataTools();
@@ -23413,6 +23590,308 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
     }
 
     // ---- Locations top page (ranches list, with totals) ----
+    // ==========================================================
+    // PASTURE SETUP (Settings → Pasture setup), 2026-10-04.
+    // Build step 1 of docs/pasture-headdays-phase-design.md. Every write is a
+    // new dated row (labels, seasons, non-feed rates); the database refuses an
+    // edit to a row already in effect (guard triggers in
+    // docs/sql/2026-10-04_pasture_settings.sql) and its words are shown as
+    // written. Usable acres are the one plain column edit (pastures).
+    // ==========================================================
+    const PASTURE_LABELS = { crop: 'Crop', grass: 'Grass pasture', growyard: 'Growyard', other: 'Other' };
+    const SEASON_NAMES = { winter: 'winter', summer: 'summer' };
+    let pastureSetupState = null;
+
+    function psMd(row) {
+        const d = new Date(2001, row.start_month - 1, row.start_day);
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+    function psDayBefore(month, day) {
+        const d = new Date(2001, month - 1, day - 1);
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+    // The season row in force on a day: newest effective_from on or before it.
+    function psSeasonOn(rows, label, season, day) {
+        let hit = null;
+        rows.filter(r => r.label === label && r.season === season)
+            .sort((a, b) => a.effective_from.localeCompare(b.effective_from))
+            .forEach(r => { if (r.effective_from <= day) hit = r; });
+        return hit;
+    }
+    // The first day a NEW label or rate should default to: go-live while it is
+    // still ahead (nothing is sorted before it), else today.
+    function psDefaultFrom() {
+        const today = ranchToday();
+        const gl = pastureSetupState && pastureSetupState.goLive;
+        return gl && gl > today ? gl : today;
+    }
+
+    async function loadPastureSetup() {
+        clearAlert('pastureSetupAlert');
+        $('pastureGridContent').innerHTML = '<div class="empty">Loading…</div>';
+        await refreshRanchesCache();
+        const [setRes, pRes, lRes, sRes, nRes] = await Promise.all([
+            supabase.from('ranch_settings').select('pasture_go_live, feed_direct_from').maybeSingle(),
+            supabase.from('pastures').select('id, ranch_id, name, usable_acres, total_acres, is_active').eq('is_active', true).order('name'),
+            supabase.from('pasture_label_periods').select('id, pasture_id, label, effective_from, effective_to, notes').order('effective_from'),
+            supabase.from('pasture_season_settings').select('*').order('effective_from'),
+            supabase.from('nonfeed_rates').select('*').order('effective_from')
+        ]);
+        const errs = [setRes, pRes, lRes, sRes, nRes].filter(r => r.error).map(r => r.error.message);
+        if (errs.length) {
+            // Most likely the 2026-10-04 migration is not applied yet. Say so
+            // rather than showing empty tables that look like "nothing set".
+            showAlert('pastureSetupAlert', 'Could not load pasture setup: ' + errs.join(' | '));
+            $('pastureGridContent').innerHTML = '';
+            $('pastureSeasonContent').innerHTML = '';
+            $('nonfeedRatesContent').innerHTML = '';
+            $('pastureSetupGoLive').textContent = '';
+            return;
+        }
+        const ranchName = {};
+        allRanchesCache.forEach(r => { ranchName[r.id] = r.name; });
+        const pastures = (pRes.data || []).slice().sort((a, b) =>
+            (ranchName[a.ranch_id] || '').localeCompare(ranchName[b.ranch_id] || '') || a.name.localeCompare(b.name));
+        const labelsBy = {};
+        (lRes.data || []).forEach(r => { (labelsBy[r.pasture_id] = labelsBy[r.pasture_id] || []).push(r); });
+        pastureSetupState = {
+            goLive: setRes.data ? setRes.data.pasture_go_live : null,
+            feedDirectFrom: setRes.data ? setRes.data.feed_direct_from : null,
+            pastures, ranchName, labelsBy,
+            seasons: sRes.data || [],
+            nonfeed: nRes.data || []
+        };
+        renderPastureSetupGoLive();
+        renderPastureGrid();
+        renderPastureSeasons();
+        renderNonfeedRates();
+    }
+
+    function renderPastureSetupGoLive() {
+        const st = pastureSetupState;
+        $('pastureSetupGoLive').innerHTML = st.goLive
+            ? `<strong>Go-live: ${fmtDate(st.goLive)}.</strong> Head-days by pasture, the 75-day precon clock and feed by pasture count from this day.
+               ${st.goLive > ranchToday() ? `Labels and rates typed before it take effect on it.` : ''}`
+            : '<span style="color:#b58900;">No go-live date set.</span>';
+    }
+
+    function renderPastureGrid() {
+        const st = pastureSetupState;
+        const today = ranchToday();
+        const opts = sel => ['<option value="">— none —</option>']
+            .concat(Object.keys(PASTURE_LABELS).map(k => `<option value="${k}"${k === sel ? ' selected' : ''}>${PASTURE_LABELS[k]}</option>`)).join('');
+        let withLabel = 0, withAcres = 0;
+        const rows = st.pastures.map(p => {
+            const hist = st.labelsBy[p.id] || [];
+            const latest = hist.length ? hist[hist.length - 1] : null;
+            if (latest) withLabel++;
+            if (p.usable_acres != null && Number(p.usable_acres) > 0) withAcres++;
+            const histText = hist.map(h => {
+                const fut = h.effective_from > today;
+                return `${PASTURE_LABELS[h.label] || h.label} from ${fmtDate(h.effective_from)}${fut ? ' (ahead)' : ''}`;
+            }).join(' · ');
+            return `<tr data-pasture-id="${p.id}">
+                <td>${escapeHtml(st.ranchName[p.ranch_id] || '')}</td>
+                <td><strong>${escapeHtml(p.name)}</strong></td>
+                <td class="num"><input type="number" class="ps-acres" step="0.1" min="0" style="width: 90px;"
+                        value="${p.usable_acres ?? ''}" data-orig="${p.usable_acres ?? ''}" placeholder="no acres"></td>
+                <td><select class="ps-label" data-orig="${latest ? latest.label : ''}">${opts(latest ? latest.label : '')}</select></td>
+                <td><input type="date" class="ps-from" disabled style="width: 140px;"></td>
+                <td class="muted" style="font-size: 12px;">${histText || '<span style="color:#b58900;">no label</span>'}</td>
+            </tr>`;
+        }).join('');
+        $('pastureGridSummary').textContent =
+            `${st.pastures.length} active pastures · ${withLabel} with a label · ${withAcres} with usable acres.`;
+        $('pastureGridContent').innerHTML = st.pastures.length ? `
+            <div style="overflow-x: auto;"><table>
+                <thead><tr><th>Ranch</th><th>Pasture</th><th class="num">Usable ac</th><th>Label</th><th>Label from</th><th>Label history</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>` : '<div class="empty">No active pastures.</div>';
+        // A changed label needs its "from" date; default it, and switch it off
+        // again if the label is put back.
+        $('pastureGridContent').querySelectorAll('.ps-label').forEach(sel => {
+            sel.addEventListener('change', () => {
+                const from = sel.closest('tr').querySelector('.ps-from');
+                const changed = sel.value !== sel.dataset.orig;
+                from.disabled = !changed;
+                from.value = changed ? (from.value || psDefaultFrom()) : '';
+            });
+        });
+    }
+
+    $('pastureGridSaveBtn').addEventListener('click', async () => {
+        clearAlert('pastureSetupAlert');
+        const st = pastureSetupState;
+        if (!st) return;
+        const acreUpdates = [], labelRows = [], problems = [];
+        $('pastureGridContent').querySelectorAll('tr[data-pasture-id]').forEach(tr => {
+            const id = tr.dataset.pastureId;
+            const name = (st.ranchName[(st.pastures.find(p => p.id === id) || {}).ranch_id] || '') + ' ' +
+                         ((st.pastures.find(p => p.id === id) || {}).name || '');
+            const ac = tr.querySelector('.ps-acres');
+            if (ac.value !== ac.dataset.orig) {
+                const v = ac.value === '' ? null : Number(ac.value);
+                if (v != null && (!isFinite(v) || v < 0)) problems.push(name + ': usable acres must be a number, 0 or more.');
+                else acreUpdates.push({ id, name, usable_acres: v });
+            }
+            const sel = tr.querySelector('.ps-label');
+            if (sel.value !== sel.dataset.orig) {
+                const from = tr.querySelector('.ps-from').value;
+                if (!sel.value) problems.push(name + ': a label cannot be taken away, only replaced by another from a date.');
+                else if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) problems.push(name + ': give the date the new label starts.');
+                else labelRows.push({ pasture_id: id, label: sel.value, effective_from: from, name });
+            }
+        });
+        if (problems.length) { showAlert('pastureSetupAlert', problems.join(' ')); return; }
+        if (!acreUpdates.length && !labelRows.length) { showAlert('pastureSetupAlert', 'Nothing changed.', 'info'); return; }
+        $('pastureGridSaveBtn').disabled = true;
+        const failed = [];
+        for (const u of acreUpdates) {
+            const { data, error } = await supabase.from('pastures').update({ usable_acres: u.usable_acres }).eq('id', u.id).select('id');
+            if (error) failed.push(u.name + ' acres: ' + friendlyDbError(error.message));
+            else if (!data || !data.length) failed.push(u.name + ' acres: not saved (office and owner only).');
+        }
+        for (const r of labelRows) {
+            // Same pasture and same date = correcting a label that has not
+            // taken effect yet; the database refuses it once the day has come.
+            const { data, error } = await supabase.from('pasture_label_history')
+                .upsert({ pasture_id: r.pasture_id, label: r.label, effective_from: r.effective_from },
+                        { onConflict: 'pasture_id,effective_from' })
+                .select('id');
+            if (error) failed.push(r.name + ' label: ' + friendlyDbError(error.message));
+            else if (!data || !data.length) failed.push(r.name + ' label: not saved (office and owner only).');
+        }
+        $('pastureGridSaveBtn').disabled = false;
+        const saved = acreUpdates.length + labelRows.length - failed.length;
+        await loadPastureSetup();
+        if (failed.length) showAlert('pastureSetupAlert', `${saved} saved, ${failed.length} not: ` + failed.join(' | '));
+        else showAlert('pastureSetupAlert', `${saved} change${saved === 1 ? '' : 's'} saved.`, 'success');
+    });
+
+    function renderPastureSeasons() {
+        const st = pastureSetupState;
+        const today = ranchToday();
+        const asOf = psDefaultFrom();
+        const lines = ['crop', 'grass'].map(lb => {
+            const w = psSeasonOn(st.seasons, lb, 'winter', asOf), s = psSeasonOn(st.seasons, lb, 'summer', asOf);
+            if (!w || !s) return `<div><strong>${PASTURE_LABELS[lb]}:</strong> <span style="color:#b58900;">season rows missing</span></div>`;
+            return `<div><strong>${PASTURE_LABELS[lb]}:</strong> winter ${psMd(w)} – ${psDayBefore(s.start_month, s.start_day)},
+                    summer ${psMd(s)} – ${psDayBefore(w.start_month, w.start_day)}</div>`;
+        }).join('');
+        const rows = st.seasons.slice().sort((a, b) =>
+            a.label.localeCompare(b.label) || b.season.localeCompare(a.season) || a.effective_from.localeCompare(b.effective_from)).map(r => {
+            const inForce = psSeasonOn(st.seasons, r.label, r.season, today);
+            const state = r.effective_from > today ? 'ahead' : (inForce && inForce.id === r.id ? 'in force' : 'past');
+            const rateCell = r.stocking_rate != null
+                ? fmtNum(r.stocking_rate, 2)
+                : (state === 'past'
+                    ? '<span class="muted">not set</span>'
+                    : `<span style="color:#b58900;">not set</span>
+                       <span data-perm="office" data-write><input type="number" class="ps-rate-fill" data-id="${r.id}" step="0.01" min="0" style="width: 80px;">
+                       <button class="ps-rate-fill-btn" data-id="${r.id}">Save</button></span>`);
+            return `<tr>
+                <td>${PASTURE_LABELS[r.label]} · ${SEASON_NAMES[r.season]}</td>
+                <td>${psMd(r)}</td>
+                <td>${fmtDate(r.effective_from)}</td>
+                <td class="num">${rateCell}</td>
+                <td class="muted" style="font-size: 12px;">${state}</td>
+                <td class="muted" style="font-size: 12px;">${escapeHtml(r.notes || '')}</td>
+            </tr>`;
+        }).join('');
+        $('pastureSeasonContent').innerHTML = `
+            <div style="font-size: 13px; margin-bottom: 8px;">${lines}</div>
+            <div style="overflow-x: auto;"><table>
+                <thead><tr><th>Season</th><th>Starts</th><th>From</th><th class="num">Head / usable acre</th><th></th><th>Note</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>`;
+        $('pastureSeasonContent').querySelectorAll('.ps-rate-fill-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                clearAlert('pastureSetupAlert');
+                const inp = $('pastureSeasonContent').querySelector(`.ps-rate-fill[data-id="${btn.dataset.id}"]`);
+                const v = Number(inp.value);
+                if (!inp.value || !isFinite(v) || v <= 0) { showAlert('pastureSetupAlert', 'Enter the stocking rate, head per usable acre, greater than 0.'); return; }
+                btn.disabled = true;
+                const { data, error } = await supabase.from('pasture_season_settings')
+                    .update({ stocking_rate: v }).eq('id', btn.dataset.id).is('stocking_rate', null).select('id');
+                btn.disabled = false;
+                if (error) { showAlert('pastureSetupAlert', 'Stocking rate not saved: ' + error.message); return; }
+                if (!data || !data.length) { showAlert('pastureSetupAlert', 'Stocking rate not saved: it was already set, or your role cannot change it.'); return; }
+                await loadPastureSetup();
+                showAlert('pastureSetupAlert', 'Stocking rate saved.', 'success');
+            });
+        });
+    }
+
+    $('seasonNewSaveBtn').addEventListener('click', async () => {
+        clearAlert('pastureSetupAlert');
+        const [label, season] = $('seasonNewKey').value.split('|');
+        const start = $('seasonNewStart').value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) { showAlert('pastureSetupAlert', 'Give the date the season starts.'); return; }
+        const rate = $('seasonNewRate').value === '' ? null : Number($('seasonNewRate').value);
+        if (rate != null && (!isFinite(rate) || rate <= 0)) { showAlert('pastureSetupAlert', 'The stocking rate must be greater than 0, or blank.'); return; }
+        const row = { label, season, effective_from: start,
+                      start_month: Number(start.slice(5, 7)), start_day: Number(start.slice(8, 10)),
+                      stocking_rate: rate };
+        $('seasonNewSaveBtn').disabled = true;
+        const { data, error } = await supabase.from('pasture_season_settings').insert(row).select('id');
+        $('seasonNewSaveBtn').disabled = false;
+        if (error) { showAlert('pastureSetupAlert', 'Season row not added: ' + error.message); return; }
+        if (!data || !data.length) { showAlert('pastureSetupAlert', 'Season row not added (office and owner only).'); return; }
+        $('seasonNewStart').value = ''; $('seasonNewRate').value = '';
+        await loadPastureSetup();
+        showAlert('pastureSetupAlert', `${PASTURE_LABELS[label]} ${season} from ${fmtDate(start)} added.`, 'success');
+    });
+
+    function renderNonfeedRates() {
+        const st = pastureSetupState;
+        const today = ranchToday();
+        let inForceId = null;
+        st.nonfeed.forEach(r => { if (r.effective_from <= today) inForceId = r.id; });
+        const rows = st.nonfeed.map(r => `<tr>
+                <td>${fmtDate(r.effective_from)}</td>
+                <td class="num">$${Number(r.rate_per_head_day).toFixed(4)}</td>
+                <td>${r.includes_pasture ? 'yes' : 'no'}</td>
+                <td>${r.is_placeholder ? '<span style="color:#b58900;">placeholder</span>' : 'from the books'}</td>
+                <td class="muted" style="font-size: 12px;">${r.id === inForceId ? 'in force' : (r.effective_from > today ? 'ahead' : 'past')}</td>
+                <td class="muted" style="font-size: 12px;">${escapeHtml(r.notes || '')}</td>
+            </tr>`).join('');
+        const gl = st.goLive;
+        const afterGoLive = gl ? st.nonfeed.filter(r => r.effective_from >= gl) : [];
+        const warn = (gl && !afterGoLive.some(r => !r.includes_pasture))
+            ? `<div class="alert" style="margin-bottom: 8px; background: #fdf6e3; color: #8a6d00; border: 1px solid #ecd9a0;">No rate without pasture from go-live (${fmtDate(gl)}) yet.
+               Until one is added, lots will keep paying the rate that includes pasture.</div>` : '';
+        $('nonfeedRatesContent').innerHTML = warn + (st.nonfeed.length ? `
+            <div style="overflow-x: auto;"><table>
+                <thead><tr><th>From</th><th class="num">$/head-day</th><th>Includes pasture</th><th>Source</th><th></th><th>Note</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>` : '<div class="empty">No dated rates on file.</div>');
+        if (!$('nonfeedNewFrom').value) $('nonfeedNewFrom').value = psDefaultFrom();
+    }
+
+    $('nonfeedNewSaveBtn').addEventListener('click', async () => {
+        clearAlert('pastureSetupAlert');
+        const from = $('nonfeedNewFrom').value;
+        const rate = Number($('nonfeedNewRate').value);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) { showAlert('pastureSetupAlert', 'Give the date the rate is charged from.'); return; }
+        if ($('nonfeedNewRate').value === '' || !isFinite(rate) || rate < 0) { showAlert('pastureSetupAlert', 'Enter the rate, $ per head-day, 0 or more.'); return; }
+        const row = { effective_from: from, rate_per_head_day: rate,
+                      includes_pasture: $('nonfeedNewInclPasture').checked,
+                      is_placeholder: $('nonfeedNewPlaceholder').checked,
+                      notes: $('nonfeedNewNote').value.trim() || null };
+        if (!confirm(`Charge $${rate.toFixed(4)}/head-day non-feed from ${fmtDate(from)}` +
+                     `${row.includes_pasture ? ', pasture INCLUDED' : ', pasture left out'}?\n\nOnce that day comes the rate cannot be edited, only followed by a newer one.`)) return;
+        $('nonfeedNewSaveBtn').disabled = true;
+        const { data, error } = await supabase.from('nonfeed_rates').insert(row).select('id');
+        $('nonfeedNewSaveBtn').disabled = false;
+        if (error) { showAlert('pastureSetupAlert', 'Rate not added: ' + error.message); return; }
+        if (!data || !data.length) { showAlert('pastureSetupAlert', 'Rate not added (office and owner only).'); return; }
+        $('nonfeedNewRate').value = ''; $('nonfeedNewNote').value = '';
+        $('nonfeedNewInclPasture').checked = false; $('nonfeedNewPlaceholder').checked = false;
+        await loadRanchSettings(true);   // the closeout reads the dated rates
+        await loadPastureSetup();
+        showAlert('pastureSetupAlert', 'Non-feed rate added.', 'success');
+    });
+
     async function loadLocations() {
         $('locationsContent').innerHTML = '<div class="empty">Loading…</div>';
         const showInactive = $('showInactiveLocations').checked;

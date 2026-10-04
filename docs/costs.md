@@ -171,6 +171,15 @@ The Closeout tab shows one set of economics in three columns. It is
   $/head-day, beside `cogLbRate`). The old `assumed_cog_per_day` /
   `_per_head` columns stay as audit and are no longer copied to a new lot.
   Labor keeps its selector, per head-day.
+- **The ranch non-feed rate is dated** (2026-10-04, `nonfeed_rates`,
+  `docs/sql/2026-10-04_pasture_settings.sql`, pasture design D34). Each
+  head-day after `feed_direct_from` is charged the ranch rate in force that
+  day; days ahead are projected at the newest rate on file. The $0.50
+  placeholder is the row from 2026-09-01 (pasture included). The rate from
+  go-live leaves pasture out, because pasture then reaches lots only through
+  the head-day charge. Never edit a rate; add a row from a date (Settings →
+  Pasture setup). A lot's own `assumed_nonfeed_cog_per_day` still overrides,
+  flat. `ranch_settings.nonfeed_cog_per_day` is kept for audit only.
 - **Finish weight comes off the anchored projection** (2026-09-11,
   `docs/cog-design-decisions.md` §5): `lot_projected_weight_detail()`
   walked to today, plus days-to-ship × the same ADG the cost estimate uses

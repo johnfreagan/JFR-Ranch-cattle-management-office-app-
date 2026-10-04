@@ -504,6 +504,16 @@ refusal word for word, a 36-27 move into Goat Hill the next day charging
 (every layer equal to the snapshot). It also checks iPhone and iPad widths
 and saves screenshots.
 
+### Feed rows keep the pasture — 2026-10-04
+
+Pasture head-days design D41, `docs/sql/2026-10-04b_feed_rows_keep_pasture.sql`. Every PB row posted to a
+lot carries `feed_usage.pasture_id`, the pasture the drop was made in, so phase feed (precon vs grower)
+can come from where the calves stood. `pb_posting_plan_by_pasture` is the planner; `pb_posting_plan` is
+now its roll-up (same output as before). Lot row keys gained the pasture:
+`pbmail:<date>:L<load>:<item>:<lot>:p<pasture>`; a lot in two pastures on one load gets two rows. A
+prefeed charged to the first lot in carries the hold's pasture. Cost-centre rows cannot carry one (the
+shape CHECK). Hand-entered and count rows carry none. Rows posted before this keep NULL.
+
 ### Cost centre drops (Cow/Calf Wip) — 2026-10-03
 
 Some pastures hold the cow herd, not stocker lots (Nichols Front Trap, John 2026-10-02). PB feed

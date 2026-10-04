@@ -1,7 +1,7 @@
 # Phases, pasture head-days and pasture cost — design interview (in progress)
 
 Started 2026-10-04 with John, one question at a time, each with a recommended answer. Decisions
-below are John's answers; the reason is recorded so it is not re-litigated. **Status: design complete (D1–D48), build order approved (D47), nothing built.** Start from "Handoff" at the bottom.
+below are John's answers; the reason is recorded so it is not re-litigated. **Status: design complete (D1–D48), build order approved (D47). Steps 1 and 2 built 2026-10-04 (see "Build log"); their migrations go to John before they are applied.** Start from "Handoff" at the bottom.
 
 ## The goal
 
@@ -142,7 +142,7 @@ John asked for a harsh critique before building. Checked against the live databa
 | When it happens | Label change on a pasture (D8); "No precon" checkbox on a new lot (D43) | Rare |
 | Nothing new | Moves, feed, head-days, the 75-day clock, phases, notices | Already entered or derived |
 
-## Build order (approved D47 — nothing built yet)
+## Build order (approved D47)
 
 Every step: migration file in `docs/sql/`, RLS and policies on new tables, `security_invoker` views, `rls_verify` after, crew never sees dollars, `is_test` lots skipped (D44).
 
@@ -166,3 +166,60 @@ Every design question is answered. Still pending, settled during the build:
 Rules for the build, from CLAUDE.md: investigate before changing; schema changes need John's explicit approval of the migration; migrations are idempotent files in `docs/sql/`; RLS on every new table, `security_invoker` views, `rls_verify` after; `ranch_today()` not `CURRENT_DATE`; never edit a rate in place (new dated rows); crew never sees dollars; `is_test` lots skipped (D44); after any `index.html` edit run `node scripts/validate.js index.html`.
 
 Superseded or amended decisions, so nobody builds the old version: D5 (notice per lot, D37), D9 (season dates change only from a season start, D42), D17 (lots pay the budget rate incl. planned idle, D35), D18 (amended by D36), D19 (superseded by D36), D27 (narrowed by D40), D15 (season from account + Production Year, D38/D39).
+
+## Build log
+
+### Step 1 — settings (built 2026-10-04)
+
+Migration `docs/sql/2026-10-04_pasture_settings.sql`. App: Settings → **Pasture setup** (office and owner;
+accountant reads; crew never sees the tab, because it holds the non-feed rate) and the lot form.
+
+- **Go-live** is `ranch_settings.pasture_go_live`, set to 2026-11-01 (D48). If steps 1–3 ship late, the
+  office moves it to the ship day.
+- **Acres** are the existing `pastures.usable_acres`; no new column. **Labels** are `pasture_label_history`
+  (`crop`, `grass`, `growyard`, `other`; one row per pasture per date) and the view `pasture_label_periods`
+  adds each row's end date. A label row whose date has come cannot be changed (trigger); a future-dated
+  one can be corrected. The grid defaults a new label's date to go-live while go-live is ahead, else today.
+- **Seasons and stocking rates** are `pasture_season_settings`: one row per label (crop, grass), season
+  (winter, summer) and date, holding the season's start (month, day) and the stocking rate in head per
+  usable acre. A season ends the day before the other season of its label starts, so the two always tile
+  the year. A row's date must BE its season start (CHECK): D42 enforced. Seeded with the D7 dates, rates
+  NULL. After go-live a new row may not be dated before today; a row in effect keeps its dates and its
+  rate, except that a rate never set may be filled in (NULL to a number), because the seeds go in before
+  John has his numbers. No per-pasture stocking-rate override yet (D20 calls it optional; a plain column
+  would be a rate edited in place).
+- **"No precon phase (arrived preconditioned)"** is `lots.no_precon`, off by default, on the lot form
+  (new and edit; a duplicate copies it; hidden for the feed pen, which never has a precon phase).
+- **Non-feed rate, dated** (D34) is `nonfeed_rates` (from, $/head-day, includes pasture, placeholder,
+  note), read through `can_read_books()`. The live $0.50 placeholder is carried in as the row from
+  2026-09-01 (includes pasture, placeholder). A rate in effect cannot be changed and a new one may not be
+  dated before today. The closeout charges each head-day after `feed_direct_from` at the ranch rate in
+  force that day (`lot_daily_head` by day); days still ahead are projected at the newest rate on file. A
+  lot's own rate still overrides, flat. `ranch_settings.nonfeed_cog_per_day` stays for audit and is read
+  only if `nonfeed_rates` cannot be. The screen warns until a rate **without** pasture exists from
+  go-live. Until John adds that rate, no closeout moves.
+- No DROP or DELETE statement in the file (connector stall, `docs/feed-pb-import.md` 2026-10-03); no
+  new table has a removal policy. A mistaken future row is corrected in place; a mistaken
+  past one is followed by a newer row.
+- Tested on a scratch PostgreSQL (applied twice; every guard tried both ways) and in headless Chromium
+  against the office harness's fake database (grid, season fill and add, rate add; the closeout's dated
+  charge checked by hand: 6,100 head-days at $0.50 plus 1,000 at $0.30 = $3,350).
+
+### Step 2 — feed rows keep the pasture (built 2026-10-04)
+
+Migration `docs/sql/2026-10-04b_feed_rows_keep_pasture.sql`. No app change.
+
+- New `pb_posting_plan_by_pasture(report)`: the planner with a `pasture_id` column; lot rows are grouped
+  per (lot, pasture). `pb_posting_plan` keeps its signature and becomes a roll-up of it, so the planner
+  exists once and the Feed pane and `pb_report_charges` read the same pounds.
+- `approve_pb_report` posts lot rows with `feed_usage.pasture_id` and key
+  `pbmail:<date>:L<load>:<item>:<lot>:p<pasture>`; a lot standing in two pastures fed on one load gets a
+  row per pasture. `pb_charge_prefeeds` posts the hold's pasture. Unpost and the charges summary match
+  `pbmail:<date>:%`, unchanged.
+- Go-forward only: the PB rows of 9/28–10/1 keep `pasture_id` NULL. Hand-entered weekly feed and count
+  adjustments carry no pasture; step 3 splits those by head share.
+- The file refuses to run if any of the three replaced functions changed since 2026-10-04 (md5 guard).
+- Tested on a scratch PostgreSQL: a lot in two pastures plus another lot, a prefeed drop, a cost-centre
+  drop and a test lot. Every pound posted (2,000 of 2,000), lot rows carry their pasture, the test lot got
+  nothing, the roll-up equals the old per-lot totals, a prefeed charged later carries its pasture, and a
+  second run of the file changes nothing.
