@@ -47,7 +47,7 @@ included, into the destination lot.
 | D21 | Growyard and Other: capacity and idle cost? | **No capacity, no idle cost.** Cost coded to them spreads by actual head-days at a plain rate per FY (budget $ ÷ budget head-days), trued up to booked $ at FY end under D18/D19 | Growyard cost is mostly feed, already charged by PB. Other is the catch-all so head-days tie. A pen stocking rate adds input and tells little |
 | D22 | How does the closeout show phases? | **A Phases table, reached as a drill-down from one simple label on the closeout.** Rows per bucket the lot used; columns head-days, feed $, pasture $, true-up $, total $, $/hd-day; total ties to the closeout. Same columns ranch-wide on a "Phase baselines" view. The closeout itself may move this month to **its own header and section** (an accounting page), still reachable from the lot | John: keep the lot screen simple; the detail is accounting |
 | D23 | How does the head-day allocation get into the books? | **A Redwing report that allocates the WIP accounts to production centers (lots)**, built from the head-day charges. Same shape as the existing Redwing exports (Sales → Accounting Report, medicine usage, feed period-end usage): Redwing's twelve columns, Production Center = the lot, Account / Profit Center / Production Year remembered, Copy rows, PDF, a tie-out line | John: "The allocated cost from hd day's calculation will need a redwing report to allocate wips to production center in redwing." Closes the loop: Redwing → app (D14 ledger CSV) → head-day allocation → Redwing |
-| D24 | How often is the WIP allocation report run? | **Date-ranged, run monthly.** One row per (WIP account, lot) = capacity rate × the lot's head-days in that bucket in the period. True-up rows appear only in the period in which the season is closed (Q25). Same date picker as the medicine report | Lot cost in Redwing keeps pace with the monthly ledger CSV and the closeouts. Season-end-only would leave WIP unallocated up to 8½ months |
+| D24 | How often is the WIP allocation report run? | **Date-ranged, run monthly.** One row per (WIP account, lot) = capacity rate × the lot's head-days in that bucket in the period. True-up rows appear only in the period in which the season is closed (D25): one row per open lot (its true-up share) plus one row to the ranch pasture variance account (closed lots' shares, D36). Same date picker as the medicine report | Lot cost in Redwing keeps pace with the monthly ledger CSV and the closeouts. Season-end-only would leave WIP unallocated up to 8½ months |
 | D25 | When is a season's true-up final? | **The office closes the season with one click** once the books are in. Until then the true-up shows as "provisional" (booked to date − charged to date). The app nudges when a season has been over 30 days and is still open. A Redwing row coded to an already-closed season goes to the next season of the same bucket, flagged on the import | Only the office knows when a season's books are in. A fixed date closes too early or waits too long; never-final keeps posting corrections into Redwing. Closed seasons stay fixed, like closed lots |
 | D26 | Gain and CoG per phase without a day-75 weighing? | **Real weight when there is one, projection when not, and say which.** A phase boundary uses a whole-lot weighing within ±7 days if one exists, else `lot_projected_weight_detail()` that day. Phase gain = end − start; phase CoG = phase cost ÷ phase gain. Figures resting on a projected end are marked "projected"; the baseline view can filter to phases with real weights at both ends. The day-75 notice (D5) adds an optional "weigh within 7 days to measure precon gain" | No new input; real weighings sharpen it. A projected CoG is mostly the target ADG echoed back, hence the mark. Cost-only would give up the precon gain D1 asked for |
 | D27 | What does the pasture report look like? | **One table per season, one row per pasture, grouped by label, worst $/hd-day first.** Columns: usable acres, capacity head-days, actual head-days, utilization %, head-days per acre, booked $ (budget $ while open), $/acre, $/hd-day used, idle $, budget miss $, plus the same pasture's same-season figures last year. Season picker; a total row per label ties to the bucket's booked $. In the accounting section (D22), linked from Pastures. Crew sees head-days and utilization only, with an on-screen note that dollars are hidden for their role | Worst-first puts the draggers on top (D16). Last year in the row = baseline without a second report. Head-days per acre seeds next season's stocking rate (D20) |
@@ -70,6 +70,7 @@ included, into the destination lot.
 | D44 | (C15) Test lots | **Keep them for testing; live costs never apply.** Use the existing `lots.is_test` flag (TEST_DOC1, TEST_DOC2 and Test-1 already carry it; PB feed posting and the head tie-out already skip it, `2026-09-29_pb_plan_exclude_test_lots.sql`). Every part of this design skips `is_test` lots: pasture head-days, utilization, budget charges, true-up, phase baselines, Redwing exports | John: they are for testing app improvements. Checked 2026-10-04: TEST_DOC1 holds 100 head in Front beside 37 real head; TEST_DOC2 holds 50 in Goat Hill beside 230 head of 36-27. Without the skip they would take most of Front's use |
 | D45 | (C16) Entering acres and labels | **One grid in the office app**: every active pasture on a row, usable acres and label, typed once. Acres from whatever source John has (FSA maps, JD Operations Center boundaries, leases). A pasture with no acres still counts head-days but shows "no acres" where capacity and per-acre figures would be; nothing silently zero. Who enters and from which source: John's call | Labels are needed on every pasture from day one; acres are one column in the same grid; go-live does not wait on all 63 |
 | D46 | (C17) The office input list | **Accepted as listed** in "Office inputs" below. Goes into `docs/USER-ADMIN-GUIDE.md` when built | Every row traces to a decision; daily work adds nothing |
+| D47 | (C18) Build order | **Approved as revised** (see "Proposed build order"). Approval of the order is not approval to build: nothing is built until John says so | John |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -125,7 +126,7 @@ John asked for a harsh critique before building. Checked against the live databa
 | C15 | Test lots TEST_DOC1 / TEST_DOC2 carry head-days and assignments in production; they would take true-up | **Settled by D44** |
 | C16 | All 63 pastures have no acres; none has capacity; only 1 is marked crop ground | **Settled by D45** |
 | C17 | Input load understated | **Settled by D46** |
-| C18 | Build order puts the import at step 4 though D12 wanted the CSV this month | Q45 |
+| C18 | Build order puts the import at step 4 though D12 wanted the CSV this month | **Settled by D47** |
 
 ## Office inputs (D46)
 
@@ -141,7 +142,7 @@ John asked for a harsh critique before building. Checked against the live databa
 | When it happens | Label change on a pasture (D8); "No precon" checkbox on a new lot (D43) | Rare |
 | Nothing new | Moves, feed, head-days, the 75-day clock, phases, notices | Already entered or derived |
 
-## Proposed build order (revised after the critique, awaiting John's approval — nothing built)
+## Build order (approved D47 — nothing built yet)
 
 Every step: migration file in `docs/sql/`, RLS and policies on new tables, `security_invoker` views, `rls_verify` after, crew never sees dollars, `is_test` lots skipped (D44).
 
@@ -156,12 +157,11 @@ Every step: migration file in `docs/sql/`, RLS and policies on new tables, `secu
 
 ## Open question (resume here)
 
-Knock-on edit from D36, to make when the doc is consolidated: D24's season-close rows = one row per open lot (its true-up) plus one row to the pasture variance account (the closed lots' shares).
+Pending, on John: C9 and C10 (settle on the real Redwing data in build step 4).
 
-Pending, on John: C9 and C10 (real Redwing data); D31 go-live date.
+**Q46. Go-live date (D31)?** Head-days, buckets, charges and feed-by-pasture all start on it.
+- A. **Nov 1, 2026**, if build steps 1–3 are ready by then. Grass·winter starts that day, so grass gets a clean season. Crop·winter (running since Sep 1) gets a budget for Nov 1 – May 15 only. Grass·summer ends Oct 31, so it is never budgeted for 2026.
+- B. The day steps 1–3 ship, whatever date that is. Every running season gets a part-season budget from that day.
+- C. Wait for a full crop season: Sep 1, 2027.
 
-**Q45 (C18, replaces Q30). Approve the revised build order above?**
-- A. **Yes.** Steps 1–3 first, step 4 alongside as soon as the sample arrives, then 5–7.
-- B. Change it.
-
-Recommended: **A**. Feed-by-pasture (step 2) moved up because it only collects from the day it ships. The import moved beside step 3 so the CSV can load this month. Money steps (5–7) wait on head-days they depend on.
+Recommended: **A**. One clean season boundary, one part-season budget (crop·winter), and it is close enough that the first baselines exist by spring. B gives two part-seasons and a date nobody chose. C waits 11 months for data that could start in 4 weeks. If steps 1–3 slip past Nov 1, fall back to B.
