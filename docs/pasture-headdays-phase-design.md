@@ -34,6 +34,7 @@ included, into the destination lot.
 | D8 | Label changes | **Dated label history** — a change takes a "from" date; earlier days keep the old label | A label is a fact about the land; editing in place would rewrite history |
 | D9 | Season-date changes | **Forward only** — a change applies from its effective date; past days keep the season they were sorted into | Head-days will carry cost; re-sorting past years would confuse look-backs |
 | D10 | Which costs are charged by head-days | **Pasture costs only** (lease/rent, fertilizer, seed, spraying, planting/cultivation) | Feed is already charged exactly per drop by PB; labor and the non-feed rate are already per head-day in the closeout. Labor/overhead come with the accounting integration John is close to |
+| D11 | How to start, given the books are lump sums? | **A built on C.** First count head-days per bucket (automatic from moves). Then spread each WIP lump sum ranch-wide over all head-days in its bucket ($ ÷ bucket head-days = $/hd-day) and charge each lot by its days in that bucket. Per-pasture costs (lease by acre, JD passes) come later on the same head-days | Head-day counting needs no new input and gives utilization numbers now. Lump sums give every lot real pasture cost now. Per-pasture detail only sharpens the $/hd-day later. B means no baseline for a year; C leaves closeouts without pasture cost |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -64,17 +65,11 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Open question (resume here)
 
-**Q14. How do we start, given the books are lump sums?**
-- A. Spread each WIP lump sum over all head-days in its bucket, ranch-wide ($ grazing oats ÷ all
-  crop·winter head-days = $/hd-day), charged to each lot by its days in that bucket. Per-pasture
-  detail later (lease by acre, JD passes).
-- B. Wait and build per-pasture costing from the start.
-- C. Count head-days only for now; charge no cost yet.
+**Q15. How are the lump sums entered?**
+- A. **Per bucket per season**: one row per season, e.g. "Crop·winter 2026-27 (Sep 1 – May 15): $X". The $/hd-day = $X ÷ head-days in that window.
+- B. **Per bucket per FY**: one row per FY, e.g. "Grazing oats FY 2027: $X", spread over that bucket's head-days from Jul 1 to Jun 30.
+- C. Per month.
 
-Recommended: **A built on C** — head-day counting first (automatic from moves; gives utilization
-numbers immediately), then the WIP lump sums so every lot carries real pasture cost now; per-pasture
-costs slot into the same head-days later and only sharpen the $/hd-day.
+Recommended: **A**. One season is one crop or one grazing period, so the cost is spent for that window. Crop·summer (May 16 – Aug 31) and grass·summer (Apr 2 – Oct 31) cross Jul 1. Per-FY entry would split one crop's cost over two FYs by guesswork. With per-season entry, each day's charge falls into the FY of that day, so FY reports still tie.
 
-Then still to walk: where head-days and phase costs appear on screen (closeout, a pasture report),
-how strays / transfers / deaths count against the 75-day clock, how the notice is delivered, how
-the lump sums get entered (per season? per FY?), and which FY a season straddling Jul 1 belongs to.
+Still to walk after Q15: the $/hd-day while a season is in progress (estimate, then true-up?), where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
