@@ -74,6 +74,11 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Data already in place
 
+- **Name clash to avoid when building:** `lot_adg_phases` already exists. It is the ADG curve
+  (e.g. a 10-day receiving phase, measured from the weighted arrival date) used by
+  `lot_projected_weight_detail()`. The precon/grower "phases" in this design are a different
+  thing; name the new tables and views so the two cannot be confused (e.g. "bucket").
+
 - `lot_pasture_assignments` (moves, with moved_in / moved_out) → head per pasture per day.
 - `lot_daily_head`, arrival-date weighting, invoices/receipts by date → each load's arrival.
 - `lot_feed_daily` spreads lot feed over head-days; `lot_transfers` freeze basis.
@@ -82,11 +87,10 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Open question (resume here)
 
-**Q25. When is a season's true-up final?** Late invoices can arrive weeks after the season ends.
-- A. **The office closes the season with one click** once the books are in. Until then, the pasture report and closeout show that season's true-up as "provisional" (booked to date − charged to date). The app nudges once a season has been over 30 days and is still open. A Redwing row coded to an already-closed season goes into the **next season of the same bucket**, flagged on the import.
-- B. **Automatic**, a fixed number of days after season end (e.g. 60).
-- C. **Never final**: the true-up is re-figured every month and the WIP report posts the change as a correction row.
+**Q26. Gain and cost of gain per phase, when nobody weighs at day 75?**
+- A. **Real weight when there is one, projection when not, and say which.** Each phase boundary uses a whole-lot weighing within ±7 days of the boundary if one exists. If not, it uses the projected weight that day (`lot_projected_weight_detail()`, the anchor walk). Phase gain = end weight − start weight; phase CoG = phase cost ÷ phase gain. Any figure resting on a projected end is marked "projected". The day-75 notice (D5) adds an optional line: "weigh within 7 days to measure precon gain".
+- B. **Cost only per phase.** Gain and CoG only for the whole lot (realized, from pay weights).
 
-Recommended: **A**. Only the office knows when the books for a season are in. One click a season is small input. A fixed date (B) closes on an incomplete season or waits too long. C keeps posting correction rows into Redwing forever. Rolling a late row into the next season keeps closed seasons fixed, the same rule as closed lots (D19).
+Recommended: **A**. It needs no new input, and real weighings sharpen it whenever they happen. Honest caveat: a CoG on a projected weight is mostly the target ADG echoed back, so the "projected" mark matters. The baseline view should be able to filter to phases with real weights at both ends. B gives up the precon gain number D1 asked for.
 
-Still to walk after Q25: gain and CoG per phase (nobody weighs at day 75), a pasture report (head-days, capacity, idle, $/hd-day per pasture), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
+Still to walk after Q26: a pasture report (head-days, capacity, idle, $/hd-day per pasture), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
