@@ -69,6 +69,7 @@ included, into the destination lot.
 | D43 | (C14) Lots with no precon phase | **One checkbox on the lot: "No precon phase (arrived preconditioned)"**, off by default. When on, head-days go straight to the pasture buckets from day 1 and the lot is left out of precon baselines. The feed pen is always treated this way (D29) | One click at lot setup; keeps D3's single 75-day window for lots that have a precon phase |
 | D44 | (C15) Test lots | **Keep them for testing; live costs never apply.** Use the existing `lots.is_test` flag (TEST_DOC1, TEST_DOC2 and Test-1 already carry it; PB feed posting and the head tie-out already skip it, `2026-09-29_pb_plan_exclude_test_lots.sql`). Every part of this design skips `is_test` lots: pasture head-days, utilization, budget charges, true-up, phase baselines, Redwing exports | John: they are for testing app improvements. Checked 2026-10-04: TEST_DOC1 holds 100 head in Front beside 37 real head; TEST_DOC2 holds 50 in Goat Hill beside 230 head of 36-27. Without the skip they would take most of Front's use |
 | D45 | (C16) Entering acres and labels | **One grid in the office app**: every active pasture on a row, usable acres and label, typed once. Acres from whatever source John has (FSA maps, JD Operations Center boundaries, leases). A pasture with no acres still counts head-days but shows "no acres" where capacity and per-acre figures would be; nothing silently zero. Who enters and from which source: John's call | Labels are needed on every pasture from day one; acres are one column in the same grid; go-live does not wait on all 63 |
+| D46 | (C17) The office input list | **Accepted as listed** in "Office inputs" below. Goes into `docs/USER-ADMIN-GUIDE.md` when built | Every row traces to a decision; daily work adds nothing |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -123,30 +124,10 @@ John asked for a harsh critique before building. Checked against the live databa
 | C14 | No "not preconditioned" lot setting | **Partly settled by D33** ("most cattle"): **Settled by D43** |
 | C15 | Test lots TEST_DOC1 / TEST_DOC2 carry head-days and assignments in production; they would take true-up | **Settled by D44** |
 | C16 | All 63 pastures have no acres; none has capacity; only 1 is marked crop ground | **Settled by D45** |
-| C17 | Input load understated | Q44 |
-| C18 | Build order puts the import at step 4 though D12 wanted the CSV this month | open |
+| C17 | Input load understated | **Settled by D46** |
+| C18 | Build order puts the import at step 4 though D12 wanted the CSV this month | Q45 |
 
-## Proposed build order (awaiting John's approval — nothing built)
-
-Each step stands on the one before and is useful alone. Every step: migration file in `docs/sql/`, RLS and policies on new tables, `security_invoker` views, `rls_verify` after, crew never sees dollars.
-
-1. **Labels, seasons, stocking rates (settings).** Dated label history per pasture (D6, D8); season dates with forward-only changes (D7, D9); stocking rate per label·season with per-pasture override (D20). Input: John labels each pasture once.
-2. **Head-day buckets (no dollars).** One derived view: head-days per lot × pasture × day × bucket. Precon from each load's own 75-day clock (D2–D4), clock travels on transfers (D28), deaths and feed pen per D29. Gives utilization and head-days per acre at once (D11 "C" part). Day-75 Needs Attention row (D5, D30).
-3. **Budget lines and lot charges.** Budget $ and budget head-days per bucket·season, per FY for Growyard/Other (D12, D13, D21). Capacity rate (D17, D20) × head-days charged to lots. Phases drill-down from the closeout with gain and CoG (D22, D26).
-4. **Redwing ledger import.** Monthly transaction-detail CSV (D14), account → bucket map, Production Year → season, unmapped list (D15). Waits on John's sample export (week of 2026-10-05). Built once to also serve COG actuals (OPEN-ITEMS #21).
-5. **True-up, season close, pasture report.** Provisional and final true-up spread over open lots (D18, D19); one-click season close and late-row roll-forward (D25); pasture report (D27).
-6. **Redwing WIP allocation report.** Monthly date-ranged export, twelve Redwing columns, Production Center = lot (D23, D24).
-7. **Later list items** (lease by acre, JD Operations Center passes, labor/overhead, closed-lot distribution).
-
-The closeout's move to its own accounting section (D22) is separate work John expects this month; steps 3, 5 and 6 land in it.
-
-## Open question (resume here)
-
-Q30 (approve build order) is on hold until the critique items are settled.
-
-Knock-on edit from D36, to make when the doc is consolidated: D24's season-close rows = one row per open lot (its true-up) plus one row to the pasture variance account (the closed lots' shares).
-
-**Q44 (C17). The honest list of office inputs this design needs. Accept it, or cut something?**
+## Office inputs (D46)
 
 | When | Input | Who / how long |
 |---|---|---|
@@ -160,7 +141,27 @@ Knock-on edit from D36, to make when the doc is consolidated: D24's season-close
 | When it happens | Label change on a pasture (D8); "No precon" checkbox on a new lot (D43) | Rare |
 | Nothing new | Moves, feed, head-days, the 75-day clock, phases, notices | Already entered or derived |
 
-- A. **Accept.** Write this table into the design and into `docs/USER-ADMIN-GUIDE.md` when built, so whoever runs the office sees the whole job.
-- B. Cut something (name it).
+## Proposed build order (revised after the critique, awaiting John's approval — nothing built)
 
-Recommended: **A**. Every row traces to a decision you made for a reason, and the daily work adds nothing. The monthly pair (import, allocation) is the real cost; it is also what keeps lot cost honest.
+Every step: migration file in `docs/sql/`, RLS and policies on new tables, `security_invoker` views, `rls_verify` after, crew never sees dollars, `is_test` lots skipped (D44).
+
+1. **Settings.** Acres and labels grid (D45) with dated label history (D8, D42); season dates, forward from a season start (D7, D9, D42); stocking rates (D20); "No precon phase" checkbox on lots (D43); new dated non-feed rate without pasture (D34).
+2. **Feed rows keep the pasture (D41).** Early on purpose: it is go-forward only, so every day before it ships is feed that can never be split by pasture.
+3. **Head-day buckets (no dollars).** Derived view from pasture assignments (D32): lot × pasture × day × bucket, per-load 75-day clock with proration (D4, D37), clock travels on transfers (D28), deaths and feed pen (D29). Daily assignment tie-out on Anomalies (D32). Day-75 row on Needs Attention (D30, D37).
+4. **Redwing ledger import** (D14, D38, D39), in parallel with step 3, starting when the sample export arrives (this month, as D12 wanted). C9 and C10 are settled on the real data before it is finished. Built to also serve COG actuals (OPEN-ITEMS #21).
+5. **Budget lines and lot charges.** Aggressive budget rate × head-days (D12, D13, D21, D35). Phases drill-down from the closeout with gain and CoG (D22, D26, D41).
+6. **True-up, season close, pasture report.** Open lots' shares to their closeouts, closed lots' shares to pasture variance (D36); one-click close and late-row roll-forward (D25); narrowed pasture report (D40).
+7. **Redwing WIP allocation report** (D23, D24), with the C9 answer from step 4.
+8. **Later list.**
+
+## Open question (resume here)
+
+Knock-on edit from D36, to make when the doc is consolidated: D24's season-close rows = one row per open lot (its true-up) plus one row to the pasture variance account (the closed lots' shares).
+
+Pending, on John: C9 and C10 (real Redwing data); D31 go-live date.
+
+**Q45 (C18, replaces Q30). Approve the revised build order above?**
+- A. **Yes.** Steps 1–3 first, step 4 alongside as soon as the sample arrives, then 5–7.
+- B. Change it.
+
+Recommended: **A**. Feed-by-pasture (step 2) moved up because it only collects from the day it ships. The import moved beside step 3 so the CSV can load this month. Money steps (5–7) wait on head-days they depend on.
