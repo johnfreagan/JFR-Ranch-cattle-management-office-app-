@@ -38,6 +38,8 @@ included, into the destination lot.
 | D12 | How do the lump sums become a $/hd-day? | **A budgeted rate, checked against the books.** Each bucket gets a budget $ and budget head-days; budget $ ÷ budget head-days = the rate. Lots are charged that rate × their actual head-days in the bucket. A **monthly CSV** from the books brings in the WIP accumulations (actual $) for the comparison: charged vs. booked. Actual $ and actual head-days become the base for the next year's budget. This year the head-days are budgeted too; later years build on actual head-days | John: "workout an estimation (budget for lack of a better word) and accumulate that by head day and compare to true bookkeeping and then use that as a base for future years." Lots carry pasture cost from day one without waiting for the books to close. The CSV is the one office input; goal is to load it this month (Oct 2026) |
 | D13 | What period does a budget line cover? | **Per bucket per season**: one line per bucket per season, e.g. "Crop·winter 2026-27 (Sep 1 – May 15): $X budget, Y budget head-days". Growyard and Other (no season) budget per FY | One season = one crop or grazing period. Crop·summer and grass·summer cross Jul 1; per-FY lines would split one crop by guesswork. Each day's charge lands in the FY of that day, so FY reports still tie |
 | D14 | What does the monthly CSV hold? | **Transaction detail** for the WIP accounts, exported from **Redwing** (the ranch's ag accounting software), as is. The app stores the rows and sums them per account per month. Re-importing a month replaces that month. John sends a sample export the week of 2026-10-05; columns are mapped to it then | Balances drop to zero when WIP is relieved; detail keeps the season total and the vendor/memo for per-pasture costing later. John: "can hold whatever we need and track." This is likely the same Redwing ledger OPEN-ITEMS #21 expects in October for COG actuals, so build one ledger import that serves both |
+| D15 | How does a ledger row find its bucket and season? | **By Redwing coding.** One-time map in the app: Account (plus Profit Center when needed) → bucket; season from Redwing's Production Year. Rows that do not map (no map, or Production Year blank) land on an "unmapped" list for the office to sort | Coding happens once, in the books. Date alone mis-sorts costs paid ahead (August oat seed belongs to crop·winter) |
+| D16 | Ranch-wide bucket rate, or per pasture? | **Per pasture, eventually.** Spread bucket cost to pastures **by acre**, then charge lots by head-days in each pasture. Start ranch-wide (D11); per-acre is the target | John: "Straight hd days would allow productive pastures to hide ones that are dragging us down or not utilizing." Per-acre is the only way to see pasture efficiency and utilization |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -68,11 +70,12 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Open question (resume here)
 
-**Q17. How does a ledger row find its bucket and season?**
-- A. **By Redwing coding.** A one-time map in the app: Account (plus Profit Center when needed) → bucket. Season comes from Redwing's Production Year field. Rows with no map land on an "unmapped" list for the office to sort.
-- B. **By transaction date.** Account → bucket; the season is whichever season the date falls in.
-- C. The office tags each row by hand after import.
+**Q18. With per-acre cost, who pays for days a pasture sits under-used?**
 
-Recommended: **A, with B as the fallback when Production Year is blank.** Redwing already carries Account / Profit Center / Production Year (the medicine and feed exports use them), so the coding happens once, in the books. Date alone mis-sorts costs paid ahead (oat seed bought in August belongs to crop·winter, which starts Sep 1). C is the per-row work John ruled out.
+Example: a 100-acre oat field costs $10,000 for the winter and could carry 20,000 head-days. One lot uses it for 8,000 head-days.
+- A. **Pasture's own actual rate**: $10,000 ÷ 8,000 = $1.25/hd-day. The lot carries the whole field cost.
+- B. **Capacity rate plus idle cost**: rate = $10,000 ÷ 20,000 capacity head-days = $0.50/hd-day. The lot pays $4,000. The other $6,000 is **idle pasture cost**, shown against that pasture on a pasture report, not charged to any lot.
 
-Still to walk after Q17: what happens to the charged-vs-booked variance (stays a ranch variance, or trued up to lots at season end), where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
+Recommended: **B**. A lot's closeout then measures the cattle, and the pasture report measures the land and the stocking decisions, so neither hides the other. Under A, a good lot put on a half-empty field looks bad, and lot baselines mix cattle performance with pasture use. Capacity head-days are the D12 budget head-days, set per pasture instead of per bucket.
+
+Still to walk after Q18: how capacity head-days get set without much input (e.g. acres × a stocking rate per label and season), what happens to the charged-vs-booked variance, where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
