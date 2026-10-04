@@ -47,6 +47,7 @@ included, into the destination lot.
 | D21 | Growyard and Other: capacity and idle cost? | **No capacity, no idle cost.** Cost coded to them spreads by actual head-days at a plain rate per FY (budget $ ÷ budget head-days), trued up to booked $ at FY end under D18/D19 | Growyard cost is mostly feed, already charged by PB. Other is the catch-all so head-days tie. A pen stocking rate adds input and tells little |
 | D22 | How does the closeout show phases? | **A Phases table, reached as a drill-down from one simple label on the closeout.** Rows per bucket the lot used; columns head-days, feed $, pasture $, true-up $, total $, $/hd-day; total ties to the closeout. Same columns ranch-wide on a "Phase baselines" view. The closeout itself may move this month to **its own header and section** (an accounting page), still reachable from the lot | John: keep the lot screen simple; the detail is accounting |
 | D23 | How does the head-day allocation get into the books? | **A Redwing report that allocates the WIP accounts to production centers (lots)**, built from the head-day charges. Same shape as the existing Redwing exports (Sales → Accounting Report, medicine usage, feed period-end usage): Redwing's twelve columns, Production Center = the lot, Account / Profit Center / Production Year remembered, Copy rows, PDF, a tie-out line | John: "The allocated cost from hd day's calculation will need a redwing report to allocate wips to production center in redwing." Closes the loop: Redwing → app (D14 ledger CSV) → head-day allocation → Redwing |
+| D24 | How often is the WIP allocation report run? | **Date-ranged, run monthly.** One row per (WIP account, lot) = capacity rate × the lot's head-days in that bucket in the period. True-up rows appear only in the period in which the season is closed (Q25). Same date picker as the medicine report | Lot cost in Redwing keeps pace with the monthly ledger CSV and the closeouts. Season-end-only would leave WIP unallocated up to 8½ months |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -80,10 +81,11 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Open question (resume here)
 
-**Q24. How often is the WIP allocation report run, and what is on it?**
-- A. **Date-ranged, run monthly.** One row per (WIP account, lot) = capacity charge × the lot's head-days in that bucket in the period. True-up rows appear only in the report for the period when the season is closed (Q25). Same date picker as the medicine report.
-- B. **Season end only.** One report per bucket-season with the full amount (charge + true-up) per lot.
+**Q25. When is a season's true-up final?** Late invoices can arrive weeks after the season ends.
+- A. **The office closes the season with one click** once the books are in. Until then, the pasture report and closeout show that season's true-up as "provisional" (booked to date − charged to date). The app nudges once a season has been over 30 days and is still open. A Redwing row coded to an already-closed season goes into the **next season of the same bucket**, flagged on the import.
+- B. **Automatic**, a fixed number of days after season end (e.g. 60).
+- C. **Never final**: the true-up is re-figured every month and the WIP report posts the change as a correction row.
 
-Recommended: **A**. Lot cost in Redwing then keeps pace with the monthly ledger CSV (D14) and the app's closeouts, rather than jumping once a season. The date picker makes monthly a habit, not a rule. B leaves WIP sitting unallocated for up to 8½ months and makes the mid-season closeout disagree with Redwing.
+Recommended: **A**. Only the office knows when the books for a season are in. One click a season is small input. A fixed date (B) closes on an incomplete season or waits too long. C keeps posting correction rows into Redwing forever. Rolling a late row into the next season keeps closed seasons fixed, the same rule as closed lots (D19).
 
-Still to walk after Q24: when a season's true-up is final (late invoices; who says "season closed"), gain and CoG per phase (nobody weighs at day 75), a pasture report (head-days, capacity, idle, $/hd-day per pasture), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
+Still to walk after Q25: gain and CoG per phase (nobody weighs at day 75), a pasture report (head-days, capacity, idle, $/hd-day per pasture), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
