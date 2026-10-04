@@ -5,15 +5,20 @@
 -- step 3 derives head-day buckets from these rows, step 5 charges them.
 --
 --   A. ranch_settings.pasture_go_live          D31, D48: Nov 1, 2026.
---   B. pasture_label_history                   D6, D8, D42: dated label per pasture.
+--   B. pasture_label_history                   D6, D8, D42, D49: dated label and
+--                                              farmed/maintained acres per pasture.
 --      pasture_label_periods (view)            the same rows with an end date.
 --   C. pasture_season_settings                 D7, D9, D20, D42: season start dates
 --                                              and the stocking rate per label/season.
 --   D. lots.no_precon                          D43: "No precon phase (arrived preconditioned)".
 --   E. nonfeed_rates                           D34: the ranch non-feed rate, dated.
 --
--- Acres (D45) need no new column: pastures.usable_acres already exists and is
--- what the grid writes. A pasture with no acres still counts head-days later.
+-- Acres (D49, narrowing D45): ONE acre number per pasture, farmed/maintained
+-- acres (oat ground on crop pastures; maintained ground on grass). It is what
+-- pasture cost is allocated by and what capacity is built on (acres x stocking
+-- rate), so it is dated on the same row as the label, never typed over
+-- pastures.usable_acres. Total, ranch and grazable acres are on the Later list.
+-- A pasture with no acres still counts head-days later.
 --
 -- Rules carried from CLAUDE.md:
 --   * Never edit a rate in place. A label, season or non-feed rate change is a
@@ -45,23 +50,37 @@ update public.ranch_settings set pasture_go_live = date '2026-11-01', updated_at
  where pasture_go_live is null;
 
 -- =====================================================================
--- B. Pasture labels, dated (D6, D8, D42).
+-- B. Pasture labels and acres, dated (D6, D8, D42, D49).
 -- crop = Crop, grass = Grass pasture, growyard = Growyard, other = Other.
--- A label holds from effective_from until the next row for the same pasture.
--- Labels may change on any date; head-days follow the label day by day.
+-- maintained_acres = farmed/maintained acres; NULL = not known yet ("no
+-- acres" on screen, never zero). A row holds from effective_from until the
+-- next row for the same pasture. A change to either the label or the acres is
+-- a new row carrying both. Head-days follow the label day by day.
 -- =====================================================================
 create table if not exists public.pasture_label_history (
     id              uuid primary key default gen_random_uuid(),
     pasture_id      uuid not null references public.pastures(id),   -- pastures retire (is_active), they are never removed
     label           text not null,
+    maintained_acres numeric,
     effective_from  date not null,
     notes           text,
     created_at      timestamptz not null default now(),
     created_by      uuid default auth.uid(),
     constraint pasture_label_history_label_check
         check (label in ('crop', 'grass', 'growyard', 'other')),
+    constraint pasture_label_history_acres_check check (maintained_acres is null or maintained_acres >= 0),
     constraint pasture_label_history_one_per_day unique (pasture_id, effective_from)
 );
+-- for a database where an earlier draft of this table was created
+alter table public.pasture_label_history add column if not exists maintained_acres numeric;
+do $$
+begin
+    if not exists (select 1 from pg_constraint where conrelid = 'public.pasture_label_history'::regclass
+                    and conname = 'pasture_label_history_acres_check') then
+        alter table public.pasture_label_history add constraint pasture_label_history_acres_check
+            check (maintained_acres is null or maintained_acres >= 0);
+    end if;
+end $$;
 create index if not exists pasture_label_history_pasture_idx
     on public.pasture_label_history (pasture_id, effective_from desc);
 
@@ -76,10 +95,11 @@ as $$
 begin
     if old.effective_from <= public.ranch_today()
        and (new.label is distinct from old.label
+            or new.maintained_acres is distinct from old.maintained_acres
             or new.effective_from is distinct from old.effective_from
             or new.pasture_id is distinct from old.pasture_id) then
-        raise exception 'pasture label: the % label took effect on % and cannot be changed. Add a new dated label instead.',
-            old.label, old.effective_from;
+        raise exception 'pasture label: the % label and % acres took effect on % and cannot be changed. Add a new dated row instead.',
+            old.label, coalesce(old.maintained_acres::text, 'no'), old.effective_from;
     end if;
     return new;
 end;
@@ -106,7 +126,8 @@ select h.id,
        (lead(h.effective_from) over (partition by h.pasture_id order by h.effective_from) - 1) as effective_to,
        h.notes,
        h.created_at,
-       h.created_by
+       h.created_by,
+       h.maintained_acres
   from public.pasture_label_history h;
 
 -- =====================================================================
@@ -115,7 +136,8 @@ select h.id,
 -- Each label has two seasons. A row stores the season's START (month, day);
 -- a season ends the day before the other season of the same label starts, so
 -- the two always tile the year with no gap and no overlap.
--- stocking_rate is head per usable acre for that label and season (D20);
+-- stocking_rate is head per farmed/maintained acre for that label and season
+-- (D20, D49: capacity = maintained_acres x rate x days);
 -- NULL means not set yet and shows as "not set", never as zero.
 -- A change is a NEW row whose effective_from IS a start of that season
 -- (D42: season dates change only from a season start), never an edit.

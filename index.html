@@ -1707,8 +1707,8 @@
         </div>
 
         <!-- Pasture setup (Settings → Pasture setup). Build step 1 of the pasture
-             head-days design, docs/pasture-headdays-phase-design.md: acres and
-             labels (D45, D8), seasons and stocking rates (D7, D20, D42), the
+             head-days design, docs/pasture-headdays-phase-design.md: labels and
+             farmed/maintained acres (D45, D8, D49), seasons and stocking rates (D7, D20, D42), the
              dated non-feed rate (D34). Office and owner; accountant reads it.
              Crew never sees this tab: the non-feed rate is dollars. -->
         <div id="pastureSetupView" class="hidden">
@@ -1725,14 +1725,16 @@
 
             <div class="card">
                 <div class="card-header">
-                    <h2>Acres and labels</h2>
+                    <h2>Labels and acres</h2>
                     <button class="primary" id="pastureGridSaveBtn" data-perm="office" data-write>Save changes</button>
                 </div>
                 <p class="muted" style="font-size: 12px; margin-bottom: 10px;">
-                    Every active pasture: usable acres and its label — <strong>Crop</strong>, <strong>Grass pasture</strong>,
-                    <strong>Growyard</strong> or <strong>Other</strong> (hospital traps, pens, odd ground, so head-days always tie).
-                    A label change takes a "from" date; earlier days keep the old label. A pasture with no acres still counts
-                    head-days and shows "no acres" wherever capacity or a per-acre figure would be.
+                    Every active pasture: its label — <strong>Crop</strong>, <strong>Grass pasture</strong>,
+                    <strong>Growyard</strong> or <strong>Other</strong> (hospital traps, pens, odd ground, so head-days always tie) —
+                    and its <strong>farmed / maintained acres</strong>: the oat ground on a crop pasture, the maintained ground on
+                    grass. Those acres are what pasture cost is allocated by. A change to either takes a "from" date; earlier
+                    days keep what they had. A pasture with no acres still counts head-days and shows "no acres" wherever
+                    capacity or a per-acre figure would be.
                 </p>
                 <div id="pastureGridSummary" class="muted" style="font-size: 12px; margin-bottom: 8px;"></div>
                 <div id="pastureGridContent"><div class="empty">Loading…</div></div>
@@ -1742,7 +1744,7 @@
                 <h2 style="margin-bottom: 6px;">Seasons and stocking rates</h2>
                 <p class="muted" style="font-size: 12px; margin-bottom: 10px;">
                     Crop and Grass pasture each have a winter and a summer season; Growyard and Other have none. A season
-                    ends the day before the other season of its label starts. The stocking rate (head per usable acre) sets
+                    ends the day before the other season of its label starts. The stocking rate (head per farmed/maintained acre) sets
                     each pasture's capacity for the utilization report. Season dates change only from a season start:
                     a change is a new row from that start, never an edit of one already running. A rate never set may be
                     filled in.
@@ -1765,7 +1767,7 @@
                             <input type="date" id="seasonNewStart">
                         </div>
                         <div>
-                            <label for="seasonNewRate">Stocking rate, head per usable acre</label>
+                            <label for="seasonNewRate">Stocking rate, head per farmed/maintained acre</label>
                             <input type="number" id="seasonNewRate" step="0.01" min="0" placeholder="blank = not set">
                         </div>
                     </div>
@@ -23632,8 +23634,8 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         await refreshRanchesCache();
         const [setRes, pRes, lRes, sRes, nRes] = await Promise.all([
             supabase.from('ranch_settings').select('pasture_go_live, feed_direct_from').maybeSingle(),
-            supabase.from('pastures').select('id, ranch_id, name, usable_acres, total_acres, is_active').eq('is_active', true).order('name'),
-            supabase.from('pasture_label_periods').select('id, pasture_id, label, effective_from, effective_to, notes').order('effective_from'),
+            supabase.from('pastures').select('id, ranch_id, name, is_active').eq('is_active', true).order('name'),
+            supabase.from('pasture_label_periods').select('id, pasture_id, label, maintained_acres, effective_from, effective_to, notes').order('effective_from'),
             supabase.from('pasture_season_settings').select('*').order('effective_from'),
             supabase.from('nonfeed_rates').select('*').order('effective_from')
         ]);
@@ -23675,6 +23677,9 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
             : '<span style="color:#b58900;">No go-live date set.</span>';
     }
 
+    // One dated row per pasture holds BOTH the label and the farmed/maintained
+    // acres (D49): acres are what pasture cost is allocated by, so a change is
+    // a new row from a date, never a number typed over the old one.
     function renderPastureGrid() {
         const st = pastureSetupState;
         const today = ranchToday();
@@ -23684,38 +23689,42 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         const rows = st.pastures.map(p => {
             const hist = st.labelsBy[p.id] || [];
             const latest = hist.length ? hist[hist.length - 1] : null;
+            const ac = latest && latest.maintained_acres != null ? String(latest.maintained_acres) : '';
             if (latest) withLabel++;
-            if (p.usable_acres != null && Number(p.usable_acres) > 0) withAcres++;
+            if (ac !== '' && Number(ac) > 0) withAcres++;
             const histText = hist.map(h => {
                 const fut = h.effective_from > today;
-                return `${PASTURE_LABELS[h.label] || h.label} from ${fmtDate(h.effective_from)}${fut ? ' (ahead)' : ''}`;
+                const acres = h.maintained_acres != null ? `${fmtNum(h.maintained_acres, 1)} ac` : 'no acres';
+                return `${PASTURE_LABELS[h.label] || h.label}, ${acres} from ${fmtDate(h.effective_from)}${fut ? ' (ahead)' : ''}`;
             }).join(' · ');
             return `<tr data-pasture-id="${p.id}">
                 <td>${escapeHtml(st.ranchName[p.ranch_id] || '')}</td>
                 <td><strong>${escapeHtml(p.name)}</strong></td>
-                <td class="num"><input type="number" class="ps-acres" step="0.1" min="0" style="width: 90px;"
-                        value="${p.usable_acres ?? ''}" data-orig="${p.usable_acres ?? ''}" placeholder="no acres"></td>
                 <td><select class="ps-label" data-orig="${latest ? latest.label : ''}">${opts(latest ? latest.label : '')}</select></td>
+                <td class="num"><input type="number" class="ps-acres" step="0.1" min="0" style="width: 90px;"
+                        value="${ac}" data-orig="${ac}" placeholder="no acres"></td>
                 <td><input type="date" class="ps-from" disabled style="width: 140px;"></td>
                 <td class="muted" style="font-size: 12px;">${histText || '<span style="color:#b58900;">no label</span>'}</td>
             </tr>`;
         }).join('');
         $('pastureGridSummary').textContent =
-            `${st.pastures.length} active pastures · ${withLabel} with a label · ${withAcres} with usable acres.`;
+            `${st.pastures.length} active pastures · ${withLabel} with a label · ${withAcres} with farmed/maintained acres.`;
         $('pastureGridContent').innerHTML = st.pastures.length ? `
             <div style="overflow-x: auto;"><table>
-                <thead><tr><th>Ranch</th><th>Pasture</th><th class="num">Usable ac</th><th>Label</th><th>Label from</th><th>Label history</th></tr></thead>
+                <thead><tr><th>Ranch</th><th>Pasture</th><th>Label</th><th class="num">Farmed / maintained ac</th><th>From</th><th>History</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table></div>` : '<div class="empty">No active pastures.</div>';
-        // A changed label needs its "from" date; default it, and switch it off
-        // again if the label is put back.
-        $('pastureGridContent').querySelectorAll('.ps-label').forEach(sel => {
-            sel.addEventListener('change', () => {
-                const from = sel.closest('tr').querySelector('.ps-from');
-                const changed = sel.value !== sel.dataset.orig;
+        // A change to the label or the acres needs its "from" date; default it,
+        // and switch it off again if both are put back.
+        $('pastureGridContent').querySelectorAll('tr[data-pasture-id]').forEach(tr => {
+            const sel = tr.querySelector('.ps-label'), ac = tr.querySelector('.ps-acres'), from = tr.querySelector('.ps-from');
+            const sync = () => {
+                const changed = sel.value !== sel.dataset.orig || ac.value !== ac.dataset.orig;
                 from.disabled = !changed;
                 from.value = changed ? (from.value || psDefaultFrom()) : '';
-            });
+            };
+            sel.addEventListener('change', sync);
+            ac.addEventListener('input', sync);
         });
     }
 
@@ -23723,49 +23732,39 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         clearAlert('pastureSetupAlert');
         const st = pastureSetupState;
         if (!st) return;
-        const acreUpdates = [], labelRows = [], problems = [];
+        const rowsToSave = [], problems = [];
         $('pastureGridContent').querySelectorAll('tr[data-pasture-id]').forEach(tr => {
             const id = tr.dataset.pastureId;
-            const name = (st.ranchName[(st.pastures.find(p => p.id === id) || {}).ranch_id] || '') + ' ' +
-                         ((st.pastures.find(p => p.id === id) || {}).name || '');
-            const ac = tr.querySelector('.ps-acres');
-            if (ac.value !== ac.dataset.orig) {
-                const v = ac.value === '' ? null : Number(ac.value);
-                if (v != null && (!isFinite(v) || v < 0)) problems.push(name + ': usable acres must be a number, 0 or more.');
-                else acreUpdates.push({ id, name, usable_acres: v });
-            }
-            const sel = tr.querySelector('.ps-label');
-            if (sel.value !== sel.dataset.orig) {
-                const from = tr.querySelector('.ps-from').value;
-                if (!sel.value) problems.push(name + ': a label cannot be taken away, only replaced by another from a date.');
-                else if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) problems.push(name + ': give the date the new label starts.');
-                else labelRows.push({ pasture_id: id, label: sel.value, effective_from: from, name });
-            }
+            const p = st.pastures.find(x => x.id === id) || {};
+            const name = (st.ranchName[p.ranch_id] || '') + ' ' + (p.name || '');
+            const sel = tr.querySelector('.ps-label'), ac = tr.querySelector('.ps-acres');
+            if (sel.value === sel.dataset.orig && ac.value === ac.dataset.orig) return;
+            const from = tr.querySelector('.ps-from').value;
+            const acres = ac.value === '' ? null : Number(ac.value);
+            if (!sel.value) problems.push(name + ': pick a label first; acres are saved with the label.');
+            else if (acres != null && (!isFinite(acres) || acres < 0)) problems.push(name + ': acres must be a number, 0 or more.');
+            else if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) problems.push(name + ': give the date the change starts.');
+            else rowsToSave.push({ pasture_id: id, label: sel.value, maintained_acres: acres, effective_from: from, name });
         });
         if (problems.length) { showAlert('pastureSetupAlert', problems.join(' ')); return; }
-        if (!acreUpdates.length && !labelRows.length) { showAlert('pastureSetupAlert', 'Nothing changed.', 'info'); return; }
+        if (!rowsToSave.length) { showAlert('pastureSetupAlert', 'Nothing changed.', 'info'); return; }
         $('pastureGridSaveBtn').disabled = true;
         const failed = [];
-        for (const u of acreUpdates) {
-            const { data, error } = await supabase.from('pastures').update({ usable_acres: u.usable_acres }).eq('id', u.id).select('id');
-            if (error) failed.push(u.name + ' acres: ' + friendlyDbError(error.message));
-            else if (!data || !data.length) failed.push(u.name + ' acres: not saved (office and owner only).');
-        }
-        for (const r of labelRows) {
-            // Same pasture and same date = correcting a label that has not
-            // taken effect yet; the database refuses it once the day has come.
+        for (const r of rowsToSave) {
+            // Same pasture and same date = correcting a row that has not taken
+            // effect yet; the database refuses it once the day has come.
             const { data, error } = await supabase.from('pasture_label_history')
-                .upsert({ pasture_id: r.pasture_id, label: r.label, effective_from: r.effective_from },
+                .upsert({ pasture_id: r.pasture_id, label: r.label, maintained_acres: r.maintained_acres, effective_from: r.effective_from },
                         { onConflict: 'pasture_id,effective_from' })
                 .select('id');
-            if (error) failed.push(r.name + ' label: ' + friendlyDbError(error.message));
-            else if (!data || !data.length) failed.push(r.name + ' label: not saved (office and owner only).');
+            if (error) failed.push(r.name + ': ' + friendlyDbError(error.message));
+            else if (!data || !data.length) failed.push(r.name + ': not saved (office and owner only).');
         }
         $('pastureGridSaveBtn').disabled = false;
-        const saved = acreUpdates.length + labelRows.length - failed.length;
+        const saved = rowsToSave.length - failed.length;
         await loadPastureSetup();
         if (failed.length) showAlert('pastureSetupAlert', `${saved} saved, ${failed.length} not: ` + failed.join(' | '));
-        else showAlert('pastureSetupAlert', `${saved} change${saved === 1 ? '' : 's'} saved.`, 'success');
+        else showAlert('pastureSetupAlert', `${saved} pasture${saved === 1 ? '' : 's'} saved.`, 'success');
     });
 
     function renderPastureSeasons() {
@@ -23801,7 +23800,7 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
         $('pastureSeasonContent').innerHTML = `
             <div style="font-size: 13px; margin-bottom: 8px;">${lines}</div>
             <div style="overflow-x: auto;"><table>
-                <thead><tr><th>Season</th><th>Starts</th><th>From</th><th class="num">Head / usable acre</th><th></th><th>Note</th></tr></thead>
+                <thead><tr><th>Season</th><th>Starts</th><th>From</th><th class="num">Head / acre</th><th></th><th>Note</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table></div>`;
         $('pastureSeasonContent').querySelectorAll('.ps-rate-fill-btn').forEach(btn => {
@@ -23809,7 +23808,7 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
                 clearAlert('pastureSetupAlert');
                 const inp = $('pastureSeasonContent').querySelector(`.ps-rate-fill[data-id="${btn.dataset.id}"]`);
                 const v = Number(inp.value);
-                if (!inp.value || !isFinite(v) || v <= 0) { showAlert('pastureSetupAlert', 'Enter the stocking rate, head per usable acre, greater than 0.'); return; }
+                if (!inp.value || !isFinite(v) || v <= 0) { showAlert('pastureSetupAlert', 'Enter the stocking rate, head per farmed/maintained acre, greater than 0.'); return; }
                 btn.disabled = true;
                 const { data, error } = await supabase.from('pasture_season_settings')
                     .update({ stocking_rate: v }).eq('id', btn.dataset.id).is('stocking_rate', null).select('id');
