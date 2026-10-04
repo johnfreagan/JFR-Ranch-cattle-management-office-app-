@@ -41,6 +41,7 @@ included, into the destination lot.
 | D15 | How does a ledger row find its bucket and season? | **By Redwing coding.** One-time map in the app: Account (plus Profit Center when needed) → bucket; season from Redwing's Production Year. Rows that do not map (no map, or Production Year blank) land on an "unmapped" list for the office to sort | Coding happens once, in the books. Date alone mis-sorts costs paid ahead (August oat seed belongs to crop·winter) |
 | D16 | Ranch-wide bucket rate, or per pasture? | **Per pasture, eventually.** Spread bucket cost to pastures **by acre**, then charge lots by head-days in each pasture. Start ranch-wide (D11); per-acre is the target | John: "Straight hd days would allow productive pastures to hide ones that are dragging us down or not utilizing." Per-acre is the only way to see pasture efficiency and utilization |
 | D17 | With per-acre cost, who pays for under-used days? | **Capacity rate plus idle cost.** Pasture rate = pasture $ ÷ capacity head-days; a lot pays that rate × its head-days there. The rest is **idle pasture cost**, shown against the pasture. **At season end the idle cost must be charged somewhere** (where: Q19) | Lot closeout measures the cattle; the pasture report measures the land and stocking decisions; neither hides the other. John: the under-utilization "has to be charged somewhere" so the books tie |
+| D18 | At season end, where does the leftover land? | **One season-end true-up per bucket-season, ranch-wide.** Leftover = booked $ (Redwing) − $ charged at the capacity rate. It is spread over every lot that grazed that bucket that season, by its head-days there. It shows as its own closeout line, "Pasture true-up". The pasture report splits it into idle cost and budget miss per pasture. Lots closed before season end: Q20 | Lot totals tie to the books (D1 pricing). Own line keeps cattle-only comparisons possible. Charging only the lots on the idle pasture would punish them for a stocking decision |
 
 Resulting head-day buckets: **precon** (first 75 days, wherever the calf stands), then
 **crop·winter, crop·summer, grass·winter, grass·summer, growyard, other**.
@@ -71,13 +72,13 @@ crop·winter, winter native = grass·winter, summer native = grass·summer.
 
 ## Open question (resume here)
 
-**Q19. At season end, where does the leftover land?**
+**Q20. A lot closed before season end grazed that bucket. What happens to its share of the true-up?**
 
-Leftover for one bucket-season = booked $ (Redwing) − $ already charged to lots at the capacity rate. It has two parts: **idle cost** (empty capacity) and **budget miss** (booked $ ≠ budget $).
-- A. **One season-end true-up, spread over every lot that grazed that bucket in that season, by its head-days there**, ranch-wide. It shows as its own closeout line ("Pasture true-up"), apart from the head-day charge. The pasture report splits it into idle and budget miss per pasture.
-- B. Only to lots that stood on the under-used pasture.
-- C. To ranch overhead, never to lots.
+Today's rule (docs/architecture.md, strays): **a closed lot is never re-opened**, because `lot_daily_head` ends at `closed_at` and re-opening un-finalises a reported FY. The feed pen sets the precedent: its cost is **tracked, never charged back**.
+- A. **Tracked, not charged.** The closed lot's share is computed the same way (its head-days there) and shown on the pasture report as "closed-lot share". The closed lot's books stay as they are. Open lots pay only their own share, never the closed lots' share.
+- B. A late adjustment line on the closed lot's closeout, so its final cost changes after close.
+- C. The open lots absorb the closed lots' share as well.
 
-Recommended: **A**. Lot totals then tie to the books, which D1 needs for pricing a calf. Because the true-up is its own line, lot-to-lot comparisons can show the cattle number with or without it. B punishes the lots for a stocking decision, the problem D17 avoided. C leaves lot cost short of the books.
+Recommended: **A**. It follows the never-reopen rule and the feed-pen precedent. Open lots are not charged for cattle that already left. Ranch-wide, the books still tie: lot charges + true-ups + closed-lot share + any idle not charged = booked $. B changes a reported FY. C charges current cattle for past cattle.
 
-Still to walk after Q19: lots sold or closed before the season ends (they miss the true-up), how capacity head-days get set without much input (e.g. acres × a stocking rate per label and season), where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
+Still to walk after Q20: how capacity head-days get set without much input (e.g. acres × a stocking rate per label and season), where head-days and phase costs appear on screen (closeout, a pasture report), how strays / transfers / deaths count against the 75-day clock, how the notice is delivered.
