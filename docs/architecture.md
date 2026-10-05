@@ -526,8 +526,9 @@ lot (is_feed_pen) ← lot_transfers kind='feed_pen', basis $0 ← the source lot
   routinely stands in several at once. Crew see the pen as an ordinary lot for
   doctoring and moves, but sending cattle to it, taking them out and entering
   found head are all office.
-- The pen is excluded from the Active Lots report (no invoice, so cost in,
-  weight in and break-even are all empty by design) and its lot page hides
+- The pen is listed on the Active Lots report, badged and at $0 (2026-10-05),
+  so the office head count ties to Redwing; cost in and weight in are zero or
+  empty by design. Its lot page hides
   Purchases and Closeout, showing the Feed pen section instead.
   `is_feed_pen` is settable on a NEW lot only.
 

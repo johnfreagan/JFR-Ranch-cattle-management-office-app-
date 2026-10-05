@@ -18705,11 +18705,10 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
 
         let rows = alLots;
         // A feed pen is a lot but not a stocker lot: it has no invoice, so no
-        // cost in, no weight in and no break-even, and every economic column
-        // here would read as a hole in the data rather than as the deliberate
-        // zero it is. It has its own report.
-        const penCount = rows.filter(l => alFeedPenIds.has(l.lot_id) && !l.closed_at).length;
-        rows = rows.filter(l => !alFeedPenIds.has(l.lot_id));
+        // cost in and no weight in. It is listed anyway, badged and at $0,
+        // because this list is what the office ties to Redwing's inventory
+        // and Redwing carries the pen as a lot too. A missing row there reads
+        // as missing head.
         if (!includeClosed) rows = rows.filter(l => !l.closed_at);
         if (!includeTest) rows = rows.filter(l => !isTestLot(l.lot_number));
         if (lotFilter.length) rows = rows.filter(l => lotFilter.includes(l.lot_number));
@@ -18726,11 +18725,10 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
             $('reportActiveLotsContent').innerHTML = '<div class="empty">No lots match filters.</div>';
             return;
         }
-        const penNote = penCount
+        const penNote = rows.some(l => alFeedPenIds.has(l.lot_id))
             ? `<p class="muted" style="font-size:11.5px; margin-top:10px;">
-                 ${penCount === 1 ? 'The feed pen is' : `${penCount} feed pens are`} not listed —
-                 cattle arrive there at $0, so cost in, weight in and break-even are all empty by design.
-                 Reports &rarr; Feed Pen.</p>`
+                 The feed pen is listed for the head count. Cattle arrive there at $0 by transfer,
+                 so head in, weight in and cost are zero or empty by design. Reports &rarr; Feed Pen.</p>`
             : '';
 
         // Sort according to current state
@@ -18781,11 +18779,12 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         const bodyRows = rows.map(l => {
             const isTest = isTestLot(l.lot_number);
             const closed = !!l.closed_at;
+            const isPen = alFeedPenIds.has(l.lot_id);
             const cls = ['clickable'];
             if (isTest) cls.push('test-row');
             if (closed) cls.push('closed-row');
             return `<tr class="${cls.join(' ')}" data-lot-id="${l.lot_id}">
-                <td><strong>${escapeHtml(l.lot_number)}</strong>${isTest ? ' <span style="font-style: normal; font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500; letter-spacing: 0.5px;">TEST</span>' : ''}${closed ? ' <span class="muted" style="font-size: 11px;">(closed)</span>' : ''}</td>
+                <td><strong>${escapeHtml(l.lot_number)}</strong>${isPen ? ' <span style="font-size: 10px; padding: 1px 6px; background: #e6eef5; color: #2a4d6d; border-radius: 8px; font-weight: 500; letter-spacing: 0.5px;">FEED PEN</span>' : ''}${isTest ? ' <span style="font-style: normal; font-size: 10px; padding: 1px 6px; background: #fff3d6; color: #8a6d2a; border-radius: 8px; font-weight: 500; letter-spacing: 0.5px;">TEST</span>' : ''}${closed ? ' <span class="muted" style="font-size: 11px;">(closed)</span>' : ''}</td>
                 <td>${fmtDate(l.arrival_date)}</td>
                 <td>${escapeHtml(l.source || '—')}</td>
                 <td class="num">${fmtNum(l.head_in)}</td>
@@ -18795,8 +18794,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
                 <td class="num">${fmtNum(l.days_on_feed)}</td>
                 <td class="num">${l.avg_weight_in ? fmtNum(l.avg_weight_in, 1) : '—'}</td>
                 <td class="num">${l.projected_current_weight ? fmtNum(l.projected_current_weight, 1) : '—'}</td>
-                <td class="num">${fmtMoney(l.avg_cost_per_head)}</td>
-                <td class="num">${fmtMoney(l.total_cost_in)}</td>
+                <td class="num">${fmtMoney(isPen ? 0 : l.avg_cost_per_head)}</td>
+                <td class="num">${fmtMoney(isPen ? 0 : l.total_cost_in)}</td>
             </tr>`;
         }).join('');
 

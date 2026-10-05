@@ -234,11 +234,12 @@ to measure against.
    the head, so the feed pen report carries **deaths by source lot** and the
    lot's health section notes how many head it sent to the pen. Worth a look
    before anyone compares mortality across lots that used the pen differently.
-2. **The pen is excluded from lot economics reports** — Active Lots break-evens,
-   the Anomalies "open lot with 0 head" and "no pasture assignment" checks,
+2. **The pen is excluded from lot economics reports** — the Anomalies "open lot with 0 head" and "no pasture assignment" checks,
    budget nags and closeout drift — the way test lots already are. It is
    included in Doctoring & Deaths as an ordinary cohort, because its medicine
-   and its deaths are real.
+   and its deaths are real. Since 2026-10-05 it is listed on Active Lots,
+   badged and at $0, because that list is what the office ties to Redwing's
+   inventory.
 3. **Weight is optional on a feed pen transfer**, unlike every other transfer.
    Decision 5 of the transfer design requires a weight because a blank falls
    back to the destination's arrival weight and that assumption is wrong. Here
