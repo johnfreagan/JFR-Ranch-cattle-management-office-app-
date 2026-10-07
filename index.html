@@ -1086,6 +1086,7 @@
                 <button class="sub-tab"        data-subtab="usage"     data-material="feed">Feed Out</button>
                 <button class="sub-tab"        data-subtab="onhand"    data-material="med">On hand</button>
                 <button class="sub-tab"        data-subtab="checkouts" data-material="med">Checkouts</button>
+                <button class="sub-tab"        data-subtab="charge"    data-material="med">Charge out</button>
                 <button class="sub-tab"        data-subtab="counts"    data-material="med">Counts</button>
 
                 <button class="sub-tab" data-subtab="purchases" data-material="all">Purchases</button>
@@ -2806,6 +2807,91 @@
                     It shows on On hand straight away, and on Activity and the roll-forward as a transfer.
                 </p>
                 <div id="invCustodyContent"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- ---- Charge out: medicine straight to a lot or a cost centre - -->
+        <div id="invChargeView" class="hidden" data-perm="office">
+            <div class="card">
+                <div class="card-header"><h2>Charge out</h2></div>
+                <p class="muted" style="font-size: 12px; margin: -6px 0 12px 0;">
+                    Medicine that went somewhere with <strong>no doctoring record</strong> &mdash; a pour-on or
+                    water med on a whole lot, or medicine for the cows, bulls, horses or a WIP account. It leaves
+                    the shelf FIFO like a dose does. A <strong>lot</strong> charge lands on that line of the lot's
+                    closeout; a <strong>cost centre</strong> charge posts to <strong>130000 Vet &amp; Medicine &ndash; WIP</strong>
+                    with the cost centre's Profit Center and Production Center.
+                </p>
+                <div class="form-grid">
+                    <div>
+                        <label for="invChDate">Date given</label>
+                        <input type="date" id="invChDate">
+                    </div>
+                    <div>
+                        <label for="invChMed">Medication</label>
+                        <select id="invChMed"></select>
+                    </div>
+                    <div>
+                        <label for="invChLocation">Off which shelf</label>
+                        <select id="invChLocation"></select>
+                    </div>
+                    <div>
+                        <label for="invChQty">Quantity <span class="muted" id="invChUnit"></span></label>
+                        <input type="number" id="invChQty" min="0" step="any">
+                        <div class="muted" id="invChBottles" style="font-size: 11px; margin-top: 3px;"></div>
+                    </div>
+                    <div>
+                        <label for="invChDest">Charge to</label>
+                        <select id="invChDest">
+                            <option value="">— pick —</option>
+                            <option value="lot">A lot</option>
+                            <option value="cost_center">A cost centre</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-grid hidden" id="invChLotRow" style="margin-top: 8px;">
+                    <div>
+                        <label for="invChLot">Lot</label>
+                        <select id="invChLot"></select>
+                    </div>
+                    <div>
+                        <label for="invChCategory">Closeout line</label>
+                        <select id="invChCategory">
+                            <option value="">— pick —</option>
+                            <option value="processing">Processing</option>
+                            <option value="treatment">Treatment</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-grid hidden" id="invChCcRow" style="margin-top: 8px;">
+                    <div>
+                        <label for="invChCc">Cost centre</label>
+                        <select id="invChCc"></select>
+                        <div style="font-size: 11px; margin-top: 3px;">
+                            <a href="#" id="invChCcEdit">Edit this one</a> &middot;
+                            <a href="#" id="invChCcNew">+ New cost centre</a>
+                            <span class="muted">(the same list feed uses)</span>
+                        </div>
+                    </div>
+                    <div class="muted" id="invChCcCoding" style="font-size: 12px; align-self: end;"></div>
+                </div>
+                <div style="margin-top: 8px;">
+                    <label for="invChNotes">Note <span class="muted">(optional)</span></label>
+                    <input type="text" id="invChNotes" placeholder="e.g. pour-on, whole lot">
+                </div>
+                <div id="invChWarn"></div>
+                <div id="invChAlert"></div>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button class="primary" id="invChSaveBtn" data-write>Post charge</button>
+                </div>
+
+                <h4 style="margin: 22px 0 6px 0;">Recent charges</h4>
+                <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
+                    The last 60 days. <strong>Undo</strong> is for an entry mistake: it puts the units back on
+                    the layers they came off. Only an owner login can undo, and not once that month is
+                    counted and closed.
+                </p>
+                <div id="invChListContent"><div class="empty">Loading…</div></div>
             </div>
         </div>
 
@@ -8392,6 +8478,7 @@ window.addEventListener('unhandledrejection', function(e) {
             const lotId = currentLot.id;
             try {
                 // Same teardown order as Settings → Data Tools cleanup, scoped to one lot
+                await invUndoLotMedCharges([lotId]);
                 const { data: docEvts } = await supabase.from('doctoring_events').select('id').eq('lot_id', lotId);
                 if (docEvts && docEvts.length > 0) {
                     await invReverseDoctoringUsage(docEvts.map(d => d.id));
@@ -9608,7 +9695,7 @@ window.addEventListener('unhandledrejection', function(e) {
                         note: proj.doctoringOnFloor ? 'held at the assumed floor' : actual.treatment > 0 ? 'actual + observed burn' : '',
                         drill:'health', drillTitle:'Doctoring on this lot'}, sp(actual.treatment, proj.treatmentFwd).l) : ''}
                     ${closeoutMedOpen && actual.otherMed > 0 ? row('Other meds', null, sp(actual.otherMed).a, sp(actual.otherMed).p, {
-                        child:true, note: 'meds in neither category', drill:'health', drillTitle:'Doctoring on this lot'}, sp(actual.otherMed).l) : ''}
+                        child:true, note: 'direct charges (Inventory > Meds > Charge out) and meds in neither category', drill:'health', drillTitle:'Doctoring on this lot'}, sp(actual.otherMed).l) : ''}
                     ${actual.feedInsideCog
                         ? (actual.feedLedger > 0 ? row('Feed (memo)', null, split ? null : actual.feedLedger, null, {muted:true, note:'inside cost of gain — not added', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}, split ? actual.feedLedger : undefined) : '')
                         : (actual.feed > 0 || proj.feedFwd > 0) ? row('Feed', null, sp(actual.feed, proj.feedFwd).a, sp(actual.feed, proj.feedFwd).p, {note: actual.feedPerHeadDay ? '$'+actual.feedPerHeadDay.toFixed(4)+'/hd/day' + (actual.boundaryActive ? ' since '+fmtDate(feedDirectFrom) : '') : 'from the feed ledger', drill:'feedcost', drillTitle:'Inventory → Feed → Cost'}, sp(actual.feed, proj.feedFwd).l) : ''}
@@ -10375,7 +10462,7 @@ window.addEventListener('unhandledrejection', function(e) {
          'feedItemsView', 'feedLocationsView',
          'invNeedsView', 'invOrdersView', 'invInvoicesView',
          'invOnHandView', 'invMedPurchasesView', 'invMedPurchaseEntryView',
-         'invCheckoutsView', 'invCountsView', 'invCountEntryView',
+         'invCheckoutsView', 'invChargeView', 'invCountsView', 'invCountEntryView',
          'invEfficiencyView', 'invReportsView', 'invSetupView'].forEach(id => {
             const el = $(id);
             if (el) el.classList.add('hidden');
@@ -22506,6 +22593,11 @@ ${body}
             // Order matters: delete child rows before parent rows. Most use ON DELETE CASCADE
             // but we delete explicitly to be safe and to surface any FK errors clearly.
 
+            // 0. Direct medicine charges: put the units back on the shelf
+            //    first, or the lot delete hits their foreign key.
+            try { await invUndoLotMedCharges(ids); }
+            catch (e) { errors.push('med_charges: ' + (e.message || e)); }
+
             // 1. Doctoring meds (cascades from doctoring_events anyway, but explicit is safer)
             const { data: docEvts } = await supabase.from('doctoring_events').select('id').in('lot_id', ids);
             if (docEvts && docEvts.length > 0) {
@@ -32293,6 +32385,10 @@ ${ranchBlocks}
         });
     }
 
+    // Set by a caller outside the feed screens (Meds > Charge out) that
+    // needs to hear about a save. Cleared when used.
+    let fdCcAfterSave = null;
+
     function openFdCostCenterModal(cc) {
         clearAlert('fdCcModalAlert');
         $('fdCcModalTitle').textContent = cc ? 'Edit cost centre' : 'New cost centre';
@@ -32338,6 +32434,12 @@ ${ranchBlocks}
         hideModal('fdCostCenterModal');
         await fdLoadRefs(true);
         loadFdCostCenters();
+        // Opened from Meds > Charge out: refresh that picker too.
+        if (fdCcAfterSave) {
+            const after = fdCcAfterSave;
+            fdCcAfterSave = null;
+            await after(res.data[0]);
+        }
     }
 
     // ==========================================================
@@ -36878,6 +36980,27 @@ ${ranchBlocks}
         return { drawn, waiting, locked };
     }
 
+    // A test lot being deleted takes its direct medicine charges with it,
+    // through the same undo the Charge out screen uses, so the units go back
+    // on the layers they came off. Throws on the first failure: a lot whose
+    // charges did not come off must not be deleted (the foreign key would
+    // refuse it anyway, with a less useful message).
+    async function invUndoLotMedCharges(lotIds) {
+        const ids = (lotIds || []).filter(Boolean);
+        if (!ids.length) return 0;
+        const { data, error } = await supabase.from('med_charges').select('id').in('lot_id', ids);
+        // The table not existing yet means there is nothing to undo.
+        if (error) {
+            if (/relation .* does not exist|schema cache/i.test(error.message || '')) return 0;
+            throw error;
+        }
+        for (const c of (data || [])) {
+            const { error: e } = await supabase.rpc('delete_med_charge', { p_charge_id: c.id });
+            if (e) throw new Error('Could not undo a medicine charge on this lot: ' + e.message);
+        }
+        return (data || []).length;
+    }
+
     // Deleting or re-saving a treatment puts its units back on the shelf, to
     // the exact layers they came off. Same rule as every other reversal here.
     async function invReverseDoctoringUsage(eventIds) {
@@ -36941,7 +37064,7 @@ ${ranchBlocks}
             supabase.from('med_stock_locations').select('*').eq('is_active', true)
                 .order('is_test').order('kind').order('name'),
             supabase.from('medications')
-                .select('id, name, generic_category, bottle_size, bottle_size_unit, cost_per_unit, redwing_item_code')
+                .select('id, name, generic_category, bottle_size, bottle_size_unit, cost_per_unit, redwing_item_code, withdrawal_days')
                 .eq('is_active', true).order('generic_category').order('name')
         ]);
         // An RLS denial returns zero rows and not an error, so an empty list
@@ -37003,6 +37126,9 @@ ${ranchBlocks}
         } else if (subtab === 'checkouts') {
             $('invCheckoutsView').classList.remove('hidden');
             initInvCheckouts();
+        } else if (subtab === 'charge') {
+            $('invChargeView').classList.remove('hidden');
+            initInvCharge();
         } else if (subtab === 'counts') {
             $('invCountsView').classList.remove('hidden');
             loadInvCounts();
@@ -38521,6 +38647,241 @@ ${ranchBlocks}
         }
     }
 
+    // ---- CHARGE OUT ------------------------------------------------------
+    // Medicine straight to a lot or a cost centre, with no doctoring record
+    // (John, 2026-10-07: "charge medicine directly to a production center
+    // detail or WIP account. Similar to feed."). Migration
+    // docs/sql/2026-10-07_med_direct_charge.sql; decisions in
+    // docs/med-direct-charge-handoff.md.
+    //
+    // The draw is med_consume's, so the rules are the doctoring rules: FIFO,
+    // a closed month bumps to the first open day, short stock posts uncovered.
+    // All three are said on screen after the post - none is refused.
+    // Office only; never in the field app.
+    let invChLots = [];
+    let invChCostCenters = [];
+    let invChPosting = false;
+
+    async function initInvCharge() {
+        clearAlert('invChAlert');
+        if (!$('invChDate').value) $('invChDate').value = ranchToday();
+        invFillMedSelect('invChMed');
+        invFillLocationSelect('invChLocation');
+        await invChLoadDestinations();
+        invChSync();
+        loadInvChargeList();
+    }
+
+    async function invChLoadDestinations() {
+        const [lotRes, ccRes] = await Promise.all([
+            supabase.from('lots').select('id, lot_number, is_test').is('closed_at', null).order('lot_number'),
+            supabase.from('cost_centers').select('*').eq('is_active', true).order('name')
+        ]);
+        if (lotRes.error) showAlert('invChAlert', 'Could not load lots: ' + lotRes.error.message);
+        if (ccRes.error) showAlert('invChAlert', 'Could not load cost centres: ' + ccRes.error.message);
+        invChLots = lotRes.data || [];
+        invChCostCenters = ccRes.data || [];
+
+        const lotSel = $('invChLot'), keepLot = lotSel.value;
+        lotSel.innerHTML = '<option value="">— pick —</option>' + invChLots.map(l =>
+            `<option value="${l.id}">${escapeHtml(l.lot_number)}${l.is_test ? '  (TEST)' : ''}</option>`).join('');
+        if (keepLot && invChLots.some(l => l.id === keepLot)) lotSel.value = keepLot;
+
+        const ccSel = $('invChCc'), keepCc = ccSel.value;
+        ccSel.innerHTML = '<option value="">— pick —</option>' + invChCostCenters.map(c =>
+            `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+        if (keepCc && invChCostCenters.some(c => c.id === keepCc)) ccSel.value = keepCc;
+    }
+
+    // Everything on the form that follows from another field: which
+    // destination row shows, the unit, bottles beside units, the cost
+    // centre's coding, and the withdrawal warning.
+    function invChSync() {
+        const dest = $('invChDest').value;
+        $('invChLotRow').classList.toggle('hidden', dest !== 'lot');
+        $('invChCcRow').classList.toggle('hidden', dest !== 'cost_center');
+
+        const med = invMedById($('invChMed').value);
+        const unit = med ? (med.bottle_size_unit || 'mL') : '';
+        $('invChUnit').textContent = unit ? '(' + unit + ')' : '';
+        const qty = invNum($('invChQty').value);
+        const size = med ? Number(med.bottle_size) || 0 : 0;
+        $('invChBottles').textContent = (qty != null && qty > 0 && size > 0)
+            ? `= ${fmtNum(qty / size, 2)} bottle(s) of ${fmtNum(size, 0)} ${unit}` : '';
+
+        const cc = invChCostCenters.find(c => c.id === $('invChCc').value);
+        $('invChCcEdit').classList.toggle('hidden', !cc);
+        if (!cc) {
+            $('invChCcCoding').innerHTML = '';
+        } else if (!cc.profit_center || !cc.redwing_production_center) {
+            $('invChCcCoding').innerHTML = `<span style="color:#b45309; font-weight:600;">⚠ Coding missing</span> &mdash;
+                fill in ${!cc.profit_center ? 'Profit Center' : ''}${!cc.profit_center && !cc.redwing_production_center ? ' and ' : ''}${
+                !cc.redwing_production_center ? 'Production Center' : ''} before this posts to Redwing. The charge still saves.`;
+        } else {
+            $('invChCcCoding').innerHTML = `130000 Vet &amp; Medicine &ndash; WIP &middot; Profit Center
+                <strong>${escapeHtml(cc.profit_center)}</strong> &middot; Production Center
+                <strong>${escapeHtml(cc.redwing_production_center)}</strong>`;
+        }
+
+        // Withdrawal warns and never blocks. A lot charge is the whole lot,
+        // so the warning is for the whole lot.
+        const wd = med ? Number(med.withdrawal_days) || 0 : 0;
+        const date = $('invChDate').value;
+        const lot = invChLots.find(l => l.id === $('invChLot').value);
+        if (dest === 'lot' && wd > 0 && date) {
+            $('invChWarn').innerHTML = `<div style="padding:8px 10px;border-left:3px solid #b45309;background:#fffbeb;font-size:12px;margin-top:10px;">
+                <strong>Withdrawal:</strong> ${escapeHtml(med.name)} has a ${wd}-day withdrawal. Whole lot
+                ${lot ? escapeHtml(lot.lot_number) + ' ' : ''}in withdrawal until <strong>${escapeHtml(fmtDate(addDaysIso(date, wd)))}</strong>.
+                This does not stop the charge.</div>`;
+        } else {
+            $('invChWarn').innerHTML = '';
+        }
+    }
+
+    async function saveInvCharge() {
+        if (invChPosting) return;
+        clearAlert('invChAlert');
+        const date = $('invChDate').value;
+        const med = invMedById($('invChMed').value);
+        const locId = $('invChLocation').value;
+        const qty = invNum($('invChQty').value);
+        const dest = $('invChDest').value;
+        const lotId = $('invChLot').value;
+        const cat = $('invChCategory').value;
+        const ccId = $('invChCc').value;
+        const notes = $('invChNotes').value.trim();
+
+        if (!date) { showAlert('invChAlert', 'Pick the date it was given.'); return; }
+        if (!med) { showAlert('invChAlert', 'Pick the medication.'); return; }
+        if (!locId) { showAlert('invChAlert', 'Pick the shelf it came off.'); return; }
+        if (qty == null || !(qty > 0)) { showAlert('invChAlert', 'Type the quantity, more than zero.'); return; }
+        if (!dest) { showAlert('invChAlert', 'Pick what it is charged to: a lot or a cost centre.'); return; }
+        if (dest === 'lot' && !lotId) { showAlert('invChAlert', 'Pick the lot.'); return; }
+        if (dest === 'lot' && !cat) { showAlert('invChAlert', 'Pick the closeout line: Processing, Treatment or Other.'); return; }
+        if (dest === 'cost_center' && !ccId) { showAlert('invChAlert', 'Pick the cost centre.'); return; }
+
+        const unit = med.bottle_size_unit || 'mL';
+        const lot = invChLots.find(l => l.id === lotId);
+        const cc = invChCostCenters.find(c => c.id === ccId);
+        const CAT = { processing: 'Processing', treatment: 'Treatment', other: 'Other' };
+        const toText = dest === 'lot'
+            ? `lot ${lot ? lot.lot_number : ''} (${CAT[cat]})`
+            : `cost centre ${cc ? cc.name : ''}`;
+
+        invChPosting = true;
+        $('invChSaveBtn').disabled = true;
+        try {
+            const { data, error } = await supabase.rpc('post_med_charge', {
+                p_date: date,
+                p_medication_id: med.id,
+                p_location_id: locId,
+                p_qty_units: qty,
+                p_destination: dest,
+                p_lot_id: dest === 'lot' ? lotId : null,
+                p_cost_center_id: dest === 'cost_center' ? ccId : null,
+                p_category: dest === 'lot' ? cat : null,
+                p_notes: notes || null
+            });
+            if (error) throw error;
+            if (!data || !data.charge_id) throw new Error('The charge did not come back from the database. Check Recent charges before trying again.');
+
+            const parts = [`Charged ${fmtNum(qty, 2)} ${escapeHtml(unit)} of ${escapeHtml(med.name)} to ${escapeHtml(toText)}: <strong>${fmtMoney(data.total_cost)}</strong>.`];
+            const short = Number(data.shortfall_units) || 0;
+            let type = 'success';
+            if (short > 0) {
+                type = 'warning';
+                parts.push(`<strong>${fmtNum(short, 2)} ${escapeHtml(unit)} were not on that shelf</strong> and posted
+                    uncovered at the last known cost. Enter the missing invoice, then Settle uncovered usage on On hand.`);
+            }
+            if (data.cost_provisional) {
+                type = 'warning';
+                parts.push(`<strong>No price is known for ${escapeHtml(med.name)}</strong>, so this booked at $0 and
+                    reads as unpriced. Price the medication and settle it.`);
+            }
+            if (data.posted_date && data.posted_date !== data.charge_date) {
+                type = 'warning';
+                parts.push(`Given ${escapeHtml(fmtDate(data.charge_date))}, but that month is counted and closed, so it
+                    posted <strong>${escapeHtml(fmtDate(data.posted_date))}</strong>, the first open day. The true date is on the record.`);
+            }
+            // Not showAlert: it escapes, and this message carries markup. Every
+            // interpolated value above is escaped where it is built. No
+            // timeout either - a shortfall or a date bump must stay readable.
+            $('invChAlert').innerHTML = type === 'warning'
+                ? `<div class="alert" style="background:#fffbeb;border:1px solid #f3d27a;color:#7c4a03;">${parts.join('<br>')}</div>`
+                : `<div class="alert success">${parts.join('<br>')}</div>`;
+            $('invChQty').value = '';
+            $('invChNotes').value = '';
+            invChSync();
+            loadInvChargeList();
+        } catch (e) {
+            showAlert('invChAlert', 'Not charged: ' + (e.message || e));
+        } finally {
+            invChPosting = false;
+            $('invChSaveBtn').disabled = false;
+        }
+    }
+
+    async function loadInvChargeList() {
+        $('invChListContent').innerHTML = '<div class="empty">Loading…</div>';
+        const since = addDaysIso(ranchToday(), -60);
+        const { data, error } = await supabase.from('med_charges')
+            .select('id, charge_date, qty_units, destination, category, notes, ' +
+                    'medications(name, bottle_size_unit), lots(lot_number), cost_centers(name), ' +
+                    'med_stock_locations(name), med_txns(txn_date, total_cost, shortfall_units, cost_provisional)')
+            .gte('charge_date', since)
+            .order('charge_date', { ascending: false })
+            .order('created_at', { ascending: false });
+        if (error) {
+            const missing = /relation .* does not exist|schema cache|med_charges/i.test(error.message || '');
+            $('invChListContent').innerHTML = `<div class="alert error">${escapeHtml(missing
+                ? 'The med_charges table is not in the database yet. Apply docs/sql/2026-10-07_med_direct_charge.sql, then reload.'
+                : error.message)}</div>`;
+            return;
+        }
+        if (!(data || []).length) {
+            // An RLS denial reads as zero rows; this screen is office only,
+            // so zero here means none - but say what "none" covers.
+            $('invChListContent').innerHTML = '<div class="empty">No charges in the last 60 days.</div>';
+            return;
+        }
+        const CAT = { processing: 'Processing', treatment: 'Treatment', other: 'Other' };
+        let html = `<table><thead><tr><th>Date</th><th>Medication</th><th class="num">Qty</th>
+            <th>Shelf</th><th>Charged to</th><th class="num">$</th><th>Note</th><th></th></tr></thead><tbody>`;
+        data.forEach(c => {
+            const t = c.med_txns || {};
+            const unit = (c.medications && c.medications.bottle_size_unit) || 'mL';
+            const to = c.destination === 'lot'
+                ? `Lot ${escapeHtml(c.lots ? c.lots.lot_number : '?')} &middot; ${escapeHtml(CAT[c.category] || c.category)}`
+                : `Cost centre ${escapeHtml(c.cost_centers ? c.cost_centers.name : '?')}`;
+            const flags = [];
+            if (Number(t.shortfall_units) > 0) flags.push(`${fmtNum(t.shortfall_units, 2)} uncovered`);
+            if (t.cost_provisional) flags.push('unpriced');
+            html += `<tr>
+                <td>${escapeHtml(fmtDate(c.charge_date))}${t.txn_date && t.txn_date !== c.charge_date
+                    ? `<div class="muted" style="font-size:11px;">posted ${escapeHtml(fmtDate(t.txn_date))}</div>` : ''}</td>
+                <td>${escapeHtml(c.medications ? c.medications.name : '?')}</td>
+                <td class="num">${fmtNum(c.qty_units, 2)} <span class="muted">${escapeHtml(unit)}</span></td>
+                <td class="muted">${escapeHtml(c.med_stock_locations ? c.med_stock_locations.name : '')}</td>
+                <td>${to}</td>
+                <td class="num">${fmtMoney(t.total_cost)}${flags.length
+                    ? `<div style="color:#b45309;font-size:11px;font-weight:600;">⚠ ${escapeHtml(flags.join(', '))}</div>` : ''}</td>
+                <td class="muted" style="font-size:12px;">${escapeHtml(c.notes || '')}</td>
+                <td><button data-inv-ch-undo="${c.id}" data-perm="owner" data-write>Undo</button></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        $('invChListContent').innerHTML = html;
+    }
+
+    async function undoInvCharge(id) {
+        if (!confirm('Undo this charge? The units go back on the shelf, on the layers they came off, and the charge comes off the lot or cost centre.')) return;
+        clearAlert('invChAlert');
+        const { data, error } = await supabase.rpc('delete_med_charge', { p_charge_id: id });
+        if (error) { showAlert('invChAlert', 'Not undone: ' + error.message); return; }
+        showAlert('invChAlert', `Charge undone. ${fmtNum(data && data.restored_units, 2)} unit(s) back on the shelf.`, 'success');
+        loadInvChargeList();
+    }
+
     // ---- REPORTS ---------------------------------------------------------
     let invReportRows = [];   // for Copy rows / print
 
@@ -38665,36 +39026,64 @@ ${ranchBlocks}
         $('invReportsContent').innerHTML = html;
     }
 
-    // One block a lot, a line a medication, grouped processing then
-    // treatment. The grain is the medication rather than the category
-    // because a Redwing item is a medication, and a category subtotal is
-    // one sum away for whoever only needs the two numbers.
+    // One block a lot, a line a medication, grouped Processing, Treatment,
+    // Other. The grain is the medication rather than the category because
+    // a Redwing item is a medication, and a category subtotal is one sum
+    // away for whoever only needs the two numbers.
+    //
+    // Then one block a cost centre (direct charges, 2026-10-07). Medicine to
+    // a cost centre always books to 130000 Vet & Medicine - WIP (John's
+    // decision); the cost centre supplies only the Profit Center and the
+    // Production Center. Feed's account on the cost centre is NOT used.
+    //
+    // Nothing falls out: a usage row with neither a lot nor a cost centre
+    // is its own loud block, and the totals table adds lots + cost centres
+    // + no-lot to every dollar of usage in the range.
+    const INV_MED_CC_ACCOUNT = '130000 Vet & Medicine - WIP';
     function renderInvApplication(rows, from, to) {
         const money = n => '$' + (Number(n) || 0).toFixed(2);
-        const CAT = { processing: 'Processing', treatment: 'Treatment' };
+        const CAT = { processing: 'Processing', treatment: 'Treatment', other: 'Other' };
+        const CAT_ORDER = { processing: 0, treatment: 1, other: 2 };
         const catName = c => CAT[c] || (c ? c.charAt(0).toUpperCase() + c.slice(1) : 'Other');
+        const NO_LOT = '— no lot —';
 
-        // lot -> category -> medication
-        const lots = {};
-        rows.forEach(r => {
-            const lot = r.lot_number || '— no lot —';
-            const cat = r.category || 'other';
+        const ccRows   = rows.filter(r => !r.lot_id && r.cost_center_id);
+        const lotRows  = rows.filter(r => !(!r.lot_id && r.cost_center_id));
+        const allUsd   = rows.reduce((s, r) => s + (Number(r.total_cost) || 0), 0);
+
+        const addLine = (bucket, r) => {
             const key = r.medication_id;
-            lots[lot] = lots[lot] || {};
-            lots[lot][cat] = lots[lot][cat] || {};
-            const b = lots[lot][cat][key] = lots[lot][cat][key] ||
+            const b = bucket[key] = bucket[key] ||
                 { name: r.medication_name, code: r.redwing_item_code || '',
                   unit: r.unit || '', qty: 0, usd: 0, unpriced: 0 };
             b.qty += Number(r.qty_units) || 0;
             b.usd += Number(r.total_cost) || 0;
             if (r.cost_provisional) b.unpriced += 1;
+        };
+
+        // lot -> category -> medication
+        const lots = {};
+        lotRows.forEach(r => {
+            const lot = r.lot_number || NO_LOT;
+            const cat = r.category || 'other';
+            lots[lot] = lots[lot] || {};
+            lots[lot][cat] = lots[lot][cat] || {};
+            addLine(lots[lot][cat], r);
+        });
+        // cost centre -> medication
+        const ccs = {};
+        ccRows.forEach(r => {
+            const c = ccs[r.cost_center_id] = ccs[r.cost_center_id] ||
+                { name: r.cost_center_name || '?', profit: r.profit_center || '',
+                  prod: r.redwing_production_center || '', meds: {} };
+            addLine(c.meds, r);
         });
 
-        const lotNames = Object.keys(lots).sort((a, b) =>
-            a === '— no lot —' ? 1 : b === '— no lot —' ? -1 : a.localeCompare(b));
+        const lotNames = Object.keys(lots).filter(n => n !== NO_LOT).sort((a, b) => a.localeCompare(b));
+        const ccIds = Object.keys(ccs).sort((a, b) => ccs[a].name.localeCompare(ccs[b].name));
 
         invReportRows = [];
-        let gUsd = 0, gUnpriced = 0;
+        let lotsUsd = 0, lotsUnpriced = 0, ccUsd = 0, ccUnpriced = 0, noLotUsd = 0, noLotUnpriced = 0;
 
         // An unpriced draw books at $0 and the dollars beside it are SHORT.
         // Text, not an icon, so it survives Copy rows and the printout:
@@ -38704,9 +39093,9 @@ ${ranchBlocks}
 
         let html = `<p class="muted" style="font-size:12px;">
             What went in the cattle from <strong>${escapeHtml(fmtDate(from))}</strong> to
-            <strong>${escapeHtml(fmtDate(to))}</strong>, a block a lot, for typing into Redwing.
-            Processing comes off the load outs, treatment off the doctoring. <strong>Copy rows</strong>
-            gives it tab-separated.</p>`;
+            <strong>${escapeHtml(fmtDate(to))}</strong>, a block a lot, then a block a cost centre, for typing
+            into Redwing. Processing comes off the load outs, treatment off the doctoring, and either can also be
+            a direct charge from Charge out. <strong>Copy rows</strong> gives it tab-separated.</p>`;
 
         if (!rows.length) {
             html += '<div class="empty">No medicine used in this period.</div>';
@@ -38714,9 +39103,10 @@ ${ranchBlocks}
             return;
         }
 
-        lotNames.forEach(lotNo => {
+        const lotBlock = (lotNo, title) => {
             let lotUsd = 0, lotUnpriced = 0, body = '';
-            Object.keys(lots[lotNo]).sort().forEach(cat => {
+            Object.keys(lots[lotNo]).sort((a, b) =>
+                (CAT_ORDER[a] ?? 9) - (CAT_ORDER[b] ?? 9) || a.localeCompare(b)).forEach(cat => {
                 const meds = lots[lotNo][cat];
                 const keys = Object.keys(meds).sort((a, b) => meds[a].name.localeCompare(meds[b].name));
                 let cUsd = 0, cUnpriced = 0;
@@ -38736,9 +39126,8 @@ ${ranchBlocks}
                 body += `<tr style="background:#f3f4f6;"><td colspan="3"><strong>${escapeHtml(catName(cat))}</strong></td>
                          <td class="num"><strong>${money(cUsd)}</strong></td></tr>` + lines;
             });
-            gUsd += lotUsd; gUnpriced += lotUnpriced;
             html += `<div style="margin-bottom:16px;">
-                <div style="font-weight:600; margin-bottom:4px;">Production Center ${escapeHtml(lotNo)}</div>
+                <div style="font-weight:600; margin-bottom:4px;">${title}</div>
                 <table><thead><tr><th>Medication</th><th class="num">Qty</th><th>Unit</th>
                     <th class="num">$</th></tr></thead>
                 <tbody>${body}
@@ -38746,22 +39135,82 @@ ${ranchBlocks}
                     <td colspan="3">Total medicine &mdash; ${escapeHtml(lotNo)}</td>
                     <td class="num">${money(lotUsd)}${flag(lotUnpriced)}</td></tr>
                 </tbody></table></div>`;
+            return { usd: lotUsd, unpriced: lotUnpriced };
+        };
+
+        lotNames.forEach(lotNo => {
+            const t = lotBlock(lotNo, 'Production Center ' + escapeHtml(lotNo));
+            lotsUsd += t.usd; lotsUnpriced += t.unpriced;
         });
 
-        html += `<div style="margin-bottom:12px;">
-            <div style="font-weight:600; margin-bottom:4px;">All lots</div>
-            <table><thead><tr><th>Lots</th><th class="num">$</th></tr></thead>
-            <tbody><tr style="font-weight:700;">
-                <td>${lotNames.length} lot${lotNames.length === 1 ? '' : 's'}</td>
-                <td class="num">${money(gUsd)}${flag(gUnpriced)}</td></tr>
-            </tbody></table></div>`;
-
-        if (lots['— no lot —']) {
-            html += `<div style="padding:8px 10px;border-left:3px solid #b45309;background:#fffbeb;font-size:12px;">
-                <strong>Usage with no lot on it</strong> is in the block above under &ldquo;no lot&rdquo;.
-                It is real drug out of the shelf, so it has to go somewhere in Redwing &mdash; find the lot
-                before posting if you can.</div>`;
+        if (ccIds.length) {
+            html += `<h4 style="margin:18px 0 6px 0;">Cost centres &mdash; ${escapeHtml(INV_MED_CC_ACCOUNT)}</h4>`;
         }
+        ccIds.forEach(id => {
+            const c = ccs[id];
+            const missing = !c.profit || !c.prod;
+            const keys = Object.keys(c.meds).sort((a, b) => c.meds[a].name.localeCompare(c.meds[b].name));
+            let usd = 0, unpriced = 0;
+            const lines = keys.map(k => {
+                const m = c.meds[k];
+                usd += m.usd; unpriced += m.unpriced;
+                invReportRows.push([c.name, 'Cost centre', m.code, m.name, fmtNum(m.qty, 2), m.unit,
+                    m.usd.toFixed(2), INV_MED_CC_ACCOUNT, c.profit, c.prod,
+                    missing ? 'CODING MISSING' : '']);
+                return `<tr>
+                    <td>${m.code ? escapeHtml(m.code) + ' · ' : ''}${escapeHtml(m.name)}</td>
+                    <td class="num">${fmtNum(m.qty, 2)}</td>
+                    <td class="muted">${escapeHtml(m.unit)}</td>
+                    <td>${escapeHtml(INV_MED_CC_ACCOUNT)}</td>
+                    <td>${c.profit ? escapeHtml(c.profit) : '<span style="color:#b45309;">—</span>'}</td>
+                    <td>${c.prod ? escapeHtml(c.prod) : '<span style="color:#b45309;">—</span>'}</td>
+                    <td class="num">${money(m.usd)}${flag(m.unpriced)}</td>
+                </tr>`;
+            }).join('');
+            ccUsd += usd; ccUnpriced += unpriced;
+            html += `<div style="margin-bottom:16px;">
+                <div style="font-weight:600; margin-bottom:4px;">Cost centre ${escapeHtml(c.name)}${missing
+                    ? ` <span style="color:#b45309; font-weight:600;">⚠ coding missing &mdash; fill in ${
+                        !c.profit ? 'Profit Center' : ''}${!c.profit && !c.prod ? ' and ' : ''}${
+                        !c.prod ? 'Production Center' : ''} under Inventory &gt; Feed &gt; Settings &gt; Cost centres</span>` : ''}</div>
+                <table><thead><tr><th>Medication</th><th class="num">Qty</th><th>Unit</th>
+                    <th>Account</th><th>Profit Center</th><th>Production Center</th><th class="num">$</th></tr></thead>
+                <tbody>${lines}
+                <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                    <td colspan="6">Total medicine &mdash; ${escapeHtml(c.name)}</td>
+                    <td class="num">${money(usd)}${flag(unpriced)}</td></tr>
+                </tbody></table></div>`;
+        });
+
+        // The orphan guard: usage with neither a lot nor a cost centre.
+        if (lots[NO_LOT]) {
+            html += `<div style="padding:8px 10px;border-left:3px solid #b45309;background:#fffbeb;font-size:12px;margin-bottom:6px;">
+                <strong>Usage with no lot and no cost centre.</strong> It is real drug out of the shelf, so it has to
+                go somewhere in Redwing &mdash; find the lot or the cost centre before posting.</div>`;
+            const t = lotBlock(NO_LOT, '<span style="color:#b45309;">⚠ No lot, no cost centre</span>');
+            noLotUsd += t.usd; noLotUnpriced += t.unpriced;
+        }
+
+        const totalUsd = lotsUsd + ccUsd + noLotUsd;
+        // Every dollar in the range is in exactly one block. If the blocks
+        // ever stop adding to the rows, say so instead of printing a total.
+        const ties = Math.abs(totalUsd - allUsd) < 0.005;
+        html += `<div style="margin-bottom:12px;">
+            <div style="font-weight:600; margin-bottom:4px;">Totals</div>
+            <table><thead><tr><th></th><th class="num">$</th></tr></thead>
+            <tbody>
+                <tr><td>${lotNames.length} lot${lotNames.length === 1 ? '' : 's'}</td>
+                    <td class="num">${money(lotsUsd)}${flag(lotsUnpriced)}</td></tr>
+                <tr><td>${ccIds.length} cost centre${ccIds.length === 1 ? '' : 's'} &mdash; ${escapeHtml(INV_MED_CC_ACCOUNT)}</td>
+                    <td class="num">${money(ccUsd)}${flag(ccUnpriced)}</td></tr>
+                ${lots[NO_LOT] ? `<tr style="color:#b45309;"><td>No lot, no cost centre</td>
+                    <td class="num">${money(noLotUsd)}${flag(noLotUnpriced)}</td></tr>` : ''}
+                <tr style="font-weight:700; border-top:2px solid var(--border,#ddd);">
+                    <td>All medicine used in the range</td>
+                    <td class="num">${money(totalUsd)}${flag(lotsUnpriced + ccUnpriced + noLotUnpriced)}</td></tr>
+            </tbody></table>
+            ${ties ? '' : `<div class="alert error">The blocks add to ${money(totalUsd)} but the usage rows add to
+                ${money(allUsd)}. Do not post this week until that is explained.</div>`}</div>`;
 
         // Shrink is NOT in here, and saying so is the point: a zero would
         // read as "none". Shrink only exists once a count is posted, so a
@@ -39183,6 +39632,34 @@ ${ranchBlocks}
     ['invRepFrom', 'invRepTo'].forEach(id => $(id).addEventListener('change', loadInvReport));
     $('invRepCopyBtn').addEventListener('click', copyInvReportRows);
     $('invRepPrintBtn').addEventListener('click', printInvReport);
+
+    ['invChMed', 'invChDest', 'invChLot', 'invChCc', 'invChDate'].forEach(id =>
+        $(id).addEventListener('change', invChSync));
+    $('invChQty').addEventListener('input', invChSync);
+    $('invChSaveBtn').addEventListener('click', saveInvCharge);
+    $('invChListContent').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-inv-ch-undo]');
+        if (b) undoInvCharge(b.dataset.invChUndo);
+    });
+    // Feed's cost-centre manager, not a second one. After a save from here
+    // the picker reloads and keeps the one just made or edited.
+    $('invChCcNew').addEventListener('click', (e) => {
+        e.preventDefault();
+        fdCcAfterSave = invChAfterCcSave;
+        openFdCostCenterModal(null);
+    });
+    $('invChCcEdit').addEventListener('click', (e) => {
+        e.preventDefault();
+        const cc = invChCostCenters.find(c => c.id === $('invChCc').value);
+        if (!cc) return;
+        fdCcAfterSave = invChAfterCcSave;
+        openFdCostCenterModal(cc);
+    });
+    async function invChAfterCcSave(saved) {
+        await invChLoadDestinations();
+        if (saved && saved.is_active && invChCostCenters.some(c => c.id === saved.id)) $('invChCc').value = saved.id;
+        invChSync();
+    }
 
     // ==========================================================
     // HELP DOCK (owner + office): the office task cards beside the screen
@@ -39691,6 +40168,28 @@ ${ranchBlocks}
 ],
 "screens": [
 "invCheckoutsView"
+]
+},
+{
+"id": "E6",
+"group": "Feed and medicine",
+"title": "Charge medicine to a lot or a cost centre",
+"when": "Medicine went out with no doctoring record: a pour-on or water med on a whole lot, or medicine for the cows, bulls or horses.",
+"steps": [
+"Tap [[Inventory]] → [[Meds]] → [[Charge out]].",
+"Check the date it was given, pick the medicine and the shelf, and type the quantity.",
+"Under [[Charge to]], pick a lot or a cost centre.",
+"A lot: pick the lot and the [[Closeout line]] (Processing, Treatment or Other). A cost centre: pick it from the list.",
+"Tap [[Post charge]]."
+],
+"done": "“Charged … to lot … : $…” or “… to cost centre … : $…”, and it shows under Recent charges.",
+"watch": [
+"A withdrawal drug on a lot shows when the whole lot clears. It does not stop the charge.",
+"A cost centre with no Profit Center or Production Center says Coding missing. Ask John to fill it in.",
+"Wrong entry? Only John can Undo, and not once that month is counted."
+],
+"screens": [
+"invChargeView"
 ]
 },
 {

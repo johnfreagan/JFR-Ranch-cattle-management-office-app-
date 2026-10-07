@@ -316,6 +316,19 @@ dict(id="E3", group="Feed and medicine", title="Medicine checkout or return",
  ],
  done="“Checkout recorded …” or “Return recorded …”, and it shows in the log.",
  watch=["Picking another pool (not a man) moves the stock. The button then reads Move stock."]),
+dict(id="E6", group="Feed and medicine", title="Charge medicine to a lot or a cost centre",
+ when="Medicine went out with no doctoring record: a pour-on or water med on a whole lot, or medicine for the cows, bulls or horses.",
+ steps=[
+  "Tap [[Inventory]] → [[Meds]] → [[Charge out]].",
+  "Check the date it was given, pick the medicine and the shelf, and type the quantity.",
+  "Under [[Charge to]], pick a lot or a cost centre.",
+  "A lot: pick the lot and the [[Closeout line]] (Processing, Treatment or Other). A cost centre: pick it from the list.",
+  "Tap [[Post charge]].",
+ ],
+ done="“Charged … to lot … : $…” or “… to cost centre … : $…”, and it shows under Recent charges.",
+ watch=["A withdrawal drug on a lot shows when the whole lot clears. It does not stop the charge.",
+        "A cost centre with no Profit Center or Production Center says Coding missing. Ask John to fill it in.",
+        "Wrong entry? Only John can Undo, and not once that month is counted."]),
 dict(id="E4", group="Feed and medicine", title="Count the medicine",
  when="Monthly count.",
  steps=[
@@ -348,4 +361,4 @@ dict(id="F1", group="Reports", title="Send the daily report",
  watch=["[[Email]] only opens your mail app. You still pick who and tap Send."]),
 ]
 
-SCREENS = {'A1': ['appr:field'], 'A2': ['appr:field'], 'A3': ['appr:feed'], 'A4': ['appr:feed'], 'A5': ['appr:meds', 'invMedPurchaseEntryView'], 'B1': ['lotsView'], 'B2': ['lot:purchases'], 'B3': ['lot:purchases'], 'B4': ['protocolsView', 'protocolDetailView'], 'C1': ['doctoringEntryView'], 'C2': ['doctoringSingleView'], 'C3': ['lot:health'], 'C4': ['lot:health'], 'C5': ['lot:moves'], 'C6': ['lot:feedpen'], 'D1': ['movesView'], 'D2': ['lot:moves'], 'D3': ['salesView', 'shipmentEntryView', 'lot:sales'], 'D4': ['salesReportView'], 'D5': ['lotsView'], 'D6': ['pastureDetailView', 'ranchDetailView', 'locationsView'], 'E1': ['invPurchasesView', 'feedReceiptsView'], 'E2': ['feedUsageView'], 'E3': ['invCheckoutsView'], 'E4': ['invCountsView', 'invCountEntryView'], 'E5': ['feedCountsView', 'invNeedsView'], 'F1': ['reportDailyView']}
+SCREENS = {'A1': ['appr:field'], 'A2': ['appr:field'], 'A3': ['appr:feed'], 'A4': ['appr:feed'], 'A5': ['appr:meds', 'invMedPurchaseEntryView'], 'B1': ['lotsView'], 'B2': ['lot:purchases'], 'B3': ['lot:purchases'], 'B4': ['protocolsView', 'protocolDetailView'], 'C1': ['doctoringEntryView'], 'C2': ['doctoringSingleView'], 'C3': ['lot:health'], 'C4': ['lot:health'], 'C5': ['lot:moves'], 'C6': ['lot:feedpen'], 'D1': ['movesView'], 'D2': ['lot:moves'], 'D3': ['salesView', 'shipmentEntryView', 'lot:sales'], 'D4': ['salesReportView'], 'D5': ['lotsView'], 'D6': ['pastureDetailView', 'ranchDetailView', 'locationsView'], 'E1': ['invPurchasesView', 'feedReceiptsView'], 'E2': ['feedUsageView'], 'E3': ['invCheckoutsView'], 'E6': ['invChargeView'], 'E4': ['invCountsView', 'invCountEntryView'], 'E5': ['feedCountsView', 'invNeedsView'], 'F1': ['reportDailyView']}
