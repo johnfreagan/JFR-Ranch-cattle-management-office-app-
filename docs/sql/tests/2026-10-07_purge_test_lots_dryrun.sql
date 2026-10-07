@@ -1,30 +1,6 @@
--- 2026-10-07. Purge the test lots from production (D44 reversed by John 2026-10-07;
--- plan and footprint in docs/test-lots-cleanup.md).
---
--- Removes TEST_DOC1, TEST_DOC2 and Test-1 (lots.is_test) and every row that hangs off them:
---   doctoring_events 16 (+ doctoring_event_meds 22 by cascade), lot_events 2 (deaths),
---   lot_tags 1,000, lot_pasture_assignments 8, pasture_head_log (4 now, plus the 'removed'
---   rows the assignment delete trigger writes), delivery_receipts 3 (+ load_out_destinations 4
---   by cascade), invoices 3, lots 3.
---
--- Also removes ue_lot_crosswalk rows 10-12 (the three test lots, match_type 'exclude'; John
--- 2026-10-07). That table is synced from outside the app, so the source must drop them too.
---
--- Left alone on purpose (John 2026-10-07): the frozen _proc_cost_snapshot_20261002 table, and
--- the four global field_protocols noted 'Seeded for testing' (live crew defaults, lot_id NULL).
---
--- Safety, all inside one transaction:
---   1. Refuses to run unless the test footprint is exactly the counts above. Anything new
---      pointing at a test lot (a sale, feed, a med draw, a transfer) aborts it.
---   2. Fingerprints every row that is NOT a test row in each touched table (md5 of the rows),
---      plus the row count of every other public table and the D8 tie-out for real lots.
---   3. Deletes child to parent.
---   4. Re-fingerprints. Any difference in real rows, any other table's count, or any test row
---      left behind raises, and the whole thing rolls back.
--- The test rows themselves are exported to JSON before this runs (kept off the public repo).
--- Idempotent: a second run finds no test lots and stops with a notice.
-
-begin;
+-- Dry run of docs/sql/2026-10-07_purge_test_lots.sql. Same body, but the last line raises
+-- DRY_RUN_OK instead of finishing, so every delete rolls back. Safe to run on production.
+-- Success = an error that starts "DRY_RUN_OK all checks passed". Any other error names the check that failed.
 
 do $$
 declare
@@ -182,8 +158,6 @@ begin
         raise exception 'A test lot is still there. Rolled back.';
     end if;
 
-    raise notice 'Purged 3 test lots, their rows and 3 crosswalk rows. Real rows, other tables and the D8 tie-out unchanged.';
+    raise exception 'DRY_RUN_OK all checks passed; rolling back on purpose. remaining test lots=%, tieout rows=%, other tables checked=%', (select count(*) from public.lots where is_test), (select count(*) from public.lot_head_tieout), (select count(*) from jsonb_object_keys(v_counts_before));
 end
 $$;
-
-commit;
