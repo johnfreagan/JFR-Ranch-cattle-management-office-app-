@@ -230,7 +230,13 @@ The Closeout tab shows one set of economics in three columns. It is
   `closeoutMedOpen` / localStorage like the view toggle. The `other` med
   category, which was inside `operating` but on no row, is now in Medicine
   and shows as a third child only when non-zero, so the rows sum to Total
-  cost. A budget frozen before the split shows its one figure on the
+  cost. **As of 2026-10-07 direct medicine charges feed it**: a charge to a
+  lot from Inventory → Meds → Charge out lands in
+  `lot_med_costs_by_category` under the category picked at entry
+  (Processing, Treatment or Other), priced FIFO off the shelf, so it shows
+  on that line of the closeout. Before then nothing fed `other`. Medicine
+  charged to a cost centre touches no lot. See
+  `docs/medicine-inventory-fifo-plan.md`, "Direct charges". A budget frozen before the split shows its one figure on the
   Medicine row and blanks on the children.
 - **A throw anywhere in `showLotDetail()` before `renderCloseoutCalculator()`
   leaves the Closeout tab at "Loading…" with no error shown** — that is

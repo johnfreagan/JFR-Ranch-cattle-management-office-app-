@@ -44,6 +44,35 @@ just unrecorded doses.
 
 ---
 
+## 0m. An office login reversing a treatment's medicine leaves the ledger row behind
+
+**Status:** open, John's call. Found 2026-10-07 while building direct
+medicine charges.
+
+`med_reverse_txn()` is INVOKER. It puts the units back on the layers, then
+deletes the `med_txns` row — and the `med_txns` delete policy is **owner
+only**. For an office login RLS filters that DELETE to zero rows without an
+error, so the units are back on the shelf **and** the usage is still booked:
+the shelf reads high by the dose, and the next count calls the difference
+shrink. `invReverseDoctoringUsage()` (delete or re-save a treatment, delete a
+test lot) and `med_processing_reverse` (re-saved load out) both go through it,
+and the doctoring path swallows errors on purpose.
+
+**Latent, not live:** as of 2026-10-07 no `med_txns` row points at a deleted
+doctoring event or delivery receipt, and reversals so far have been by an
+owner. There is one active office login.
+
+**Direct charges do not have the gap:** `delete_med_charge()` refuses anyone
+but an owner and asserts afterwards that the ledger row is gone.
+
+**The fix, either way round:** give office the `med_txns` / `med_txn_layers`
+delete (a policy change), or make `med_reverse_txn()` SECURITY DEFINER with an
+owner/office gate inside and a pinned `search_path`. Both change who may
+remove ledger rows, so it waits for a decision. Until then the cheap guard is
+the same assertion `delete_med_charge()` makes: raise if the row survived.
+
+---
+
 ## 0b. A vendor rebate has nowhere to go once stock is costed
 
 **Status:** open, raised 2026-10-01 with the opening count.

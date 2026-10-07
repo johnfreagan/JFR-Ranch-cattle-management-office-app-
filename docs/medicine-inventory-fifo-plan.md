@@ -1928,3 +1928,111 @@ Nobody here has seen the medication entry screen, so this posts by medication
 and lot, which every version of that screen will need. If it turns out to have
 named boxes like the feed one, that is a mapping column on `medications` and a
 regrouping — the data underneath does not change.
+
+### Direct charges: medicine to a lot or a cost centre (2026-10-07)
+
+John: *"We need to add the ability to charge medicine directly to a production
+center detail or WIP account. Similar to feed."* Spec and his decisions:
+`docs/med-direct-charge-handoff.md`. Migration:
+`docs/sql/2026-10-07_med_direct_charge.sql`.
+
+**What it is for.** Medicine that leaves the shelf with no doctoring record:
+
+- a lot with no doctoring event — pour-on, or water med on a whole lot;
+- non-lot production details — cows, bulls, horses, feeder month buckets;
+- WIP accounts.
+
+**Inventory → Meds → Charge out**, office only (`data-perm="office"`), never the
+field app. Date given (defaults to `ranchToday()`), medication, shelf, quantity
+in the medication's unit with bottles shown beside it, and **Charge to**:
+
+- **A lot** — open lots only, and a **closeout line** that must be picked:
+  Processing, Treatment or Other. No default.
+- **A cost centre** — the active `cost_centers`, the **same list feed uses**.
+  "+ New cost centre" and "Edit this one" open feed's own modal; there is no
+  second manager.
+
+**The draw is a doctoring dose's draw.** `post_med_charge()` calls
+`med_consume(..., 'usage', reason 'lot_charge' | 'cost_center', ref_kind
+'med_charge', ref_id = the charge)`, so every rule already settled here holds:
+FIFO per (medication, pool); a date in a counted, closed month posts to the
+first open day with the true date in the note (`med_charges.charge_date` keeps
+the true date, the ledger row's `txn_date` the posted one); short stock posts
+uncovered at the last known cost, and a medication with no price at all books $0
+flagged `cost_provisional`. None of these refuses the charge, and the screen
+says each one after the post. `med_roll_forward` counts it as Used with no
+change, because it is `txn_type = 'usage'`.
+
+**Withdrawal warns, never blocks.** A lot charge of a medication with
+`withdrawal_days > 0` shows "Whole lot in withdrawal until <date>". It does not
+create `withdrawal_holds` rows — those come from doctoring and list tags; a
+whole-lot charge has no tags to list.
+
+**Where the dollars land.**
+
+- `med_charges.txn_id` is the ledger row, so the charge's dollars are always
+  the ledger's dollars; nothing is priced twice. The FK is RESTRICT both ways
+  that matter: a charge cannot lose its ledger row, and a lot or cost centre
+  with charges cannot be deleted out from under them.
+- **Lot charge** → `lot_med_costs_by_category` under the category chosen, so it
+  lands on the Processing, Treatment or Other line of the lot's closeout. The
+  view was replaced column for column (no DROP), still one row per (lot,
+  category), and a lot with no charge reads exactly as before — the local suite
+  compares every pre-existing row.
+- **Cost-centre charge** → no lot. It always books to **130000 Vet & Medicine –
+  WIP**; the cost centre supplies only **Profit Center** and **Production
+  Center**. Its `redwing_account` is feed's and is not used for medicine.
+
+**The Monday report.** `med_usage_by_lot` resolves a lot charge to its lot and
+category and gives a cost-centre charge category `cost_center` and no lot, with
+four columns appended: `cost_center_id, cost_center_name, profit_center,
+redwing_production_center`. Medication Application now orders each lot's
+categories Processing, Treatment, Other; adds a **Cost centres** section after
+the lots, a block a cost centre with Account / Profit Center / Production
+Center on every line ("⚠ coding missing" when either is blank, never hidden);
+keeps usage with neither a lot nor a cost centre as its own loud block; and
+totals lots + cost centres + no-lot as "All medicine used in the range", with an
+error in place of the total if the blocks ever stop adding to the rows. Copy
+rows for a cost centre: name, "Cost centre", item code, medication, qty, unit,
+$, account, profit center, production center, and CODING MISSING when it is.
+
+**Undo is owner only.** `delete_med_charge()` removes the charge and runs
+`med_reverse_txn()`, putting the units back on the exact layers they came off.
+It is INVOKER, and the `med_txns` delete policy is owner only — so an office
+login running it would restore the layers and then have its DELETE of the
+ledger row filtered to nothing by RLS: units back on the shelf *and* still
+counted as used. Rather than make it SECURITY DEFINER (a change to who may
+delete ledger rows, which is John's call), it refuses anyone but an owner up
+front and asserts afterwards that the ledger row is really gone. It also
+refuses a charge whose posted day is in a counted, closed month, because putting
+units back there would change a count that already booked its shrink. Deleting
+a TEST lot undoes its charges first (`invUndoLotMedCharges`).
+
+**The same RLS gap exists for treatment reversals today.**
+`invReverseDoctoringUsage()` calls `med_reverse_txn()` and swallows errors; for
+an office login the layers come back and the ledger row stays. Every reversal so
+far has been by an owner, so it is latent. Not changed here — listed in
+`docs/OPEN-ITEMS.md`.
+
+**RLS**: select `can_read_books()`; insert and update owner + office; delete
+owner. Crew is named nowhere and reads zero rows — the screen is office only, so
+crew never reaches it. anon has nothing on the table, the views or the two
+functions. Both functions INVOKER with a pinned `search_path`.
+
+**Before the Redwing rows are complete**, each cost centre medicine is charged
+to needs its Profit Center and Production Center filled in (Inventory → Feed →
+Settings → Cost centres). Cow/Calf Wip has neither as of 2026-10-07. John fills
+these in; nothing here creates cost centres or coding.
+
+**Tests.** `docs/sql/tests/2026-10-07_med_direct_charge_fixture.sql` and
+`_tests.sql` on a throwaway PostgreSQL 16 (README in that folder): 15 of 15,
+covering FIFO across layers, the lot view gaining exactly the charge under its
+category, a cost-centre charge leaving every lot row unchanged, merging into an
+existing category row, untouched lots identical to before, nine refusals that
+leave nothing behind, shortfall and unpriced, office undo refused, owner undo
+restoring layers to the unit and removing every trace, the closed-month bump
+and the closed-month undo refusal, crew and accountant, the usage view tying to
+the ledger with old rows unchanged, and the shape check and FK without the RPC.
+The migration is run twice to prove it idempotent.
+`scripts/med-charge-harness/run-local.js` drives the real page in headless
+Chromium against the same scratch database (`build-base.sh` makes it): 37 of 37.
