@@ -1,0 +1,53 @@
+{
+  "about": "Test lots purged from production 2026-10-07 by docs/sql/2026-10-07_purge_test_lots.sql (D44 reversed). Exported just before the purge. All values are made-up test data. lot_tags (1,000 rows) is kept as a summary; doctoring_events (16) and doctoring_event_meds (22), all dated 2026-04-29, were not exported.",
+  "exported_at": "2026-10-07T14:05:22.282352+00:00",
+  "lots": [
+    {"id":"0d7d3a06-acb4-4713-99ff-53020fe7b07a","lot_number":"TEST_DOC1","source":"Test Source A","sex_class":"steer_bulls","arrival_date":"2026-03-15","fiscal_year":2026,"target_adg":2,"cog_mode":"per_lb","labor_mode":"per_day","is_test":true,"is_feed_pen":false,"no_precon":false,"closed_at":null,"created_at":"2026-04-29T19:14:06.709602+00:00","created_by":"ff89f282-7c9d-40e5-abe7-e4899dce7122","updated_at":"2026-09-11T08:17:54.500366+00:00","notes":"[2026-09-11] COG mode per_day -> per_lb. One COG mode from here; the old columns are audit."},
+    {"id":"8843528d-1a6c-431b-aa1f-5116a4a5b7e3","lot_number":"TEST_DOC2","source":"Test Source B","sex_class":"heifers","arrival_date":"2026-04-01","fiscal_year":2026,"target_adg":1.8,"cog_mode":"per_lb","labor_mode":"per_day","is_test":true,"is_feed_pen":false,"no_precon":false,"closed_at":null,"created_at":"2026-04-29T19:14:06.709602+00:00","created_by":"ff89f282-7c9d-40e5-abe7-e4899dce7122","updated_at":"2026-09-11T08:17:54.500366+00:00","notes":"[2026-09-11] COG mode per_day -> per_lb. One COG mode from here; the old columns are audit."},
+    {"id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","lot_number":"Test-1","source":"test","sex_class":"steer_bulls","arrival_date":"2026-04-01","fiscal_year":2026,"target_adg":1.8,"cog_mode":"per_lb","labor_mode":"per_day","is_test":true,"is_feed_pen":false,"no_precon":false,"closed_at":"2026-05-13T17:50:05.957685+00:00","created_at":"2026-04-28T19:00:41.245221+00:00","created_by":"ff89f282-7c9d-40e5-abe7-e4899dce7122","updated_at":"2026-09-11T08:17:54.500366+00:00","notes":" / closed 5/13/26 — old test lot, predates TEST_DOC* lots / FY corrected 2025->2026 (Jul-Jun end-year convention) 5/13/26\n[2026-09-11] COG mode per_day -> per_lb. One COG mode from here; the old columns are audit."}
+  ],
+  "invoices": [
+    {"id":"3e2767ba-90d4-4c99-a3d8-471762344dd6","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","invoice_number":"test","invoice_date":"2026-04-02","head_count":1000,"total_weight_lb":500000,"total_cost":2000000,"notes":"test lot","created_at":"2026-04-28T19:03:13.316088+00:00"},
+    {"id":"eff1c08f-de18-4bc4-bcfb-4982efa27cae","lot_id":"0d7d3a06-acb4-4713-99ff-53020fe7b07a","invoice_number":"TEST-INV-001","invoice_date":"2026-03-15","head_count":100,"total_weight_lb":45000,"total_cost":75000,"notes":null,"created_at":"2026-04-29T19:14:06.709602+00:00"},
+    {"id":"b694c001-6bc5-4d85-9d59-dfbddfbf73c8","lot_id":"8843528d-1a6c-431b-aa1f-5116a4a5b7e3","invoice_number":"TEST-INV-002","invoice_date":"2026-04-01","head_count":50,"total_weight_lb":22500,"total_cost":36000,"notes":null,"created_at":"2026-04-29T19:14:06.709602+00:00"}
+  ],
+  "delivery_receipts": [
+    {"id":"a963a361-555a-4f81-9942-79c66b41de7b","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","invoice_id":"3e2767ba-90d4-4c99-a3d8-471762344dd6","receipt_date":"2026-04-01","head_count":1000,"tag_start":15000,"tag_end":16001,"missing_tags":[15500,15501],"receiving_protocol_id":"7598d585-3b21-41df-8bdf-00a00e91ca07"},
+    {"id":"c5406e24-b2b2-44a3-8cfa-de88b2ee9c8c","lot_id":"0d7d3a06-acb4-4713-99ff-53020fe7b07a","invoice_id":"eff1c08f-de18-4bc4-bcfb-4982efa27cae","receipt_date":"2026-03-15","head_count":100,"tag_start":null,"tag_end":null,"missing_tags":null,"receiving_protocol_id":null},
+    {"id":"ac7d0055-34b2-488f-8e57-077bf61b7ab0","lot_id":"8843528d-1a6c-431b-aa1f-5116a4a5b7e3","invoice_id":"b694c001-6bc5-4d85-9d59-dfbddfbf73c8","receipt_date":"2026-04-01","head_count":50,"tag_start":null,"tag_end":null,"missing_tags":null,"receiving_protocol_id":null}
+  ],
+  "load_out_destinations": [
+    {"id":"83cb51a3-2c35-4238-b628-6b2fee04f2c1","receipt_id":"a963a361-555a-4f81-9942-79c66b41de7b","pasture_id":"79a948f9-2672-479f-8517-b38e9c65988d","head_count":500},
+    {"id":"84985868-7c40-42ad-89a2-e1831d9bbc20","receipt_id":"a963a361-555a-4f81-9942-79c66b41de7b","pasture_id":"2217df1f-ff35-4e4d-835e-88fb3ba05774","head_count":500},
+    {"id":"56d073ac-5e33-4642-9ee5-9dae752642b4","receipt_id":"c5406e24-b2b2-44a3-8cfa-de88b2ee9c8c","pasture_id":"85397582-c9a0-4d89-8b7d-eb4b44053892","head_count":100},
+    {"id":"9953e3da-2ac3-45f3-bdd0-1024b1e12571","receipt_id":"ac7d0055-34b2-488f-8e57-077bf61b7ab0","pasture_id":"faef017b-9f33-4dad-90ae-cc6330fc16dc","head_count":50}
+  ],
+  "lot_events": [
+    {"id":"c8032e6f-17bd-4baa-ab75-8f729f1e796e","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","event_type":"death","event_date":"2026-04-04","head_count":-20,"cause":null,"pasture_id":null},
+    {"id":"043e46ad-7a7a-43b9-b172-fd7d7316e347","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","event_type":"death","event_date":"2026-04-16","head_count":-10,"cause":"respiratory","pasture_id":"79a948f9-2672-479f-8517-b38e9c65988d"}
+  ],
+  "lot_pasture_assignments": [
+    {"id":"574cf37e-6943-450e-ac4c-1ed8c3f6c72c","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","pasture":"Oats","pasture_id":"79a948f9-2672-479f-8517-b38e9c65988d","moved_in":"2026-04-01","moved_out":"2026-04-05","head_count":500,"notes":"Auto from load out"},
+    {"id":"691721ec-916b-4a41-9d65-475e6a6a39ae","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","pasture":"Traps","pasture_id":"2217df1f-ff35-4e4d-835e-88fb3ba05774","moved_in":"2026-04-01","moved_out":"2026-04-05","head_count":500,"notes":"Auto from load out"},
+    {"id":"e93f300b-0c6d-433d-8258-5d8ac08c881a","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","pasture":"Oats","pasture_id":"79a948f9-2672-479f-8517-b38e9c65988d","moved_in":"2026-04-05","moved_out":"2026-04-27","head_count":375,"notes":"Auto: remained after partial sale"},
+    {"id":"be3874e8-1f42-43c6-8be3-67564bbfbebe","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","pasture":"Oats","pasture_id":"79a948f9-2672-479f-8517-b38e9c65988d","moved_in":"2026-04-27","moved_out":null,"head_count":10,"notes":"Auto: remained after partial sale"},
+    {"id":"b6f6c141-77bb-4104-9777-40022c099f4f","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","pasture":"Traps","pasture_id":"2217df1f-ff35-4e4d-835e-88fb3ba05774","moved_in":"2026-04-05","moved_out":"2026-04-27","head_count":375,"notes":"Auto: remained after partial sale"},
+    {"id":"42752c80-7ea2-4590-a010-700ffdabdbcd","lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","pasture":"Traps","pasture_id":"2217df1f-ff35-4e4d-835e-88fb3ba05774","moved_in":"2026-04-27","moved_out":null,"head_count":10,"notes":"Auto: remained after partial sale"},
+    {"id":"250af148-106c-471e-ad27-3b049b3aa5c9","lot_id":"8843528d-1a6c-431b-aa1f-5116a4a5b7e3","pasture":"Goat Hill","pasture_id":"faef017b-9f33-4dad-90ae-cc6330fc16dc","moved_in":"2026-04-01","moved_out":null,"head_count":50,"notes":"Auto from test seed"},
+    {"id":"c6a04c1d-76f1-4c5f-a13b-9f39bf3594bb","lot_id":"0d7d3a06-acb4-4713-99ff-53020fe7b07a","pasture":"Front","pasture_id":"85397582-c9a0-4d89-8b7d-eb4b44053892","moved_in":"2026-03-15","moved_out":null,"head_count":100,"notes":"Auto from test seed"}
+  ],
+  "pasture_head_log": [
+    {"id":3,"lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","assignment_id":"be3874e8-1f42-43c6-8be3-67564bbfbebe","pasture_id":"79a948f9-2672-479f-8517-b38e9c65988d","effective_date":"2026-10-04","head_delta":10,"in_date":"2026-04-27","reason":"seed"},
+    {"id":4,"lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","assignment_id":"42752c80-7ea2-4590-a010-700ffdabdbcd","pasture_id":"2217df1f-ff35-4e4d-835e-88fb3ba05774","effective_date":"2026-10-04","head_delta":10,"in_date":"2026-04-27","reason":"seed"},
+    {"id":7,"lot_id":"8843528d-1a6c-431b-aa1f-5116a4a5b7e3","assignment_id":"250af148-106c-471e-ad27-3b049b3aa5c9","pasture_id":"faef017b-9f33-4dad-90ae-cc6330fc16dc","effective_date":"2026-10-04","head_delta":50,"in_date":"2026-04-01","reason":"seed"},
+    {"id":8,"lot_id":"0d7d3a06-acb4-4713-99ff-53020fe7b07a","assignment_id":"c6a04c1d-76f1-4c5f-a13b-9f39bf3594bb","pasture_id":"85397582-c9a0-4d89-8b7d-eb4b44053892","effective_date":"2026-10-04","head_delta":100,"in_date":"2026-03-15","reason":"seed"}
+  ],
+  "ue_lot_crosswalk": [
+    {"id":10,"app_lot_number":"TEST_DOC1","app_lot_id":"0d7d3a06-acb4-4713-99ff-53020fe7b07a","match_type":"exclude","gl_lot":null,"note":"test lot - never include in reporting","synced_at":"2026-10-06T16:21:43.661724+00:00"},
+    {"id":11,"app_lot_number":"TEST_DOC2","app_lot_id":"8843528d-1a6c-431b-aa1f-5116a4a5b7e3","match_type":"exclude","gl_lot":null,"note":"test lot - never include in reporting","synced_at":"2026-10-06T16:21:43.661724+00:00"},
+    {"id":12,"app_lot_number":"Test-1","app_lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","match_type":"exclude","gl_lot":null,"note":"test lot - never include in reporting","synced_at":"2026-10-06T16:21:43.661724+00:00"}
+  ],
+  "lot_tags_summary": [
+    {"lot_id":"74ea3a55-ed4f-42e3-81ea-7bbe25a1bd9c","n":1000,"min_tag":15000,"max_tag":16001,"status":"retired","retired_reason":"Auto-retired: lot closed on 2026-05-13","delivery_receipt_id":"a963a361-555a-4f81-9942-79c66b41de7b"}
+  ]
+}

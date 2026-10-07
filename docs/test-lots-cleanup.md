@@ -67,3 +67,13 @@ steps, and it misses `pasture_head_log`. It is retired in step 5.
 ## Log
 
 - 2026-10-07: D44 reversed. Footprint counted. Plan written.
+- 2026-10-07: John chose to drop the test-project idea for now ("worry about test data in
+  future"). Steps 1-3 are on hold; step 4 went ahead without them.
+- 2026-10-07: Purge run by John in the SQL Editor after a passing dry run
+  (`docs/sql/tests/2026-10-07_purge_test_lots_dryrun.sql`: remaining test lots 0, D8 tie-out
+  8 rows unchanged, 98 other tables unchanged). Also removed ue_lot_crosswalk rows 10-12; the
+  outside sync that feeds that table must drop them too or they come back. Kept on purpose:
+  the four 'Seeded for testing' global field protocols and `_proc_cost_snapshot_20261002`.
+  Archive: `docs/archive/2026-10-07_test_lots_purged.json`. Checked after: no test lots, no
+  test rows left, every D8 tie-out row TIES, Front 37 head and Goat Hill 230 (down 100 and 50).
+- Next (waiting on John): step 5, remove the Settings button and block new test lots.
