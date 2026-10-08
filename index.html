@@ -1210,7 +1210,6 @@
                                 <button class="kebab-item" id="editLotBtn" data-perm="office">Edit lot info</button>
                                 <button class="kebab-item" id="duplicateLotBtn" data-perm="office">Duplicate lot</button>
                                 <button class="kebab-item" id="closeLotBtn" data-perm="office">Close lot</button>
-                                <button class="kebab-item kebab-item-danger hidden" id="deleteTestLotBtn" data-perm="owner">Delete this test lot</button>
                             </div>
                         </div>
                     </div>
@@ -1816,14 +1815,7 @@
         <div id="dataToolsView" class="hidden">
             <div class="card">
                 <h2 style="margin-bottom: 6px;">Data tools</h2>
-                <p class="muted" style="font-size: 13px; margin-bottom: 18px;">Helpers for keeping the data clean. Use carefully — these run real deletes.</p>
-
-                <div style="margin-bottom: 22px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius);">
-                    <h3 style="margin: 0 0 6px 0;">Test lots cleanup</h3>
-                    <p class="muted" style="font-size: 12px; margin-bottom: 12px;">Removes all lots with names starting with <code>TEST_</code> or <code>TEST-</code>, including their invoices, load-outs, doctoring events, deaths, sales, and pasture assignments. Field protocols seeded for testing also get removed.</p>
-                    <div id="testLotsPreview" class="muted" style="font-size: 13px; margin-bottom: 12px;">Loading preview…</div>
-                    <button class="primary" id="cleanTestLotsBtn" data-perm="owner" style="background: var(--danger);">Delete all test lots</button>
-                </div>
+                <p class="muted" style="font-size: 13px; margin-bottom: 18px;">Helpers for keeping the data clean. Read-only reports.</p>
 
                 <div style="margin-bottom: 22px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius);">
                     <h3 style="margin: 0 0 6px 0;">Lots missing invoices</h3>
@@ -7494,10 +7486,8 @@ window.addEventListener('unhandledrejection', function(e) {
         $('detailLotNumber').textContent = currentLot.lot_number;
         if (isTestLot) {
             $('detailTestBadge').classList.remove('hidden');
-            $('deleteTestLotBtn').classList.remove('hidden');
         } else {
             $('detailTestBadge').classList.add('hidden');
-            $('deleteTestLotBtn').classList.add('hidden');
         }
 
         // Anomaly badge: compute pasture sum vs head_current.
@@ -8369,59 +8359,6 @@ window.addEventListener('unhandledrejection', function(e) {
     // An older prompt-based handler here was bound to the same button, so one
     // tap could create two lots, the prompt's copy skipping the required
     // estimated weight. Removed 2026-10-03.
-
-    // ==========================================================
-    // DELETE THIS TEST LOT — only enabled for TEST_/TEST- prefix lots
-    // ==========================================================
-    (function bindDeleteTestLot() {
-        const btn = document.getElementById('deleteTestLotBtn');
-        if (!btn) return;
-        btn.addEventListener('click', async () => {
-            if (!currentLot) return;
-            const lotNumUpper = (currentLot.lot_number || '').toUpperCase();
-            if (!lotNumUpper.startsWith('TEST_') && !lotNumUpper.startsWith('TEST-')) {
-                alert('This option is only available for lots with TEST_ or TEST- prefix.');
-                return;
-            }
-            if (!confirm(`Delete test lot ${currentLot.lot_number} and ALL its data (invoices, load-outs, doctoring events, deaths, sales, pasture assignments, tag registrations)?\n\nThis cannot be undone.`)) return;
-            const typed = prompt('Type "DELETE" to confirm:');
-            if (typed !== 'DELETE') {
-                alert('Cancelled.');
-                return;
-            }
-            const lotId = currentLot.id;
-            try {
-                // Same teardown order as Settings → Data Tools cleanup, scoped to one lot
-                const { data: docEvts } = await supabase.from('doctoring_events').select('id').eq('lot_id', lotId);
-                if (docEvts && docEvts.length > 0) {
-                    await invReverseDoctoringUsage(docEvts.map(d => d.id));
-                    await supabase.from('doctoring_event_meds').delete().in('doctoring_event_id', docEvts.map(d => d.id));
-                }
-                await supabase.from('doctoring_events').delete().eq('lot_id', lotId);
-                await supabase.from('lot_tags').delete().eq('lot_id', lotId);
-                const { data: sales } = await supabase.from('sales').select('id').eq('lot_id', lotId);
-                if (sales && sales.length > 0) {
-                    await supabase.from('sale_sources').delete().in('sale_id', sales.map(s => s.id));
-                }
-                await supabase.from('sales').delete().eq('lot_id', lotId);
-                await supabase.from('lot_events').delete().eq('lot_id', lotId);
-                await supabase.from('lot_pasture_assignments').delete().eq('lot_id', lotId);
-                const { data: rcpts } = await supabase.from('delivery_receipts').select('id').eq('lot_id', lotId);
-                if (rcpts && rcpts.length > 0) {
-                    await supabase.from('load_out_destinations').delete().in('receipt_id', rcpts.map(r => r.id));
-                }
-                await supabase.from('delivery_receipts').delete().eq('lot_id', lotId);
-                await supabase.from('invoices').delete().eq('lot_id', lotId);
-                await supabase.from('field_protocols').delete().eq('lot_id', lotId);
-                const { error } = await supabase.from('lots').delete().eq('id', lotId);
-                if (error) throw error;
-                showAlert('globalAlert', `Deleted test lot ${currentLot.lot_number} and all related data.`, 'success');
-                showLotsList();
-            } catch (err) {
-                alert('Delete failed: ' + (err.message || err));
-            }
-        });
-    })();
 
     // ---- CLOSEOUT: BUDGET vs ACTUAL vs PROJECTION ----
     //
@@ -22427,140 +22364,12 @@ ${body}
     });
 
     // ==========================================================
-    // DATA TOOLS — test cleanup, missing invoices, legacy report
+    // DATA TOOLS — missing invoices, legacy report
     // ==========================================================
     async function loadDataTools() {
-        loadTestLotsPreview();
         loadMissingInvoices();
         loadLegacyRecords();
     }
-
-    async function loadTestLotsPreview() {
-        const { data: testLots, error } = await supabase
-            .from('lots')
-            .select('id, lot_number')
-            .or('lot_number.ilike.TEST_%,lot_number.ilike.TEST-%');
-
-        if (error) {
-            $('testLotsPreview').innerHTML = `<span style="color: var(--danger);">Error loading: ${escapeHtml(error.message)}</span>`;
-            return;
-        }
-        if (!testLots || testLots.length === 0) {
-            $('testLotsPreview').textContent = 'No test lots in the database. Nothing to delete.';
-            $('cleanTestLotsBtn').disabled = true;
-            return;
-        }
-        $('cleanTestLotsBtn').disabled = false;
-
-        const ids = testLots.map(l => l.id);
-        // Count related rows
-        const [doctEvents, deaths, sales, invoices, receipts, assignments] = await Promise.all([
-            supabase.from('doctoring_events').select('id', { count: 'exact', head: true }).in('lot_id', ids),
-            supabase.from('lot_events').select('id', { count: 'exact', head: true }).in('lot_id', ids).eq('event_type', 'death'),
-            supabase.from('sales').select('id', { count: 'exact', head: true }).in('lot_id', ids),
-            supabase.from('invoices').select('id', { count: 'exact', head: true }).in('lot_id', ids),
-            supabase.from('delivery_receipts').select('id', { count: 'exact', head: true }).in('lot_id', ids),
-            supabase.from('lot_pasture_assignments').select('id', { count: 'exact', head: true }).in('lot_id', ids)
-        ]);
-
-        const summary = `
-            <div><strong>${testLots.length} test lot${testLots.length === 1 ? '' : 's'}:</strong> ${testLots.map(l => escapeHtml(l.lot_number)).join(', ')}</div>
-            <ul style="margin: 8px 0 0 18px; padding: 0;">
-                <li>${invoices.count || 0} invoices</li>
-                <li>${receipts.count || 0} load-outs</li>
-                <li>${assignments.count || 0} pasture assignments</li>
-                <li>${doctEvents.count || 0} doctoring events</li>
-                <li>${deaths.count || 0} death events</li>
-                <li>${sales.count || 0} sales</li>
-            </ul>
-        `;
-        $('testLotsPreview').innerHTML = summary;
-    }
-
-    $('cleanTestLotsBtn').addEventListener('click', async () => {
-        const { data: testLots } = await supabase
-            .from('lots')
-            .select('id, lot_number')
-            .or('lot_number.ilike.TEST_%,lot_number.ilike.TEST-%');
-
-        if (!testLots || testLots.length === 0) {
-            showAlert('globalAlert', 'No test lots to delete.', 'success');
-            return;
-        }
-
-        const lotNames = testLots.map(l => l.lot_number).join(', ');
-        if (!confirm(`Delete ${testLots.length} test lot${testLots.length === 1 ? '' : 's'} (${lotNames}) and ALL their data? This cannot be undone.`)) return;
-        if (!confirm('Are you absolutely sure? Type confirm in the next prompt.')) return;
-        const typed = prompt('Type "DELETE" to confirm:');
-        if (typed !== 'DELETE') {
-            showAlert('globalAlert', 'Cancelled — nothing was deleted.', 'success');
-            return;
-        }
-
-        $('cleanTestLotsBtn').disabled = true;
-        $('cleanTestLotsBtn').textContent = 'Deleting…';
-        const ids = testLots.map(l => l.id);
-        const errors = [];
-
-        try {
-            // Order matters: delete child rows before parent rows. Most use ON DELETE CASCADE
-            // but we delete explicitly to be safe and to surface any FK errors clearly.
-
-            // 1. Doctoring meds (cascades from doctoring_events anyway, but explicit is safer)
-            const { data: docEvts } = await supabase.from('doctoring_events').select('id').in('lot_id', ids);
-            if (docEvts && docEvts.length > 0) {
-                await invReverseDoctoringUsage(docEvts.map(d => d.id));
-                const { error } = await supabase.from('doctoring_event_meds').delete().in('doctoring_event_id', docEvts.map(d => d.id));
-                if (error) errors.push('doctoring_event_meds: ' + error.message);
-            }
-            // 2. Doctoring events
-            await supabase.from('doctoring_events').delete().in('lot_id', ids);
-            // 3. Lot tags
-            await supabase.from('lot_tags').delete().in('lot_id', ids);
-            // 4. Sale sources (cascade from sales but explicit)
-            const { data: sales } = await supabase.from('sales').select('id').in('lot_id', ids);
-            if (sales && sales.length > 0) {
-                await supabase.from('sale_sources').delete().in('sale_id', sales.map(s => s.id));
-            }
-            // 5. Sales
-            await supabase.from('sales').delete().in('lot_id', ids);
-            // 6. Lot events (deaths, etc.)
-            await supabase.from('lot_events').delete().in('lot_id', ids);
-            // 7. Lot pasture assignments
-            await supabase.from('lot_pasture_assignments').delete().in('lot_id', ids);
-            // 8. Load out destinations (cascade from delivery_receipts but explicit)
-            const { data: rcpts } = await supabase.from('delivery_receipts').select('id').in('lot_id', ids);
-            if (rcpts && rcpts.length > 0) {
-                await supabase.from('load_out_destinations').delete().in('receipt_id', rcpts.map(r => r.id));
-            }
-            // 9. Delivery receipts
-            await supabase.from('delivery_receipts').delete().in('lot_id', ids);
-            // 10. Invoices
-            await supabase.from('invoices').delete().in('lot_id', ids);
-            // 11. Field protocols scoped to these lots
-            await supabase.from('field_protocols').delete().in('lot_id', ids);
-            // 12. Finally, the lots themselves
-            const { error: lotErr } = await supabase.from('lots').delete().in('id', ids);
-            if (lotErr) errors.push('lots: ' + lotErr.message);
-
-            // Also clean up "seeded for testing" global field protocols
-            await supabase.from('field_protocols').delete().eq('notes', 'Seeded for testing');
-
-            $('cleanTestLotsBtn').disabled = false;
-            $('cleanTestLotsBtn').textContent = 'Delete all test lots';
-
-            if (errors.length > 0) {
-                showAlert('globalAlert', `Cleanup partial — some errors:\n${errors.join('\n')}`, 'error');
-            } else {
-                showAlert('globalAlert', `Deleted ${testLots.length} test lot${testLots.length === 1 ? '' : 's'} and all related data.`, 'success');
-            }
-            loadDataTools();
-        } catch (err) {
-            $('cleanTestLotsBtn').disabled = false;
-            $('cleanTestLotsBtn').textContent = 'Delete all test lots';
-            showAlert('globalAlert', 'Cleanup error: ' + err.message, 'error');
-        }
-    });
 
     async function loadMissingInvoices() {
         // Active lots with zero invoices

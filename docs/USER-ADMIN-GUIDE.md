@@ -386,9 +386,8 @@ window and confirm both halves:
   buttons anywhere**, and no Invoices card on a lot. Reading works; nothing
   else does.
 - **Office:** can they record a sale and edit a lot? Then confirm the
-  owner-only controls are absent — "Delete all test lots" in Settings, and
-  Delete invoice on an open invoice.
-- **Owner:** everything visible, including the two above.
+  owner-only control is absent — Delete invoice on an open invoice.
+- **Owner:** everything visible, including the one above.
 - **Inactive:** bounced at the login screen with "Your account is not active
   yet", never reaching the app shell.
 
