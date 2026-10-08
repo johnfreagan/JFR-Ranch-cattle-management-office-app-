@@ -66,6 +66,22 @@
 -- Tests: docs/sql/tests/2026-10-07_med_direct_charge_fixture.sql and
 -- _tests.sql, on a throwaway PostgreSQL 16 (docs/sql/tests/README.md).
 -- Afterwards run supabase/migrations/20260821000300_rls_verify.sql.
+--
+-- APPLIED live 2026-10-08 by John in the Supabase SQL editor, after
+-- apply_migration stalled (60 s timeout, nothing applied) as expected on
+-- the DELETE. The text run was this file with the comment lines removed,
+-- so md5(prosrc) live equals this file's bodies with comment-only lines
+-- stripped (regexp_replace(prosrc, E'\n[ ]*--[^\n]*', '', 'g')):
+--   post_med_charge   14fc238d2c71bca1230d306bd7c411aa
+--   delete_med_charge 96d1cf1df0c9e406c239687c80d4452c
+-- pg_get_viewdef md5, live = this file applied locally:
+--   lot_med_costs_by_category f94223ae6820b594182667e964a0f31f
+--   med_usage_by_lot          6dd912e07d4e7d3f8333acf40557c9a4
+-- Before/after: lot_med_costs_by_category 13 rows, $23,166.64, row hash
+-- f83e2430... unchanged; med_usage_by_lot 92 rows, $2,958.54, old-column
+-- hash 92c842d9... unchanged. rls_verify assertions 1-8 all hold (run as
+-- separate selects). Live tests ran inside a DO block that ended in RAISE,
+-- so nothing stayed: 0 charges, 0 med_charge ledger rows afterwards.
 -- =====================================================================
 
 begin;

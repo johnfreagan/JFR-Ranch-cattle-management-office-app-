@@ -1,5 +1,9 @@
 # Handoff: charge medicine directly to a lot or a cost centre
 
+**Status: built, applied live and deployed 2026-10-08.** See
+`docs/medicine-inventory-fifo-plan.md`, "Direct charges". Undo is owner only
+(the reason is there); OPEN-ITEMS 0m is the related treatment-reversal gap.
+
 Build spec for Claude Code. Written 2026-10-07 from a Cowork session. Everything
 below is John's decision or read off the live database / repo at `395e5eb` — no
 inference. Line numbers are as of that commit; re-find them before editing.

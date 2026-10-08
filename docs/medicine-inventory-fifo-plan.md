@@ -1934,7 +1934,8 @@ regrouping — the data underneath does not change.
 John: *"We need to add the ability to charge medicine directly to a production
 center detail or WIP account. Similar to feed."* Spec and his decisions:
 `docs/med-direct-charge-handoff.md`. Migration:
-`docs/sql/2026-10-07_med_direct_charge.sql`.
+`docs/sql/2026-10-07_med_direct_charge.sql`. **Applied live 2026-10-08** (SQL
+editor; the connector stalls on DELETE) and deployed the same day.
 
 **What it is for.** Medicine that leaves the shelf with no doctoring record:
 
@@ -2036,3 +2037,13 @@ the ledger with old rows unchanged, and the shape check and FK without the RPC.
 The migration is run twice to prove it idempotent.
 `scripts/med-charge-harness/run-local.js` drives the real page in headless
 Chromium against the same scratch database (`build-base.sh` makes it): 37 of 37.
+
+**Live checks, 2026-10-08**, all inside a DO block that ended in RAISE so
+nothing stayed on the books (0 charges, 0 `med_charge` ledger rows after):
+office charged 100 mL Cydectin to 32-27 Other at $15.1196 (layer 10,000 to
+9,900; the lot's Other line none to $15.12; usage view lot 32-27, other); 10 mL
+Enroflox to Cow/Calf Wip at $3.6713 left every lot row unchanged and showed
+category cost_center with no coding; a charge dated 9/29 posted 10/1; 6,000 mL
+Resflor against 5,759 posted 241 uncovered; a closed lot and an office undo were
+refused; the owner undo put back 100; crew could not post and read 0 charges.
+Existing lot cost and usage rows were byte-identical before and after.
