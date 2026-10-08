@@ -681,6 +681,16 @@ J #6654 is a 250 mL Macrosyn and the catalog "Macrosyn(Draxxin)" is set up at
 Only Bar J is parsed. Another vendor needs its own parser; do not widen this
 one by guessing at a layout.
 
+**Who stages it** (2026-10-08): the Cowork morning intake task, together with
+the PB feed report. Its prompt and rules are in `docs/cowork-morning-intake.md`.
+Other vendors' medicine invoices are reported there with a paste block for the
+Purchases screen; they are not staged.
+
+**Parser fix, 2026-10-08** (`docs/sql/2026-10-08_med_parse_barj_item_count.sql`):
+Lightspeed's "TOTAL n items" counts units, not lines, so #6741 (2 Macrosyn,
+2 Valcor, 6 lines, 8 items) staged with a false "8 items; 6 lines" problem.
+The check now compares the count with the sum of quantities read.
+
 **Testing.** `scripts/med-intake-harness/run.js` drives the real `index.html` in
 headless Chromium against an in-memory stand-in for Supabase loaded with the
 #6654 intake: queue, blank location refused, both lines unmatched, New
