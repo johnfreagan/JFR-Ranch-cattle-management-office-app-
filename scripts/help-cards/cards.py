@@ -328,7 +328,7 @@ dict(id="E6", group="Feed and medicine", title="Charge medicine to a lot or a co
  done="“Charged … to lot … : $…” or “… to cost centre … : $…”, and it shows under Recent charges.",
  watch=["A withdrawal drug on a lot shows when the whole lot clears. It does not stop the charge.",
         "A cost centre with no Profit Center or Production Center says Coding missing. Ask John to fill it in.",
-        "Wrong entry? Only John can Undo, and not once that month is counted."]),
+        "Wrong entry? Tap Undo on it under Recent charges. Not once that month is counted."]),
 dict(id="E4", group="Feed and medicine", title="Count the medicine",
  when="Monthly count.",
  steps=[

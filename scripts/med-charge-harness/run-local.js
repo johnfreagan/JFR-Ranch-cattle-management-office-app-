@@ -31,7 +31,10 @@ function sql(q, role) {
   }
   return r.stdout.trim();
 }
-const lit = v => v == null ? 'NULL' : "'" + String(v).replace(/'/g, "''") + "'";
+// An array goes as a Postgres array literal, as PostgREST would send it.
+const lit = v => v == null ? 'NULL'
+  : Array.isArray(v) ? "'{" + v.map(x => String(x).replace(/[{}",'\\]/g, '')).join(',') + "}'"
+  : "'" + String(v).replace(/'/g, "''") + "'";
 const J = (q, role) => { const o = sql(q, role); return o === '' ? null : JSON.parse(o); };
 
 function rpc(role, fn, args) {
@@ -157,7 +160,7 @@ async function pick(p, sel, label) {
      'DB: 60X other = 620.0000');
   const list1 = await txt(p, '#invChListContent');
   ok(/Cydectin Pour-On/.test(list1) && /Lot 60X · Other/.test(list1) && /\$620.00/.test(list1) && /Pour-on whole lot/.test(list1), 'recent list: ' + list1.slice(0, 140));
-  ok(!(await p.isVisible('[data-inv-ch-undo]')), 'office: no Undo button');
+  ok(await p.isVisible('[data-inv-ch-undo]'), 'office: Undo button shown (2026-10-09c)');
   ok((await p.inputValue('#invChQty')) === '', 'qty cleared after post');
 
   // ---- 2. office: a cost-centre charge, coding shown / flagged ----
@@ -220,6 +223,12 @@ async function pick(p, sel, label) {
   ok(sql(`select count(*) from lot_med_costs_by_category where lot_id = 'a0000000-0000-0000-0000-000000000001' and category = 'other'`) === '0', 'DB: 60X other row gone after undo');
   const lay = sql(`select qty_remaining || '/' || (select qty_remaining from med_purchase_lines where id = '90000000-0000-0000-0000-000000000002') from med_purchase_lines where id = '90000000-0000-0000-0000-000000000001'`);
   ok(/^5000(\.0+)?\/5000(\.0+)?$/.test(lay), 'DB: both Cydectin layers back to 5000 / 5000: ' + lay);
+  // Office undoes the 100 mL to Bulls (2026-10-09c: office may, same rules).
+  const smallCc = sql(`select id from med_charges where cost_center_id is not null and qty_units = 100`);
+  await toCharge(p);
+  await p.click(`[data-inv-ch-undo="${smallCc}"]`); await p.waitForTimeout(1200);
+  ok(/Charge undone. 100.00 unit\(s\) back on the shelf/.test(await txt(p, '#invChAlert')) && sql(`select count(*) from med_charges where id = '${smallCc}'`) === '0',
+     'office undo: ' + await txt(p, '#invChAlert'));
   // The 1,000 mL dated 10/3 posted 10/6, after the 10/5 count: still open.
   // The 100 mL to Bulls posted 10/6 too. Neither is in a closed month, so
   // close one: a count on 10/6 locks both.
@@ -228,6 +237,35 @@ async function pick(p, sel, label) {
   await O.p.click(`[data-inv-ch-undo="${ccCharge}"]`); await O.p.waitForTimeout(1200);
   ok(/Not undone: .*counted and closed/.test(await txt(O.p, '#invChAlert')) && sql(`select count(*) from med_charges where id = '${ccCharge}'`) === '1',
      'undo in a closed month refused and shown: ' + (await txt(O.p, '#invChAlert')).slice(0, 90));
+
+  // ---- 5b. office voids a treatment through the app's helper ----
+  sql(`insert into doctoring_events (id, lot_id, event_date) values ('d2000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', '2026-10-07');
+       insert into doctoring_event_meds (doctoring_event_id, position, medication_id, dose_cc, cost) values ('d2000000-0000-0000-0000-000000000001', 1, 'b0000000-0000-0000-0000-000000000001', 25, 2.5);
+       select public.med_consume('b0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 25, 'usage', 'treatment', 'doctoring_event', 'd2000000-0000-0000-0000-000000000001', '2026-10-07')`, 'owner');
+  const cyd0 = sql(`select sum(qty_remaining) from med_purchase_lines where medication_id = 'b0000000-0000-0000-0000-000000000001' and location_id = 'e0000000-0000-0000-0000-000000000001'`);
+  const vres = await p.evaluate(() => invVoidDoctoring(['d2000000-0000-0000-0000-000000000001']).then(r => r, e => ({ err: e.message })));
+  const cyd1 = sql(`select sum(qty_remaining) from med_purchase_lines where medication_id = 'b0000000-0000-0000-0000-000000000001' and location_id = 'e0000000-0000-0000-0000-000000000001'`);
+  ok(vres && vres.events_removed === 1 && Number(vres.restored_units) === 25 && Number(cyd1) - Number(cyd0) === 25
+     && sql(`select count(*) from med_txns where ref_id = 'd2000000-0000-0000-0000-000000000001'`) === '0'
+     && sql(`select count(*) from doctoring_events where id = 'd2000000-0000-0000-0000-000000000001'`) === '0',
+     'office void: 25 mL back, draw and treatment gone ' + JSON.stringify(vres));
+  // A treatment whose draw is in the closed month (posted 10/6, count 10/6).
+  const closedEvt = sql(`select ref_id from med_txns where ref_kind = 'doctoring_event' and location_id = 'e0000000-0000-0000-0000-000000000001' and txn_date <= '2026-10-06' limit 1`);
+  if (closedEvt) {
+    const vr2 = await p.evaluate(id => invVoidDoctoring([id]).then(r => r, e => ({ err: e.message })), closedEvt);
+    ok(vr2 && /counted and closed/.test(vr2.err || ''), 'office void into a closed month refused: ' + (vr2.err || JSON.stringify(vr2)).slice(0, 90));
+  } else {
+    // Seeded straight into the closed month: the period-lock trigger is
+    // what stops that in real use, so it is bypassed for this one row.
+    sql(`insert into doctoring_events (id, lot_id, event_date) values ('d2000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', '2026-10-06');
+         set local session_replication_role = replica;
+         insert into med_txns (txn_date, txn_type, medication_id, location_id, qty_units, direction, reason, ref_kind, ref_id, total_cost)
+         values ('2026-10-06', 'usage', 'b0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 1, -1, 'treatment', 'doctoring_event', 'd2000000-0000-0000-0000-000000000002', 0.1)`);
+    const vr2 = await p.evaluate(() => invVoidDoctoring(['d2000000-0000-0000-0000-000000000002']).then(r => r, e => ({ err: e.message })));
+    ok(vr2 && /counted and closed/.test(vr2.err || ''), 'office void into a closed month refused: ' + (vr2.err || JSON.stringify(vr2)).slice(0, 90));
+  }
+  const er = await p.evaluate(() => invReverseDoctoringForEdit('d2000000-0000-0000-0000-000000000001').then(r => r, e => ({ err: e.message })));
+  ok(er && /only an owner/.test(er.err || ''), 'office cannot use the owner edit helper: ' + (er.err || '').slice(0, 60));
 
   // ---- 6. crew: no tab at all ----
   const W = await open(b, 'crew');

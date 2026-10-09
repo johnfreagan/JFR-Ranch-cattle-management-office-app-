@@ -110,7 +110,15 @@ is unrecoverable in a way an accidental insert is not.
    `health_head_rows`, `health_pull_rows`, `health_death_rows` (they check
    the role gate ONCE per call instead of once per row — under a real login
    the per-row policies pushed the lot card past PostgREST's 8 s timeout —
-   and return no dollar column; see docs/health-curves.md). The eighth
+   and return no dollar column; see docs/health-curves.md). Since
+   2026-10-09 three medicine reversals: `med_void_doctoring`,
+   `med_processing_reverse` and `delete_med_charge`. Each checks
+   owner-or-office itself, and each does the PAIRED operation (units back on
+   the FIFO layers and the `med_txns` row deleted, asserted gone) in one
+   transaction. That pairing is the reason: the `med_txns` delete policy
+   stays owner only, so an office login can remove a ledger row only in a
+   form that cannot leave the shelf and the books disagreeing
+   (`docs/sql/2026-10-09c_med_office_reversal.sql`). The eighth
    was added 2026-09-10 and inherits its reason from the function it backs:
    `lot_projected_weight` has been DEFINER since it was written, which is
    the only reason crew — who cannot read `invoices` — see a projected

@@ -55,10 +55,20 @@ just unrecorded doses.
 
 ---
 
-## 0m. An office login reversing a treatment's medicine leaves the ledger row behind
+## 0m. CLOSED — An office login reversing a treatment's medicine leaves the ledger row behind
 
-**Status:** open, John's call. Found 2026-10-07 while building direct
-medicine charges.
+**Status:** closed 2026-10-09 by `docs/sql/2026-10-09c_med_office_reversal.sql`
+(John: option A, and office Undo on direct charges under the same rules).
+Office voids, load-out re-saves and charge undos now go through three
+SECURITY DEFINER functions that put the units back and remove the ledger row
+together, or change nothing; a void that would reach into a counted, closed
+month is refused, and the owner's edit in place keeps closed-month draws and
+does not redraw. It became urgent the same day: 2026-10-09b gave the office
+Void & re-enter on posted doctoring, which ran exactly this reversal. No
+damage had happened — all 26 treatment draws matched their doctoring rows and
+the office had drawn nothing.
+
+Found 2026-10-07 while building direct medicine charges.
 
 `med_reverse_txn()` is INVOKER. It puts the units back on the layers, then
 deletes the `med_txns` row — and the `med_txns` delete policy is **owner

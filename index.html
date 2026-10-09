@@ -2914,7 +2914,7 @@
                 <h4 style="margin: 22px 0 6px 0;">Recent charges</h4>
                 <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
                     The last 60 days. <strong>Undo</strong> is for an entry mistake: it puts the units back on
-                    the layers they came off. Only an owner login can undo, and not once that month is
+                    the layers they came off. Owner or office can undo, but not once that month is
                     counted and closed.
                 </p>
                 <div id="invChListContent"><div class="empty">Loading…</div></div>
@@ -8516,10 +8516,9 @@ window.addEventListener('unhandledrejection', function(e) {
                 // Same teardown order as Settings → Data Tools cleanup, scoped to one lot
                 await invUndoLotMedCharges([lotId]);
                 const { data: docEvts } = await supabase.from('doctoring_events').select('id').eq('lot_id', lotId);
-                if (docEvts && docEvts.length > 0) {
-                    await invReverseDoctoringUsage(docEvts.map(d => d.id));
-                    await supabase.from('doctoring_event_meds').delete().in('doctoring_event_id', docEvts.map(d => d.id));
-                }
+                // Medicine back on the shelf and the treatments gone, in one
+                // call. Throws (to the catch below) rather than half-doing it.
+                if (docEvts && docEvts.length > 0) await invVoidDoctoring(docEvts.map(d => d.id));
                 await supabase.from('doctoring_events').delete().eq('lot_id', lotId);
                 await supabase.from('lot_tags').delete().eq('lot_id', lotId);
                 const { data: sales } = await supabase.from('sales').select('id').eq('lot_id', lotId);
@@ -11597,10 +11596,8 @@ window.addEventListener('unhandledrejection', function(e) {
         for (const p of posted.slice().reverse()) {
             try {
                 if (p.kind === 'doctoring_event') {
-                    await invReverseDoctoringUsage(p.id);
-                    await supabase.from('doctoring_event_meds').delete().eq('doctoring_event_id', p.id);
-                    const { error } = await supabase.from('doctoring_events').delete().eq('id', p.id);
-                    if (error) throw error;
+                    // Draws back, meds and event gone - one call, or a throw.
+                    await invVoidDoctoring([p.id]);
                 } else if (p.kind === 'lot_event') {
                     // Atomic reversal that also restores the pasture count.
                     const { error } = await supabase.rpc('delete_death_event', { p_event_id: p.id });
@@ -22814,9 +22811,9 @@ ${body}
             // 1. Doctoring meds (cascades from doctoring_events anyway, but explicit is safer)
             const { data: docEvts } = await supabase.from('doctoring_events').select('id').in('lot_id', ids);
             if (docEvts && docEvts.length > 0) {
-                await invReverseDoctoringUsage(docEvts.map(d => d.id));
-                const { error } = await supabase.from('doctoring_event_meds').delete().in('doctoring_event_id', docEvts.map(d => d.id));
-                if (error) errors.push('doctoring_event_meds: ' + error.message);
+                // Medicine back on the shelf, meds and events gone, in one call.
+                try { await invVoidDoctoring(docEvts.map(d => d.id)); }
+                catch (e) { errors.push('doctoring (medicine reversal): ' + (e.message || e)); }
             }
             // 2. Doctoring events
             await supabase.from('doctoring_events').delete().in('lot_id', ids);
@@ -28960,9 +28957,15 @@ ${ranchBlocks}
 
         if (failedRow) {
             // Roll back all
+            let rollbackErr = '';
             if (insertedEventIds.length > 0) {
-                await invReverseDoctoringUsage(insertedEventIds);
-                await supabase.from('doctoring_events').delete().in('id', insertedEventIds);
+                try { await invVoidDoctoring(insertedEventIds); }
+                catch (e) { rollbackErr = (e.message || String(e)); }
+            }
+            if (rollbackErr) {
+                $('docEntrySaveBtn').disabled = false;
+                showAlert('doctoringEntryAlert', `Save failed on tag ${failedRow.row.tag} (lot ${failedRow.row.lot_number}): ${failedRow.error}\n\nThe ${insertedEventIds.length} rows saved before it could NOT be rolled back: ${rollbackErr}\nThey are still on the books. Check Doctoring Search before re-entering, or the doses go in twice.`);
+                return;
             }
             $('docEntrySaveBtn').disabled = false;
             $('docEntrySummary').textContent = '';
@@ -29717,6 +29720,7 @@ ${ranchBlocks}
             };
 
             let eventId;
+            let keptClosedMonth = false;
             if (id) {
                 const { error: updErr } = await supabase
                     .from('doctoring_events').update(payload).eq('id', id);
@@ -29728,8 +29732,13 @@ ${ranchBlocks}
                 }
                 eventId = id;
                 // Wipe and reinsert meds. Put the old doses back on the shelf
-                // first, or an edited treatment draws twice.
-                await invReverseDoctoringUsage(eventId);
+                // first, or an edited treatment draws twice. A draw in a month
+                // already counted and closed is KEPT, and then nothing is
+                // redrawn: the shelf is left as drawn (John's rule for
+                // processing, 2026-10-02). A failure throws here, before the
+                // meds change, so the old meds and their draws still agree.
+                const rev = await invReverseDoctoringForEdit(eventId);
+                keptClosedMonth = !!(rev && Number(rev.draws_kept_closed_month) > 0);
                 const { error: delErr } = await supabase
                     .from('doctoring_event_meds').delete().eq('doctoring_event_id', eventId);
                 if (delErr) throw delErr;
@@ -29752,7 +29761,12 @@ ${ranchBlocks}
                 const { error: medErr } = await supabase
                     .from('doctoring_event_meds').insert(medPayload);
                 if (medErr) throw medErr;
-                await invRecordDoctoringUsage(eventId, medPayload, payload.event_datetime);
+                if (!keptClosedMonth) await invRecordDoctoringUsage(eventId, medPayload, payload.event_datetime);
+            }
+            if (keptClosedMonth) {
+                showAlert('globalAlert',
+                    'Treatment saved. Its medicine was drawn in a month that is already counted and closed, so the ' +
+                    'shelf is left as it was drawn - the edit does not change medicine inventory.', 'warning');
             }
 
             $('doctoringSaveBtn').disabled = false;
@@ -29780,19 +29794,17 @@ ${ranchBlocks}
                 ? 'Delete this doctoring event? Cannot be undone.'
                 : 'Void this posted entry and re-enter it corrected?\n\nIt comes off the books now. The form re-opens with the same values; fix them and Save. Cancel there and it stays voided.')) return;
         $('doctoringDeleteBtn').disabled = true;
-        await invReverseDoctoringUsage(id);
-        const { error: medErr } = await supabase.from('doctoring_event_meds').delete().eq('doctoring_event_id', id);
-        if (medErr) {
+        // One call: the medicine goes back on the shelf and the treatment and
+        // its meds go, or nothing changes (med_void_doctoring, 2026-10-09c).
+        // It refuses a treatment whose medicine is in a counted, closed month.
+        try {
+            await invVoidDoctoring([id]);
+        } catch (e) {
             $('doctoringDeleteBtn').disabled = false;
-            showAlert('doctoringModalAlert', 'Failed to delete meds: ' + medErr.message);
+            showAlert('doctoringModalAlert', (isOwner ? 'Not deleted: ' : 'Not voided: ') + (e.message || e));
             return;
         }
-        const { error } = await supabase.from('doctoring_events').delete().eq('id', id);
         $('doctoringDeleteBtn').disabled = false;
-        if (error) {
-            showAlert('doctoringModalAlert', 'Failed to delete event: ' + error.message);
-            return;
-        }
         hideModal('doctoringModal');
         await refreshDoctoringContext();
         if (voided) {
@@ -37303,19 +37315,27 @@ ${ranchBlocks}
         return (data || []).length;
     }
 
-    // Deleting or re-saving a treatment puts its units back on the shelf, to
-    // the exact layers they came off. Same rule as every other reversal here.
-    async function invReverseDoctoringUsage(eventIds) {
-        const ids = (Array.isArray(eventIds) ? eventIds : [eventIds]).filter(Boolean);
-        if (!ids.length) return;
-        if (!(await invLedgerReady())) return;
-        try {
-            const { data } = await supabase.from('med_txns')
-                .select('id').eq('ref_kind', 'doctoring_event').in('ref_id', ids);
-            for (const t of (data || [])) {
-                await supabase.rpc('med_reverse_txn', { p_txn_id: t.id });
-            }
-        } catch (e) { /* deliberately swallowed */ }
+    // Voiding or deleting a treatment puts its units back on the shelf, to
+    // the exact layers they came off, and removes the treatment, in ONE
+    // database call (med_void_doctoring, docs/sql/2026-10-09c). Owner or
+    // office. Until 2026-10-09 this reversed in the browser and swallowed
+    // errors, and for an office login the ledger row survived RLS while the
+    // units went back - booked as used AND back on the shelf. Never
+    // swallowed now: a void that did not happen must not look like one.
+    async function invVoidDoctoring(eventIds) {
+        const ids = [...new Set((Array.isArray(eventIds) ? eventIds : [eventIds]).filter(Boolean))];
+        if (!ids.length) return null;
+        const { data, error } = await supabase.rpc('med_void_doctoring', { p_event_ids: ids });
+        if (error) throw new Error(error.message);
+        return data;
+    }
+
+    // The owner's edit in place: open-month draws come back, closed-month
+    // draws are kept and counted (draws_kept_closed_month).
+    async function invReverseDoctoringForEdit(eventId) {
+        const { data, error } = await supabase.rpc('med_reverse_doctoring_for_edit', { p_event_id: eventId });
+        if (error) throw new Error(error.message);
+        return data;
     }
 
     // =====================================================================
@@ -39494,7 +39514,7 @@ ${ranchBlocks}
                 <td class="num">${fmtMoney(t.total_cost)}${flags.length
                     ? `<div style="color:#b45309;font-size:11px;font-weight:600;">⚠ ${escapeHtml(flags.join(', '))}</div>` : ''}</td>
                 <td class="muted" style="font-size:12px;">${escapeHtml(c.notes || '')}</td>
-                <td><button data-inv-ch-undo="${c.id}" data-perm="owner" data-write>Undo</button></td>
+                <td><button data-inv-ch-undo="${c.id}" data-write>Undo</button></td>
             </tr>`;
         });
         html += '</tbody></table>';
@@ -40814,7 +40834,7 @@ ${ranchBlocks}
 "watch": [
 "A withdrawal drug on a lot shows when the whole lot clears. It does not stop the charge.",
 "A cost centre with no Profit Center or Production Center says Coding missing. Ask John to fill it in.",
-"Wrong entry? Only John can Undo, and not once that month is counted."
+"Wrong entry? Tap Undo on it under Recent charges. Not once that month is counted."
 ],
 "screens": [
 "invChargeView"

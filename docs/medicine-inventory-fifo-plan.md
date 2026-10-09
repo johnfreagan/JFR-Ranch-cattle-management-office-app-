@@ -2025,7 +2025,7 @@ error in place of the total if the blocks ever stop adding to the rows. Copy
 rows for a cost centre: name, "Cost centre", item code, medication, qty, unit,
 $, account, profit center, production center, and CODING MISSING when it is.
 
-**Undo is owner only.** `delete_med_charge()` removes the charge and runs
+**Undo was owner only until 2026-10-09** (now owner or office — see "Office voids, re-saves and undos" below). `delete_med_charge()` removes the charge and runs
 `med_reverse_txn()`, putting the units back on the exact layers they came off.
 It is INVOKER, and the `med_txns` delete policy is owner only — so an office
 login running it would restore the layers and then have its DELETE of the
@@ -2075,3 +2075,41 @@ category cost_center with no coding; a charge dated 9/29 posted 10/1; 6,000 mL
 Resflor against 5,759 posted 241 uncovered; a closed lot and an office undo were
 refused; the owner undo put back 100; crew could not post and read 0 charges.
 Existing lot cost and usage rows were byte-identical before and after.
+
+### Office voids, re-saves and undos without leaving the ledger row (2026-10-09)
+
+OPEN-ITEMS 0m, John's option A. `docs/sql/2026-10-09c_med_office_reversal.sql`.
+
+Until now every reversal ran `med_reverse_txn()` as the caller. For an office
+login the `med_txns` delete policy (owner only) filtered the DELETE to zero
+rows without an error, so the units went back on the shelf and stayed booked
+as used. The office's Void & re-enter on posted doctoring (2026-10-09b) made
+that an everyday path.
+
+Office still cannot delete a ledger row directly. It gets three functions
+that do the paired operation — units back, row gone, asserted — in one
+transaction, each SECURITY DEFINER with its own owner-or-office gate:
+
+- **`med_void_doctoring(event_ids)`** — Void & re-enter, owner Delete, a
+  failed Approvals batch or bulk-entry rollback, and test-lot teardown. It
+  reverses every draw on the treatments and deletes them (meds, then events),
+  so a draw is never put back while its treatment stays. **It refuses,
+  changing nothing, when any draw is in a counted, closed month**; the screen
+  says so and the owner corrects that treatment by editing it.
+- **`med_processing_reverse(receipt_id)`** — a re-saved load out. Same body as
+  before (closed months were already skipped), now gated and asserted.
+- **`delete_med_charge(charge_id)`** — Undo on Charge out, now owner **or
+  office**, still refused in a counted, closed month.
+
+The owner's edit in place uses **`med_reverse_doctoring_for_edit(event_id)`**,
+INVOKER and owner only: open-month draws come back; a closed-month draw is
+kept, and then the edit does not redraw, so the shelf is left as drawn (the
+processing rule of 2026-10-02) and the screen says so.
+
+The browser no longer reverses anything itself, and nothing is swallowed: a
+reversal that fails stops the void or the save before anything changes, and
+the message is shown. Tests: `docs/sql/tests/2026-10-09c_med_office_reversal_tests.sql`
+(11 of 11 on PostgreSQL 16) and `scripts/med-charge-harness/run-local.js`
+(42 of 42, now including office Undo and an office void through the app).
+The 2026-10-07 suite still describes the 10-07 state (owner-only undo) and is
+run against that migration alone.
