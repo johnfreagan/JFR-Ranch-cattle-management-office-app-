@@ -677,8 +677,8 @@ counts them with the field and feed queues.
   calendar, and a plain `.value =` fills only its hidden input, so until this
   fix the box *looked* empty and the date was typed by hand; #6741 (7 Oct)
   went in as 8 Oct that way. The purchase screen now sets the date through
-  `setDateValue()`. Many other screens still set dates with `.value =` and can
-  look blank the same way.
+  `setDateValue()`, and since the same day every calendar input in the app
+  syncs on `.value =` too (`docs/gotchas.md`).
 - **Likely picks first** (2026-10-09). An unmatched line's picker opens with a
   "Likely" group: the catalog names that share words with the invoice name
   (Macrosyn 250 ml - Prestige, then Macrosyn(Draxxin)), then the full list.

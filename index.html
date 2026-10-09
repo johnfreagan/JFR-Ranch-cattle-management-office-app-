@@ -30570,6 +30570,40 @@ ${ranchBlocks}
                 allowInput: true,
                 disableMobile: true
             });
+            flatpickrSyncOnValueSet(input);
+        });
+    }
+
+    // A plain `input.value = '2026-10-07'` from code fills only the hidden ISO
+    // input; the visible MM/DD/YYYY box stays blank (or keeps its old date),
+    // and the date gets typed again by hand. Bar J #6741 went into the books a
+    // day late that way (2026-10-09). Rather than chase every `.value =` (some
+    // forty of them), each calendar input gets its own value setter that also
+    // updates the calendar. Silent like a plain assignment (no change event).
+    // Only an ISO date or '' is passed on; anything else is stored exactly as
+    // before, so an odd string can never make the calendar wipe the value.
+    // setDateValue() still works and is still the clearer call in new code.
+    const NATIVE_INPUT_VALUE = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    function flatpickrSyncOnValueSet(input) {
+        if (!NATIVE_INPUT_VALUE || input._jfrValueSync) return;
+        input._jfrValueSync = true;
+        let syncing = false;
+        Object.defineProperty(input, 'value', {
+            configurable: true,
+            get() { return NATIVE_INPUT_VALUE.get.call(this); },
+            set(v) {
+                NATIVE_INPUT_VALUE.set.call(this, v);
+                const fp = this._flatpickr;
+                if (syncing || !fp) return;
+                const iso = v == null ? '' : String(v);
+                if (iso !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+                const shown = fp.selectedDates.length ? fp.formatDate(fp.selectedDates[0], 'Y-m-d') : '';
+                if (shown === iso) return;            // flatpickr's own write, or nothing to change
+                syncing = true;
+                try {
+                    if (iso) fp.setDate(iso, false); else fp.clear(false);
+                } finally { syncing = false; }
+            }
         });
     }
     // Run at startup (after DOM is fully loaded)

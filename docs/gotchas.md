@@ -96,3 +96,15 @@ Each of these cost real time or real books to learn. More are kept beside the fe
   hosted Supabase it returns an empty set for `anon` while `anon` in fact holds
   full grants. Use `has_table_privilege()` / `pg_class.relacl` for privileges.
   Columns and types are fine.
+- **Every `<input type="date">` in the office app is a flatpickr calendar.**
+  flatpickr hides the original input (it keeps the ISO value the save
+  handlers read) and shows its own MM/DD/YYYY box. A plain `.value =` from
+  code used to fill only the hidden input, so the date was there but the box
+  looked empty and got typed again by hand; Bar J #6741 went into the books a
+  day late that way (2026-10-09). Since then `attachFlatpickrAll()` gives each
+  calendar input a value setter (`flatpickrSyncOnValueSet`) that also updates
+  the calendar, silently and only for an ISO date or ''. So `.value =` is now
+  safe; `setDateValue()` is still the clearer call. Proof:
+  `scripts/date-sync-harness/run.js` (needs the real flatpickr 4.6.13 in
+  `FLATPICKR_JS`; the CDN is blocked from cloud sessions, `npm pack` works).
+  The field app uses native date inputs and is not affected.
