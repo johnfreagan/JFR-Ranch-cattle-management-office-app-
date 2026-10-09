@@ -676,7 +676,8 @@ counts them with the field and feed queues.
 - **The invoice date fills itself** (2026-10-09). The date box is a flatpickr
   calendar, and a plain `.value =` fills only its hidden input, so until this
   fix the box *looked* empty and the date was typed by hand; #6741 (7 Oct)
-  went in as 8 Oct that way. The purchase screen now sets the date through
+  went in as 8 Oct that way. John, 2026-10-09: leave #6741 at 8 Oct ("it changes
+  nothing"); only the fix going forward. The purchase screen now sets the date through
   `setDateValue()`, and since the same day every calendar input in the app
   syncs on `.value =` too (`docs/gotchas.md`).
 - **Likely picks first** (2026-10-09). An unmatched line's picker opens with a
