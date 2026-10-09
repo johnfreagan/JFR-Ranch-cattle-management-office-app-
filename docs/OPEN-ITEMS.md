@@ -10,6 +10,17 @@ history of what was decided survives.
 
 ---
 
+## 0p. Field app recalls a tag's LAST pasture over where its lot stands now
+
+`field-app/app.js`, `recalledLocation`: a previous entry for the tag wins
+over `tagLocationMap` (the books). Once the lot moves and the tags do not,
+the recall is a pasture the calf has left — the cause of the 8 Oct entries
+(see `docs/field-entries.md`, "Doctoring on a pasture the lot is not in").
+Approvals now blocks these, so nothing wrong posts; the fix at the source
+is to use the recall only while that pasture still holds the tag's lot
+(`pastureLotsMap`), else fall back to the books or ask. Proposed to John
+2026-10-09, not built.
+
 ## 0. Crew doctoring in the OFFICE app does not reach the medicine ledger
 
 **Status:** open, and John's call to make. Raised 2026-10-01 with the FIFO

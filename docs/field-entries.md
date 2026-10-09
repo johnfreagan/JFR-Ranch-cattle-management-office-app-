@@ -199,3 +199,53 @@ the move form's split uses, so it works with no signal.
   want: one pasture, nothing aggregate. A `crew_lead` role would be one line
   in `can_read_operational()` plus the `user_profiles.role` CHECK, the same
   path `accountant` took.
+
+## Doctoring on a pasture the lot is not in (2026-10-09)
+
+**What happened.** On 8 Oct ten 36-27 entries came in on Corner 2, 3, 4, 7
+and 8 while the lot stood in Shop House, Goat Hill, Shelton and elsewhere
+— three of those pastures were empty on the books. The field app fills the
+pasture from the **last entry it saw for that tag** (`recalledLocation` in
+`field-app/app.js`), and that beats what the books say. The lot had moved;
+the tags had not (pasture is tracked per lot, not per animal), so the
+recall was a pasture the calf had left. Approvals took it as written.
+
+**Check (`resolveApprovalEntry`, doctoring and deaths).** If the lot has no
+head in the resolved pasture, the entry names where the lot actually
+stands and:
+
+- **blocks** when the pasture is the cowboy's (a recall is not a decision);
+- **warns only** when the office picked a *different* pasture with ✎ —
+  cattle do get worked where they do not live, and that is the office's
+  call. An ✎ save that leaves the cowboy's pasture in place still blocks:
+  every ✎ save writes `pasture_id`, so "office edited" alone is not
+  "office decided".
+
+**Fix in the fewest taps.** Under a blocked row: one button
+(`📍 Use Shop – Shop House`) when the lot stands in one pasture, a picker
+(lot's pastures, most head first) when it stands in several. Above the
+Needs-info list: **Fix all N** for the single-pasture rows, and a per-lot
+picker when one lot has several stale rows — one pick fixes the batch.
+`apprFixPastures()` writes the same resolved columns ✎ writes (lot,
+pasture, action, **full med list**) — an office-edited row with an empty
+`resolved_meds` posts with no meds (the 2026-09 bug) — and appends who
+changed which pasture to `review_notes`. `raw` is untouched. A row whose
+med lines do not all resolve gets no quick fix: it would drop a line, so
+✎ is the way in. Harness: `scripts/pasture-check-harness/run.js`.
+
+**Moves are not involved.** The books already have the lot where it is;
+only the entry's pasture was stale. No move is recorded by the fix.
+
+## Posted doctoring: owner edits, office voids and re-enters (2026-10-09)
+
+John's call. In the doctoring modal a posted event is read-only for
+anyone but the owner, with a note saying so; the office gets **Void &
+re-enter** in place of Delete: the event comes off the books (meds back on
+the shelf, as Delete always did) and the modal re-opens as a NEW entry
+pre-filled with the same values to correct and save. Cancel there and it
+stays voided. Migration `docs/sql/2026-10-09b_doctoring_edit_owner_only.sql`
+makes UPDATE on `doctoring_events` / `doctoring_event_meds` owner-only and
+adds `doctoring_event_audit` (trigger-written before-images of every edit,
+void and removed med line; books readers only). Office can still delete
+and insert med lines (void and posting need both); the app does not offer
+that path and the audit logs it if it happens.

@@ -849,6 +849,22 @@
             font-size: 13px; font-weight: 700; padding: 2px 6px; cursor: pointer;
         }
         .appr-edit:disabled { opacity: .35; cursor: default; }
+        /* One-tap pasture fix (2026-10-09): the cowboy's recalled pasture is
+           not where the lot stands; these put it where the books say it is. */
+        .appr-fix { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding-left: 2px; }
+        .appr-fixpast, .appr-fixpast-all {
+            font-size: 12px; font-weight: 700; padding: 4px 10px; cursor: pointer;
+            border: 1px solid var(--accent, #007aff); border-radius: 6px;
+            background: var(--accent, #007aff); color: #fff;
+        }
+        .appr-fixpast-all { margin-left: 10px; text-transform: none; letter-spacing: 0; vertical-align: middle; }
+        .appr-fixpast:disabled, .appr-fixpast-all:disabled { opacity: .5; cursor: default; }
+        .appr-fixpast-sel, .appr-fixpast-lot {
+            font-size: 12px; padding: 4px 8px; border: 1px solid var(--accent, #007aff);
+            border-radius: 6px; max-width: 100%;
+        }
+        .appr-fixlot { align-items: center; margin: 0 0 10px; padding: 8px 10px; font-size: 13px;
+                       background: var(--surface-2, #f2f2f7); border-radius: 8px; }
         .appr-flag.edited { background: #e8f0fe; color: #1a4fa0; }
         .appr-flag.ok { background: #e5fceb; color: #1b7a34; }
         /* The cowboy's original, kept visible beside the correction so the
@@ -5755,6 +5771,10 @@
             <span id="doctoringModalLot" style="font-size: 14px; color: var(--text-muted); font-weight: 500;"></span>
         </div>
         <div id="doctoringModalAlert"></div>
+        <div id="doctoringLockedNote" class="alert hidden" style="margin-bottom: 12px;">
+            This entry is posted. Only the owner can change it in place &mdash;
+            use <b>Void &amp; re-enter</b> to take it off the books and enter it again corrected.
+        </div>
         <form id="doctoringForm">
             <input type="hidden" id="doctoringEventId">
 
@@ -10925,6 +10945,41 @@ window.addEventListener('unhandledrejection', function(e) {
             else issues.push(`pasture "${locParts[1] || ''}" not found on ${locTxt.ranch.name} — use Edit to set it`);
         }
 
+        // ---- Is the lot actually in that pasture? (2026-10-09) ----------
+        // The field app pre-fills the pasture from the last time it saw that
+        // tag. When the lot has moved since and the tags were not moved with
+        // it, the recall is a pasture the calf left - on 8 Oct ten 36-27
+        // entries came in on Corner 2/3/4/7/8 while the lot stood in Shop
+        // House. The books know where each lot stands, so check against that.
+        // The COWBOY's location blocks: it is a recall, not a decision. An
+        // OFFICE-chosen pasture only warns - cattle do get worked somewhere
+        // they do not live (strays, a sort), and that is the office's call.
+        let lotPlaces = [], pastureBlocked = false;
+        if (lot && pasture) {
+            const here = lk.assignments.filter(a => a.pasture_id === pasture.id);
+            const headHere = here.reduce((t, a) => t + (Number(a.head_count) || 0), 0);
+            if (!here.some(a => a.lot_id === lot.id && Number(a.head_count) > 0)) {
+                lotPlaces = lk.assignments
+                    .filter(a => a.lot_id === lot.id && Number(a.head_count) > 0)
+                    .map(a => lk.pasturesById[a.pasture_id]).filter(Boolean);
+                const placeTxt = p => `${(lk.ranchesById[p.ranch_id] || {}).name || ''} – ${p.name}`;
+                const where = `${(ranch && ranch.name) || ''} – ${pasture.name}`;
+                const now = lotPlaces.length
+                    ? ` Lot ${lot.lot_number} is in ${lotPlaces.map(placeTxt).join(', ')}.`
+                    : ` Lot ${lot.lot_number} has no open pasture on the books.`;
+                const what = headHere === 0
+                    ? `${where} is empty on the books.`
+                    : `lot ${lot.lot_number} is not in ${where} (${headHere} hd of other lots).`;
+                // "Office chose it" means the office picked a DIFFERENT pasture
+                // than the cowboy's. Every ✎ save writes pasture_id, so an
+                // edit that only fixed a dose would otherwise turn this block
+                // into a warning while leaving the recall in place.
+                const officeChose = ov.pasture && (!locTxt.pasture || locTxt.pasture.id !== ov.pasture.id);
+                if (officeChose) warnings.push(`${what}${now} Kept because the office chose it.`);
+                else { issues.push(`${what}${now}`); pastureBlocked = true; }
+            }
+        }
+
         const action = ov.action || lk.actions[norm(raw.treatmentType)] || null;
         if (!action) issues.push(`action "${raw.treatmentType || ''}" not found — use Edit to set it`);
 
@@ -10972,9 +11027,20 @@ window.addEventListener('unhandledrejection', function(e) {
         const notHauled = isDead && String(raw.drugOff || '').toLowerCase() !== 'yes';
         if (isDead && !raw.drugOff) warnings.push('carcass disposal not answered');
 
+        // A one-tap pasture fix rewrites the resolved columns, and every write
+        // of them must carry the full med list (see approvalOverride: an
+        // office-edited row with an empty list posts with NO meds). That is
+        // only safe when every med line already resolves to a real med with a
+        // numeric dose; otherwise the fix would drop a line, so it is not
+        // offered and ✎ is the way in.
+        const medsClean = meds.every(m => m.med && m.dose != null);
+        const wrongPasture = pastureBlocked && lotPlaces.length > 0;
+
         return {
             entry, raw, lot, ranch, pasture, action, meds, tag, edited,
             isDead, notHauled, issues, warnings,
+            lotPlaces: wrongPasture ? lotPlaces : [],
+            quickFixable: wrongPasture && medsClean,
             kind: isDead ? 'dead' : 'doctoring',
             ready: issues.length === 0
         };
@@ -11085,7 +11151,27 @@ window.addEventListener('unhandledrejection', function(e) {
         // with confidence and are what the office actually has to act on.
         const blocked = resolved.filter(r => !r.ready);
         if (blocked.length) {
-            html += `<div class="appr-section"><h3>⚠ Needs info (${blocked.length})</h3>`;
+            // Rows whose only pasture answer is unambiguous: the lot stands in
+            // exactly one place. One tap fixes the lot of them.
+            const fixAll = blocked.filter(r => r.quickFixable && r.lotPlaces.length === 1);
+            html += `<div class="appr-section"><h3>⚠ Needs info (${blocked.length})` +
+                (fixAll.length > 1
+                    ? `<button type="button" class="appr-fixpast-all" data-perm="office" data-write
+                               title="Move each of these to the one pasture its lot stands in">📍 Fix all ${fixAll.length} to their lot's pasture</button>`
+                    : '') + `</h3>`;
+            // A lot in several pastures with several stale entries: pick the
+            // pasture once for all of them (one pick fixes the batch the
+            // cowboy worked in one place). Each row keeps its own picker for
+            // the odd one out.
+            const multiByLot = {};
+            blocked.filter(r => r.quickFixable && r.lotPlaces.length > 1)
+                   .forEach(r => (multiByLot[r.lot.id] = multiByLot[r.lot.id] || []).push(r));
+            Object.keys(multiByLot).filter(k => multiByLot[k].length > 1).forEach(lotId => {
+                const rows = multiByLot[lotId];
+                html += `<div class="appr-fix appr-fixlot">Lot <b>${escapeHtml(rows[0].lot.lot_number)}</b> · ` +
+                    `${rows.length} entries on a pasture it is not in — all of them were in:
+                    <select class="appr-fixpast-lot" data-perm="office" data-write data-lot="${lotId}">${apprPlaceOptions(lotId)}</select></div>`;
+            });
             blocked.slice().sort((a, b) =>
                 (entryDayKey(a) || '').localeCompare(entryDayKey(b) || '') ||
                 compareTags(a.tag, b.tag)
@@ -11252,8 +11338,46 @@ window.addEventListener('unhandledrejection', function(e) {
                         ${r.entry.status === 'pending' ? '' : 'disabled'}>✎</button>
                 <button type="button" class="appr-reject" data-id="${r.entry.id}" data-perm="office" data-write title="Reject and send back to the cowboy">✖ Send back</button>
                 ${r.issues.length && showWhy ? `<div class="appr-issues">${r.issues.map(i => '✖ ' + escapeHtml(i)).join('<br>')}</div>` : ''}
+                ${showWhy ? apprFixPastureHtml(r) : ''}
                 ${r.warnings.length ? `<div class="appr-warnings">${r.warnings.map(w => '⚠ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
             </div>`;
+    }
+
+    // The one-tap fix under a row whose pasture is a stale recall: one button
+    // per pasture the lot actually stands in (almost always one). When a med
+    // line does not resolve, the fix would drop it, so ✎ is offered instead.
+    function apprFixPastureHtml(r) {
+        if (!r.lotPlaces || !r.lotPlaces.length || r.entry.status !== 'pending') return '';
+        const lk = approvalsCache.lookups;
+        if (!r.quickFixable) {
+            return `<div class="appr-fix muted">Fix a med line with ✎ first, then set the pasture there.</div>`;
+        }
+        if (r.lotPlaces.length === 1) {
+            const p = r.lotPlaces[0];
+            return `<div class="appr-fix"><button type="button" class="appr-fixpast" data-perm="office" data-write
+                     data-id="${r.entry.id}" data-pasture="${p.id}"
+                     title="Post this entry on the pasture lot ${escapeHtml(r.lot.lot_number)} stands in">📍 Use ${escapeHtml(apprPlaceLabel(p))}</button></div>`;
+        }
+        // Several pastures: one pick, saved as soon as it is chosen.
+        return `<div class="appr-fix"><select class="appr-fixpast-sel" data-perm="office" data-write data-id="${r.entry.id}"
+                 title="Where lot ${escapeHtml(r.lot.lot_number)} stands — pick the one this calf was in">
+                 ${apprPlaceOptions(r.lot.id)}</select></div>`;
+    }
+
+    function apprPlaceLabel(p) {
+        const lk = approvalsCache.lookups;
+        return `${(lk.ranchesById[p.ranch_id] || {}).name || ''} – ${p.name}`;
+    }
+    // The lot's open pastures, most head first, with head on the books.
+    function apprPlaceOptions(lotId) {
+        const lk = approvalsCache.lookups;
+        const rows = lk.assignments
+            .filter(a => a.lot_id === lotId && Number(a.head_count) > 0)
+            .sort((a, b) => b.head_count - a.head_count);
+        return `<option value="">📍 Set pasture — lot is in ${rows.length} places…</option>` + rows.map(a => {
+            const p = lk.pasturesById[a.pasture_id];
+            return p ? `<option value="${p.id}">${escapeHtml(apprPlaceLabel(p))} (${a.head_count} hd)</option>` : '';
+        }).join('');
     }
 
     // ==========================================================
@@ -12299,6 +12423,45 @@ window.addEventListener('unhandledrejection', function(e) {
         if (error) { showAlert('globalAlert', 'Note not saved: ' + error.message, 'error'); return; }
         if (!data || !data.length) { showAlert('globalAlert', 'Note NOT saved: the entry may already have been approved or rejected, or your login cannot change it.', 'error'); return; }
         showAlert('globalAlert', 'Note saved.', 'success');
+    }
+
+    // One-tap pasture correction (2026-10-09). Writes the SAME resolved
+    // columns the ✎ form writes - lot, pasture, action and the full med list -
+    // because an office-edited row with an empty resolved_meds posts with no
+    // meds at all (the 2026-09 bug, see approvalOverride). quickFixable has
+    // already refused any row whose meds do not all resolve. The cowboy's
+    // `raw` is untouched; the change and who made it go in review_notes.
+    async function apprFixPastures(list) {
+        const lk = approvalsCache.lookups;
+        const who = (currentProfile && currentProfile.full_name) || 'office';
+        const failed = [];
+        let done = 0;
+        for (const { id, pastureId } of list) {
+            const r = approvalsCache.entries.find(x => String(x.entry.id) === String(id));
+            const to = lk.pasturesById[pastureId];
+            if (!r || !to || !r.quickFixable) { failed.push(`${r ? 'tag ' + (r.tag || 'NT') : id}: no longer fixable here — use ✎`); continue; }
+            const label = p => `${(lk.ranchesById[p.ranch_id] || {}).name || ''} – ${p.name}`;
+            const from = r.pasture ? label(r.pasture) : (r.raw.location || '?');
+            const prior = r.entry.review_notes ? r.entry.review_notes + ' · ' : '';
+            const patch = {
+                lot_id: r.lot.id,
+                pasture_id: to.id,
+                resolved_meds: r.meds.map(m => ({ position: m.position, medication_id: m.med.id, dose: m.dose })),
+                review_notes: `${prior}pasture ${from} → ${label(to)} (lot stands there) by ${who}`
+            };
+            if (r.action) patch.field_action_id = r.action.id;
+            const { data, error } = await supabase.from('pending_field_entries')
+                .update(patch).eq('id', id).eq('status', 'pending').select('id');
+            if (error) failed.push(`tag ${r.tag || 'NT'}: ${error.message}`);
+            else if (!data || !data.length) failed.push(`tag ${r.tag || 'NT'}: not saved — already approved or rejected, or your login cannot change it`);
+            else done++;
+        }
+        if (failed.length) {
+            showAlert('globalAlert', `Pasture fixed on ${done}; NOT fixed on ${failed.length}: ` + failed.join(' · '), 'error');
+        } else {
+            showAlert('globalAlert', done === 1 ? 'Pasture fixed.' : `Pasture fixed on ${done} entries.`, 'success');
+        }
+        await loadApprovals();
     }
 
     function showApprovalsTab() {
@@ -15721,10 +15884,33 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
         if (e.target.classList.contains('appr-date')) {
             saveApprovalDate(e.target.dataset.id, e.target.value);
         }
+        if (e.target.classList.contains('appr-fixpast-sel') && e.target.value) {
+            e.target.disabled = true;
+            apprFixPastures([{ id: e.target.dataset.id, pastureId: e.target.value }]);
+        }
+        if (e.target.classList.contains('appr-fixpast-lot') && e.target.value) {
+            const lotId = e.target.dataset.lot, pastureId = e.target.value;
+            const list = approvalsCache.entries
+                .filter(r => !r.ready && r.quickFixable && r.lot && r.lot.id === lotId && r.lotPlaces.length > 1)
+                .map(r => ({ id: r.entry.id, pastureId }));
+            e.target.disabled = true;
+            apprFixPastures(list);
+        }
     });
     $('approvalsContent').addEventListener('click', (e) => {
         const ed = e.target.closest('.appr-edit');
         if (ed) { openApprovalEdit(ed.dataset.id); return; }
+        const fx = e.target.closest('.appr-fixpast');
+        if (fx) { fx.disabled = true; apprFixPastures([{ id: fx.dataset.id, pastureId: fx.dataset.pasture }]); return; }
+        const fxAll = e.target.closest('.appr-fixpast-all');
+        if (fxAll) {
+            const list = approvalsCache.entries
+                .filter(r => !r.ready && r.quickFixable && r.lotPlaces.length === 1)
+                .map(r => ({ id: r.entry.id, pastureId: r.lotPlaces[0].id }));
+            fxAll.disabled = true;
+            apprFixPastures(list);
+            return;
+        }
         const rej = e.target.closest('.appr-reject');
         if (rej) { rejectApprovalEntry(rej.dataset.id); return; }
         const all = e.target.closest('.appr-day-all');
@@ -27883,6 +28069,7 @@ ${ranchBlocks}
     let currentLotDoctoringCache = [];
     let allMedsForDoctoringCache = [];
     let allActionsForDoctoringCache = [];
+    let doctoringModalEvent = null;   // the posted event open in the modal, for Void & re-enter
     let doctoringJustSaved = false;   // set by a successful Save, read by Single Doctoring
     let doctoringDatePicker = null;
 
@@ -29085,11 +29272,16 @@ ${ranchBlocks}
         }
     }
 
-    async function openDoctoringModal(event) {
+    // opts.reenter: `event` is a voided entry's values to pre-fill a NEW
+    // entry with (Void & re-enter) - no id, nothing to delete, not locked.
+    async function openDoctoringModal(event, opts) {
+        const reenter = !!(opts && opts.reenter);
         clearAlert('doctoringModalAlert');
         $('doctoringForm').reset();
-        $('doctoringEventId').value = event ? event.id : '';
-        $('doctoringModalTitle').textContent = event ? 'Edit doctoring event' : 'New doctoring event';
+        $('doctoringEventId').value = event && !reenter ? event.id : '';
+        doctoringModalEvent = event && !reenter ? event : null;
+        $('doctoringModalTitle').textContent = reenter ? 'Re-enter doctoring event'
+            : event ? 'Edit doctoring event' : 'New doctoring event';
         $('doctoringModalLot').innerHTML = `Lot <strong style="color: var(--text);">${escapeHtml(currentLot.lot_number)}</strong>`;
 
         // Refresh meds cache if needed
@@ -29141,7 +29333,7 @@ ${ranchBlocks}
             $('doctoringActionId').value = event.field_action_id || '';
             $('doctoringDrugOff').value = event.drug_off === true ? 'true' : (event.drug_off === false ? 'false' : '');
             $('doctoringNotes').value = event.notes || '';
-            $('doctoringDeleteBtn').classList.remove('hidden');
+            $('doctoringDeleteBtn').classList.toggle('hidden', reenter);
 
             // Populate meds rows from existing
             const existingMeds = (event.doctoring_event_meds || []).sort((a, b) => a.position - b.position);
@@ -29161,9 +29353,26 @@ ${ranchBlocks}
         // Show/hide drug off based on selected action
         toggleDoctoringDrugOffWrap();
 
+        // Posted entries (John, 2026-10-09): the owner edits in place; the
+        // office voids and re-enters. RLS enforces it (doctoring_events
+        // UPDATE is owner-only); this keeps the screen from offering a Save
+        // the database will refuse. A new entry is never locked.
+        const isOwner = !!(currentProfile && currentProfile.role === 'owner');
+        setDoctoringFormLocked(!!doctoringModalEvent && !isOwner);
+        $('doctoringDeleteBtn').textContent = isOwner ? 'Delete' : 'Void & re-enter';
+
         showModal('doctoringModal');
         // Focus tag for quick edits
         setTimeout(() => $('doctoringTagNumber').focus(), 50);
+    }
+
+    function setDoctoringFormLocked(locked) {
+        $('doctoringForm').querySelectorAll('input, select, textarea').forEach(el => {
+            if (el.type === 'hidden') return;
+            el.disabled = locked;
+        });
+        $('doctoringSaveBtn').classList.toggle('hidden', locked);
+        $('doctoringLockedNote').classList.toggle('hidden', !locked);
     }
 
     function initOrUpdateDoctoringDatepicker(dateStr) {
@@ -29520,7 +29729,15 @@ ${ranchBlocks}
     $('doctoringDeleteBtn').addEventListener('click', async () => {
         const id = $('doctoringEventId').value;
         if (!id) return;
-        if (!confirm('Delete this doctoring event? Cannot be undone.')) return;
+        const isOwner = !!(currentProfile && currentProfile.role === 'owner');
+        // Office: Void & re-enter. The event comes off the books (its meds go
+        // back on the shelf) and the form re-opens as a NEW entry pre-filled
+        // with the same values, to correct and save. Cancel there and it
+        // stays voided. doctoring_event_audit keeps the voided row either way.
+        const voided = !isOwner && doctoringModalEvent ? doctoringModalEvent : null;
+        if (!confirm(isOwner
+                ? 'Delete this doctoring event? Cannot be undone.'
+                : 'Void this posted entry and re-enter it corrected?\n\nIt comes off the books now. The form re-opens with the same values; fix them and Save. Cancel there and it stays voided.')) return;
         $('doctoringDeleteBtn').disabled = true;
         await invReverseDoctoringUsage(id);
         const { error: medErr } = await supabase.from('doctoring_event_meds').delete().eq('doctoring_event_id', id);
@@ -29537,6 +29754,16 @@ ${ranchBlocks}
         }
         hideModal('doctoringModal');
         await refreshDoctoringContext();
+        if (voided) {
+            const copy = Object.assign({}, voided, {
+                doctoring_event_meds: (voided.doctoring_event_meds || []).map(m => ({
+                    position: m.position, medication_id: m.medication_id,
+                    medication_name_freetext: m.medication_name_freetext, dose_cc: m.dose_cc
+                }))
+            });
+            await openDoctoringModal(copy, { reenter: true });
+            showAlert('doctoringModalAlert', 'Voided. Correct the entry below and Save — or Cancel to leave it voided.', 'success');
+        }
     });
 
     // ==========================================================
