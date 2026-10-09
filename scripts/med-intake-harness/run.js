@@ -3,8 +3,13 @@
 // from fixtures shaped like stage_med_invoice()'s output for Bar J #6654.
 // Never points at Supabase, so "Post" here writes nothing real.
 //   NODE_PATH=$(npm root -g) node scripts/med-intake-harness/run.js [shots-dir]
+// Set FLATPICKR_JS to a local copy of flatpickr 4.6.13's dist/flatpickr.min.js
+// (npm pack flatpickr@4.6.13) to run the date checks against the real
+// calendar widget; without it flatpickr is stubbed and those checks are skipped.
 const { chromium } = require('playwright');
 const path = require('path');
+const fs = require('fs');
+const FLATPICKR = process.env.FLATPICKR_JS ? fs.readFileSync(process.env.FLATPICKR_JS, 'utf8') : null;
 const SHOTS = process.argv[2] || '/tmp';
 const OWNER = 'ff89f282-7c9d-40e5-abe7-e4899dce7122';
 
@@ -14,7 +19,8 @@ const LOC = [
 ];
 const MEDS = [
   { id: 'med-macro', name: 'Macrosyn(Draxxin)', generic_category: 'Antibiotic', bottle_size: 500, bottle_size_unit: 'mL', is_active: true },
-  { id: 'med-exc', name: 'Excede', generic_category: 'Antibiotic', bottle_size: 100, bottle_size_unit: 'mL', is_active: true }
+  { id: 'med-exc', name: 'Excede', generic_category: 'Antibiotic', bottle_size: 100, bottle_size_unit: 'mL', is_active: true },
+  { id: 'med-vitk', name: 'Vitamin K', generic_category: 'Vitamin', bottle_size: 100, bottle_size_unit: 'mL', is_active: true }
 ];
 const INTAKE = {
   id: 'intake-6654', vendor: 'Bar J Vet Supply', invoice_number: '6654', invoice_date: '2026-10-02',
@@ -113,6 +119,7 @@ async function open(b, st) {
     const u = r.request().url();
     if (u.includes('supabase-js')) return r.fulfill({ contentType: 'text/javascript', body: FAKE });
     if (u.endsWith('.css')) return r.fulfill({ contentType: 'text/css', body: '' });
+    if (FLATPICKR && u.includes('flatpickr')) return r.fulfill({ contentType: 'text/javascript', body: FLATPICKR });
     return r.fulfill({ contentType: 'text/javascript', body: 'window.flatpickr=window.flatpickr||function(){return{setDate(){},clear(){},destroy(){}}};window.Chart=window.Chart||function(){return{destroy(){},update(){}}};' });
   });
   await p.route(/^https:\/\/(?!cdn\.jsdelivr).*/, r => r.fulfill({ body: '' }));
@@ -143,6 +150,13 @@ const settle = p => p.waitForTimeout(600);
   ok(norm(await p.innerText('#invPurchaseEntryTitle')).includes('#6654'), 'title names the invoice');
   ok(await p.inputValue('#invPurLocation') === '', 'Received to starts blank');
   ok(norm(await p.innerText('#invPurLocation option:first-child')) === '— choose where it went —', 'blank option says choose');
+  if (FLATPICKR) {
+    const shown = await p.evaluate(() => { const f = document.getElementById('invPurDate'); return f._flatpickr && f._flatpickr.altInput ? f._flatpickr.altInput.value : null; });
+    ok(shown === '10/02/2026', 'visible invoice date shows 10/02/2026 with the real calendar widget: ' + shown);
+  } else console.log('SKIP visible-date check (FLATPICKR_JS not set)');
+  const groups = await p.$$eval('#invPurLines select[data-field=medication_id]', s => s.map(x =>
+    [...x.querySelectorAll('optgroup[label=Likely] option')].map(o => o.textContent)));
+  ok(groups[0][0] === 'Macrosyn(Draxxin)' && groups[1][0] === 'Vitamin K', 'Likely list puts the right product first: ' + JSON.stringify(groups));
   ok(await p.inputValue('#invPurDate') === '2026-10-02' && await p.inputValue('#invPurInvoiceNo') === '6654'
      && await p.inputValue('#invPurVendor') === 'Bar J Vet Supply' && await p.inputValue('#invPurTotal') === '237.69', 'header filled from intake');
   const tie = norm(await p.innerText('#invPurTie'));
@@ -162,6 +176,8 @@ const settle = p => p.waitForTimeout(600);
 
   // New medication pre-filled from the Vitamin K1 line.
   const vk = (await p.$$('[data-inv-newmed]'))[1];
+  // (Vitamin K is in the catalog and offered under Likely; New medication is
+  // still there for a product the catalog does not have.)
   await vk.click(); await settle(p);
   ok(norm(await p.innerText('#medModalTitle')) === 'New medication', 'med modal says New medication');
   ok(await p.inputValue('#medName') === 'Vitamin K1 Injection 100ml VetOne', 'name pre-filled');

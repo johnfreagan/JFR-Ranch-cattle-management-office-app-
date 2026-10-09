@@ -673,6 +673,16 @@ counts them with the field and feed queues.
   if the invoice is posted.
 - **Back / Cancel** from a staged invoice return to Approvals > Meds with
   nothing written.
+- **The invoice date fills itself** (2026-10-09). The date box is a flatpickr
+  calendar, and a plain `.value =` fills only its hidden input, so until this
+  fix the box *looked* empty and the date was typed by hand; #6741 (7 Oct)
+  went in as 8 Oct that way. The purchase screen now sets the date through
+  `setDateValue()`. Many other screens still set dates with `.value =` and can
+  look blank the same way.
+- **Likely picks first** (2026-10-09). An unmatched line's picker opens with a
+  "Likely" group: the catalog names that share words with the invoice name
+  (Macrosyn 250 ml - Prestige, then Macrosyn(Draxxin)), then the full list.
+  It is a shortlist, never a pick: nothing is selected until John chooses.
 
 The bottle size on the purchase line is the invoice's, not the catalog's: Bar
 J #6654 is a 250 mL Macrosyn and the catalog "Macrosyn(Draxxin)" is set up at

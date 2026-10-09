@@ -37260,7 +37260,7 @@ ${ranchBlocks}
         $('invPurchaseEntryTitle').textContent = 'New purchase';
         $('invPurIntakeNote').innerHTML = '';
         clearAlert('invPurAlert');
-        $('invPurDate').value = ranchToday();
+        setDateValue('invPurDate', ranchToday());
         ['invPurVendor', 'invPurInvoiceNo', 'invPurTotal', 'invPurFreight', 'invPurPaste'].forEach(id => $(id).value = '');
         invFillLocationSelect('invPurLocation');
         invPurchaseLines = [];
@@ -37306,9 +37306,44 @@ ${ranchBlocks}
         return null;
     }
 
+    // Picker options for a purchase line. When the line came from an invoice
+    // or a paste and has no medication yet, the catalog names that share words
+    // with it come first under "Likely", so the pick is at the top instead of
+    // somewhere in the full list. Offered, never taken: nothing is selected.
+    const INV_NAME_NOISE = new Set(['ml', 'ds', 'dose', 'doses', 'ct', 'gal', 'gallon', 'prestige',
+        'vetone', 'injection', 'inj', 'the', 'and', 'of', 'for']);
+    function invNameTokens(name) {
+        return String(name || '').toLowerCase().split(/[^a-z0-9]+/)
+            .filter(t => t && !INV_NAME_NOISE.has(t));
+    }
+    function invMedSuggestions(name, limit = 6) {
+        const want = invNameTokens(name);
+        if (!want.length) return [];
+        return invMedsCache.map(m => {
+            const have = new Set(invNameTokens(m.name));
+            let score = 0;
+            want.forEach(t => {
+                const hit = have.has(t) || (t.length >= 4 && [...have].some(h => h.length >= 4 && (h.startsWith(t) || t.startsWith(h))));
+                if (hit) score += /^[0-9]+$/.test(t) ? 1 : 3;
+            });
+            return { m, score };
+        }).filter(x => x.score >= 3)                 // at least one word, not just a number
+          .sort((a, b) => b.score - a.score || a.m.name.localeCompare(b.m.name))
+          .slice(0, limit).map(x => x.m);
+    }
+    function invMedPickerOptions(l) {
+        const opt = m => `<option value="${m.id}"${m.id === l.medication_id ? ' selected' : ''}>${escapeHtml(m.name)}</option>`;
+        const all = invMedsCache.map(opt).join('');
+        const likely = (!l.medication_id && l.pasted_name) ? invMedSuggestions(l.pasted_name) : [];
+        if (!likely.length) return '<option value="">— pick —</option>' + all;
+        return '<option value="">— pick —</option>' +
+            `<optgroup label="Likely">${likely.map(opt).join('')}</optgroup>` +
+            `<optgroup label="All medications">${all}</optgroup>`;
+    }
+
     function applyInvPaste() {
         const parsed = parseInvPasteBlock($('invPurPaste').value);
-        if (parsed.header.date) $('invPurDate').value = parsed.header.date;
+        if (parsed.header.date) setDateValue('invPurDate', parsed.header.date);
         if (parsed.header.vendor && !$('invPurVendor').value) $('invPurVendor').value = parsed.header.vendor;
         if (parsed.header.invoice_number && !$('invPurInvoiceNo').value) $('invPurInvoiceNo').value = parsed.header.invoice_number;
 
@@ -37344,8 +37379,7 @@ ${ranchBlocks}
             <th class="num">$ / unit</th><th class="num">Line total</th><th></th></tr></thead><tbody>`;
         invPurchaseLines.forEach(l => {
             const med = invMedById(l.medication_id);
-            const opts = '<option value="">— pick —</option>' + invMedsCache.map(m =>
-                `<option value="${m.id}"${m.id === l.medication_id ? ' selected' : ''}>${escapeHtml(m.name)}</option>`).join('');
+            const opts = invMedPickerOptions(l);
             const units = (invNum(l.qty_bottles) || 0) * (invNum(l.bottle_size) || 0);
             const lineTotal = (invNum(l.qty_bottles) || 0) * (invNum(l.unit_price) || 0);
             const perUnit = units > 0 ? lineTotal / units : null;
@@ -37647,7 +37681,9 @@ ${ranchBlocks}
         openInvPurchaseEntry();
         invPurIntake = { id: r.id, vendor: r.vendor, invoice_number: r.invoice_number };
         $('invPurchaseEntryTitle').textContent = `Post emailed invoice: ${r.vendor} #${r.invoice_number}`;
-        $('invPurDate').value = r.invoice_date;
+        // setDateValue, not .value: the box is a flatpickr calendar and a plain
+        // .value fills only its hidden input, leaving the visible date blank.
+        setDateValue('invPurDate', r.invoice_date);
         $('invPurVendor').value = r.vendor;
         $('invPurInvoiceNo').value = r.invoice_number;
         $('invPurTotal').value = Number(r.invoice_total).toFixed(2);
