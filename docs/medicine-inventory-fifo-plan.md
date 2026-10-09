@@ -2078,7 +2078,8 @@ Existing lot cost and usage rows were byte-identical before and after.
 
 ### Office voids, re-saves and undos without leaving the ledger row (2026-10-09)
 
-OPEN-ITEMS 0m, John's option A. `docs/sql/2026-10-09c_med_office_reversal.sql`.
+OPEN-ITEMS 0m, John's option A. `docs/sql/2026-10-09c_med_office_reversal.sql`,
+**applied live and deployed 2026-10-09** (checks recorded in the file).
 
 Until now every reversal ran `med_reverse_txn()` as the caller. For an office
 login the `med_txns` delete policy (owner only) filtered the DELETE to zero

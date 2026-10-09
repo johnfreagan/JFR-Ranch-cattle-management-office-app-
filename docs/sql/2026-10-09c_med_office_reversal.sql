@@ -55,6 +55,19 @@
 -- (docs/feed-pb-import.md 2026-10-03). Run it in the SQL editor as it is.
 -- Tests: docs/sql/tests/2026-10-09c_med_office_reversal_tests.sql.
 -- Afterwards run supabase/migrations/20260821000300_rls_verify.sql.
+--
+-- APPLIED live 2026-10-09 by John in the SQL editor, this file as it is.
+-- md5(prosrc) live = this file applied locally:
+--   med_void_doctoring             8015c2c3d28208d4fd3429fb9dc24bd2
+--   med_reverse_doctoring_for_edit 609176229915e84ad0705c039c590a9f
+--   med_processing_reverse         f6e237778192c76b205b7fcc702e14f4
+--   delete_med_charge              5a9909f933b86bdc7ba768ec3cccde83
+-- rls_verify assertions 1-8 hold; med_txns delete still owner only. Live
+-- checks as the office login inside a DO block that ended in RAISE (nothing
+-- stayed): a void put 25 mL back and removed draw and treatment; office
+-- Undo of a charge restored 10; a load-out reversal removed 11 rows; a void
+-- after a count posted the same day was refused; a direct office DELETE on
+-- med_txns removed 0 rows; crew was refused.
 -- =====================================================================
 
 begin;
