@@ -681,7 +681,7 @@ J #6654 is a 250 mL Macrosyn and the catalog "Macrosyn(Draxxin)" is set up at
 Only Bar J is parsed. Another vendor needs its own parser; do not widen this
 one by guessing at a layout.
 
-**Who stages it** (2026-10-08): the Cowork morning intake task, together with
+**Who stages it** (2026-10-09): the 5:45 am Routine "PB feed + med invoice intake", together with
 the PB feed report. Its prompt and rules are in `docs/cowork-morning-intake.md`.
 Other vendors' medicine invoices are reported there with a paste block for the
 Purchases screen; they are not staged.

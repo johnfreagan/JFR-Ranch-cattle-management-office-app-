@@ -333,7 +333,7 @@ bookkeeping marker became a vendor.
 ## PB daily feed report: email → Approvals → books (built 2026-09-25)
 
 Performance Beef emails a "Delivery Daily Report" every feeding day. A
-**Cowork scheduled task reads it each morning** and calls
+**The 5:45 am Routine "PB feed + med invoice intake" reads it each morning** (prompt in `docs/cowork-morning-intake.md`) and calls
 `stage_pb_report(message_id, text)`; the office reviews it on **Approvals →
 Feed**; `approve_pb_report` posts it. Migrations, in order:
 `docs/sql/2026-09-25_pb_email_import.sql`, `..._pb_report_list.sql`,

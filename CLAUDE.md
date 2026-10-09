@@ -74,7 +74,7 @@ turns it off. Full text in `docs/conventions.md`.
 | `docs/architecture.md` | working on sales and shipments, doctoring/health reports, D8 tie-out, tag retirement, withdrawal, feed pen, strays, projected weight, markets, pastures and moves, Tally Book, roadmap |
 | `docs/field-entries.md` | working on the field app, its queue and Failed list, Approvals, counts, test weights |
 | `docs/feed-pb-import.md` | working on feed inventory, cost of gain, orders and invoices, the PB daily import |
-| `docs/cowork-morning-intake.md` | changing the Cowork morning task that stages the PB feed report and medicine invoices |
+| `docs/cowork-morning-intake.md` | changing the 5:45 am Routine "PB feed + med invoice intake" that stages the PB feed report and medicine invoices |
 | `docs/medicine-inventory-fifo-plan.md` | working on medicine inventory: FIFO layers, counts and shrink, checkouts, the buyer reconciliation, the Redwing usage report, the Bar J emailed-invoice intake (Approvals > Meds), direct charges of medicine to a lot or a cost centre (Meds > Charge out) |
 | `docs/security-model.md` | changing the role model itself |
 | `docs/processing-cost-and-protocol-versioning.md` | changing a protocol from a date (the full worked reasoning) |
