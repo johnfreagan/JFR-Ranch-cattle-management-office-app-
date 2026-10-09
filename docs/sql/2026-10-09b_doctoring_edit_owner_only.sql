@@ -21,6 +21,16 @@
 -- lines and insert new ones (both verbs are needed for void and for posting).
 -- The app does not offer that path to office; the audit records it if it
 -- ever happens (every removed med line is logged).
+--
+-- APPLIED live 2026-10-09 by John in the SQL editor, after 2026-10-09c.
+-- Checked: audit table RLS on with one select policy (can_read_books);
+-- both triggers present; UPDATE on doctoring_events and
+-- doctoring_event_meds is owner only; the capture function is DEFINER,
+-- search_path pinned, not anon-callable; rls_verify assertions hold. Live
+-- checks inside a DO block that ended in RAISE (nothing stayed): an office
+-- UPDATE changed 0 rows; an office void through med_void_doctoring wrote
+-- med_removed and void rows stamped office; an office INSERT into the
+-- audit table was refused; an owner edit wrote one edit row; crew read 0.
 
 begin;
 
