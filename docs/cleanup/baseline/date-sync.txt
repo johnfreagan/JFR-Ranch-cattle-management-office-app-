@@ -1,0 +1,9 @@
+PASS calendar date boxes found: 46
+PASS every box shows a date set from code
+PASS setting from code fires no change event (same as before): 0
+PASS setting "" clears the box
+PASS a non-date string is stored as before and does not wipe the calendar
+PASS a calendar pick still sets the value, one change event: ["2026-10-01","10/01/2026",1]
+PASS typing a date in the box still sets it
+PASS no page errors
+ALL PASS

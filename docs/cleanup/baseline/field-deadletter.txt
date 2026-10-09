@@ -1,0 +1,21 @@
+PASS refused entry leaves the retry queue
+PASS lands in Failed with code 42501
+PASS the FULL entry is kept, field for field
+PASS and persisted to localStorage
+PASS red badge reads "1 failed"
+PASS badge is red rgb(215, 0, 21)
+PASS list says "Not authorized ... deactivated"
+PASS list names the entry (tag 4218, 1st Pull)
+PASS Retry and Copy buttons
+PASS Copy puts the full entry and the error on the clipboard
+PASS network error stays queued (attempt 1), not Failed
+PASS and retries (attempt 2)
+PASS 23514 -> Failed, "Tag not accepted"
+PASS 22P02 -> Failed, "Bad data"
+PASS after reload: 3 failed, badge "3 failed"
+PASS Failed list is on neither reset list
+PASS Retry still refused: back in Failed, entry intact
+PASS after reactivation Retry sends the original entry verbatim
+PASS and it leaves the Failed list only once delivered
+PASS Mark handled: off the badge (1 failed), still stored (2)
+PASS no page errors 

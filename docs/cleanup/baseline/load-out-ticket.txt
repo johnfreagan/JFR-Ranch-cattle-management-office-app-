@@ -1,0 +1,26 @@
+PASS Load outs badge shows 2 waiting
+PASS Field entries badge does not count load-out tickets
+PASS Field entries list query excludes load_out
+PASS ticket card shows lot, head, tags
+PASS card shows hauler and weight out
+PASS card shows the photo
+PASS duplicate ticket says already entered
+PASS duplicate ticket cannot be opened
+PASS good ticket can be opened
+PASS Open load out shows the load-out form
+PASS title says from ticket
+PASS date, head, tags filled
+PASS notes carry seller, order, hauler, weight: Ticket: Bar T Bar Cattle Co · order #32 · hauled by Tyler · weight out 6,390 lb
+PASS ticket photo shown above the form
+PASS Cancel returns to Approvals > Load outs
+PASS Cancel writes nothing
+PASS plain New load out shows no ticket
+PASS record_load_out called with the ticket values
+PASS photo attached to the new load out
+PASS ticket approved with approved_ref to the receipt
+PASS photo cleared off the staged row once attached
+PASS badge drops to 1
+PASS duplicate rejected with reason
+PASS queue empty, outcome listed
+PASS no page errors
+ALL PASS

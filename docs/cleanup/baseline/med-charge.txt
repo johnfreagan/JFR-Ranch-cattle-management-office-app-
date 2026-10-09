@@ -1,0 +1,44 @@
+PASS office: Charge out screen opens
+PASS date defaults to today
+PASS shelf defaults to the first ranch pool (Charge Barn)
+PASS bottles shown: = 1.20 bottle(s) of 5,000 mL
+PASS lot row shows, cost centre row hidden
+PASS lot picker: open lots only — pick —/60X/61X
+PASS withdrawal warns: Withdrawal: Cydectin Pour-On has a 49-day withdrawal. Whole lot 60X in withdrawal until Nov 24, 2026. This does not stop the charge.
+PASS no category: refused on screen, nothing posted
+PASS posted: Charged 6,000.00 mL of Cydectin Pour-On to lot 60X (Other): $620.00.
+PASS DB: one lot charge of 6000
+PASS DB: 60X other = 620.0000
+PASS recent list: DATE MEDICATION QTY SHELF CHARGED TO $ NOTE Oct 6, 2026 Cydectin Pour-On 6,000.00 mL Charge Barn Lot 60X · Other $620.00 Pour-on whole lot U
+PASS office: Undo button shown (2026-10-09c)
+PASS qty cleared after post
+PASS cost centre row shows
+PASS no withdrawal warning for a cost centre
+PASS active cost centres only — pick —/Bulls/Cow/Calf Wip
+PASS Cow/Calf Wip: coding missing flagged
+PASS Bulls coding: 130000 Vet & Medicine – WIP · Profit Center PC-20 · Production Center BULLS
+PASS cc posted: Charged 100.00 mL of Draxxin to cost centre Bulls: $200.00.
+PASS short + date bump said: Charged 1,000.00 mL of Draxxin to cost centre Bulls: $2,000.00. 600.00 mL were not on that shelf and posted uncovered at the last known cost. Enter the missing invoice, then Settle uncovered usage on On hand. Given Oct 3, 2026, but that month is counted and closed, so it posted Oct 6, 2026, the first open day. The true date is on the record.
+PASS list flags uncovered and posted date
+PASS report: 60X block, Other $620.00
+PASS report: Bulls block at 130000 with its coding: COST CENTRES — 130000 VET & MEDICINE - WIP Cost centre Bulls MEDICATION QTY UNIT ACCOUNT PROFIT CENTER PRODUCTION CENTER $ RW-DRX · Draxxin 1,100.00 mL 130000 Vet & Medicine - WIP PC-20 BULLS $2200.00 Total medicine — Bulls $2200.00 Usage with no lot and no co
+PASS report total 2848.00 = ledger usage 2848
+PASS orphan (reference-less usage in the fixture) listed loudly, not dropped
+PASS blocks tie to the rows
+PASS Copy rows carry the cost-centre account and coding
+PASS owner: Undo buttons shown
+PASS undo: Charge undone. 6,000.00 unit(s) back on the shelf.
+PASS DB: 60X other row gone after undo
+PASS DB: both Cydectin layers back to 5000 / 5000: 5000.0000/5000.0000
+PASS office undo: Charge undone. 100.00 unit(s) back on the shelf.
+PASS undo in a closed month refused and shown: Not undone: delete_med_charge: this charge posted 2026-10-06 and that month is counted and
+PASS office void: 25 mL back, draw and treatment gone {"draws_reversed":1,"events_removed":1,"restored_units":25}
+PASS office void into a closed month refused: This treatment's medicine (1 draw(s)) is in a month that is counted and closed through 202
+PASS office cannot use the owner edit helper: med_reverse_doctoring_for_edit: only an owner edits a posted
+PASS crew: no Inventory, no Charge out
+PASS iphone: Charge out form fits 
+PASS no page errors (office) 
+PASS no page errors (owner) 
+PASS no page errors (crew) 
+
+ALL PASS

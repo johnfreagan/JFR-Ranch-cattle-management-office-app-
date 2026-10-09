@@ -1,0 +1,80 @@
+
+== A1 Approve field entries: 3 taps, 0 fields — ready rows: 2
+   writes: rpc pb_report_list, rpc prefeed_waiting, insert doctoring_events, insert doctoring_event_meds, rpc med_consume, insert doctoring_events, insert doctoring_event_meds, rpc med_consume, update pending_field_entries, update pending_field_entries
+   alert: 2 entries posted to the books.
+   dialogs: Post 2 entries to the books?
+
+  2 doctoring
+  0 deaths
+  0 moves
+
+If any one fails, the whole batch is rolled back.
+
+== A2 Send back: 2 taps, 1 fields 
+   writes: rpc pb_report_list, rpc prefeed_waiting, update pending_field_entries
+   alert: Entry rejected and sent back.
+   dialogs: Why is this being rejected?
+
+The cowboy sees this in the field app.
+
+== A2b Fix with pencil: 3 taps, 0 fields 
+   writes: rpc pb_report_list, rpc prefeed_waiting, update pending_field_entries
+   alert: Correction saved.
+
+== A3 Approve PB day: 3 taps, 0 fields 
+   writes: rpc pb_report_list, rpc prefeed_waiting, rpc approve_pb_report, rpc pb_report_list, rpc prefeed_waiting
+   alert: 10/2 approved and posted to the lots.
+
+== A4 Move a PB pen: 4 taps, 1 fields 
+   writes: rpc pb_report_list, rpc prefeed_waiting, rpc pb_move_drop, rpc pb_report_list, rpc prefeed_waiting
+   alert: (none)
+
+== A5 Post Bar J invoice: 4 taps, 1 fields 
+   writes: rpc pb_report_list, rpc prefeed_waiting, insert med_purchases, insert med_purchase_lines, rpc med_settle_uncovered, rpc pb_report_list, rpc prefeed_waiting
+   alert: Purchase posted: 1 line(s), $237.69.
+
+== B1 New lot: 2 taps, 2 fields — opened on tab: Purchases 
+   writes: insert lots
+   alert: Failed to load lot: no rows
+
+== B2 Purchase invoice: 4 taps, 4 fields — protocol pre-picked: true
+   writes: insert invoices
+   alert: Invoice saved.
+
+== B3 Load out: 6 taps, 4 fields — protocol pre-picked: true
+   writes: rpc record_load_out, rpc med_processing_draw
+   alert: Load out saved: 50 head in, 50 tag(s) registered.
+
+== C3 Record death: 4 taps, 1 fields 
+   writes: rpc record_death_with_pasture
+   alert: Recorded 1 death event (1 head total).
+
+== C4 Write off missing: 4 taps, 1 fields 
+   writes: rpc record_missing_head
+   alert: 1 head written off as missing. Not recorded as a death, so the lot's mortality rate is untouched.
+
+== D1 Moves tab: 2 taps, 3 fields — from pasture auto-picked: true
+   writes: rpc record_move_with_pasture
+   alert: 1 move(s) recorded — 10 head across 1 lot.
+   dialogs: Post 1 move?
+
+  10 head across 1 lot
+
+If any one fails, the whole batch is put back.
+
+== D2 Reverse a move: 4 taps, 0 fields 
+   writes: rpc record_move_with_pasture
+   alert: Move reversed — 10 head back in Home Place / South as of Oct 2, 2026.
+   dialogs: Reverse this move?
+
+  10 head go back from Home Place / North to Home Place / South, dated Oct 2, 2026.
+
+Both moves stay
+
+== C1 Bulk doctoring: 3 taps, 2 fields — death action offered in list: false
+   writes: insert doctoring_events
+   alert: (none)
+
+== D5 Head count tile: 1 taps, 0 fields — modal visible: true
+   writes: (none)
+   alert: (none)

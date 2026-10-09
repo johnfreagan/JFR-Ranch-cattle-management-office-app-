@@ -1,0 +1,40 @@
+
+== B4 Receiving sheet: 4 taps, 1 fields — print button present: true
+   writes: (none)
+   alert: (none)
+
+== C2 Single doctoring: 3 taps, 2 fields — single alert: Saved. Ready for the next tag.
+   writes: insert doctoring_events
+   alert: (none)
+
+== C5 Send to feed pen: 4 taps, 1 fields 
+   writes: rpc record_lot_transfer
+   alert: Sent to the feed pen.
+
+== C6 Feed pen removal: 4 taps, 2 fields — Feed pen tab showed on open: true
+   writes: rpc record_feed_pen_removal
+   alert: Removal recorded (Sold).
+
+== D3 Ship cattle: 4 taps, 5 fields — pasture auto-filled: true
+   writes: insert shipments, insert shipment_weight_groups, insert shipment_loads, insert shipment_load_lines, insert shipment_deductions, insert sales, insert sale_sources, update lot_pasture_assignments
+   alert: Shipment saved: 10 head over 1 day, $19,980.00 to the books across 1 lot.
+   dialogs: Save this shipment?
+
+  10 head · 8,000 lb pay weight
+  Draft $19,980.00
+  Proceeds to the books $19,980.00
+
+This ships c
+
+== E1 Feed delivery: 4 taps, 4 fields 
+   writes: rpc precon_day75_notices, rpc record_feed_delivery
+   alert: Delivery recorded.
+
+== E3 Med checkout: 4 taps, 3 fields 
+   writes: rpc precon_day75_notices, rpc precon_day75_notices, insert med_txns
+   alert: (none)
+
+== F1 Daily report: 3 taps, 0 fields 
+   writes: (none)
+   alert: (none)
+   dialogs: Copy the report text:

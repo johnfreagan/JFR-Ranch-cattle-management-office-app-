@@ -1,0 +1,17 @@
+PASS empty pasture blocks
+PASS names where lot is
+PASS six places, fixable
+PASS row shows select for many
+PASS other-lot pasture blocks
+PASS right pasture ready
+PASS 32-27 Corner 1 ready
+PASS single place button
+PASS bad med not quickfixable
+PASS office-chosen other pasture warns not blocks
+PASS office edit keeping recall still blocks
+PASS after fix ready with Draxxin 6
+PASS dead on empty pasture blocks
+PASS cowboy-confirmed off-books warns
+PASS office keep warns, raw meds kept
+PASS blocked row offers Keep
+ALL PASS

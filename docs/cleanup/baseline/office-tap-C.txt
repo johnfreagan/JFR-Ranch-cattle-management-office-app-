@@ -1,0 +1,27 @@
+
+== D4 Redwing rows: 4 taps, 1 fields — asked for year first: true; status: These rows do not tie to the shipment.
+                 Rows: 10 hd · 8,000 lb ·
+   writes: (none)
+   alert: Could not reach the clipboard. Use Print or PDF instead.
+   dialogs: Type the Production Year for this sale first (it is decided per sale).
+
+== D6 Settle counts: 7 taps, 1 fields 
+   writes: update lot_pasture_assignments
+   alert: Home Place – North verified against the count; nothing needed changing.
+
+== E2 Feed out by hand: 3 taps, 4 fields — Out of filled from item: true
+   writes: rpc precon_day75_notices, rpc post_feed_usage
+   alert: (none)
+
+== E4 Med count: 5 taps, 1 fields 
+   writes: rpc precon_day75_notices, rpc precon_day75_notices, insert med_counts, delete med_count_lines, insert med_count_lines, rpc med_post_count
+   alert: Count posted: 0 counted, 0 short (0.0 units, $0.00 shrink), 0 over.
+   dialogs: Post this count?
+
+1 medication(s) counted, 0 left blank and untouched.
+
+Short lines become shrink. This cannot be posted
+
+== E5 Feed bay count: 5 taps, 2 fields 
+   writes: rpc precon_day75_notices, rpc feed_book_as_of, insert feed_counts, insert feed_count_lines, rpc post_feed_count
+   alert: Count posted.  adjustments written to the ledger.

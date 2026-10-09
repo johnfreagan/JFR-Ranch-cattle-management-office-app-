@@ -1,0 +1,35 @@
+PASS Meds badge shows 1 waiting
+PASS #6654 card shows in Approvals > Meds with $237.69
+PASS card lists both invoice lines
+PASS Review & post opens the existing purchase screen
+PASS title names the invoice
+PASS Received to starts blank
+PASS blank option says choose
+PASS visible invoice date shows 10/02/2026 with the real calendar widget: 10/02/2026
+PASS Likely list puts the right product first: [["Macrosyn(Draxxin)"],["Vitamin K"]]
+PASS header filled from intake
+PASS tie-out shows $237.69 and ties: Lines $237.69 = $237.69 against invoice $237.69 — ties.
+PASS Macrosyn and Vitamin K1 both need a pick (no exact name match)
+PASS bottle sizes 250 / 100 read off the invoice, not the 500 mL catalog: 250,100
+PASS each unmatched line has a New medication button
+PASS Post refuses with no location
+PASS nothing written on refused post
+PASS med modal says New medication
+PASS name pre-filled
+PASS bottle size, unit, cost pre-filled
+PASS Cancel saves nothing
+PASS Cancel returns to Approvals > Meds, still 1 waiting
+PASS no purchase written
+PASS plain New purchase unchanged: defaults to Ranch
+PASS picking Macrosyn(Draxxin) keeps the invoice 250 mL
+PASS new med saved and landed on the Vitamin K1 line
+PASS post stamps intake_id and location
+PASS lines posted at 250 mL, landed cost per mL
+PASS both hand picks remembered as aliases
+PASS back on Approvals > Meds, badge 0
+PASS invoice shows under recently posted
+PASS next time both lines match from the remembered aliases
+PASS double post surfaces the unique-index error plainly: Could not post: this invoice is already posted (duplicate key value violates unique constraint "med_purchases_intake_uniq"). Nothing was posted again. Go back to Approvals > Meds and refresh.
+PASS still one purchase
+PASS no page errors
+ALL PASS

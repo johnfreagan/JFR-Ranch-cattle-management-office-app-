@@ -1,0 +1,3 @@
+script blocks: 7, largest 1878437 chars — all parse OK
+divs: 1415 open / 1415 close — BALANCED
+RESULT: PASS
