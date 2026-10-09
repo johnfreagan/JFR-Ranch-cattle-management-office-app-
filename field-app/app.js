@@ -183,6 +183,82 @@ function historyPool() {
     return records.concat(booksHistory);
 }
 
+// ---- Where a LOT stands (2026-10-09) ----------------------------------
+// The books track pasture per lot. A pasture is a valid place to doctor a
+// lot's calf if the books have that lot standing there, or if THIS phone has
+// a move of that lot into it that the office has not approved yet (the books
+// catch up only after approval and a sync). Without this, a tag's last
+// recorded pasture was reused after the lot moved: on 8 Oct ten 36-27
+// entries went in on Corner pastures the lot had left.
+function pendingMovesInto(lot) {
+    const l = String(lot || '').trim().toLowerCase();
+    const out = [];
+    (movesRecords || []).forEach(m => {
+        if (m._status && m._status !== 'pending') return;   // approved: the books have it
+        const lots = (Array.isArray(m.lotSplit) && m.lotSplit.length)
+            ? m.lotSplit.map(x => x.lot) : [m.lotNumber];
+        if (lots.some(x => String(x || '').trim().toLowerCase() === l) && m.toRanch && m.toPasture) {
+            out.push(`${String(m.toRanch).trim()} - ${String(m.toPasture).trim()}`);
+        }
+    });
+    return out;
+}
+// True / false, or null when this phone has no pasture data to judge by
+// (never synced) - null means "do not check", never "wrong".
+function lotStandsIn(lot, label) {
+    if (!lot || !label) return null;
+    if (!pastureLotsMap || !Object.keys(pastureLotsMap).length) return null;
+    const l = String(lot).trim().toLowerCase();
+    const here = pastureLotsMap[label] || [];
+    if (here.some(x => String(x.lot).trim().toLowerCase() === l && Number(x.head) > 0)) return true;
+    return pendingMovesInto(lot).indexOf(label) !== -1;
+}
+// Every "Ranch - Pasture" the lot stands in, most head first, then any
+// pasture this phone has moved it into.
+function lotPlaces(lot) {
+    if (!lot || !pastureLotsMap) return [];
+    const l = String(lot).trim().toLowerCase();
+    const rows = [];
+    Object.keys(pastureLotsMap).forEach(label => {
+        (pastureLotsMap[label] || []).forEach(x => {
+            if (String(x.lot).trim().toLowerCase() === l && Number(x.head) > 0) rows.push({ label, head: Number(x.head) });
+        });
+    });
+    rows.sort((a, b) => b.head - a.head);
+    pendingMovesInto(lot).forEach(label => {
+        if (!rows.some(r => r.label === label)) rows.push({ label, head: null });
+    });
+    return rows;
+}
+// Set Ranch then Pasture from one "Ranch - Pasture" label.
+function setLocationLabel(label) {
+    if (!label || !label.includes(' - ')) return false;
+    const parts = label.split(' - ');
+    const prop = String(parts[0]).trim(), past = String(parts[1]).trim();
+    propertyInput.value = prop;
+    if (propertyInput.value !== prop) return false;
+    propertyInput.onchange.call(propertyInput);
+    return setSelectValue(pastureInput, past);
+}
+// One-tap pick from the alert box.
+window.pickLotPlace = function(label) {
+    const ranch = String(label.split(' - ')[0] || '').trim();
+    if (locks.pasture || (locks.ranch && ranch !== propertyInput.value.trim())) {
+        showToast('Ranch/pasture is locked — unlock it to change', 'error', 3000);
+        return;
+    }
+    if (setLocationLabel(label)) {
+        pastureInput.classList.remove('field-missing');
+        updateAlertBox();
+    }
+};
+// Label for the alert when the pasture was NOT filled because the tag's last
+// pasture no longer holds its lot. Cleared on every new tag.
+let staleRecall = '';
+// The location THIS code last filled in, so a later tag can clear it without
+// ever clearing a pasture the cowboy picked himself.
+let autoFilledLocation = '';
+
 let currentEstWeight = 0; 
 let editingRecordId = null;
 let editingMoveId = null;
@@ -2539,6 +2615,7 @@ tagNumberInput.oninput = function(e) {
     
     if (val === '') {
         tagAlert.style.display = 'none';
+        staleRecall = '';
         // Don't clear locked fields — they need to persist across saves
         if (!locks.lot)    lotInput.value = '';
         if (!locks.action) treatmentTypeInput.value = '';
@@ -2576,9 +2653,20 @@ tagNumberInput.oninput = function(e) {
     // the most recent first-hand sighting. Otherwise fall back to what the
     // books can prove about this tag. If neither knows, leave it blank and
     // let the cowboy say, rather than filling in a guess.
-    const recalledLocation = (hist && hist.location && hist.location.includes(" - "))
-        ? hist.location
-        : (tagLocationMap[tagKey(val)] || '');
+    // ...but only while that pasture still holds the tag's lot (2026-10-09).
+    // A lot moves; its tags do not. The tag's last pasture is skipped once
+    // the lot has left it, then the books' answer, then - if the lot stands
+    // in exactly one place - that place. Several places: left blank with a
+    // one-tap pick in the alert box.
+    const lotNow = (lotInput.value || foundLot || '').trim();
+    const okHere = label => label && label.includes(" - ") && lotStandsIn(lotNow, label) !== false;
+    const histLoc = (hist && hist.location && hist.location.includes(" - ")) ? hist.location : '';
+    const bookLoc = tagLocationMap[tagKey(val)] || '';
+    staleRecall = (histLoc && !okHere(histLoc)) ? histLoc : '';
+    const places = lotNow ? lotPlaces(lotNow) : [];
+    const recalledLocation = okHere(histLoc) ? histLoc
+        : okHere(bookLoc) ? bookLoc
+        : (places.length === 1 ? places[0].label : '');
 
     if (recalledLocation && recalledLocation.includes(" - ") && !locks.ranch && !locks.pasture) {
         const parts = recalledLocation.split(" - ");
@@ -2596,7 +2684,15 @@ tagNumberInput.oninput = function(e) {
         pastureInput.innerHTML = '<option value="" disabled selected>Select Pasture...</option>'
             + uniquePastures.map(p => `<option value="${p}">${p}</option>`).join('');
         
-        setSelectValue(pastureInput, past);
+        if (setSelectValue(pastureInput, past)) autoFilledLocation = `${prop} - ${past}`;
+    } else if (!recalledLocation && !locks.ranch && !locks.pasture && pastureInput.value &&
+               `${propertyInput.value.trim()} - ${pastureInput.value.trim()}` === autoFilledLocation) {
+        // A pasture filled in for a previous tag (or a shorter prefix of
+        // this one) must not ride along when this tag's answer is "pick":
+        // that is the same wrong-pasture entry by another route. A pasture
+        // the cowboy chose himself is left alone - the red warning covers it.
+        pastureInput.value = '';
+        autoFilledLocation = '';
     }
 
     updateAlertBox(lotMissingFromList ? foundLot : '');
@@ -2628,7 +2724,38 @@ function updateAlertBox(staleLot) {
     // LOT, not per animal, so when a load turned out into two pastures nobody
     // wrote down which half each tag went to - the answer does not exist to
     // look up. Naming the candidates turns a blank box into a two-way choice.
-    if (tagVal !== '' && !pastureInput.value) {
+    // Pasture against where the lot stands (2026-10-09). A wrong pasture is
+    // said in red; a blank one offers the lot's pastures as one-tap picks.
+    let placeShown = false;
+    const lotForPlace = lotVal || '';
+    if (lotForPlace && pastureLotsMap && Object.keys(pastureLotsMap).length) {
+        const label = (propertyInput.value && pastureInput.value)
+            ? `${propertyInput.value.trim()} - ${pastureInput.value.trim()}` : '';
+        const stands = label ? lotStandsIn(lotForPlace, label) : null;
+        const places = lotPlaces(lotForPlace);
+        const chips = places.map(p => {
+            const safe = p.label.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return `<button type="button" class="loc-chip" onclick="pickLotPlace('${safe}')">📍 ${p.label}` +
+                   `${p.head != null ? ` <span class="loc-chip-hd">${p.head} hd</span>` : ' <span class="loc-chip-hd">moved here</span>'}</button>`;
+        }).join('');
+        if (label && stands === false) {
+            alertHtml += `<div class="loc-warn">⚠ <b>Lot ${lotForPlace} is not in ${label}</b> on the books.` +
+                (places.length ? ` It is in:` : ` It has no pasture on the books.`) + `</div>` +
+                (chips ? `<div class="loc-chips">${chips}</div>` : '');
+            placeShown = true;
+        } else if (!label && places.length > 1) {
+            alertHtml += `<div style="margin-top:4px">📍 ${staleRecall
+                ? `Last entered on <b>${staleRecall}</b>, but lot ${lotForPlace} has moved off it.`
+                : `Lot ${lotForPlace} is in ${places.length} pastures.`} Tap where this one is:</div>` +
+                `<div class="loc-chips">${chips}</div>`;
+            placeShown = true;
+        } else if (!label && staleRecall) {
+            alertHtml += `<div style="margin-top:4px">📍 Last entered on <b>${staleRecall}</b>, but lot ${lotForPlace} has moved off it — pick the pasture.</div>`;
+            placeShown = true;
+        }
+    }
+
+    if (!placeShown && tagVal !== '' && !pastureInput.value) {
         const cand = tagCandidateMap[tagKey(tagVal)];
         if (cand && cand.places && cand.places.length > 1) {
             const list = cand.places.map(p => `<b>${p}</b>`).join(' or ');
@@ -2846,6 +2973,8 @@ propertyInput.onchange = function() {
 // Once the pasture is answered the "we cannot know which" note has served its
 // purpose, so clear it rather than leaving it nagging over a filled field.
 pastureInput.onchange = function() { updateAlertBox(); };
+// A lot picked by hand changes which pastures are right.
+lotInput.addEventListener('change', () => updateAlertBox());
 
 function pushToCloud(record) {
     // Queue for resilient delivery. Retries on reconnect, focus, and interval.
@@ -2934,6 +3063,23 @@ doctoringForm.onsubmit = function(e) {
         return;
     }
 
+    // The lot is not in this pasture on the books (2026-10-09). Its own
+    // question, asked only in that case, so it is not tapped through out of
+    // habit with the ordinary Save confirm. OK = the calf really was here
+    // (a stray, worked off its lot) and the office is told he confirmed it.
+    const placeLabel = `${prop} - ${past}`;
+    let offBooks = false;
+    if (lotStandsIn(lot, placeLabel) === false) {
+        const where = lotPlaces(lot).map(p => p.label).join(', ') || 'no pasture on the books';
+        if (!confirm(`⚠ Lot ${lot} is NOT in ${placeLabel} on the books.\nIt is in: ${where}.\n\nCancel = fix the pasture.\nOK = it really was here (stray / worked off its lot).`)) {
+            pastureInput.classList.add('field-missing');
+            try { pastureInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e2) {}
+            updateAlertBox();
+            return;
+        }
+        offBooks = true;
+    }
+
     const tagMsg = tag ? tag : "No Tag (NT)";
     if(!confirm(`Save ${tagMsg} — ${action}?`)) {
         return; 
@@ -2972,6 +3118,9 @@ doctoringForm.onsubmit = function(e) {
         notes: document.getElementById('notes').value,
         recordedBy: recordedByInput.value.trim()
     };
+    // Only present when he answered OK to "lot is not in this pasture".
+    // Approvals reads it to warn rather than block.
+    if (offBooks) data.pastureOffBooks = true;
     
     const wasEditing = !!editingRecordId;
     if (editingRecordId) {
@@ -3039,6 +3188,8 @@ document.getElementById('recallLocationBtn').onclick = function() {
         pastureInput.innerHTML = `<option value="${past}">${past}</option>`;
         pastureInput.value = past;
         pastureInput.disabled = false;
+        // Same check as everywhere else: say so if this lot is not there.
+        updateAlertBox();
     }
 };
 

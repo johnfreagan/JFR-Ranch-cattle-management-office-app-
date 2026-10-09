@@ -243,6 +243,41 @@ med lines do not all resolve gets no quick fix: it would drop a line, so
 **Moves are not involved.** The books already have the lot where it is;
 only the entry's pasture was stale. No move is recorded by the fix.
 
+**Keep as recorded.** A blocked row also offers **Keep <pasture>** for a
+real stray worked where it actually was. It writes only
+`resolved_detail.pasture_confirmed` and a `review_notes` line — no resolved
+column — so the cowboy's meds resolve exactly as before. The row then posts
+with a warning.
+
+### At the source: field app v26 (2026-10-09)
+
+The cause is fixed in `field-app/app.js`. The tag's last pasture
+(`hist.location`) and the books' tag location (`tagLocationMap`) are each
+used **only while that pasture still holds the tag's lot**
+(`lotStandsIn()`): on the books (`pastureLotsMap`, head > 0) **or** in a
+move this phone recorded that the office has not approved yet
+(`pendingMovesInto()` — the books catch up only after approval and a
+sync). Then, if the lot stands in exactly one place, that place.
+Otherwise the pasture is left blank and the alert box offers every
+pasture the lot is in as a one-tap button (`pickLotPlace()`), most head
+first, saying "Last entered on X, but lot N has moved off it" when that is
+why.
+
+- A pasture the app filled for a previous tag is cleared when the next
+  tag's answer is "pick" (`autoFilledLocation`); a pasture the cowboy chose
+  himself is never cleared — it turns the alert red instead.
+- Saving on a pasture the lot is not in asks its **own** question, only in
+  that case, before the ordinary Save confirm — so it is not tapped through
+  out of habit. Cancel marks the pasture to fix. OK saves with
+  `raw.pastureOffBooks = true`, which Approvals reads as a warning, not a
+  block.
+- A phone that has never synced has no pasture data: `lotStandsIn()`
+  returns null and nothing is checked or blocked.
+- 🔄 recall-location (the cowboy's own last save) is unchanged — working one
+  pasture in a row is the point of it — but now re-runs the check.
+- Harness: `scripts/field-pasture-recall-harness/run.js` (Chromium, the
+  8 Oct shape).
+
 ## Posted doctoring: owner edits, office voids and re-enters (2026-10-09)
 
 John's call. In the doctoring modal a posted event is read-only for

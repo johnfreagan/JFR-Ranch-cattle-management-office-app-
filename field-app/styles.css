@@ -922,3 +922,13 @@ button:disabled {
     font-size: 18px;
     flex-shrink: 0;
 }
+/* Where the lot stands (2026-10-09): one-tap pasture picks and the
+   wrong-pasture warning in the tag alert box. Big enough for a glove. */
+.loc-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.loc-chip {
+    font-size: 15px; font-weight: 600; padding: 10px 14px; min-height: 44px;
+    border: 2px solid #007aff; border-radius: 10px; background: #fff; color: #007aff;
+}
+.loc-chip:active { background: #007aff; color: #fff; }
+.loc-chip-hd { font-weight: 400; font-size: 12px; opacity: .75; margin-left: 4px; }
+.loc-warn { color: #b00020; margin-top: 6px; }

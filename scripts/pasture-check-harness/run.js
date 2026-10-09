@@ -63,4 +63,13 @@ t('after fix ready with Draxxin 6', r.ready && r.meds.length===1 && r.meds[0].me
 // 9 dead on empty pasture blocks too
 r=ctx.resolve(mk({raw:Object.assign(raw('Corner - 4','36-27','8871','Dead','',''),{drugOff:'Yes'})}),lk);
 t('dead on empty pasture blocks', !r.ready && r.kind==='dead');
+// 10 cowboy confirmed off-books (field app v26) -> warn, not block
+r=ctx.resolve(mk({raw:Object.assign(raw('Corner - 8','36-27','777'),{pastureOffBooks:true})}),lk);
+t('cowboy-confirmed off-books warns', r.ready && r.warnings.some(w=>/cowboy confirmed/.test(w)));
+// 11 office Keep as recorded -> warn, meds still the cowboy's
+r=ctx.resolve(mk({raw:raw('Corner - 4','36-27','8569'),resolved_detail:{pasture_confirmed:true}}),lk);
+t('office keep warns, raw meds kept', r.ready && r.warnings.some(w=>/Kept as recorded/.test(w)) && r.meds.length===1 && r.meds[0].med.id==='m-drax');
+// 12 blocked row offers Keep next to the fix
+r=ctx.resolve(mk({raw:raw('Corner - 4','36-27','8569')}),lk);
+t('blocked row offers Keep', /appr-keeppast/.test(ctx.fix(r)) && /Keep Corner – 4/.test(ctx.fix(r)));
 console.log(fails?fails+' FAILED':'ALL PASS'); process.exit(fails?1:0);

@@ -859,6 +859,10 @@
         }
         .appr-fixpast-all { margin-left: 10px; text-transform: none; letter-spacing: 0; vertical-align: middle; }
         .appr-fixpast:disabled, .appr-fixpast-all:disabled { opacity: .5; cursor: default; }
+.appr-keeppast {
+            font-size: 12px; font-weight: 600; padding: 4px 10px; cursor: pointer;
+            border: 1px solid var(--border, #d1d1d6); border-radius: 6px; background: none;
+        }
         .appr-fixpast-sel, .appr-fixpast-lot {
             font-size: 12px; padding: 4px 8px; border: 1px solid var(--accent, #007aff);
             border-radius: 6px; max-width: 100%;
@@ -10990,7 +10994,14 @@ window.addEventListener('unhandledrejection', function(e) {
                 // edit that only fixed a dose would otherwise turn this block
                 // into a warning while leaving the recall in place.
                 const officeChose = ov.pasture && (!locTxt.pasture || locTxt.pasture.id !== ov.pasture.id);
+                // Field app v26+ asks the cowboy this exact question and sets
+                // raw.pastureOffBooks when he answers "it really was here";
+                // the office's "Keep as recorded" sets resolved_detail.
+                // Either is a decision, not a recall, so it warns.
+                const keptByOffice = !!(entry.resolved_detail && entry.resolved_detail.pasture_confirmed);
                 if (officeChose) warnings.push(`${what}${now} Kept because the office chose it.`);
+                else if (keptByOffice) warnings.push(`${what}${now} Kept as recorded by the office.`);
+                else if (raw.pastureOffBooks) warnings.push(`${what}${now} The cowboy confirmed the calf was here.`);
                 else { issues.push(`${what}${now}`); pastureBlocked = true; }
             }
         }
@@ -11374,16 +11385,21 @@ window.addEventListener('unhandledrejection', function(e) {
         if (!r.quickFixable) {
             return `<div class="appr-fix muted">Fix a med line with ✎ first, then set the pasture there.</div>`;
         }
+        // A real stray, worked where it actually was: keep the cowboy's pasture.
+        const keep = r.pasture
+            ? `<button type="button" class="appr-keeppast" data-perm="office" data-write data-id="${r.entry.id}"
+                       title="The calf really was here (stray / worked off its lot) — post it on this pasture">Keep ${escapeHtml(apprPlaceLabel(r.pasture))}</button>`
+            : '';
         if (r.lotPlaces.length === 1) {
             const p = r.lotPlaces[0];
             return `<div class="appr-fix"><button type="button" class="appr-fixpast" data-perm="office" data-write
                      data-id="${r.entry.id}" data-pasture="${p.id}"
-                     title="Post this entry on the pasture lot ${escapeHtml(r.lot.lot_number)} stands in">📍 Use ${escapeHtml(apprPlaceLabel(p))}</button></div>`;
+                     title="Post this entry on the pasture lot ${escapeHtml(r.lot.lot_number)} stands in">📍 Use ${escapeHtml(apprPlaceLabel(p))}</button>${keep}</div>`;
         }
         // Several pastures: one pick, saved as soon as it is chosen.
         return `<div class="appr-fix"><select class="appr-fixpast-sel" data-perm="office" data-write data-id="${r.entry.id}"
                  title="Where lot ${escapeHtml(r.lot.lot_number)} stands — pick the one this calf was in">
-                 ${apprPlaceOptions(r.lot.id)}</select></div>`;
+                 ${apprPlaceOptions(r.lot.id)}</select>${keep}</div>`;
     }
 
     function apprPlaceLabel(p) {
@@ -12481,6 +12497,26 @@ window.addEventListener('unhandledrejection', function(e) {
         } else {
             showAlert('globalAlert', done === 1 ? 'Pasture fixed.' : `Pasture fixed on ${done} entries.`, 'success');
         }
+        await loadApprovals();
+    }
+
+    // "The calf really was here": a pasture the lot does not stand in, kept on
+    // purpose. Only resolved_detail and the note change - no resolved column
+    // is written, so the cowboy's meds still resolve exactly as before.
+    async function apprKeepPasture(id) {
+        const r = approvalsCache.entries.find(x => String(x.entry.id) === String(id));
+        if (!r || !r.pasture) return;
+        const who = (currentProfile && currentProfile.full_name) || 'office';
+        const prior = r.entry.review_notes ? r.entry.review_notes + ' · ' : '';
+        const { data, error } = await supabase.from('pending_field_entries')
+            .update({
+                resolved_detail: Object.assign({}, r.entry.resolved_detail || {}, { pasture_confirmed: true }),
+                review_notes: `${prior}kept on ${apprPlaceLabel(r.pasture)} though lot ${r.lot ? r.lot.lot_number : ''} is not there (stray / worked off its lot) by ${who}`
+            })
+            .eq('id', id).eq('status', 'pending').select('id');
+        if (error) showAlert('globalAlert', 'Not saved: ' + error.message, 'error');
+        else if (!data || !data.length) showAlert('globalAlert', 'NOT saved: already approved or rejected, or your login cannot change it.', 'error');
+        else showAlert('globalAlert', 'Kept as recorded.', 'success');
         await loadApprovals();
     }
 
@@ -15923,6 +15959,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     $('approvalsContent').addEventListener('click', (e) => {
         const ed = e.target.closest('.appr-edit');
         if (ed) { openApprovalEdit(ed.dataset.id); return; }
+        const kp = e.target.closest('.appr-keeppast');
+        if (kp) { kp.disabled = true; apprKeepPasture(kp.dataset.id); return; }
         const fx = e.target.closest('.appr-fixpast');
         if (fx) { fx.disabled = true; apprFixPastures([{ id: fx.dataset.id, pastureId: fx.dataset.pasture }]); return; }
         const fxAll = e.target.closest('.appr-fixpast-all');

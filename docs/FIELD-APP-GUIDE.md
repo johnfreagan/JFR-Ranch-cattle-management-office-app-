@@ -93,7 +93,13 @@ Three tabs across the top: **🩺 Doctoring**, **🚚 Moves**, and **📖 Histor
      untagged cattle still get tracked.
 3. **Date & Time** — defaults to now. Change it if you are catching up.
 4. **Ranch**, **Pasture**, **Lot** — dropdowns. Pasture only unlocks once you
-   pick a ranch.
+   pick a ranch. When you type a tag the app fills the pasture in only if the
+   lot is still standing there. If the lot has moved, or is spread over
+   several pastures, the pasture stays blank and the box under the tag shows
+   **📍 buttons for every pasture the lot is in — tap the one you are in.**
+   Pick a pasture the lot is not in and the box turns red; Save then asks
+   you first. **Cancel** fixes it. **OK** only if the calf really was there
+   (a stray, or worked off its lot).
 5. **Action** — Receiving, First Pull EX, Second Pull RES, Pinkeye, Footrot
    Dart, Dead, or Other.
 6. **Medications and dose** — up to three, with the cc given for each. Picking
