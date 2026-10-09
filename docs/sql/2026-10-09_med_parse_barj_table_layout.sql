@@ -1,5 +1,9 @@
--- STATUS: written 2026-10-09, NOT APPLIED. Waiting on John.
--- Tested: scratch Postgres 16 (6654, 6741 unchanged; 6758 reads 3 lines,
+-- STATUS: Applied 2026-10-09 on John's approval ("Apply it"). Verified after
+-- apply: md5(prosrc) = 187cff849b7ca8199d4d12e5472327c1, the file's; anon
+-- cannot execute; rls_verify passes; #6654 and #6741 re-read to identical
+-- lines with no problems. #6758 staged the same day: 3 lines, $883.53, no
+-- problems.
+-- Tested before apply: scratch Postgres 16 (6654, 6741 unchanged; 6758 reads 3 lines,
 -- 17 items, $883.53, no problems; a copy with one table row removed is
 -- flagged on count and dollars) and a forced-rollback run on live (6654 and
 -- 6741 re-read to identical lines with no problems; staging the real #6758

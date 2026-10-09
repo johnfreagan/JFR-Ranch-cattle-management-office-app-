@@ -691,6 +691,13 @@ Lightspeed's "TOTAL n items" counts units, not lines, so #6741 (2 Macrosyn,
 2 Valcor, 6 lines, 8 items) staged with a false "8 items; 6 lines" problem.
 The check now compares the count with the sum of quantities read.
 
+**Table layout, 2026-10-09** (`docs/sql/2026-10-09_med_parse_barj_table_layout.sql`):
+an invoice forwarded from an iPhone has no plain-text part, and the Gmail
+connector hands its HTML back as markdown tables
+(`| 15 | Bovi-Shield ... | @ $43.48 | $652.20 |`). #6758 was refused ("No
+invoice number and date found") until the parser read that layout too. Both
+layouts go through the same checks.
+
 **Testing.** `scripts/med-intake-harness/run.js` drives the real `index.html` in
 headless Chromium against an in-memory stand-in for Supabase loaded with the
 #6654 intake: queue, blank location refused, both lines unmatched, New
