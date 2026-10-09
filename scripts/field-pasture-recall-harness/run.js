@@ -10,6 +10,7 @@ const fs = require('fs');
 const { chromium } = require('playwright');
 const ROOT = path.join(__dirname, '../../field-app');
 
+const AUTH_KEY = 'sb-xpfmebdzcxorvwikfvtj-auth-token';   // supabase-js storage key for SUPABASE_URL in app.js
 const LOT36 = '36-27', LOT32 = '32-27', LOT99 = '99-27';
 const pastureLots = {
     'Shop - Shop House': [{ lot: LOT36, head: 149 }],
@@ -40,6 +41,13 @@ const seed = {
                         toRanch: 'Corner', toPasture: '7', lotNumber: LOT36, lotSplit: [{ lot: LOT36, head: 20 }],
                         headCount: '20' }],   // this phone's move, not yet approved
     crewMemberName: 'test',
+    [AUTH_KEY]: (() => {
+        const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+        const exp = Math.floor(Date.now() / 1000) + 3600;
+        return { access_token: `${b64({ alg: 'HS256' })}.${b64({ sub: 'u-test', exp, role: 'authenticated' })}.x`,
+                 token_type: 'bearer', expires_in: 3600, expires_at: exp, refresh_token: 'r-test',
+                 user: { id: 'u-test', aud: 'authenticated', role: 'authenticated', email: 'test@example.invalid' } };
+    })(),
     betaLastSyncDate: new Date().toISOString()
 };
 
@@ -56,7 +64,15 @@ const server = http.createServer((req, res) => {
     const url = `http://127.0.0.1:${server.address().port}/`;
     const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
     const ctx = await browser.newContext({ serviceWorkers: 'block' });
-    await ctx.route(/supabase\.co/, r => r.abort());
+    // Signed in, as a crew phone in the field is: a stored session, and the
+    // one call the sign-in gate makes (user_profiles) answered. Everything
+    // else to Supabase is cut off. Without a session the app's bootstrap
+    // shows #loginScreen when getSession() resolves, which raced the old
+    // forced hide below and covered the pickLotPlace chips on some runs.
+    await ctx.route(/supabase\.co/, r => /\/rest\/v1\/user_profiles/.test(r.request().url())
+        ? r.fulfill({ status: 200, contentType: 'application/json',
+                      body: JSON.stringify({ full_name: 'test', role: 'crew', is_active: true }) })
+        : r.abort());
     await ctx.addInitScript(s => {
         if (sessionStorage.getItem('seeded')) return;
         Object.keys(s).forEach(k => localStorage.setItem(k, typeof s[k] === 'string' ? s[k] : JSON.stringify(s[k])));
@@ -69,10 +85,9 @@ const server = http.createServer((req, res) => {
     let answer = [];
     page.on('dialog', d => { dialogs.push(d.message()); d.type() === 'confirm' ? (answer.shift() ? d.accept() : d.dismiss()) : d.accept(); });
     await page.goto(url);
-    await page.evaluate(() => {
-        const ls = document.getElementById('loginScreen'); if (ls) ls.style.display = 'none';
-        updateDataLists();
-    });
+    // Wait for the app's own sign-in to finish rather than hiding the gate.
+    await page.waitForFunction(() => currentUserId === 'u-test' &&
+        getComputedStyle(document.getElementById('loginScreen')).display === 'none');
 
     let fails = 0;
     const t = (name, ok, extra) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ' -- ' + extra}`); if (!ok) fails++; };
