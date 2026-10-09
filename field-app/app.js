@@ -3349,7 +3349,10 @@ function buildDayReport(docRows, moveRows, deadRows, stagedRows, pastureLabelByI
 
     // Staged rows that are NOT in the books yet. Approved ones were used
     // above for names only; carrying them again would double every line.
+    // Load-out tickets (office-staged from a photo of the seller's ticket)
+    // share the staging table but are not field work; they never show here.
     (stagedRows || [])
+        .filter(e => e.entry_type !== 'load_out')
         .filter(e => e.status === 'pending' || e.status === 'rejected')
         .forEach(e => {
             const raw = e.raw || {};

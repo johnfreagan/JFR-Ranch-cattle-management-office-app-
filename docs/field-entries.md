@@ -96,6 +96,13 @@ tab. Migrations: `docs/sql/2026-09-07_field_counts_and_test_weights.sql` and
   `entryDayKey()` (which otherwise files it under Undated), and the
   `ordered` list in `approveSelected`. All three were missed on the first
   cut and only surfaced under test.
+- **A fifth value, `load_out` (2026-10-09), is NOT field work** and does not
+  go through those three places: it is a seller's load-out ticket staged by
+  Claude from a photo, with its own pane (Approvals > Load outs). Every
+  reader of this table that lists field work filters it out: `loadApprovals`,
+  the Field badge in `apprRefreshCounts`, the Daily Field Report, and the
+  field app's day report (v25). A new reader must do the same. Detail in
+  `architecture.md`, "Load-out tickets from a photo".
 - **A count that does not tie is BLOCKED, never absorbed.** A gap between
   the count and the books is a death, sale or move nobody recorded — a
   different problem — and approving it would bury the thing worth finding.

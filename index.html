@@ -2124,6 +2124,7 @@
                     <button class="sub-tab active" data-appr-pane="field">Field entries <span id="apprFieldCount" class="approvals-badge hidden">0</span></button>
                     <button class="sub-tab" data-appr-pane="feed" data-perm="office">Feed <span id="apprFeedCount" class="approvals-badge hidden">0</span></button>
                     <button class="sub-tab" data-appr-pane="meds" data-perm="office">Meds <span id="apprMedsCount" class="approvals-badge hidden">0</span></button>
+                    <button class="sub-tab" data-appr-pane="loadouts" data-perm="office">Load outs <span id="apprLoadCount" class="approvals-badge hidden">0</span></button>
                 </div>
                 <div id="apprFieldPane">
                 <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
@@ -2160,6 +2161,15 @@
                     </p>
                     <div id="apprMedsAlert"></div>
                     <div id="apprMedsContent"><div class="empty">Loading…</div></div>
+                </div>
+                <div id="apprLoadPane" class="hidden" data-perm="office">
+                    <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
+                        Seller load-out tickets, read off a photo in a Claude session. Nothing here is in the
+                        books until it is saved. Open load out fills the normal load-out form from the ticket:
+                        check every number against the photo, pick the pasture and protocol, and save.
+                    </p>
+                    <div id="apprLoadAlert"></div>
+                    <div id="apprLoadContent"><div class="empty">Loading…</div></div>
                 </div>
             </div>
         </div>
@@ -6018,6 +6028,12 @@
         <h2 id="receiptModalTitle">New load out</h2>
         <p class="muted" id="receiptModalLot" style="margin-bottom: 14px;"></p>
         <div id="receiptModalAlert"></div>
+        <!-- Shown only when the form was opened from Approvals > Load outs. -->
+        <div id="receiptTicketBox" class="hidden" style="border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 14px;">
+            <div style="font-size: 13px; margin-bottom: 6px;"><strong>From a ticket photo.</strong>
+                These numbers were read off the handwriting. Check date, head and tags against the ink before saving.</div>
+            <a id="receiptTicketLink" href="#" target="_blank" rel="noopener"><img id="receiptTicketImg" alt="Load-out ticket photo" style="max-width: 100%; max-height: 420px; display: block; border-radius: 4px;"></a>
+        </div>
         <form id="receiptForm">
             <input type="hidden" id="receiptId">
 
@@ -11078,6 +11094,8 @@ window.addEventListener('unhandledrejection', function(e) {
                             'event_datetime, lot_id, pasture_id, to_pasture_id, field_action_id, ' +
                             'tag_number, no_tag, head_count, resolved_meds, resolved_detail')
                     .eq('status', 'pending')
+                    // Load-out tickets have their own pane (Approvals > Load outs).
+                    .neq('entry_type', 'load_out')
                     .order('event_datetime', { ascending: true }),
                 loadApprovalLookups()
             ]);
@@ -11094,14 +11112,15 @@ window.addEventListener('unhandledrejection', function(e) {
     }
 
     // The nav badge is the sum of the two queues; each pane carries its own.
-    let apprFieldN = 0, apprFeedN = 0, apprMedsN = 0;
+    let apprFieldN = 0, apprFeedN = 0, apprMedsN = 0, apprLoadN = 0;
     function updateApprovalsBadge(n) {
         if (n != null) apprFieldN = n;
         const set = (id, v) => { const b = $(id); if (b) { b.textContent = v; b.classList.toggle('hidden', !v); } };
         set('apprFieldCount', apprFieldN);
         set('apprFeedCount', apprFeedN);
         set('apprMedsCount', apprMedsN);
-        set('navApprovalsCount', apprFieldN + apprFeedN + apprMedsN);
+        set('apprLoadCount', apprLoadN);
+        set('navApprovalsCount', apprFieldN + apprFeedN + apprMedsN + apprLoadN);
     }
     function updatePbBadge(n) { apprFeedN = n; updateApprovalsBadge(null); }
 
@@ -11115,12 +11134,16 @@ window.addEventListener('unhandledrejection', function(e) {
             return;
         }
         if (!apprCanFeed()) return;
-        const [f, pb, md] = await Promise.all([
-            supabase.from('pending_field_entries').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+        const [f, pb, md, lo] = await Promise.all([
+            supabase.from('pending_field_entries').select('id', { count: 'exact', head: true })
+                .eq('status', 'pending').neq('entry_type', 'load_out'),
             supabase.from('pb_daily_reports').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-            supabase.from('med_invoice_intake').select('id, med_purchases(id)').eq('status', 'pending')
+            supabase.from('med_invoice_intake').select('id, med_purchases(id)').eq('status', 'pending'),
+            supabase.from('pending_field_entries').select('id', { count: 'exact', head: true })
+                .eq('status', 'pending').eq('entry_type', 'load_out')
         ]);
         if (!f.error) apprFieldN = f.count || 0;
+        if (!lo.error) apprLoadN = lo.count || 0;
         if (!pb.error) apprFeedN = pb.count || 0;
         if (!md.error) apprMedsN = (md.data || []).filter(r => !medIntakePosted(r)).length;
         updateApprovalsBadge(null);
@@ -12471,7 +12494,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('approvalsView').classList.remove('hidden');
         showApprovalsPane(apprPane);
         loadApprovals();
-        if (apprCanFeed()) { loadPbReports(); loadMedIntake(); }
+        if (apprCanFeed()) { loadPbReports(); loadMedIntake(); loadLoadOutIntake(); }
     }
 
     // ==========================================================
@@ -12487,7 +12510,7 @@ window.addEventListener('unhandledrejection', function(e) {
     // "first lot in pays", charges, by_pen prefeed flag).
     // ==========================================================
     let apprPane = 'field';
-    try { const p = localStorage.getItem('apprPane'); if (p === 'feed' || p === 'meds') apprPane = p; } catch (e) {}
+    try { const p = localStorage.getItem('apprPane'); if (p === 'feed' || p === 'meds' || p === 'loadouts') apprPane = p; } catch (e) {}
     let pbList = [];
     let pbWaiting = [];         // prefeed_waiting(): [{ pasture, fed, lb, days_waiting, error }]
     let pbRole = null;          // current_user_role(), read on load
@@ -12514,7 +12537,7 @@ window.addEventListener('unhandledrejection', function(e) {
         pbRole = data || null;
         // Crew never sees the Feed tab (CSS hides data-perm="office" too;
         // this also covers a profile row that disagrees with the database).
-        ['feed', 'meds'].forEach(p => {
+        ['feed', 'meds', 'loadouts'].forEach(p => {
             const tab = document.querySelector(`#apprPaneTabs [data-appr-pane="${p}"]`);
             if (tab) tab.classList.toggle('hidden', !apprCanFeed());
         });
@@ -12531,6 +12554,7 @@ window.addEventListener('unhandledrejection', function(e) {
         $('apprFieldPane').classList.toggle('hidden', pane !== 'field');
         $('apprFeedPane').classList.toggle('hidden', pane !== 'feed');
         $('apprMedsPane').classList.toggle('hidden', pane !== 'meds');
+        $('apprLoadPane').classList.toggle('hidden', pane !== 'loadouts');
     }
 
     async function loadPbReports() {
@@ -15833,7 +15857,8 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     // Refresh reloads the pane on screen AND every badge, so the other two
     // panes' counts are never stale (2026-10-03).
     $('approvalsRefreshBtn').addEventListener('click', () => {
-        (apprPane === 'feed' ? loadPbReports() : apprPane === 'meds' ? loadMedIntake() : loadApprovals());
+        (apprPane === 'feed' ? loadPbReports() : apprPane === 'meds' ? loadMedIntake()
+            : apprPane === 'loadouts' ? loadLoadOutIntake() : loadApprovals());
         apprRefreshCounts();
     });
     // Coming back to the app (another tab, phone unlocked) re-reads the badge
@@ -15854,6 +15879,7 @@ the draft less any freight JFR paid — allocated to each lot and pasture by pay
     });
     $('pbContent').addEventListener('click', pbOnClick);
     $('apprMedsContent').addEventListener('click', medIntakeOnClick);
+    $('apprLoadContent').addEventListener('click', loIntakeOnClick);
     $('pbContent').addEventListener('input', e => { if (e.target.closest('.pb-split')) pbSplitRefresh(); });
     $('pbContent').addEventListener('change', e => { if (e.target.closest('.pb-split')) pbSplitRefresh(); });
     $('apprEditSaveBtn').addEventListener('click', saveApprovalEdit);
@@ -20362,6 +20388,7 @@ ${PRINT_CHROME_CSS}</style></head><body>${PRINT_CHROME_HTML}
                     // count for this day client-side.
                     supabase.from('pending_field_entries')
                         .select('id, entry_type, event_datetime').eq('status', 'pending')
+                        .neq('entry_type', 'load_out')
                 ]);
 
             const firstErr = [docRes, moveRes, deadRes, lateDocRes, lateMoveRes, lateDeadRes, pastRes, pendRes]
@@ -27466,6 +27493,11 @@ ${ranchBlocks}
     async function openReceiptModal(receipt = null) {
         if (!currentLot) return;
         clearAlert('receiptModalAlert');
+        // A ticket fills the form AFTER this runs (openLoadOutFromTicket);
+        // every other open starts without one.
+        receiptIntake = null;
+        $('receiptTicketBox').classList.add('hidden');
+        $('receiptTicketImg').removeAttribute('src');
         $('receiptModalLot').textContent = `For lot ${currentLot.lot_number}`;
         $('receiptForm').reset();
         $('receiptId').value = receipt?.id || '';
@@ -27684,7 +27716,11 @@ ${ranchBlocks}
     });
 
     $('newReceiptBtn').addEventListener('click', () => openReceiptModal());
-    $('receiptCancelBtn').addEventListener('click', () => hideModal('receiptModal'));
+    $('receiptCancelBtn').addEventListener('click', () => {
+        hideModal('receiptModal');
+        // Cancel on a ticket goes back to its queue, unsaved.
+        if (receiptIntake) { receiptIntake = null; apprPane = 'loadouts'; showApprovalsTab(); }
+    });
 
     $('receiptForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -27942,6 +27978,11 @@ ${ranchBlocks}
         // edit reverses first, so a changed protocol does not leave the old
         // draw standing.
         await invRecordProcessingDraw(receiptId, !isNew);
+        if (isNew && receiptIntake) {
+            const intake = receiptIntake;
+            receiptIntake = null;
+            await loFinishTicket(intake, receiptId);
+        }
         showLotDetail(currentLot.id);
     }
 
@@ -37802,6 +37843,296 @@ ${ranchBlocks}
         } finally {
             btn.disabled = false; btn.textContent = 'Post purchase';
         }
+    }
+
+    // ---- APPROVALS > LOAD OUTS: seller tickets read off a photo ------------
+    // John pastes a photo of the seller's paper load-out ticket into a Claude
+    // session; Claude reads it and stages a pending_field_entries row with
+    // entry_type 'load_out' (raw = what was read, lot_id = the lot the
+    // order # maps to, resolved_detail.ticket_photo = the photo). Open load
+    // out fills the normal load-out form from it, with the photo above the
+    // form, and the normal save (duplicate block, tag registry,
+    // record_load_out) does the posting. Only after that save does the
+    // staged row turn approved, with the photo moved to the load out's
+    // attachments. The numbers were read off handwriting, so the screen
+    // always says to check them against the photo.
+    // Migration: docs/sql/2026-10-09c_load_out_tickets.sql.
+    let loIntakeList = [];      // resolved pending tickets, as last loaded
+    let loIntakeDone = [];      // recently approved or rejected tickets
+    let loIntakeBusy = false;
+    let receiptIntake = null;   // { id, photo, client_id } while the load-out form is filled from a ticket
+
+    function loTicketTags(raw) {
+        const s = parseInt(raw.tagStart, 10), e = parseInt(raw.tagEnd, 10);
+        const missing = Array.isArray(raw.missingTags) ? raw.missingTags.map(n => parseInt(n, 10)).filter(n => !isNaN(n)) : [];
+        return { start: isNaN(s) ? null : s, end: isNaN(e) ? null : e, missing };
+    }
+
+    // Blockers stop Open load out; warnings are shown and the save's own
+    // checks still run. Read live each load, never trusted from staging.
+    async function loResolveTicket(entry) {
+        const raw = entry.raw || {};
+        const issues = [], warnings = [];
+        let lot = null;
+        if (!entry.lot_id) {
+            issues.push(`order #${raw.orderNo || '?'} is not mapped to a lot`);
+        } else {
+            const { data, error } = await supabase.from('lots')
+                .select('id, lot_number, closed_at, fiscal_year, is_test').eq('id', entry.lot_id).maybeSingle();
+            if (error) throw error;
+            lot = data;
+            if (!lot) issues.push('the lot this ticket was mapped to no longer exists');
+            else if (lot.closed_at) issues.push(`lot ${lot.lot_number} is closed`);
+        }
+        if (raw.orderMapping === 'first') {
+            warnings.push(`first ticket for order #${raw.orderNo} — confirm lot ${lot ? lot.lot_number : '?'} is right`);
+        }
+        const date = String(raw.date || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) issues.push('no usable date on the ticket');
+        else if (date > ranchToday()) issues.push(`ticket date ${fmtDate(date)} is in the future`);
+        else {
+            const age = Math.round((new Date(ranchToday() + 'T12:00:00') - new Date(date + 'T12:00:00')) / 86400000);
+            if (age > 14) warnings.push(`ticket is ${age} days old`);
+        }
+        const head = parseInt(raw.headCount, 10);
+        if (isNaN(head) || head <= 0) issues.push('no head count on the ticket');
+        const t = loTicketTags(raw);
+        if (t.start != null && t.end != null) {
+            const sum = computeTagSummary(t.start, t.end, t.missing);
+            if (sum.error) issues.push(sum.error);
+            else if (!isNaN(head) && sum.count !== head) {
+                issues.push(`tags ${t.start}–${t.end} make ${sum.count} head but the ticket says ${head}`);
+            }
+        } else {
+            warnings.push('no tag range read off the ticket');
+        }
+        // Already entered by hand? Same lot, date, head and tags is what the
+        // save hard-blocks; say so here so the ticket is rejected, not saved.
+        let duplicate = null;
+        if (lot && /^\d{4}-\d{2}-\d{2}$/.test(date) && !isNaN(head)) {
+            let q = supabase.from('delivery_receipts').select('id, receipt_date')
+                .eq('lot_id', lot.id).eq('receipt_date', date).eq('head_count', head);
+            q = t.start != null ? q.eq('tag_start', t.start) : q.is('tag_start', null);
+            q = t.end != null ? q.eq('tag_end', t.end) : q.is('tag_end', null);
+            const { data, error } = await q;
+            if (error) throw error;
+            if (data && data.length) {
+                duplicate = data[0].id;
+                issues.push(`already entered: lot ${lot.lot_number} has a load out on ${fmtDate(date)} with ${head} head and tags ${t.start}–${t.end}. Reject this ticket as a duplicate.`);
+            }
+        }
+        // Tags already active this fiscal year (any lot). The save asks what
+        // to do about them; this only says it ahead of time.
+        if (!duplicate && lot && lot.fiscal_year && t.start != null && t.end != null && t.end >= t.start) {
+            const { data, error } = await supabase.from('tag_registry')
+                .select('tag_number, lot_number').eq('fiscal_year', lot.fiscal_year).eq('status', 'active')
+                .gte('tag_number', t.start).lte('tag_number', t.end);
+            if (error) throw error;
+            const hit = (data || []).filter(x => !t.missing.includes(x.tag_number));
+            if (hit.length) {
+                const lots = [...new Set(hit.map(x => x.lot_number))].join(', ');
+                warnings.push(`${hit.length} of these tags are already active in FY${lot.fiscal_year} (lot ${lots}) — the save will ask`);
+            }
+        }
+        return { entry, raw, lot, date, head, tags: t, issues, warnings, duplicate };
+    }
+
+    async function loadLoadOutIntake() {
+        clearAlert('apprLoadAlert');
+        const el = $('apprLoadContent');
+        if (!loIntakeList.length) el.innerHTML = '<div class="empty">Loading…</div>';
+        try {
+            const [pend, recent] = await Promise.all([
+                supabase.from('pending_field_entries')
+                    .select('id, client_id, raw, status, review_notes, submitted_at, event_datetime, lot_id, head_count, resolved_detail')
+                    .eq('entry_type', 'load_out').eq('status', 'pending').order('event_datetime'),
+                supabase.from('pending_field_entries')
+                    .select('id, raw, status, review_notes, reviewed_at, approved_ref')
+                    .eq('entry_type', 'load_out').in('status', ['approved', 'rejected'])
+                    .order('reviewed_at', { ascending: false }).limit(20)
+            ]);
+            const err = pend.error || recent.error;
+            if (err) throw err;
+            loIntakeList = [];
+            for (const e of (pend.data || [])) loIntakeList.push(await loResolveTicket(e));
+            loIntakeDone = recent.data || [];
+            apprLoadN = loIntakeList.length;
+            updateApprovalsBadge(null);
+            el.innerHTML = renderLoadOutIntake();
+        } catch (err) {
+            el.innerHTML = `<div class="alert error">Could not load load-out tickets: ${escapeHtml(err.message || String(err))}</div>`;
+        }
+    }
+
+    function renderLoadOutIntake() {
+        const write = pbCanWrite();
+        let html = '';
+        if (!loIntakeList.length) {
+            html += `<div class="empty">No load-out tickets waiting. Paste a ticket photo into a Claude session to stage one;
+                a role without access to the books sees none here, not an error.</div>`;
+        }
+        loIntakeList.forEach(r => {
+            const raw = r.raw, t = r.tags;
+            const photo = r.entry.resolved_detail && r.entry.resolved_detail.ticket_photo;
+            const extra = [
+                raw.hauledBy ? `Hauled by ${escapeHtml(raw.hauledBy)}` : '',
+                raw.weightOutLb != null ? `Weight out ${fmtNum(raw.weightOutLb)} lb` : '',
+                raw.seller ? escapeHtml(raw.seller) : ''
+            ].filter(Boolean).join(' &middot; ');
+            html += `<div style="border:1px solid var(--border, #e5e7eb);border-radius:8px;padding:12px;margin-bottom:12px;">
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    ${photo ? `<a href="#" data-lo-photo="${r.entry.id}" title="Open the full photo"><img src="${escapeHtml(photo)}" alt="Ticket photo"
+                        style="width:140px;max-height:200px;object-fit:cover;border-radius:4px;border:1px solid var(--border);"></a>` : '<div class="muted" style="width:140px;">No photo</div>'}
+                    <div style="flex:1;min-width:200px;">
+                        <div><strong>Lot ${escapeHtml(r.lot ? r.lot.lot_number : '?')}</strong> &middot; order #${escapeHtml(raw.orderNo || '?')}
+                            &middot; ${escapeHtml(r.date ? fmtDate(r.date) : '?')}</div>
+                        <div style="margin-top:4px;">${isNaN(r.head) ? '?' : fmtNum(r.head)} head &middot; tags
+                            ${t.start != null ? t.start : '?'}–${t.end != null ? t.end : '?'}${t.missing.length ? ` (missing ${escapeHtml(t.missing.join(', '))})` : ''}</div>
+                        ${extra ? `<div class="muted" style="font-size:12px;margin-top:4px;">${extra}</div>` : ''}
+                        <div class="muted" style="font-size:12px;margin-top:4px;">Read off the photo — check it against the ink.
+                            Staged ${escapeHtml(fmtDate(String(r.entry.submitted_at || '').slice(0, 10)))}</div>
+                    </div>
+                </div>
+                ${r.issues.length ? `<div class="alert error" style="margin-top:8px;">${r.issues.map(p => escapeHtml(p)).join('<br>')}</div>` : ''}
+                ${r.warnings.length ? `<div class="alert warning" style="margin-top:8px;">${r.warnings.map(p => escapeHtml(p)).join('<br>')}</div>` : ''}
+                ${write ? `<div style="display:flex;gap:8px;margin-top:10px;">
+                    <button class="primary" data-lo-open="${r.entry.id}" data-write ${r.issues.length ? 'disabled' : ''}>Open load out</button>
+                    <button data-lo-reject="${r.entry.id}" data-write>Reject</button>
+                </div>` : ''}
+            </div>`;
+        });
+        if (loIntakeDone.length) {
+            html += `<details style="margin-top:8px;"><summary class="muted" style="cursor:pointer;">Recently saved or rejected (${loIntakeDone.length})</summary>
+                <div style="overflow-x:auto;"><table style="margin-top:8px;"><thead><tr>
+                    <th>Ticket</th><th>Date</th><th class="num">Head</th><th>Outcome</th>
+                </tr></thead><tbody>
+                ${loIntakeDone.map(d => {
+                    const raw = d.raw || {};
+                    const out = d.status === 'approved' ? 'Saved as a load out' : `Rejected: ${escapeHtml(d.review_notes || '')}`;
+                    return `<tr><td>Lot ${escapeHtml(raw.lotNumber || '?')} &middot; order #${escapeHtml(raw.orderNo || '?')}</td>
+                        <td>${escapeHtml(fmtDate(raw.date))}</td><td class="num">${escapeHtml(String(raw.headCount ?? ''))}</td><td>${out}</td></tr>`;
+                }).join('')}
+                </tbody></table></div></details>`;
+        }
+        return html;
+    }
+
+    // A data: URL cannot be opened as a page in most browsers; a blob can.
+    function loPhotoBlobUrl(dataUrl) {
+        const m = /^data:([^;,]+);base64,(.*)$/.exec(String(dataUrl || ''));
+        if (!m) return null;
+        const bin = atob(m[2]);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return URL.createObjectURL(new Blob([bytes], { type: m[1] }));
+    }
+
+    async function loIntakeOnClick(e) {
+        const ph = e.target.closest('[data-lo-photo]');
+        if (ph) {
+            e.preventDefault();
+            const r = loIntakeList.find(x => x.entry.id === ph.dataset.loPhoto);
+            const url = r && loPhotoBlobUrl(r.entry.resolved_detail && r.entry.resolved_detail.ticket_photo);
+            if (url) window.open(url, '_blank');
+            return;
+        }
+        const op = e.target.closest('[data-lo-open]');
+        if (op) { openLoadOutFromTicket(op.dataset.loOpen); return; }
+        const rj = e.target.closest('[data-lo-reject]');
+        if (!rj || loIntakeBusy) return;
+        const r = loIntakeList.find(x => x.entry.id === rj.dataset.loReject);
+        if (!r) return;
+        const def = r.duplicate ? 'already entered by hand' : '';
+        const reason = prompt(`Reject the ticket for lot ${r.lot ? r.lot.lot_number : '?'}, ${r.date ? fmtDate(r.date) : '?'}? Say why (required):`, def);
+        if (reason === null) return;
+        if (!reason.trim()) { showAlert('apprLoadAlert', 'Not rejected: a reason is required.', 'error'); return; }
+        loIntakeBusy = true;
+        try {
+            const prior = r.entry.review_notes ? ' · ' + r.entry.review_notes : '';
+            const { data, error } = await supabase.from('pending_field_entries')
+                .update({ status: 'rejected', review_notes: reason.trim() + prior })
+                .eq('id', r.entry.id).eq('status', 'pending').select('id');
+            if (error) { showAlert('apprLoadAlert', 'Could not reject: ' + error.message, 'error'); return; }
+            if (!data || !data.length) {
+                showAlert('apprLoadAlert', 'Not rejected: nothing was changed. The ticket may already be saved or rejected, or your login cannot change it.', 'error');
+                return;
+            }
+            await loadLoadOutIntake();
+            showAlert('apprLoadAlert', 'Ticket rejected.', 'success');
+        } finally { loIntakeBusy = false; }
+    }
+
+    // Opens the lot and its normal New load out form, filled from the ticket.
+    async function openLoadOutFromTicket(id) {
+        const r = loIntakeList.find(x => x.entry.id === id);
+        if (!r) return;
+        if (r.issues.length) { showAlert('apprLoadAlert', 'Fix or reject this ticket first: ' + r.issues.join('; '), 'error'); return; }
+        const raw = r.raw, t = r.tags;
+        showLotsTab();
+        await showLotDetail(r.lot.id, 'purchases');
+        if (!currentLot || currentLot.id !== r.lot.id) {
+            showAlert('globalAlert', `Could not open lot ${r.lot.lot_number} for the ticket.`, 'error');
+            return;
+        }
+        await openReceiptModal(null);
+        setDateValue('receiptDate', r.date);
+        $('receiptHead').value = r.head;
+        $('receiptTagStart').value = t.start != null ? t.start : '';
+        $('receiptTagEnd').value = t.end != null ? t.end : '';
+        $('receiptMissing').value = t.missing.join(', ');
+        $('receiptNotes').value = [
+            raw.seller ? `Ticket: ${raw.seller}` : 'Ticket',
+            raw.orderNo ? `order #${raw.orderNo}` : '',
+            raw.hauledBy ? `hauled by ${raw.hauledBy}` : '',
+            raw.weightOutLb != null ? `weight out ${Number(raw.weightOutLb).toLocaleString()} lb` : ''
+        ].filter(Boolean).join(' · ');
+        updateReceiptTagPreview();
+        renderReceiptDestinations();
+        const photo = r.entry.resolved_detail && r.entry.resolved_detail.ticket_photo;
+        receiptIntake = { id: r.entry.id, photo: photo || null, client_id: r.entry.client_id };
+        $('receiptModalTitle').textContent = 'New load out from ticket';
+        if (photo) {
+            $('receiptTicketImg').src = photo;
+            $('receiptTicketLink').href = loPhotoBlobUrl(photo) || '#';
+            $('receiptTicketBox').classList.remove('hidden');
+        }
+    }
+
+    // After a ticket's load out saved: photo to the load out's attachments,
+    // then the staged row approved. The load out is already in the books, so
+    // a failure here is reported, never thrown back into the save.
+    async function loFinishTicket(intake, receiptId) {
+        const problems = [];
+        let photoMoved = false;
+        if (intake.photo) {
+            try {
+                const m = /^data:([^;,]+);base64,/.exec(intake.photo);
+                const type = m ? m[1] : 'image/jpeg';
+                const bin = atob(intake.photo.split(',')[1] || '');
+                const bytes = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                const ext = type === 'image/png' ? 'png' : 'jpg';
+                const file = new File([bytes], `load-out-ticket.${ext}`, { type });
+                await uploadAttachment(file, 'delivery_receipt_attachments', 'receipt_id', receiptId);
+                photoMoved = true;
+            } catch (e) {
+                problems.push('the ticket photo did not attach (' + (e.message || e) + '); it stays on the staged ticket');
+            }
+        }
+        const patch = {
+            status: 'approved',
+            approved_ref: { table: 'delivery_receipts', id: receiptId },
+            review_notes: `saved as a load out by ${currentProfile ? currentProfile.full_name : 'office'}`
+        };
+        if (photoMoved) patch.resolved_detail = { ticket_photo_moved_to: 'delivery_receipt_attachments' };
+        const { data, error } = await supabase.from('pending_field_entries')
+            .update(patch).eq('id', intake.id).eq('status', 'pending').select('id');
+        if (error) problems.push('the ticket could not be marked saved (' + error.message + '); reject it as "already entered" in Approvals > Load outs');
+        else if (!data || !data.length) problems.push('the ticket was no longer pending, so it was not marked saved');
+        if (problems.length) {
+            showAlert('globalAlert', 'Load out saved, but ' + problems.join('; ') + '.', 'error');
+        }
+        apprRefreshCounts();
     }
 
     // ---- APPROVALS > MEDS: emailed vet-med invoices -----------------------

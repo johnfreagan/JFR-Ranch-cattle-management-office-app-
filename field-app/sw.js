@@ -10,7 +10,7 @@
 // Bump CACHE_VERSION whenever you deploy changes to index.html / app.js / styles.css.
 // =========================================================
 
-const CACHE_VERSION = 'v24';   // v24: test weights say how many head count for the pasture (25%)
+const CACHE_VERSION = 'v25';   // v25: day report skips office load-out tickets
 const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 
 // Must match the query strings index.html actually requests, or these get
@@ -21,9 +21,9 @@ const CACHE_NAME = `beta-cattle-${CACHE_VERSION}`;
 const APP_SHELL = [
     './',
     './index.html',
-    './app.js?v=v24',
+    './app.js?v=v25',
     './supabase.min.js?v=2.46.1',
-    './styles.css?v=v24',
+    './styles.css?v=v25',
     './manifest.json'
 ];
 

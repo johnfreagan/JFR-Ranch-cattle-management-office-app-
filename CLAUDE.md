@@ -71,7 +71,7 @@ turns it off. Full text in `docs/conventions.md`.
 | `docs/database.md` | touching auth, roles, RLS, policies, views, grants; running rls_verify; applying a migration |
 | `docs/gotchas.md` | writing any query: schema landmines (column names, UTC, head-day traps, PostgREST limits) |
 | `docs/costs.md` | touching processing, treatment, protocols, drug prices, fiscal year, closeout, budgets, COG |
-| `docs/architecture.md` | working on sales and shipments, doctoring/health reports, D8 tie-out, tag retirement, withdrawal, feed pen, strays, projected weight, markets, pastures and moves, Tally Book, roadmap |
+| `docs/architecture.md` | working on load-out tickets pasted as a photo (Approvals > Load outs, and how to stage one), sales and shipments, doctoring/health reports, D8 tie-out, tag retirement, withdrawal, feed pen, strays, projected weight, markets, pastures and moves, Tally Book, roadmap |
 | `docs/field-entries.md` | working on the field app, its queue and Failed list, Approvals, counts, test weights |
 | `docs/feed-pb-import.md` | working on feed inventory, cost of gain, orders and invoices, the PB daily import |
 | `docs/cowork-morning-intake.md` | changing the 5:45 am Routine "PB feed + med invoice intake" that stages the PB feed report and medicine invoices |

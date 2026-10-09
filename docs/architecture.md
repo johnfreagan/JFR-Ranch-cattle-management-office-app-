@@ -907,6 +907,78 @@ and a form — no bulk import, no wizard, no inline-edit grid.
   not real hedges** — delete them once the screen has been looked at.
 
 
+## Load-out tickets from a photo (built 2026-10-09)
+
+The seller's paper load-out ticket (Bar T Bar Cattle Co, Jake Taylor: date,
+order #, head, hauled by, a tag range written in the "Weight In" box, and the
+truck's weight out) reaches John as a text-message photo. He pastes it into a
+Claude session. Claude reads it and **stages** it; the office saves it in
+**Approvals > Load outs**. Migration `docs/sql/2026-10-09c_load_out_tickets.sql`;
+harness `scripts/load-out-ticket-harness/run.js`.
+
+John's calls, 2026-10-09: order # maps to a lot, confirmed on the first
+ticket for that order and remembered after; weight out goes in the notes
+only (no column); capture is by pasting the photo into a session for now;
+going forward only, no back-filling photos onto earlier load outs.
+
+- **The staging row** is a `pending_field_entries` row, `entry_type =
+  'load_out'`. It reuses the queue's status guard (`pfe_guard_settled`),
+  RLS and reviewer stamps. It has **its own pane**, not the Field entries
+  list: `loadApprovals`, the Field badge and the Daily Field Report all
+  filter `entry_type <> 'load_out'`, and the field app's day report skips it
+  (field app v25). The batch approver never sees one.
+- **Columns:** `client_id = 'ticket:<order#>:<YYYY-MM-DD>:<start>-<end>'`
+  (the upsert key; staging the same ticket twice is a no-op), `raw` = what
+  was read (`source 'ticket_photo'`, `seller`, `orderNo`, `orderMapping`
+  `'history'|'first'`, `lotNumber`, `date`, `headCount`, `tagStart`,
+  `tagEnd`, `missingTags`, `hauledBy`, `weightOutLb`, `readNote`),
+  `lot_id`, `head_count`, `event_datetime` (ticket date, noon Central),
+  `submitted_by` NULL (staged by Claude, not a crew login),
+  `resolved_detail.ticket_photo` = the photo as a JPEG data URL, about
+  150 KB. **The photo is never put in `raw`**: phones download `raw` for
+  every staged row.
+- **Approval is the normal load-out save.** Open load out goes to the lot,
+  opens New load out filled from the ticket (date, head, tags, missing tags,
+  notes "Ticket: <seller> · order #n · hauled by X · weight out N lb") with
+  the photo above the form. The approver picks pasture(s) and protocol and
+  saves through `record_load_out` with every usual check (tag count = head,
+  duplicate hard block, tag conflict modal). Then `loFinishTicket` uploads
+  the photo to `delivery_receipt_attachments` and marks the row approved
+  with `approved_ref {table: 'delivery_receipts', id}`, clearing the photo
+  off the row once it is attached. A failure there is reported, never
+  thrown back: the load out is already in the books. Cancel returns to the
+  queue, unsaved.
+- **The card re-checks live every load**: lot exists and is open, date not
+  in the future (warns past 14 days), head = tag count, **already entered**
+  (same lot + date + head + tags as an existing receipt: blocks Open, Reject
+  suggests "already entered by hand"), tags already active this fiscal year
+  (warns; the save asks), and "first ticket for order #n" (warns).
+- **Handwriting is read by the model**, unlike the PB and Bar J intakes
+  where the database parses text. That is why the photo rides with the row
+  to the approval screen and the screen says to check the ink.
+
+### Staging a ticket (what Claude runs)
+
+1. Read the photo. Ticket fields: Date, Order #, # Head, Hauled by, Weight In
+   (Bar T Bar writes the **tag range** here, e.g. `157-174`), Weight Out
+   (truck weight, lb). If any of date, order #, head or tags cannot be read
+   with confidence, ask John; never guess.
+2. Map the order # to a lot. First look for an earlier ticket:
+   `select lot_id, raw->>'lotNumber' from pending_field_entries where
+   entry_type = 'load_out' and status = 'approved' and raw->>'orderNo' = '<n>'
+   and lot_id in (select id from lots where closed_at is null) order by
+   reviewed_at desc limit 1` (`orderMapping 'history'`). Otherwise propose the
+   open lot whose number starts `<n>-` and **ask John to confirm** before
+   staging (`orderMapping 'first'`).
+3. Check the books: an existing `delivery_receipts` row with the same lot,
+   date, head and tags means it is already entered. Tell John, do not stage.
+   Also say if head ≠ tag count, or tags are already in `tag_registry`.
+4. Shrink the photo (longest side 1000 px, JPEG quality about 60) and stage
+   it with one `insert ... on conflict (entry_type, client_id) do nothing`
+   (shape above, `status 'pending'`). Never insert a `delivery_receipts` row,
+   never call `record_load_out`, never mark a ticket approved.
+5. Tell John what was read and that it waits in Approvals > Load outs.
+
 ## Data-integrity architecture (do not bypass)
 
 - Deaths, moves, sales, and receipt deletions go through atomic RPCs
