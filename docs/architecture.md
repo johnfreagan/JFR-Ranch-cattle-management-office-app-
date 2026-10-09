@@ -934,8 +934,8 @@ going forward only, no back-filling photos onto earlier load outs.
   `tagEnd`, `missingTags`, `hauledBy`, `weightOutLb`, `readNote`),
   `lot_id`, `head_count`, `event_datetime` (ticket date, noon Central),
   `submitted_by` NULL (staged by Claude, not a crew login),
-  `resolved_detail.ticket_photo` = the photo as a JPEG data URL, about
-  150 KB. **The photo is never put in `raw`**: phones download `raw` for
+  `resolved_detail.ticket_photo` = the photo as a small data URL (a
+  black-and-white PNG of about 5 KB; see step 4 below). **The photo is never put in `raw`**: phones download `raw` for
   every staged row.
 - **Approval is the normal load-out save.** Open load out goes to the lot,
   opens New load out filled from the ticket (date, head, tags, missing tags,
@@ -973,9 +973,14 @@ going forward only, no back-filling photos onto earlier load outs.
 3. Check the books: an existing `delivery_receipts` row with the same lot,
    date, head and tags means it is already entered. Tell John, do not stage.
    Also say if head ≠ tag count, or tags are already in `tag_registry`.
-4. Shrink the photo (longest side 1000 px, JPEG quality about 60) and stage
-   it with one `insert ... on conflict (entry_type, client_id) do nothing`
-   (shape above, `status 'pending'`). Never insert a `delivery_receipts` row,
+4. Shrink the photo and stage it with one `insert ... on conflict
+   (entry_type, client_id) do nothing` (shape above, `status 'pending'`).
+   The photo travels inside the SQL text, so keep it small: crop off what is
+   not paper, about 560 px on the long side, grayscale, autocontrast, then
+   black and white at a threshold near 150, saved as PNG (about 5 KB; the
+   first ticket, 2026-10-09). Look at it before staging; the handwriting
+   must still read. Return `md5(resolved_detail->>'ticket_photo')` and
+   compare it with the md5 of the data URL you built. Never insert a `delivery_receipts` row,
    never call `record_load_out`, never mark a ticket approved.
 5. Tell John what was read and that it waits in Approvals > Load outs.
 
